@@ -11,11 +11,11 @@ import 'package:flutter/material.dart';
 import 'package:cap1/main.dart';
 
 void main() {
-  testWidgets('Ahead welcome flow smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const AheadApp());
+  testWidgets('Shellby welcome flow smoke test', (WidgetTester tester) async {
+    await tester.pumpWidget(const ShellbyApp());
 
     expect(
-      find.text("Welcome! Let's personalize Ahead for you!"),
+      find.text("Welcome! Let's prepare Shellby for you."),
       findsOneWidget,
     );
     expect(find.text('Get Started'), findsOneWidget);
@@ -23,7 +23,7 @@ void main() {
     await tester.pumpWidget(
       AppScope(
         state: AppState(),
-        child: const MaterialApp(home: PersonalBaseline()),
+        child: const MaterialApp(home: PreparationContextScreen()),
       ),
     );
 
