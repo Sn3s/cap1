@@ -20,6 +20,18 @@ const _border = Color(0xFFE3D5F8);
 const _green = _sage;
 const _red = Color(0xFFF43F5E);
 const _amber = Color(0xFFF59E0B);
+const _aiProvider = String.fromEnvironment(
+  'AI_PROVIDER',
+  defaultValue: 'ollama',
+);
+const _ollamaUrl = String.fromEnvironment(
+  'OLLAMA_URL',
+  defaultValue: 'http://10.0.2.2:11434',
+);
+const _ollamaModel = String.fromEnvironment(
+  'OLLAMA_MODEL',
+  defaultValue: 'qwen3.6:latest',
+);
 const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
@@ -161,10 +173,9 @@ class AppState extends ChangeNotifier {
   }
 
   double get feasibilityScore {
-    final surplusFit =
-        monthlySurplus <= 0
-            ? 20
-            : (monthlySurplus / requiredMonthlyContribution * 65).clamp(10, 65);
+    final surplusFit = monthlySurplus <= 0
+        ? 20
+        : (monthlySurplus / requiredMonthlyContribution * 65).clamp(10, 65);
     final confidenceFit = confidence * 2;
     final anxietyPenalty = anxiety * 1.2;
     return (surplusFit + confidenceFit + emergencyMonths * 4 - anxietyPenalty)
@@ -202,10 +213,9 @@ class AppState extends ChangeNotifier {
 
   void setMotivation(String value) {
     motivation = value.trim();
-    reflectedMotivation =
-        motivation.isEmpty
-            ? 'You want a clearer financial plan that feels realistic for your life.'
-            : 'You said: "$motivation"';
+    reflectedMotivation = motivation.isEmpty
+        ? 'You want a clearer financial plan that feels realistic for your life.'
+        : motivation;
     notifyListeners();
   }
 
@@ -310,30 +320,50 @@ class GoalCoachResult {
   final double monthlyTarget;
 }
 
-class GeminiMotivationCoach {
-  const GeminiMotivationCoach();
+class ShellbyAiCoach {
+  const ShellbyAiCoach();
 
-  bool get isConfigured => _geminiApiKey.isNotEmpty;
+  bool get usesGemini => _aiProvider.toLowerCase() == 'gemini';
+  bool get usesOllama => _aiProvider.toLowerCase() == 'ollama';
+  bool get isConfigured => usesOllama || _geminiApiKey.isNotEmpty;
 
   Future<MotivationCoachResult> send({
     required String concern,
     required List<ChatMessage> messages,
+    required int userAnswerCount,
+    required bool shouldSummarize,
+    required String? requiredFollowUp,
   }) async {
     if (!isConfigured) {
-      throw const GeminiSetupException();
+      throw const AiSetupException();
     }
 
     final parsed = await _sendJson(
       instructions: _motivationCoachInstructions,
-      input: _motivationCoachInput(concern, messages),
-      maxOutputTokens: 500,
+      input: _motivationCoachInput(
+        concern,
+        messages,
+        userAnswerCount,
+        shouldSummarize,
+        requiredFollowUp,
+      ),
+      maxOutputTokens: shouldSummarize ? 420 : 280,
     );
+    var reply = (parsed['reply'] as String?)?.trim() ??
+        'That makes sense. Tell me a little more about why this matters.';
+    var conclusion = (parsed['conclusion'] as String?)?.trim() ?? '';
+    if (shouldSummarize) {
+      reply = _removeTrailingQuestion(reply);
+      conclusion = _removeTrailingQuestion(conclusion);
+    } else if (requiredFollowUp != null && requiredFollowUp.isNotEmpty) {
+      reply = _withRequiredFollowUp(reply, requiredFollowUp);
+    }
     return MotivationCoachResult(
-      reply:
-          (parsed['reply'] as String?)?.trim() ??
-          'Tell me a little more about why this matters.',
-      conclusion: (parsed['conclusion'] as String?)?.trim() ?? '',
-      isComplete: parsed['is_complete'] == true,
+      reply: reply,
+      conclusion: shouldSummarize
+          ? (conclusion.isEmpty ? reply : conclusion)
+          : '',
+      isComplete: shouldSummarize,
     );
   }
 
@@ -342,7 +372,7 @@ class GeminiMotivationCoach {
     required List<ChatMessage> messages,
   }) async {
     if (!isConfigured) {
-      throw const GeminiSetupException();
+      throw const AiSetupException();
     }
 
     final parsed = await _sendJson(
@@ -354,23 +384,84 @@ class GeminiMotivationCoach {
     final description = (parsed['description'] as String?)?.trim();
     final target = parsed['monthly_target'];
     return GoalCoachResult(
-      reply:
-          (parsed['reply'] as String?)?.trim() ??
+      reply: (parsed['reply'] as String?)?.trim() ??
           'I drafted a first goal from your focus and reason.',
-      title:
-          title == null || title.isEmpty
-              ? _fallbackGoalTitle(state.primaryConcern)
-              : title,
-      description:
-          description == null || description.isEmpty
-              ? _fallbackGoalDescription(state)
-              : description,
+      title: title == null || title.isEmpty
+          ? _fallbackGoalTitle(state.primaryConcern)
+          : title,
+      description: description == null || description.isEmpty
+          ? _fallbackGoalDescription(state)
+          : description,
       monthlyTarget:
           target is num ? target.toDouble() : state.requiredMonthlyContribution,
     );
   }
 
   Future<Map<String, dynamic>> _sendJson({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
+    if (usesOllama) {
+      return _sendOllamaJson(
+        instructions: instructions,
+        input: input,
+        maxOutputTokens: maxOutputTokens,
+      );
+    }
+    if (usesGemini) {
+      return _sendGeminiJson(
+        instructions: instructions,
+        input: input,
+        maxOutputTokens: maxOutputTokens,
+      );
+    }
+    throw UnsupportedError('Unknown AI_PROVIDER: $_aiProvider');
+  }
+
+  Future<Map<String, dynamic>> _sendOllamaJson({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(Uri.parse('$_ollamaUrl/api/chat'));
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'model': _ollamaModel,
+          'stream': false,
+          'think': false,
+          'format': 'json',
+          'messages': [
+            {'role': 'system', 'content': instructions},
+            {'role': 'user', 'content': input},
+          ],
+          'options': {'num_predict': maxOutputTokens, 'temperature': 0.4},
+        }),
+      );
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Ollama request failed: ${response.statusCode} $body');
+      }
+
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final message = decoded['message'];
+      final text =
+          message is Map<String, dynamic> && message['content'] is String
+              ? (message['content'] as String).trim()
+              : '';
+      final jsonText = _extractJsonObject(text);
+      return jsonDecode(jsonText) as Map<String, dynamic>;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<Map<String, dynamic>> _sendGeminiJson({
     required String instructions,
     required String input,
     required int maxOutputTokens,
@@ -420,23 +511,78 @@ class GeminiMotivationCoach {
     }
   }
 
-  String _motivationCoachInput(String concern, List<ChatMessage> messages) {
+  String _motivationCoachInput(
+    String concern,
+    List<ChatMessage> messages,
+    int userAnswerCount,
+    bool shouldSummarize,
+    String? requiredFollowUp,
+  ) {
     final transcript = messages
         .map(
           (message) =>
               '${message.fromUser ? 'User' : 'Shellby'}: ${message.text}',
         )
         .join('\n');
+    final alreadyAsked = messages
+        .where((message) => !message.fromUser && message.text.contains('?'))
+        .map((message) => message.text)
+        .join('\n');
+    final mode = shouldSummarize
+        ? 'Wrap up now with a goal direction. Do not ask another question.'
+        : 'Continue briefly. Ask the next goal-shaping question.';
+    final nextQuestionGuidance = switch (userAnswerCount) {
+      1 =>
+        'Next ask what amount, buffer, or measurable result would feel good enough. If they do not know, share one common benchmark once.',
+      2 =>
+        'Next ask about timeframe or monthly effort. Do not ask again whether the amount feels enough.',
+      _ =>
+        'Use the answers to derive a suitable first goal direction. No more questions.',
+    };
     return '''
 Selected financial concern: $concern
+User answers so far: $userAnswerCount
+Current step: $mode
+Question plan: first understand why it matters, then clarify what "enough" means, then clarify timeframe or realistic effort.
+Next move: $nextQuestionGuidance
+Required follow-up question if continuing: ${requiredFollowUp ?? 'none'}
+Questions already asked:
+$alreadyAsked
 
 Conversation so far:
 $transcript
 
-Respond as Shellby. Ask one deeper question if the user's reason is still vague.
-If the motivation is clear enough, provide a conclusion and set is_complete to true.
+Respond as Shellby in a warm, human, emotionally intelligent way.
+First acknowledge what the user just shared. Validate the feeling or tradeoff without exaggerating.
+Be honest and grounded. Do not over-praise, diagnose, or sound like a script.
+Use at least one concrete detail from the user's latest answer so it feels like a real reply.
+If the user says they do not know, normalize that briefly. Do not add a separate benchmark unless it appears inside the required follow-up question.
+Use general benchmarks only, not regulated financial advice.
+Do not repeat a benchmark, phrase, or question already used in the conversation.
+Do not restate the whole concern in every reply.
+If continuing, write 1-2 short acknowledgement sentences, then end with the required follow-up question exactly as written. Do not add any other question.
+If wrapping up, write the reply as a concise, caring summary of what you understand and a suitable first goal direction. Include the goal type, why it matters, and a realistic target or next step if the user gave enough detail.
+For the conclusion field, write the same goal direction in one concise paragraph that can be shown under "What you told Shellby".
+When wrapping up, reply and conclusion must not contain a question mark.
+Do not say "the plan is complete" or describe the chat mechanics.
 Return only JSON with keys reply, conclusion, is_complete.
 ''';
+  }
+
+  String _removeTrailingQuestion(String text) {
+    final questionIndex = text.indexOf('?');
+    if (questionIndex == -1) return text;
+    final previousSentence = text.lastIndexOf('.', questionIndex);
+    final cutIndex =
+        previousSentence == -1 ? questionIndex : previousSentence + 1;
+    return text.substring(0, cutIndex).trim();
+  }
+
+  String _withRequiredFollowUp(String reply, String requiredFollowUp) {
+    final cleaned = _removeTrailingQuestion(reply);
+    if (cleaned.isEmpty) return requiredFollowUp;
+    if (cleaned.endsWith(requiredFollowUp)) return cleaned;
+    return '$cleaned $requiredFollowUp';
   }
 
   String _goalCoachInput(AppState state, List<ChatMessage> messages) {
@@ -520,29 +666,30 @@ Return only JSON with keys reply, title, description, monthly_target.
   }
 }
 
-class GeminiSetupException implements Exception {
-  const GeminiSetupException();
+class AiSetupException implements Exception {
+  const AiSetupException();
 }
 
 const _motivationCoachInstructions = '''
 You are Shellby, a warm AI onboarding coach for a Philippine personal finance app.
-Your job is the Preparation Stage motivation elicitation step.
+Your job is the Preparation Stage goal-discovery chat.
 
-Use the user's selected concern to ask relevant, non-judgmental follow-up questions.
+Use the user's selected concern to ask 3-4 relevant, non-judgmental questions that build toward a specific first goal.
 Follow these rules:
 - Ask only one question at a time.
-- Keep replies under 55 words.
+- Keep continuing replies under 70 words.
 - Do not give regulated financial advice.
 - Do not recommend specific securities, banks, or products.
 - Use PHP context when money is mentioned.
-- Go deeper into personal meaning, constraints, confidence, anxiety, family obligations, peer pressure, or timing.
-- After 2-3 useful user answers, conclude with a concise reflection of the user's motivation.
-- If the answer is already clear and personally meaningful, conclude immediately.
+- Each reply should first respond to the user's answer, then ask the next question.
+- Questions should build: why it matters, what amount/result is enough, timeframe or realistic monthly effort.
+- If the user does not know, say that is normal and offer a common benchmark or example.
+- At the end, conclude with a concise reflection plus a suitable first goal direction.
 
 Return only valid JSON:
 {
   "reply": "message shown to the user",
-  "conclusion": "a concise motivation summary, or empty string if more questions are needed",
+  "conclusion": "a concise goal-direction summary, or empty string if more questions are needed",
   "is_complete": true or false
 }
 ''';
@@ -573,7 +720,7 @@ Return only valid JSON:
 
 class AppScope extends InheritedNotifier<AppState> {
   const AppScope({super.key, required AppState state, required super.child})
-    : super(notifier: state);
+      : super(notifier: state);
 
   static AppState of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -618,8 +765,8 @@ class WelcomeScreen extends StatelessWidget {
                 "Welcome! Let's prepare Shellby for you.",
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontStyle: FontStyle.italic,
-                ),
+                      fontStyle: FontStyle.italic,
+                    ),
               ),
               const SizedBox(height: 16),
               const Text(
@@ -636,8 +783,8 @@ class WelcomeScreen extends StatelessWidget {
               PrimaryButton(
                 label: 'Get Started',
                 icon: Icons.arrow_forward_rounded,
-                onPressed:
-                    () => _push(context, const PreparationOrientScreen()),
+                onPressed: () =>
+                    _push(context, const PreparationOrientScreen()),
               ),
             ],
           ),
@@ -726,8 +873,8 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
                   ),
                   const Spacer(),
                   TextButton(
-                    onPressed:
-                        () => _push(context, const PreparationContextScreen()),
+                    onPressed: () =>
+                        _push(context, const PreparationContextScreen()),
                     child: const Text(
                       'Skip',
                       style: TextStyle(
@@ -744,9 +891,8 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
                   controller: controller,
                   itemCount: _slides.length,
                   onPageChanged: (value) => setState(() => index = value),
-                  itemBuilder:
-                      (context, slideIndex) =>
-                          OrientationSlide(data: _slides[slideIndex]),
+                  itemBuilder: (context, slideIndex) =>
+                      OrientationSlide(data: _slides[slideIndex]),
                 ),
               ),
               OrientationDots(count: _slides.length, index: index),
@@ -808,9 +954,9 @@ class OrientationSlide extends StatelessWidget {
               data.title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                fontSize: compact ? 28 : 34,
-                fontStyle: FontStyle.italic,
-              ),
+                    fontSize: compact ? 28 : 34,
+                    fontStyle: FontStyle.italic,
+                  ),
             ),
             const SizedBox(height: 14),
             ConstrainedBox(
@@ -856,7 +1002,7 @@ class OrientationIllustration extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              color: data.accent.withValues(alpha: .12),
+              color: data.accent.withOpacity(.12),
               shape: BoxShape.circle,
             ),
           ),
@@ -934,7 +1080,7 @@ class MiniBadge extends StatelessWidget {
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .05),
+            color: Colors.black.withOpacity(.05),
             blurRadius: 14,
             offset: const Offset(0, 8),
           ),
@@ -1060,26 +1206,24 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
             child: DropdownButtonFormField<String>(
               value: state.industry,
               decoration: inputDecoration('Select your industry'),
-              items:
-                  const [
-                    'Technology',
-                    'Finance',
-                    'Healthcare',
-                    'Education',
-                    'Business Services',
-                    'Retail & E-commerce',
-                    'Creative & Media',
-                    'Government',
-                    'Manufacturing',
-                    'Hospitality',
-                    'Freelance / Self-employed',
-                    'Other',
-                  ].map((value) {
-                    return DropdownMenuItem(value: value, child: Text(value));
-                  }).toList(),
-              onChanged:
-                  (value) =>
-                      setState(() => state.industry = value ?? state.industry),
+              items: const [
+                'Technology',
+                'Finance',
+                'Healthcare',
+                'Education',
+                'Business Services',
+                'Retail & E-commerce',
+                'Creative & Media',
+                'Government',
+                'Manufacturing',
+                'Hospitality',
+                'Freelance / Self-employed',
+                'Other',
+              ].map((value) {
+                return DropdownMenuItem(value: value, child: Text(value));
+              }).toList(),
+              onChanged: (value) =>
+                  setState(() => state.industry = value ?? state.industry),
             ),
           ),
           const SizedBox(height: 18),
@@ -1089,19 +1233,17 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
-              children:
-                  ['Full-time', 'Freelance', 'Contract', 'Mixed']
-                      .map(
-                        (value) => CompactChoice(
-                          label: value,
-                          selected: state.employmentStatus == value,
-                          onTap:
-                              () => setState(
-                                () => state.employmentStatus = value,
-                              ),
-                        ),
-                      )
-                      .toList(),
+              children: ['Full-time', 'Freelance', 'Contract', 'Mixed']
+                  .map(
+                    (value) => CompactChoice(
+                      label: value,
+                      selected: state.employmentStatus == value,
+                      onTap: () => setState(
+                        () => state.employmentStatus = value,
+                      ),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
           const SizedBox(height: 18),
@@ -1135,18 +1277,15 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
-              children:
-                  ['Mostly myself', 'Family support', 'Shared household']
-                      .map(
-                        (value) => CompactChoice(
-                          label: value,
-                          selected: state.responsibility == value,
-                          onTap:
-                              () =>
-                                  setState(() => state.responsibility = value),
-                        ),
-                      )
-                      .toList(),
+              children: ['Mostly myself', 'Family support', 'Shared household']
+                  .map(
+                    (value) => CompactChoice(
+                      label: value,
+                      selected: state.responsibility == value,
+                      onTap: () => setState(() => state.responsibility = value),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         ],
@@ -1187,22 +1326,19 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
       child: Column(
-        children:
-            options
-                .map(
-                  (option) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: SelectableOption(
-                      icon: option.$2,
-                      title: option.$1,
-                      selected: state.primaryConcern == option.$1,
-                      onTap:
-                          () =>
-                              setState(() => state.primaryConcern = option.$1),
-                    ),
-                  ),
-                )
-                .toList(),
+        children: options
+            .map(
+              (option) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SelectableOption(
+                  icon: option.$2,
+                  title: option.$1,
+                  selected: state.primaryConcern == option.$1,
+                  onTap: () => setState(() => state.primaryConcern = option.$1),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -1219,7 +1355,7 @@ class MotivationSurfaceScreen extends StatefulWidget {
 class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
-  final coach = const GeminiMotivationCoach();
+  final coach = const ShellbyAiCoach();
   final List<ChatMessage> messages = [];
   bool seeded = false;
   bool loading = false;
@@ -1255,9 +1391,20 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     _scrollToBottom();
 
     try {
+      final userAnswerCount =
+          messages.where((message) => message.fromUser).length;
+      final shouldSummarize = userAnswerCount >= 3;
       final result = await coach.send(
         concern: state.primaryConcern,
         messages: messages,
+        userAnswerCount: userAnswerCount,
+        shouldSummarize: shouldSummarize,
+        requiredFollowUp: shouldSummarize
+            ? null
+            : _nextGoalDiscoveryQuestion(
+                state.primaryConcern,
+                userAnswerCount,
+              ),
       );
       if (!mounted) return;
       setState(() {
@@ -1268,16 +1415,16 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
         state.setMotivation(result.conclusion);
       }
       _scrollToBottom();
-    } on GeminiSetupException {
+    } on AiSetupException {
       if (!mounted) return;
       setState(() {
         loading = false;
         error =
-            'Add a Gemini API key to enable live AI: flutter run --dart-define=GEMINI_API_KEY=your_key';
+            'Configure AI with Ollama or Gemini. For Ollama: ollama serve, then flutter run --dart-define=AI_PROVIDER=ollama';
         messages.add(
           const ChatMessage(
             false,
-            'I can guide this conversation once the Gemini API key is configured for the app.',
+            'I can guide this conversation once the AI provider is reachable.',
           ),
         );
       });
@@ -1286,7 +1433,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = 'AI response failed. Check your connection, API key, or model.';
+        error =
+            'AI response failed. Check Ollama, connection, API key, or model.';
         messages.add(
           ChatMessage(
             false,
@@ -1314,6 +1462,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     final state = AppScope.of(context);
     final chips = _chipsForConcern(state.primaryConcern);
     final hasReflection = state.reflectedMotivation.isNotEmpty;
+    final canAnswer = !hasReflection && !loading;
     return OnboardingScaffold(
       phase: 4,
       title: 'Chat through your reason.',
@@ -1351,7 +1500,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
               icon: Icons.key_rounded,
               title: 'Live AI setup needed',
               body:
-                  'Run Shellby with --dart-define=GEMINI_API_KEY=your_key to enable this chatbot. The key is not stored in source code.',
+                  'Run Shellby with Ollama or Gemini enabled to use this chatbot. API keys are not stored in source code.',
             ),
             const SizedBox(height: 14),
           ],
@@ -1385,15 +1534,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children:
-                chips
-                    .map(
-                      (chip) => ActionChip(
-                        label: Text(chip),
-                        onPressed: loading ? null : () => sendAnswer(chip),
-                      ),
-                    )
-                    .toList(),
+            children: chips
+                .map(
+                  (chip) => ActionChip(
+                    label: Text(chip),
+                    onPressed: canAnswer ? () => sendAnswer(chip) : null,
+                  ),
+                )
+                .toList(),
           ),
           const SizedBox(height: 16),
           Row(
@@ -1403,6 +1551,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
                   controller: controller,
                   minLines: 1,
                   maxLines: 4,
+                  enabled: !hasReflection,
                   decoration: inputDecoration('Type your own answer...'),
                   onSubmitted: (_) => sendAnswer(),
                 ),
@@ -1416,7 +1565,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
                     borderRadius: BorderRadius.circular(18),
                   ),
                 ),
-                onPressed: loading ? null : () => sendAnswer(),
+                onPressed: canAnswer ? () => sendAnswer() : null,
                 icon: const Icon(Icons.arrow_forward_rounded),
               ),
             ],
@@ -1456,66 +1605,108 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   String _firstQuestionFor(String concern) {
     return switch (concern) {
       'Building emergency savings' =>
-        'What kind of unexpected expense are you most hoping your emergency fund can protect you from?',
+        'What do you want an emergency fund to protect you from, and why would that matter to you?',
       'Managing debt' =>
-        'When you think about your debt, what feels most stressful right now: the amount, the due dates, or the uncertainty?',
+        'When you think about your debt, what feels most important to change first: stress, cash flow, due dates, or the total balance?',
       'Controlling spending' =>
-        'Which spending moments feel hardest to control: social plans, online purchases, food, subscriptions, or something else?',
+        'Which spending pattern would you most want to change, and what would feel better if you changed it?',
       'Starting investments' =>
-        'What makes investing feel important now, and what makes you hesitate?',
+        'What makes investing feel important now, and what would you want it to help you build toward?',
       'Planning a big purchase' =>
         'What purchase are you preparing for, and why does it matter at this stage of your life?',
       'Reducing financial anxiety' =>
-        'When does money anxiety show up most: checking balances, making decisions, comparing with others, or planning ahead?',
+        'When does money anxiety show up most, and what would feeling more in control look like for you?',
       'Comparing with peers' =>
-        'What do you hope peer comparison will help you understand without making you feel pressured?',
+        'What do you hope peer comparison will help you understand, and what kind of comparison would actually feel useful?',
       _ =>
         'What made you open Shellby now, even if you are not sure which financial goal to choose yet?',
+    };
+  }
+
+  String _nextGoalDiscoveryQuestion(String concern, int userAnswerCount) {
+    if (userAnswerCount == 1) {
+      return switch (concern) {
+        'Building emergency savings' =>
+          'For your first milestone, would one month of essential expenses, three months, or a specific peso amount feel like the right target?',
+        'Managing debt' =>
+          'Which first debt target would feel most useful: lowering one balance, reducing monthly payments, or getting current on due dates?',
+        'Controlling spending' =>
+          'Which spending category would you want to focus on first, and how much would you like to reduce it by each month?',
+        'Starting investments' =>
+          'What first investing milestone would feel realistic: a small monthly habit, a starter fund amount, or learning enough to feel confident?',
+        'Planning a big purchase' =>
+          'How much do you think this purchase will cost, or what rough price range should Shellby plan around?',
+        'Reducing financial anxiety' =>
+          'What would be a concrete sign that money feels calmer: checking balances weekly, having a buffer, paying bills earlier, or something else?',
+        'Comparing with peers' =>
+          'What specific comparison would help you most: savings rate, emergency fund months, debt load, spending categories, or income range?',
+        _ =>
+          'What first result would make Shellby feel useful to you: more savings, less debt stress, clearer spending, or a specific purchase plan?',
+      };
+    }
+
+    return switch (concern) {
+      'Building emergency savings' =>
+        'By when would you want to reach that first emergency fund milestone, and about how much could you set aside each month?',
+      'Managing debt' =>
+        'What timeframe would feel realistic for that first debt target, and how much extra could you put toward it each month?',
+      'Controlling spending' =>
+        'When would you want to see that spending change, and what habit or limit would make it realistic?',
+      'Starting investments' =>
+        'How soon would you want to start, and what monthly amount would feel sustainable while keeping your essentials covered?',
+      'Planning a big purchase' =>
+        'When would you like to make the purchase, and how much could you comfortably save for it each month?',
+      'Reducing financial anxiety' =>
+        'Over the next month, what small routine would feel realistic enough to lower that anxiety without overwhelming you?',
+      'Comparing with peers' =>
+        'How often would you want to review that comparison, and what boundary would keep it useful instead of stressful?',
+      _ =>
+        'What timeframe and monthly effort would feel realistic for that first result?',
     };
   }
 
   List<String> _chipsForConcern(String concern) {
     return switch (concern) {
       'Building emergency savings' => [
-        'Medical or family emergencies',
-        'Job uncertainty',
-        'I want peace of mind',
-      ],
+          'Medical or family emergencies',
+          'Job uncertainty',
+          'I want peace of mind',
+        ],
       'Managing debt' => [
-        'Due dates overwhelm me',
-        'Interest worries me',
-        'I want a payoff plan',
-      ],
+          'Due dates overwhelm me',
+          'Interest worries me',
+          'I want a payoff plan',
+        ],
       'Controlling spending' => [
-        'I keep overspending',
-        'Social plans get expensive',
-        'Subscriptions pile up',
-      ],
+          'I keep overspending',
+          'Social plans get expensive',
+          'Subscriptions pile up',
+        ],
       'Starting investments' => [
-        'I want to start early',
-        'I am scared to invest alone',
-        'I need a safe first step',
-      ],
+          'I want to start early',
+          'I am scared to invest alone',
+          'I need a safe first step',
+        ],
       'Planning a big purchase' => [
-        'I need a realistic timeline',
-        'I do not want debt',
-        'This purchase matters to my family',
-      ],
+          'I need a realistic timeline',
+          'I do not want debt',
+          'This purchase matters to my family',
+        ],
       'Reducing financial anxiety' => [
-        'I avoid checking balances',
-        'Small losses stress me out',
-        'I want to feel in control',
-      ],
+          'I avoid checking balances',
+          'Small losses stress me out',
+          'I want to feel in control',
+        ],
       'Comparing with peers' => [
-        'I want to know what is normal',
-        'I feel behind',
-        'I want anonymous benchmarks',
-      ],
+          'I want to know what is normal',
+          'I feel behind',
+          'I want anonymous benchmarks',
+        ],
       _ => [
-        'I want stability',
-        'I feel behind my peers',
-        'Unexpected expenses scare me',
-      ],
+          'I want stability',
+          'I feel behind my peers',
+          'Unexpected expenses scare me',
+        ],
     };
   }
 }
@@ -1718,8 +1909,8 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
             (value) => ToggleRow(
               title: value,
               selected: state.interferingVariables.contains(value),
-              onTap:
-                  () => setState(() => state.toggleInterferingVariable(value)),
+              onTap: () =>
+                  setState(() => state.toggleInterferingVariable(value)),
             ),
           ),
         ],
@@ -1739,7 +1930,7 @@ class GoalQuestionnaireScreen extends StatefulWidget {
 class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
-  final coach = const GeminiMotivationCoach();
+  final coach = const ShellbyAiCoach();
   final List<ChatMessage> messages = [];
   bool seeded = false;
   bool loading = false;
@@ -1795,7 +1986,7 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
         loading = false;
       });
       _scrollToBottom();
-    } on GeminiSetupException {
+    } on AiSetupException {
       if (!mounted) return;
       state.setRecommendedGoal(
         title: _fallbackTitle(state.primaryConcern),
@@ -1805,11 +1996,11 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
       setState(() {
         loading = false;
         error =
-            'Add a Gemini API key to generate and revise goals live: flutter run --dart-define=GEMINI_API_KEY=your_key';
+            'Configure AI with Ollama or Gemini. For Ollama: ollama serve, then flutter run --dart-define=AI_PROVIDER=ollama';
         messages.add(
           const ChatMessage(
             false,
-            'I created a local draft for now. With Gemini enabled, I can revise this goal conversationally.',
+            'I created a local draft for now. Once the AI provider is reachable, I can revise this goal conversationally.',
           ),
         );
       });
@@ -1818,7 +2009,7 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = 'Goal AI failed. Check your connection, API key, or model.';
+        error = 'Goal AI failed. Check Ollama, connection, API key, or model.';
         messages.add(
           ChatMessage(
             false,
@@ -2004,10 +2195,9 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
                 title: goal.$1,
                 body: goal.$2,
                 selected: state.selectedGoal == goal.$1,
-                onTap:
-                    () => setState(
-                      () => state.choosePresetGoal(goal.$1, goal.$2),
-                    ),
+                onTap: () => setState(
+                  () => state.choosePresetGoal(goal.$1, goal.$2),
+                ),
               ),
             ),
           ),
@@ -2059,16 +2249,14 @@ class GoalFeasibilityScreen extends StatelessWidget {
             title: state.selectedGoal,
             description: state.selectedGoalDescription,
             progress: score,
-            icon:
-                state.selectedGoal == 'Debt Reset'
-                    ? Icons.credit_score_rounded
-                    : state.selectedGoal == 'Investment Starter'
+            icon: state.selectedGoal == 'Debt Reset'
+                ? Icons.credit_score_rounded
+                : state.selectedGoal == 'Investment Starter'
                     ? Icons.trending_up_rounded
                     : Icons.shield_rounded,
-            tag:
-                score >= 75
-                    ? 'Strong fit'
-                    : score >= 50
+            tag: score >= 75
+                ? 'Strong fit'
+                : score >= 50
                     ? 'Adjustable'
                     : 'Needs care',
           ),
@@ -2215,23 +2403,23 @@ class _ConsentPrivacyScreenState extends State<ConsentPrivacyScreen> {
             body:
                 'Compare against similar life-stage groups without showing identity.',
             value: state.consentBenchmarking,
-            onChanged:
-                (value) => setState(() => state.consentBenchmarking = value),
+            onChanged: (value) =>
+                setState(() => state.consentBenchmarking = value),
           ),
           ConsentToggle(
             title: 'Community feedback',
             body: 'Let Shellby use posts and votes with your selected context.',
             value: state.consentCommunity,
-            onChanged:
-                (value) => setState(() => state.consentCommunity = value),
+            onChanged: (value) =>
+                setState(() => state.consentCommunity = value),
           ),
           ConsentToggle(
             title: 'Trusted circle sharing',
             body:
                 'Allow selected friends or collaborators to see chosen summaries.',
             value: state.consentTrustedCircle,
-            onChanged:
-                (value) => setState(() => state.consentTrustedCircle = value),
+            onChanged: (value) =>
+                setState(() => state.consentTrustedCircle = value),
           ),
         ],
       ),
@@ -2283,23 +2471,21 @@ class _SocialStructureScreenState extends State<SocialStructureScreen> {
         onPressed: () => _push(context, const PreparationCommitmentScreen()),
       ),
       child: Column(
-        children:
-            options
-                .map(
-                  (option) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: SelectableOption(
-                      icon: option.$3,
-                      title: option.$1,
-                      body: option.$2,
-                      selected: state.socialStructure == option.$1,
-                      onTap:
-                          () =>
-                              setState(() => state.socialStructure = option.$1),
-                    ),
-                  ),
-                )
-                .toList(),
+        children: options
+            .map(
+              (option) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SelectableOption(
+                  icon: option.$3,
+                  title: option.$1,
+                  body: option.$2,
+                  selected: state.socialStructure == option.$1,
+                  onTap: () =>
+                      setState(() => state.socialStructure = option.$1),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -2363,10 +2549,9 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final action =
-        state.selectedGoal == 'Debt Reset'
-            ? 'Add your next debt due date'
-            : state.selectedGoal == 'Investment Starter'
+    final action = state.selectedGoal == 'Debt Reset'
+        ? 'Add your next debt due date'
+        : state.selectedGoal == 'Investment Starter'
             ? 'Record your first investment allocation'
             : 'Allocate your first emergency fund amount';
     return OnboardingScaffold(
@@ -2485,26 +2670,24 @@ class _PersonalBaselineState extends State<PersonalBaseline> {
             child: DropdownButtonFormField<String>(
               value: state.industry,
               decoration: inputDecoration('Select your industry'),
-              items:
-                  const [
-                    'Technology',
-                    'Finance',
-                    'Healthcare',
-                    'Education',
-                    'Business Services',
-                    'Retail & E-commerce',
-                    'Creative & Media',
-                    'Government',
-                    'Manufacturing',
-                    'Hospitality',
-                    'Freelance / Self-employed',
-                    'Other',
-                  ].map((value) {
-                    return DropdownMenuItem(value: value, child: Text(value));
-                  }).toList(),
-              onChanged:
-                  (value) =>
-                      setState(() => state.industry = value ?? state.industry),
+              items: const [
+                'Technology',
+                'Finance',
+                'Healthcare',
+                'Education',
+                'Business Services',
+                'Retail & E-commerce',
+                'Creative & Media',
+                'Government',
+                'Manufacturing',
+                'Hospitality',
+                'Freelance / Self-employed',
+                'Other',
+              ].map((value) {
+                return DropdownMenuItem(value: value, child: Text(value));
+              }).toList(),
+              onChanged: (value) =>
+                  setState(() => state.industry = value ?? state.industry),
             ),
           ),
           const SizedBox(height: 22),
@@ -2669,10 +2852,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                 itemBuilder: (context, index) {
                   final message = state.messages[index];
                   return Align(
-                    alignment:
-                        message.fromUser
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
+                    alignment: message.fromUser
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
                     child: Container(
                       constraints: BoxConstraints(
                         maxWidth: MediaQuery.sizeOf(context).width * .78,
@@ -2681,10 +2863,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                       decoration: BoxDecoration(
                         color: message.fromUser ? _brand : _surface,
                         borderRadius: BorderRadius.circular(20),
-                        border:
-                            message.fromUser
-                                ? null
-                                : Border.all(color: _border),
+                        border: message.fromUser
+                            ? null
+                            : Border.all(color: _border),
                       ),
                       child: Text(
                         message.text,
@@ -2706,39 +2887,38 @@ class _DiscoveryScreenState extends State<DiscoveryScreen> {
                 color: _surface,
                 border: Border(top: BorderSide(color: _border)),
               ),
-              child:
-                  canFinish
-                      ? PrimaryButton(
-                        label: 'Finish Discovery',
-                        icon: Icons.arrow_forward_rounded,
-                        onPressed:
-                            () => _push(context, const QuantitativeScreen()),
-                      )
-                      : Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: controller,
-                              decoration: inputDecoration(
-                                'Type your answer...',
-                              ),
-                              onSubmitted: (_) => send(),
+              child: canFinish
+                  ? PrimaryButton(
+                      label: 'Finish Discovery',
+                      icon: Icons.arrow_forward_rounded,
+                      onPressed: () =>
+                          _push(context, const QuantitativeScreen()),
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            decoration: inputDecoration(
+                              'Type your answer...',
+                            ),
+                            onSubmitted: (_) => send(),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        IconButton.filled(
+                          style: IconButton.styleFrom(
+                            backgroundColor: _brand,
+                            fixedSize: const Size(54, 54),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          IconButton.filled(
-                            style: IconButton.styleFrom(
-                              backgroundColor: _brand,
-                              fixedSize: const Size(54, 54),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
-                            onPressed: send,
-                            icon: const Icon(Icons.arrow_forward_rounded),
-                          ),
-                        ],
-                      ),
+                          onPressed: send,
+                          icon: const Icon(Icons.arrow_forward_rounded),
+                        ),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -2926,8 +3106,8 @@ class OnboardingSummary extends StatelessWidget {
                 'Your Foundation',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontStyle: FontStyle.italic,
-                ),
+                      fontStyle: FontStyle.italic,
+                    ),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -3065,8 +3245,8 @@ class _MainShellState extends State<MainShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        backgroundColor: Colors.white.withValues(alpha: .96),
-        indicatorColor: _brand.withValues(alpha: .11),
+        backgroundColor: Colors.white.withOpacity(.96),
+        indicatorColor: _brand.withOpacity(.11),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         onDestinationSelected: (value) => setState(() => index = value),
         destinations: const [
@@ -3113,7 +3293,7 @@ class DashboardPage extends StatelessWidget {
                   Text(
                     'Your financial health score is up by 4 points this month.',
                     style: TextStyle(
-                      color: _body.withValues(alpha: .75),
+                      color: _body.withOpacity(.75),
                       fontWeight: FontWeight.w700,
                       fontStyle: FontStyle.italic,
                     ),
@@ -3223,7 +3403,7 @@ class DashboardPage extends StatelessWidget {
             borderRadius: BorderRadius.circular(30),
             boxShadow: [
               BoxShadow(
-                color: _brand.withValues(alpha: .18),
+                color: _brand.withOpacity(.18),
                 blurRadius: 24,
                 offset: const Offset(0, 14),
               ),
@@ -3361,19 +3541,17 @@ class _BudgetPageState extends State<BudgetPage> {
             child: FinancialItemCard(
               item: item,
               danger: !assets,
-              icon:
-                  assets
-                      ? Icons.account_balance_rounded
-                      : Icons.credit_card_rounded,
+              icon: assets
+                  ? Icons.account_balance_rounded
+                  : Icons.credit_card_rounded,
             ),
           ),
         ),
         DashedAction(
           label: assets ? 'Add Asset' : 'Add Liability',
-          onTap:
-              assets
-                  ? () => setState(state.addAsset)
-                  : () => setState(state.addLiability),
+          onTap: assets
+              ? () => setState(state.addAsset)
+              : () => setState(state.addLiability),
         ),
         const SizedBox(height: 28),
         Container(
@@ -3707,37 +3885,36 @@ class ChatBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           border: fromUser ? null : Border.all(color: _border),
         ),
-        child:
-            loading
-                ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 15,
-                      height: 15,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: fromUser ? Colors.white : _brand,
-                      ),
+        child: loading
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: fromUser ? Colors.white : _brand,
                     ),
-                    const SizedBox(width: 9),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        color: fromUser ? Colors.white : _body,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                )
-                : Text(
-                  text,
-                  style: TextStyle(
-                    color: fromUser ? Colors.white : _title,
-                    height: 1.32,
-                    fontWeight: FontWeight.w700,
                   ),
+                  const SizedBox(width: 9),
+                  Text(
+                    text,
+                    style: TextStyle(
+                      color: fromUser ? Colors.white : _body,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                text,
+                style: TextStyle(
+                  color: fromUser ? Colors.white : _title,
+                  height: 1.32,
+                  fontWeight: FontWeight.w700,
                 ),
+              ),
       ),
     );
   }
@@ -4064,7 +4241,7 @@ class PrimaryButton extends StatelessWidget {
         onPressed: enabled ? onPressed : null,
         style: FilledButton.styleFrom(
           backgroundColor: _brand,
-          disabledBackgroundColor: _brand.withValues(alpha: .25),
+          disabledBackgroundColor: _brand.withOpacity(.25),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
@@ -4103,7 +4280,7 @@ class AppTopBar extends StatelessWidget {
       height: 72,
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .88),
+        color: Colors.white.withOpacity(.88),
         border: const Border(bottom: BorderSide(color: _border)),
       ),
       child: Row(
@@ -4166,7 +4343,7 @@ class AppCard extends StatelessWidget {
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .035),
+            color: Colors.black.withOpacity(.035),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -4206,7 +4383,7 @@ class MetricCard extends StatelessWidget {
               IconBubble(
                 icon,
                 color: color,
-                background: color.withValues(alpha: .1),
+                background: color.withOpacity(.1),
               ),
               const Spacer(),
               Container(
@@ -4215,7 +4392,7 @@ class MetricCard extends StatelessWidget {
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: (positive ? _green : _red).withValues(alpha: .1),
+                  color: (positive ? _green : _red).withOpacity(.1),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Row(
@@ -4464,7 +4641,7 @@ class TransactionRow extends StatelessWidget {
           IconBubble(
             positive ? Icons.arrow_outward_rounded : Icons.south_east_rounded,
             color: positive ? _green : _red,
-            background: (positive ? _green : _red).withValues(alpha: .1),
+            background: (positive ? _green : _red).withOpacity(.1),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -4534,10 +4711,9 @@ class _LineChartPainter extends CustomPainter {
     final minValue = values.reduce(math.min);
     final maxValue = values.reduce(math.max);
 
-    final grid =
-        Paint()
-          ..color = _border
-          ..strokeWidth = 1;
+    final grid = Paint()
+      ..color = _border
+      ..strokeWidth = 1;
     for (var i = 0; i < 4; i++) {
       final y = top + chartHeight * i / 3;
       canvas.drawLine(Offset(left, y), Offset(size.width, y), grid);
@@ -4555,12 +4731,11 @@ class _LineChartPainter extends CustomPainter {
       path.lineTo(point(i).dx, point(i).dy);
     }
 
-    final fill =
-        Path.from(path)
-          ..lineTo(point(values.length - 1).dx, top + chartHeight)
-          ..lineTo(point(0).dx, top + chartHeight)
-          ..close();
-    canvas.drawPath(fill, Paint()..color = _brand.withValues(alpha: .07));
+    final fill = Path.from(path)
+      ..lineTo(point(values.length - 1).dx, top + chartHeight)
+      ..lineTo(point(0).dx, top + chartHeight)
+      ..close();
+    canvas.drawPath(fill, Paint()..color = _brand.withOpacity(.07));
     canvas.drawPath(
       path,
       Paint()
@@ -4657,7 +4832,7 @@ class _GhostState extends State<Ghost> with SingleTickerProviderStateMixin {
                     width: widget.size * .45,
                     height: widget.size * .08,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: .10),
+                      color: Colors.black.withOpacity(.10),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -4700,14 +4875,13 @@ class _GhostPainter extends CustomPainter {
     canvas.drawRRect(body, Paint()..color = _brand);
     canvas.drawRRect(
       body.inflate(size.width * .07),
-      Paint()..color = _belly.withValues(alpha: .55),
+      Paint()..color = _belly.withOpacity(.55),
     );
-    final eye =
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3
-          ..strokeCap = StrokeCap.round;
+    final eye = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
     if (mood == GhostMood.thinking) {
       canvas.drawLine(
         Offset(size.width * .34, size.height * .38),
@@ -4784,7 +4958,7 @@ class FinancialPyramid extends StatelessWidget {
             height: 62,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _brand.withValues(alpha: .82),
+              color: _brand.withOpacity(.82),
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Text(

@@ -1,6 +1,33 @@
 # cap1
 
-A new Flutter project.
+Shellby Flutter prototype.
+
+## Local AI with Ollama
+
+The app defaults to Ollama for its AI coach.
+
+On an Android emulator, the app reaches Ollama on your PC through
+`http://10.0.2.2:11434`.
+
+Start Ollama, then run:
+
+```powershell
+ollama serve
+flutter run -d emulator-5554 --dart-define=AI_PROVIDER=ollama --dart-define=OLLAMA_MODEL=qwen3.6:latest
+```
+
+If you run on a physical Android device, replace `OLLAMA_URL` with your PC's LAN
+address:
+
+```powershell
+flutter run -d <device-id> --dart-define=AI_PROVIDER=ollama --dart-define=OLLAMA_URL=http://<your-pc-ip>:11434 --dart-define=OLLAMA_MODEL=qwen3.6:latest
+```
+
+The app can still use Gemini:
+
+```powershell
+flutter run -d emulator-5554 --dart-define=AI_PROVIDER=gemini --dart-define=GEMINI_API_KEY=<your-key>
+```
 
 ## Getting Started
 
