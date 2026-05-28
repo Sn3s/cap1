@@ -6,13 +6,16 @@ void main() {
   runApp(const AheadApp());
 }
 
-const _brand = Color(0xFF4F00CF);
-const _bg = Color(0xFFF7F7FB);
-const _surface = Colors.white;
-const _title = Color(0xFF201B2E);
-const _body = Color(0xFF6F687C);
-const _border = Color(0xFFE8E5EE);
-const _green = Color(0xFF10B981);
+const _brand = Color(0xFF7047B8);
+const _sage = Color(0xFF59B284);
+const _belly = Color(0xFFD2B5FC);
+const _bellySoft = Color(0xFFECE1FD);
+const _bg = Color(0xFFF6F3FA);
+const _surface = Color(0xFFFFFEFF);
+const _title = Color(0xFF241E32);
+const _body = Color(0xFF70677C);
+const _border = Color(0xFFE3D5F8);
+const _green = _sage;
 const _red = Color(0xFFF43F5E);
 const _amber = Color(0xFFF59E0B);
 
@@ -181,7 +184,7 @@ class WelcomeScreen extends StatelessWidget {
                 width: 230,
                 height: 230,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF2EAFF),
+                  color: _bellySoft,
                   borderRadius: BorderRadius.circular(48),
                 ),
                 child: const Stack(
@@ -650,7 +653,7 @@ class FeasibilityScreen extends StatelessWidget {
                 const IconBubble(
                   Icons.trending_up_rounded,
                   color: _amber,
-                  background: Color(0xFFFFF7E6),
+                  background: _bellySoft,
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
@@ -1290,7 +1293,7 @@ class ProfilePage extends StatelessWidget {
             children: [
               const CircleAvatar(
                 radius: 34,
-                backgroundColor: Color(0xFFEFE7FF),
+                backgroundColor: _bellySoft,
                 child: Text(
                   'F',
                   style: TextStyle(
@@ -1458,7 +1461,7 @@ class StepProgress extends StatelessWidget {
       child: LinearProgressIndicator(
         value: current / total,
         minHeight: 7,
-        backgroundColor: const Color(0xFFEDEAF3),
+        backgroundColor: _bellySoft,
         color: _brand,
       ),
     );
@@ -1557,7 +1560,7 @@ class AppTopBar extends StatelessWidget {
           ),
           const CircleAvatar(
             radius: 20,
-            backgroundColor: Color(0xFFF0EEF5),
+            backgroundColor: _bellySoft,
             child: Text(
               'F',
               style: TextStyle(color: _brand, fontWeight: FontWeight.w900),
@@ -1737,7 +1740,7 @@ class GoalCard extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7E6),
+                              color: _bellySoft,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
@@ -1794,7 +1797,7 @@ class GoalCard extends StatelessWidget {
               minHeight: 8,
               value: progress / 100,
               color: _brand,
-              backgroundColor: const Color(0xFFEFEAF6),
+              backgroundColor: _bellySoft,
             ),
           ),
         ],
@@ -1823,8 +1826,7 @@ class FinancialItemCard extends StatelessWidget {
           IconBubble(
             icon,
             color: danger ? _red : _brand,
-            background:
-                danger ? const Color(0xFFFFEEF2) : _brand.withValues(alpha: .1),
+            background: danger ? const Color(0xFFFFEEF2) : _bellySoft,
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -2122,10 +2124,10 @@ class _GhostPainter extends CustomPainter {
       bottomLeft: Radius.circular(size.width * .07),
       bottomRight: Radius.circular(size.width * .07),
     );
-    canvas.drawRRect(body, Paint()..color = const Color(0xFF8B5CF6));
+    canvas.drawRRect(body, Paint()..color = _brand);
     canvas.drawRRect(
       body.inflate(size.width * .07),
-      Paint()..color = const Color(0x338B5CF6),
+      Paint()..color = _belly.withValues(alpha: .55),
     );
     final eye =
         Paint()
@@ -2250,7 +2252,7 @@ class IconBubble extends StatelessWidget {
     this.icon, {
     super.key,
     this.color = _brand,
-    this.background = const Color(0xFFEFE7FF),
+    this.background = _bellySoft,
   });
 
   final IconData icon;
@@ -2413,7 +2415,7 @@ class ChoiceTile extends StatelessWidget {
         height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? Colors.white : const Color(0xFFEFEFF5),
+          color: selected ? _surface : _bg,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: selected ? _brand : Colors.transparent,
@@ -2483,7 +2485,7 @@ class ScoreSlider extends StatelessWidget {
           divisions: 9,
           value: value,
           activeColor: _brand,
-          inactiveColor: const Color(0xFFE1DDE8),
+          inactiveColor: _bellySoft,
           onChanged: onChanged,
         ),
         Row(
