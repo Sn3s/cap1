@@ -277,14 +277,46 @@ class AppState extends ChangeNotifier {
     liabilities.add(MoneyItem('New Liability', 'Tap to refine later', 0));
     notifyListeners();
   }
+
+  void addMoneyItem(MoneyItem item, {required bool isLiability}) {
+    if (isLiability) {
+      liabilities.add(item);
+    } else {
+      assets.add(item);
+    }
+    notifyListeners();
+  }
+
+  void updateMoneyItem(
+    MoneyItem item, {
+    required String name,
+    required String description,
+    required double value,
+  }) {
+    item.name = name.trim().isEmpty ? 'Untitled' : name.trim();
+    item.description =
+        description.trim().isEmpty ? 'No description yet' : description.trim();
+    item.value = value;
+    notifyListeners();
+  }
+
+  void removeAsset(MoneyItem item) {
+    assets.remove(item);
+    notifyListeners();
+  }
+
+  void removeLiability(MoneyItem item) {
+    liabilities.remove(item);
+    notifyListeners();
+  }
 }
 
 class MoneyItem {
   MoneyItem(this.name, this.description, this.value);
 
-  final String name;
-  final String description;
-  final double value;
+  String name;
+  String description;
+  double value;
 }
 
 class ChatMessage {
@@ -360,9 +392,8 @@ class ShellbyAiCoach {
     }
     return MotivationCoachResult(
       reply: reply,
-      conclusion: shouldSummarize
-          ? (conclusion.isEmpty ? reply : conclusion)
-          : '',
+      conclusion:
+          shouldSummarize ? (conclusion.isEmpty ? reply : conclusion) : '',
       isComplete: shouldSummarize,
     );
   }
@@ -735,32 +766,24 @@ class WelcomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _surface,
+      backgroundColor: const Color(0xFFF6F6F6),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 230,
-                height: 230,
-                decoration: BoxDecoration(
-                  color: _bellySoft,
-                  borderRadius: BorderRadius.circular(48),
-                ),
-                child: const Stack(
-                  children: [
-                    Positioned(
-                      top: 18,
-                      right: 18,
-                      child: Icon(Icons.star_rounded, color: _amber, size: 42),
-                    ),
-                    Center(child: Ghost(size: 150)),
-                  ],
+              SizedBox(
+                width: 240,
+                height: 345,
+                child: Image.asset(
+                  'assets/images/shellby_wave.webp',
+                  fit: BoxFit.cover,
+                  alignment: const Alignment(-.28, -.42),
+                  filterQuality: FilterQuality.high,
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
               Text(
                 "Welcome! Let's prepare Shellby for you.",
                 textAlign: TextAlign.center,
@@ -1393,7 +1416,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     try {
       final userAnswerCount =
           messages.where((message) => message.fromUser).length;
-      final shouldSummarize = userAnswerCount >= 3;
+      final shouldSummarize = userAnswerCount >= 3 ||
+          (userAnswerCount >= 2 && _acceptsSuggestedDirection(answer));
       final result = await coach.send(
         concern: state.primaryConcern,
         messages: messages,
@@ -1631,7 +1655,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
         'Managing debt' =>
           'Which first debt target would feel most useful: lowering one balance, reducing monthly payments, or getting current on due dates?',
         'Controlling spending' =>
-          'Which spending category would you want to focus on first, and how much would you like to reduce it by each month?',
+          'What first reduction target would feel realistic: cutting that category by 10%, setting a peso limit, or another amount?',
         'Starting investments' =>
           'What first investing milestone would feel realistic: a small monthly habit, a starter fund amount, or learning enough to feel confident?',
         'Planning a big purchase' =>
@@ -1663,6 +1687,32 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       _ =>
         'What timeframe and monthly effort would feel realistic for that first result?',
     };
+  }
+
+  bool _acceptsSuggestedDirection(String answer) {
+    final normalized = answer.toLowerCase();
+    final acceptancePhrases = [
+      'i agree',
+      'agree',
+      'yes',
+      'yeah',
+      'yup',
+      'okay',
+      'ok',
+      'sounds good',
+      'that works',
+      'good for me',
+      'follow what you said',
+      'follow your suggestion',
+      'follow that',
+      'i will follow',
+      'i want to follow',
+      'let us do that',
+      "let's do that",
+      'that goal',
+      'that target',
+    ];
+    return acceptancePhrases.any(normalized.contains);
   }
 
   List<String> _chipsForConcern(String concern) {
@@ -1782,9 +1832,9 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     final state = AppScope.of(context);
     return OnboardingScaffold(
       phase: 6,
-      title: 'Quantify your baseline.',
+      title: 'Financial Scaffolding.',
       subtitle:
-          'This prepares the Financial Pyramid Health Index and keeps goal recommendations grounded in cash flow.',
+          'Quantify your economic standing for the financial pyramid health index.',
       bottom: PrimaryButton(
         label: 'Choose Tracking Variables',
         icon: Icons.arrow_forward_rounded,
@@ -1793,61 +1843,263 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionLabel(index: 1, title: 'Cash Flow'),
-          const SizedBox(height: 14),
-          MoneyInput(
-            label: 'Monthly net income',
-            initial: state.income,
-            onChanged: (value) => state.income = value,
+          BaselineSummaryStrip(
+            assets: state.totalAssets,
+            liabilities: state.totalLiabilities,
+            netWorth: state.totalAssets - state.totalLiabilities,
           ),
-          const SizedBox(height: 10),
-          MoneyInput(
-            label: 'Fixed monthly expenses',
-            initial: state.expenses,
-            onChanged: (value) => state.expenses = value,
+          const SizedBox(height: 18),
+          EditableMoneyItemList(
+            title: 'Assets',
+            total: state.totalAssets,
+            items: state.assets,
+            icon: Icons.savings_rounded,
+            onAdd: () => _showMoneyItemDialog(context, isLiability: false),
+            onEdit:
+                (item) => _showMoneyItemDialog(
+                  context,
+                  item: item,
+                  isLiability: false,
+                ),
+            onDelete: state.removeAsset,
           ),
-          const SizedBox(height: 10),
-          MoneyInput(
-            label: 'Variable monthly expenses',
-            initial: state.variableExpenses,
-            onChanged: (value) => state.variableExpenses = value,
-          ),
-          const SizedBox(height: 10),
-          MoneyInput(
-            label: 'Monthly savings',
-            initial: state.savings,
-            onChanged: (value) => state.savings = value,
-          ),
-          const SizedBox(height: 28),
-          SectionLabel(index: 2, title: 'Resilience'),
-          const SizedBox(height: 14),
-          ScoreSlider(
-            title: 'How many months of expenses can your emergency fund cover?',
-            left: '0',
-            right: '10+',
-            value: state.emergencyMonths.clamp(1, 10),
-            onChanged: (value) => setState(() => state.emergencyMonths = value),
-          ),
-          const SizedBox(height: 20),
-          MoneyInput(
-            label: 'Monthly debt payments',
-            initial: state.debtPayments,
-            onChanged: (value) => state.debtPayments = value,
-          ),
-          const SizedBox(height: 10),
-          MoneyInput(
-            label: 'Investments',
-            initial: state.investments,
-            onChanged: (value) => state.investments = value,
-          ),
-          const SizedBox(height: 10),
-          MoneyInput(
-            label: 'Recurring subscriptions',
-            initial: state.subscriptions,
-            onChanged: (value) => state.subscriptions = value,
+          const SizedBox(height: 24),
+          EditableMoneyItemList(
+            title: 'Liabilities',
+            total: state.totalLiabilities,
+            items: state.liabilities,
+            icon: Icons.credit_card_rounded,
+            danger: true,
+            onAdd: () => _showMoneyItemDialog(context, isLiability: true),
+            onEdit:
+                (item) => _showMoneyItemDialog(
+                  context,
+                  item: item,
+                  isLiability: true,
+                ),
+            onDelete: state.removeLiability,
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showMoneyItemDialog(
+    BuildContext context, {
+    MoneyItem? item,
+    required bool isLiability,
+  }) async {
+    final state = AppScope.of(context);
+    final nameController = TextEditingController(text: item?.name ?? '');
+    final descriptionController = TextEditingController(
+      text: item?.description ?? '',
+    );
+    final valueController = TextEditingController(
+      text: item == null || item.value == 0 ? '' : item.value.toStringAsFixed(0),
+    );
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final title =
+            item == null
+                ? (isLiability ? 'Add Liability' : 'Add Asset')
+                : (isLiability ? 'Edit Liability' : 'Edit Asset');
+        return AlertDialog(
+          backgroundColor: _surface,
+          title: Text(
+            title,
+            style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                textInputAction: TextInputAction.next,
+                decoration: inputDecoration(
+                  isLiability ? 'Credit Card' : 'Investment Portfolio',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: descriptionController,
+                textInputAction: TextInputAction.next,
+                decoration: inputDecoration(
+                  isLiability ? 'Visa Gold' : 'Vanguard ETF',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: valueController,
+                keyboardType: TextInputType.number,
+                decoration: inputDecoration('Amount').copyWith(
+                  prefixText: '₱ ',
+                  prefixStyle: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (item != null)
+              TextButton(
+                onPressed: () {
+                  if (isLiability) {
+                    state.removeLiability(item);
+                  } else {
+                    state.removeAsset(item);
+                  }
+                  Navigator.of(dialogContext).pop();
+                  setState(() {});
+                },
+                child: const Text('Delete', style: TextStyle(color: _red)),
+              ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = double.tryParse(valueController.text) ?? 0;
+                if (item == null) {
+                  final newItem = MoneyItem(
+                    nameController.text.trim().isEmpty
+                        ? (isLiability ? 'New Liability' : 'New Asset')
+                        : nameController.text.trim(),
+                    descriptionController.text.trim().isEmpty
+                        ? 'Tap to refine later'
+                        : descriptionController.text.trim(),
+                    value,
+                  );
+                  state.addMoneyItem(newItem, isLiability: isLiability);
+                } else {
+                  state.updateMoneyItem(
+                    item,
+                    name: nameController.text,
+                    description: descriptionController.text,
+                    value: value,
+                  );
+                }
+                Navigator.of(dialogContext).pop();
+                setState(() {});
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    nameController.dispose();
+    descriptionController.dispose();
+    valueController.dispose();
+  }
+}
+
+class BaselineSummaryStrip extends StatelessWidget {
+  const BaselineSummaryStrip({
+    super.key,
+    required this.assets,
+    required this.liabilities,
+    required this.netWorth,
+  });
+
+  final double assets;
+  final double liabilities;
+  final double netWorth;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Row(
+        children: [
+          Expanded(child: ProfileStat(label: 'Assets', value: money(assets))),
+          Container(width: 1, height: 42, color: _border),
+          Expanded(
+            child: ProfileStat(label: 'Liabilities', value: money(liabilities)),
+          ),
+          Container(width: 1, height: 42, color: _border),
+          Expanded(child: ProfileStat(label: 'Net', value: money(netWorth))),
+        ],
+      ),
+    );
+  }
+}
+
+class EditableMoneyItemList extends StatelessWidget {
+  const EditableMoneyItemList({
+    super.key,
+    required this.title,
+    required this.total,
+    required this.items,
+    required this.icon,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+    this.danger = false,
+  });
+
+  final String title;
+  final double total;
+  final List<MoneyItem> items;
+  final IconData icon;
+  final VoidCallback onAdd;
+  final ValueChanged<MoneyItem> onEdit;
+  final ValueChanged<MoneyItem> onDelete;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(title: title, action: money(total), danger: danger),
+        const SizedBox(height: 12),
+        if (items.isEmpty)
+          AppCard(
+            child: Text(
+              danger ? 'No liabilities added yet.' : 'No assets added yet.',
+              style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+            ),
+          )
+        else
+          ...items.map(
+            (item) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Dismissible(
+                key: ValueKey(item),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 22),
+                  decoration: BoxDecoration(
+                    color: _red,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Icon(Icons.delete_rounded, color: Colors.white),
+                ),
+                onDismissed: (_) => onDelete(item),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () => onEdit(item),
+                  child: FinancialItemCard(
+                    item: item,
+                    icon: icon,
+                    danger: danger,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        DashedAction(
+          label: danger ? 'Add Liability' : 'Add Asset',
+          onTap: onAdd,
+          danger: danger,
+        ),
+      ],
     );
   }
 }
@@ -5421,7 +5673,7 @@ String money(double value) {
     if (i != 0 && i % 3 == 0) grouped.add(',');
     grouped.add(chars[i]);
   }
-  return 'PHP ${grouped.reversed.join()}.${parts.last}';
+  return '\u20B1 ${grouped.reversed.join()}.${parts.last}';
 }
 
 void _push(BuildContext context, Widget page) {
