@@ -778,12 +778,12 @@ class WelcomeScreen extends StatelessWidget {
                 height: 345,
                 child: Image.asset(
                   'assets/images/shellby_wave.webp',
-                  fit: BoxFit.cover,
-                  alignment: const Alignment(-.28, -.42),
+                  fit: BoxFit.contain,
+                  alignment: const Alignment(-.28, -.22),
                   filterQuality: FilterQuality.high,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 6),
               Text(
                 "Welcome! Let's prepare Shellby for you.",
                 textAlign: TextAlign.center,
