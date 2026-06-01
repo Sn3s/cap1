@@ -3,23 +3,27 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 void main() {
   runApp(const ShellbyApp());
 }
 
-const _brand = Color(0xFF7047B8);
-const _sage = Color(0xFF59B284);
-const _belly = Color(0xFFD2B5FC);
-const _bellySoft = Color(0xFFECE1FD);
-const _bg = Color(0xFFF6F3FA);
-const _surface = Color(0xFFFFFEFF);
-const _title = Color(0xFF241E32);
-const _body = Color(0xFF70677C);
-const _border = Color(0xFFE3D5F8);
-const _green = _sage;
-const _red = Color(0xFFF43F5E);
-const _amber = Color(0xFFF59E0B);
+// Shelby design system — primary = mint green, secondary = shell purple
+const _brand = Color(0xFF57BE8C);       // Shellby's body, primary actions
+const _purple = Color(0xFF7C5CCB);      // shell rim, secondary actions
+const _sage = Color(0xFF3FA875);        // green-500, money-up / positive hover
+const _belly = Color(0xFFE3CBF8);       // shell lavender
+const _bellySoft = Color(0xFFF4EFFD);   // purple-50, icon bg / tinted fills
+const _bg = Color(0xFFFBF8F3);          // warm cream canvas
+const _surface = Color(0xFFFFFFFF);     // card surface
+const _title = Color(0xFF2E1B47);       // plum ink, headings & body
+const _body = Color(0xFF786C8B);        // ink-500, secondary text
+const _border = Color(0xFFECE8F1);      // ink-100, hairlines
+const _green = _sage;                   // money-up alias
+const _red = Color(0xFFE0483D);         // coral danger
+const _amber = Color(0xFFE89A12);       // warning
+const _pressGreen = Color(0xFF2F8A5E);  // button ledge (green-600)
 const _aiProvider = String.fromEnvironment(
   'AI_PROVIDER',
   defaultValue: 'ollama',
@@ -58,34 +62,85 @@ class _ShellbyAppState extends State<ShellbyApp> {
         theme: ThemeData(
           useMaterial3: true,
           scaffoldBackgroundColor: _bg,
-          colorScheme: ColorScheme.fromSeed(seedColor: _brand),
-          fontFamily: 'System',
-          textTheme: const TextTheme(
-            headlineLarge: TextStyle(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: _brand,
+            primary: _brand,
+            secondary: _purple,
+            surface: _surface,
+            onSurface: _title,
+          ),
+          fontFamily: GoogleFonts.nunito().fontFamily,
+          textTheme: TextTheme(
+            headlineLarge: GoogleFonts.fredoka(
               fontSize: 34,
               height: 1.05,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
               color: _title,
-              letterSpacing: 0,
+              letterSpacing: -0.34,
             ),
-            headlineMedium: TextStyle(
+            headlineMedium: GoogleFonts.fredoka(
               fontSize: 26,
               height: 1.1,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w600,
               color: _title,
-              letterSpacing: 0,
             ),
-            titleLarge: TextStyle(
+            titleLarge: GoogleFonts.fredoka(
               fontSize: 20,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               color: _title,
-              letterSpacing: 0,
             ),
-            bodyMedium: TextStyle(
+            bodyMedium: GoogleFonts.nunito(
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: _body,
-              letterSpacing: 0,
+            ),
+            bodyLarge: GoogleFonts.nunito(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: _body,
+            ),
+          ),
+          sliderTheme: SliderThemeData(
+            activeTrackColor: _brand,
+            inactiveTrackColor: _bellySoft,
+            thumbColor: _brand,
+            overlayColor: _brand.withOpacity(.12),
+          ),
+          switchTheme: SwitchThemeData(
+            thumbColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected) ? _brand : null,
+            ),
+            trackColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? _brand.withOpacity(.4)
+                  : null,
+            ),
+          ),
+          chipTheme: ChipThemeData(
+            backgroundColor: _bellySoft,
+            labelStyle: GoogleFonts.nunito(
+              fontWeight: FontWeight.w700,
+              color: _purple,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+              side: const BorderSide(color: _belly),
+            ),
+          ),
+          navigationBarTheme: NavigationBarThemeData(
+            backgroundColor: _surface,
+            indicatorColor: _brand.withOpacity(.12),
+            labelTextStyle: WidgetStateProperty.all(
+              GoogleFonts.nunito(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _body,
+              ),
+            ),
+            iconTheme: WidgetStateProperty.resolveWith(
+              (states) => IconThemeData(
+                color: states.contains(WidgetState.selected) ? _brand : _body,
+              ),
             ),
           ),
         ),
@@ -480,6 +535,11 @@ class ShellbyAiCoach {
       }
 
       final decoded = jsonDecode(body) as Map<String, dynamic>;
+      final promptTokens = decoded['prompt_eval_count'] as int? ?? 0;
+      final completionTokens = decoded['eval_count'] as int? ?? 0;
+      debugPrint(
+        'Ollama tokens: prompt=$promptTokens, completion=$completionTokens, total=${promptTokens + completionTokens}',
+      );
       final message = decoded['message'];
       final text =
           message is Map<String, dynamic> && message['content'] is String
@@ -776,11 +836,13 @@ class WelcomeScreen extends StatelessWidget {
               SizedBox(
                 width: 240,
                 height: 345,
-                child: Image.asset(
-                  'assets/images/shellby_wave.webp',
-                  fit: BoxFit.contain,
-                  alignment: const Alignment(-.28, -.22),
-                  filterQuality: FilterQuality.high,
+                child: Transform.translate(
+                  offset: const Offset(-5, 0),
+                  child: Image.asset(
+                    'assets/images/shellby_wave.webp',
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
                 ),
               ),
               const SizedBox(height: 6),
@@ -859,7 +921,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
       title: 'First, Shellby asks why.',
       body:
           'A goal works better when it comes from your own reason, not a random preset.',
-      accent: _sage,
+      accent: _purple,
     ),
     OrientationSlideData(
       icon: Icons.auto_graph_rounded,
@@ -3484,36 +3546,37 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       const DashboardPage(),
-      const BudgetPage(),
+      const InsightsPage(),
       const GoalsPage(),
+      const ActivityPage(),
       const ProfilePage(),
     ];
     return Scaffold(
       backgroundColor: _bg,
-      body: SafeArea(
-        child: Column(
-          children: [const AppTopBar(), Expanded(child: pages[index])],
-        ),
-      ),
+      body: SafeArea(child: pages[index]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        backgroundColor: Colors.white.withOpacity(.96),
-        indicatorColor: _brand.withOpacity(.11),
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         onDestinationSelected: (value) => setState(() => index = value),
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.dashboard_rounded),
-            label: 'Overview',
+            icon: Icon(Icons.home_rounded),
+            label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_rounded),
-            label: 'Budget',
+            icon: Icon(Icons.bar_chart_rounded),
+            label: 'Insights',
           ),
-          NavigationDestination(icon: Icon(Icons.flag_rounded), label: 'Goals'),
+          NavigationDestination(
+            icon: Icon(Icons.flag_rounded),
+            label: 'Goals',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_rounded),
+            label: 'Activity',
+          ),
           NavigationDestination(
             icon: Icon(Icons.person_rounded),
-            label: 'Profile',
+            label: 'You',
           ),
         ],
       ),
@@ -3528,212 +3591,220 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        const PageHeader(eyebrow: 'GOOD MORNING', title: 'Hi, Felix! 👋'),
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Total balance card
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'TOTAL BALANCE',
+                      style: TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: '₱ 24,840',
+                                      style: GoogleFonts.nunito(
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w800,
+                                        color: _title,
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: '.55',
+                                      style: GoogleFonts.nunito(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w700,
+                                        color: _body,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _brand.withOpacity(.12),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.arrow_upward_rounded,
+                                      size: 12,
+                                      color: _brand,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '₱420 this week',
+                                      style: const TextStyle(
+                                        color: _brand,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const _MiniBarChart(),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Shellby insight card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _bellySoft,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Image.asset(
+                        'assets/images/shellby_wave.webp',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.nunito(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _title,
+                                height: 1.4,
+                              ),
+                              children: [
+                                const TextSpan(text: 'You spent '),
+                                TextSpan(
+                                  text: '₱48 less',
+                                  style: const TextStyle(
+                                    color: _brand,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const TextSpan(
+                                  text: ' on takeout this week 🎉',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Tap to see why →',
+                            style: const TextStyle(
+                              color: _purple,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Spendable + Saved mini cards
+              Row(
                 children: [
-                  Text(
-                    'Hello, Felix!',
-                    style: Theme.of(context).textTheme.headlineLarge,
+                  Expanded(
+                    child: _MiniStatCard(
+                      icon: Icons.account_balance_wallet_rounded,
+                      iconColor: _brand,
+                      label: 'Spendable',
+                      value: '₱ 1,240',
+                      delta: '↑ ₱80 this week',
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Your financial health score is up by 4 points this month.',
-                    style: TextStyle(
-                      color: _body.withOpacity(.75),
-                      fontWeight: FontWeight.w700,
-                      fontStyle: FontStyle.italic,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _MiniStatCard(
+                      icon: Icons.savings_rounded,
+                      iconColor: _purple,
+                      label: 'Saved',
+                      value: '₱ 320',
+                      delta: '64% of goal',
                     ),
                   ),
                 ],
               ),
-            ),
-            IconButton.filled(
-              style: IconButton.styleFrom(backgroundColor: _brand),
-              onPressed: () {},
-              icon: const Icon(Icons.add_rounded),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
-        MetricCard(
-          icon: Icons.account_balance_wallet_rounded,
-          label: 'Current Balance',
-          value: money(24500.40),
-          trend: '+12.5%',
-          positive: true,
-        ),
-        const SizedBox(height: 12),
-        MetricCard(
-          icon: Icons.trending_up_rounded,
-          label: 'Monthly Revenue',
-          value: money(state.income),
-          trend: '+8.2%',
-          positive: true,
-          color: _green,
-        ),
-        const SizedBox(height: 12),
-        MetricCard(
-          icon: Icons.credit_card_rounded,
-          label: 'Total Expenses',
-          value: money(state.expenses),
-          trend: '-2.1%',
-          positive: false,
-          color: _red,
-        ),
-        const SizedBox(height: 22),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
+              const SizedBox(height: 24),
+              // Goals section header
+              Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Net Worth Over Time',
-                      style: TextStyle(
+                      'Your goals',
+                      style: GoogleFonts.fredoka(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
                         color: _title,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
-                  Text(
-                    'Last 6 Months',
-                    style: TextStyle(
-                      color: _body,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                  GestureDetector(
+                    onTap: () {},
+                    child: const Text(
+                      'See all',
+                      style: TextStyle(
+                        color: _purple,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              SizedBox(
-                height: 210,
-                child: LineChart(
-                  values: const [45, 48, 46, 52, 58, 65],
-                  labels: const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Active Goals',
-          style: TextStyle(
-            color: _title,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 12),
-        const GoalCard(
-          title: 'Emergency Fund',
-          description: '3/6 months of expenses covered',
-          progress: 52,
-          icon: Icons.shield_rounded,
-        ),
-        const SizedBox(height: 12),
-        const GoalCard(
-          title: 'Tokyo 2026 trip',
-          description: 'Saving for business class and hotel',
-          progress: 28,
-          icon: Icons.flight_rounded,
-        ),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: _brand,
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: [
-              BoxShadow(
-                color: _brand.withOpacity(.18),
-                blurRadius: 24,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Shellby Genius',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'You could save an extra 120/mo by switching streaming subscriptions to a family plan.',
-                style: TextStyle(
-                  color: Colors.white70,
-                  height: 1.35,
-                  fontWeight: FontWeight.w600,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: _brand,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () {},
-                child: const Text('See analysis'),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        const SectionTitle(title: 'Recent Transactions', action: 'View All'),
-        const SizedBox(height: 12),
-        const AppCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              TransactionRow(
-                'Apple One Subscription',
-                'Entertainment',
-                'May 12, 2026',
-                '-PHP 369.00',
-                false,
-              ),
-              Divider(height: 1, color: _border),
-              TransactionRow(
-                'Spotify Premium',
-                'Entertainment',
-                'May 11, 2026',
-                '-PHP 149.00',
-                false,
-              ),
-              Divider(height: 1, color: _border),
-              TransactionRow(
-                'Stripe Payout',
-                'Freelance',
-                'May 10, 2026',
-                '+PHP 1,450.00',
-                true,
-              ),
-              Divider(height: 1, color: _border),
-              TransactionRow(
-                'Starbucks Coffee',
-                'Food & Drink',
-                'May 10, 2026',
-                '-PHP 180.00',
-                false,
+              const SizedBox(height: 12),
+              _GoalProgressCard(
+                emoji: '☕',
+                title: 'Coffee fund',
+                current: 205,
+                target: 250,
+                percent: 82,
+                color: _brand,
               ),
             ],
           ),
@@ -3743,124 +3814,156 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-class BudgetPage extends StatefulWidget {
-  const BudgetPage({super.key});
+class InsightsPage extends StatefulWidget {
+  const InsightsPage({super.key});
 
   @override
-  State<BudgetPage> createState() => _BudgetPageState();
+  State<InsightsPage> createState() => _InsightsPageState();
 }
 
-class _BudgetPageState extends State<BudgetPage> {
-  bool assets = true;
+class _InsightsPageState extends State<InsightsPage> {
+  int _period = 0;
+
+  static const _categories = [
+    ('Food & drink', Icons.restaurant_rounded, _brand, 182.0),
+    ('Transport', Icons.directions_bus_rounded, _purple, 96.0),
+    ('Shopping', Icons.shopping_bag_rounded, Color(0xFFEE7E9C), 88.0),
+    ('Bills', Icons.bolt_rounded, _amber, 74.0),
+    ('Fun', Icons.sports_esports_rounded, Color(0xFF6AA8F0), 38.0),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final shown = assets ? state.assets : state.liabilities;
+    final total = _categories.fold(0.0, (s, c) => s + c.$4);
+    final periodLabel = ['SPENT THIS WEEK', 'SPENT THIS MONTH', 'SPENT THIS YEAR'][_period];
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
-        Text(
-          'Your Items',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineLarge?.copyWith(fontStyle: FontStyle.italic),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          "Let's organize your assets and liabilities.",
-          style: TextStyle(color: _body, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 22),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: true, label: Text('Assets')),
-            ButtonSegment(value: false, label: Text('Liabilities')),
-          ],
-          selected: {assets},
-          onSelectionChanged: (set) => setState(() => assets = set.first),
-        ),
-        const SizedBox(height: 24),
-        SectionTitle(
-          title: assets ? 'Your Assets' : 'Your Liabilities',
-          action: money(assets ? state.totalAssets : state.totalLiabilities),
-          danger: !assets,
-        ),
-        const SizedBox(height: 12),
-        ...shown.map(
-          (item) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: FinancialItemCard(
-              item: item,
-              danger: !assets,
-              icon: assets
-                  ? Icons.account_balance_rounded
-                  : Icons.credit_card_rounded,
-            ),
-          ),
-        ),
-        DashedAction(
-          label: assets ? 'Add Asset' : 'Add Liability',
-          onTap: assets
-              ? () => setState(state.addAsset)
-              : () => setState(state.addLiability),
-        ),
-        const SizedBox(height: 28),
-        Container(
-          padding: const EdgeInsets.all(26),
-          decoration: BoxDecoration(
-            color: _brand,
-            borderRadius: BorderRadius.circular(34),
-          ),
+        const PageHeader(eyebrow: 'WHERE IT WENT', title: 'Insights'),
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
-                children: [
-                  Icon(
-                    Icons.auto_awesome_rounded,
-                    color: Colors.white70,
-                    size: 18,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'AI STRATEGY',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.2,
+              // Period toggle
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: _bellySoft,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: ['Week', 'Month', 'Year'].asMap().entries.map((e) {
+                    final active = _period == e.key;
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _period = e.key),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: active ? _surface : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: active
+                                ? const [
+                                    BoxShadow(
+                                      color: Color(0x142E1B47),
+                                      blurRadius: 8,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ]
+                                : [],
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            e.value,
+                            style: TextStyle(
+                              color: active ? _title : _body,
+                              fontWeight: active
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Spent card
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      periodLabel,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '₱478',
+                            style: GoogleFonts.nunito(
+                              fontSize: 40,
+                              fontWeight: FontWeight.w800,
+                              color: _title,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          TextSpan(
+                            text: '.20',
+                            style: GoogleFonts.nunito(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w600,
+                              color: _body,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    // Multicolor breakdown bar
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: Row(
+                        children: _categories.map((c) {
+                          return Expanded(
+                            flex: (c.$4 / total * 100).round(),
+                            child: Container(height: 10, color: c.$3),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'By category',
+                style: GoogleFonts.fredoka(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  color: _title,
+                ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                'Review your summary',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
+              ..._categories.map(
+                (c) => _CategoryRow(
+                  icon: c.$2,
+                  color: c.$3,
+                  label: c.$1,
+                  amount: c.$4,
+                  max: _categories.first.$4,
                 ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                "You're nearly there. Organizing these items helps us calculate your net worth precisely.",
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-              const SizedBox(height: 18),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: _brand,
-                ),
-                onPressed: () {},
-                child: const Text('Review Summary'),
               ),
             ],
           ),
@@ -3873,34 +3976,202 @@ class _BudgetPageState extends State<BudgetPage> {
 class GoalsPage extends StatelessWidget {
   const GoalsPage({super.key});
 
+  static const _allGoals = [
+    ('Trip to Lisbon', '✈️', 640.0, 2000.0, 32, _purple),
+    ('New laptop', '💻', 900.0, 1500.0, 60, _brand),
+    ('Emergency fund', '🚨', 1200.0, 3000.0, 40, _red),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
-        Text(
-          'Goals',
-          style: TextStyle(
-            color: _title,
-            fontSize: 34,
-            fontWeight: FontWeight.w900,
+        const PageHeader(eyebrow: "WHAT YOU'RE SAVING FOR", title: 'Goals'),
+        const SizedBox(height: 20),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Featured goal card
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 100, 20),
+                decoration: BoxDecoration(
+                  color: _purple,
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ALMOST THERE!',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(.7),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Text('☕ ', style: TextStyle(fontSize: 20)),
+                            Text(
+                              'Coffee fund',
+                              style: GoogleFonts.fredoka(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        RichText(
+                          text: TextSpan(
+                            children: [
+                              TextSpan(
+                                text: '₱205',
+                                style: GoogleFonts.nunito(
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              TextSpan(
+                                text: ' / ₱250',
+                                style: GoogleFonts.nunito(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white.withOpacity(.65),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: .82,
+                            minHeight: 8,
+                            color: Colors.white,
+                            backgroundColor: Colors.white.withOpacity(.25),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '₱45 to go · 🐢 you got this',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(.8),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Shellby mascot on the right
+                    Positioned(
+                      right: -80,
+                      bottom: -12,
+                      child: SizedBox(
+                        width: 90,
+                        height: 90,
+                        child: Image.asset(
+                          'assets/images/shellby_wave.webp',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'All goals',
+                style: GoogleFonts.fredoka(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  color: _title,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ..._allGoals.map(
+                (g) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              g.$2,
+                              style: const TextStyle(fontSize: 18),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                g.$1,
+                                style: const TextStyle(
+                                  color: _title,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${g.$5}%',
+                              style: TextStyle(
+                                color: g.$6,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: g.$5 / 100,
+                            minHeight: 8,
+                            color: g.$6,
+                            backgroundColor: g.$6.withOpacity(.12),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text(
+                              '₱${g.$3.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                color: _title,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              'of ₱${g.$4.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                color: _body,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ),
-        SizedBox(height: 18),
-        GoalCard(
-          title: 'Emergency Shield',
-          description: 'Primary path selected during onboarding',
-          progress: 95,
-          icon: Icons.shield_rounded,
-          tag: 'Primary',
-        ),
-        SizedBox(height: 12),
-        GoalCard(
-          title: 'Aggressive Growth',
-          description: 'Alternative higher-risk route',
-          progress: 65,
-          icon: Icons.trending_up_rounded,
-          tag: 'Explore',
         ),
       ],
     );
@@ -3910,73 +4181,162 @@ class GoalsPage extends StatelessWidget {
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
+  static const _settings = [
+    ('Notifications', Icons.notifications_outlined, 'On'),
+    ('Privacy & security', Icons.shield_outlined, ''),
+    ('Linked accounts', Icons.credit_card_outlined, '3'),
+    ('Appearance', Icons.palette_outlined, 'Light'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.only(bottom: 24),
       children: [
-        Text('Profile', style: Theme.of(context).textTheme.headlineLarge),
+        const PageHeader(eyebrow: 'PROFILE', title: 'You'),
         const SizedBox(height: 20),
-        AppCard(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const CircleAvatar(
-                radius: 34,
-                backgroundColor: _bellySoft,
-                child: Text(
-                  'F',
-                  style: TextStyle(
-                    color: _brand,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 30,
-                  ),
+              AppCard(
+                child: Column(
+                  children: [
+                    // Shellby avatar
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: const BoxDecoration(
+                        color: _bellySoft,
+                        shape: BoxShape.circle,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/images/shellby_wave.webp',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Felix Rivera',
+                      style: GoogleFonts.fredoka(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: _title,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Saving since Jan 2025',
+                      style: TextStyle(
+                        color: _body,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileStatTile(
+                            emoji: '🔥',
+                            value: '7',
+                            label: 'streak',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ProfileStatTile(
+                            emoji: '🎯',
+                            value: '${state.healthScore.round()}',
+                            label: 'health',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ProfileStatTile(
+                            emoji: '💰',
+                            value: '₱320',
+                            label: 'saved',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              const Text(
-                'Felix',
-                style: TextStyle(
-                  color: _title,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
+              const SizedBox(height: 24),
               Text(
-                [
-                  if (state.occupation.isNotEmpty) state.occupation,
-                  state.industry,
-                  if (state.age.isNotEmpty) state.age,
-                  state.location,
-                ].join(' - '),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _body,
+                'Settings',
+                style: GoogleFonts.fredoka(
+                  fontSize: 22,
                   fontWeight: FontWeight.w600,
+                  color: _title,
                 ),
               ),
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(
-                    child: ProfileStat(
-                      label: 'Confidence',
-                      value: state.confidence.round().toString(),
-                    ),
-                  ),
-                  Expanded(
-                    child: ProfileStat(
-                      label: 'Anxiety',
-                      value: state.anxiety.round().toString(),
-                    ),
-                  ),
-                  Expanded(
-                    child: ProfileStat(
-                      label: 'Health',
-                      value: state.healthScore.round().toString(),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              AppCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: _settings.asMap().entries.map((e) {
+                    final s = e.value;
+                    final isLast = e.key == _settings.length - 1;
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 16,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: _bellySoft,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(s.$2, color: _purple, size: 20),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Text(
+                                  s.$1,
+                                  style: const TextStyle(
+                                    color: _title,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              if (s.$3.isNotEmpty)
+                                Text(
+                                  s.$3,
+                                  style: const TextStyle(
+                                    color: _body,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: _body,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!isLast)
+                          const Divider(
+                            height: 1,
+                            color: _border,
+                            indent: 70,
+                          ),
+                      ],
+                    );
+                  }).toList(),
+                ),
               ),
             ],
           ),
@@ -3985,6 +4345,592 @@ class ProfilePage extends StatelessWidget {
     );
   }
 }
+
+// ─── Activity page ────────────────────────────────────────────────────────────
+
+class _TxData {
+  const _TxData(this.name, this.category, this.amount, this.icon, this.color);
+  final String name;
+  final String category;
+  final double amount;
+  final IconData icon;
+  final Color color;
+}
+
+class ActivityPage extends StatefulWidget {
+  const ActivityPage({super.key});
+
+  @override
+  State<ActivityPage> createState() => _ActivityPageState();
+}
+
+class _ActivityPageState extends State<ActivityPage> {
+  String _filter = 'All';
+
+  static const _filters = ['All', 'Income', 'Food', 'Bills', 'Fun'];
+
+  static const _groups = [
+    (
+      'TODAY',
+      [
+        _TxData('Blue Bottle', 'Food & drink', -5.40, Icons.coffee_rounded, _brand),
+        _TxData('Uniqlo', 'Shopping', -39.90, Icons.shopping_bag_rounded, Color(0xFFEE7E9C)),
+      ],
+    ),
+    (
+      'YESTERDAY',
+      [
+        _TxData('Payday', 'Income', 2100.00, Icons.arrow_downward_rounded, _purple),
+        _TxData('Electric bill', 'Bills', -64.00, Icons.bolt_rounded, _amber),
+        _TxData('Metro card', 'Transport', -20.00, Icons.directions_bus_rounded, Color(0xFF6AA8F0)),
+      ],
+    ),
+    (
+      'MAY 28',
+      [
+        _TxData('Netflix', 'Subscription', -15.99, Icons.play_circle_rounded, _red),
+      ],
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PageHeader(eyebrow: 'EVERY MOVE', title: 'Activity'),
+        const SizedBox(height: 16),
+        // Filter chips
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            scrollDirection: Axis.horizontal,
+            itemCount: _filters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final active = _filter == _filters[i];
+              return GestureDetector(
+                onTap: () => setState(() => _filter = _filters[i]),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: active ? _brand : _surface,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: active ? _brand : _border,
+                    ),
+                  ),
+                  child: Text(
+                    _filters[i],
+                    style: TextStyle(
+                      color: active ? Colors.white : _title,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            children: _groups.map((group) {
+              final rows = group.$2;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group.$1,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  AppCard(
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: rows.asMap().entries.map((e) {
+                        final tx = e.value;
+                        final isLast = e.key == rows.length - 1;
+                        return Column(
+                          children: [
+                            _ActivityRow(data: tx),
+                            if (!isLast)
+                              const Divider(
+                                height: 1,
+                                color: _border,
+                                indent: 70,
+                              ),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.data});
+  final _TxData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final positive = data.amount > 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: data.color.withOpacity(.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(data.icon, color: data.color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.name,
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  data.category,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '${positive ? '+' : ''}₱${data.amount.abs().toStringAsFixed(2)}',
+            style: TextStyle(
+              color: positive ? _green : _red,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Dashboard helper widgets ──────────────────────────────────────────────────
+
+class _MiniBarChart extends StatelessWidget {
+  const _MiniBarChart();
+
+  @override
+  Widget build(BuildContext context) {
+    const heights = [0.55, 0.65, 0.50, 0.75, 0.85, 0.80, 1.0];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: heights.map((h) {
+        final isLast = h == 1.0;
+        return Padding(
+          padding: const EdgeInsets.only(left: 3),
+          child: Container(
+            width: 7,
+            height: 40 * h,
+            decoration: BoxDecoration(
+              color: isLast ? _brand : _brand.withOpacity(.28),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _MiniStatCard extends StatelessWidget {
+  const _MiniStatCard({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+    required this.delta,
+  });
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+  final String delta;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: GoogleFonts.nunito(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: _title,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            delta,
+            style: const TextStyle(
+              color: _brand,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalProgressCard extends StatelessWidget {
+  const _GoalProgressCard({
+    required this.emoji,
+    required this.title,
+    required this.current,
+    required this.target,
+    required this.percent,
+    required this.color,
+  });
+  final String emoji;
+  final String title;
+  final double current;
+  final double target;
+  final int percent;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                '$percent%',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: percent / 100,
+              minHeight: 8,
+              color: color,
+              backgroundColor: color.withOpacity(.12),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                '₱${current.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'of ₱${target.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  color: _body,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryRow extends StatelessWidget {
+  const _CategoryRow({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.amount,
+    required this.max,
+  });
+  final IconData icon;
+  final Color color;
+  final String label;
+  final double amount;
+  final double max;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withOpacity(.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: _title,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '₱${amount.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        color: _title,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: amount / max,
+                    minHeight: 6,
+                    color: color,
+                    backgroundColor: color.withOpacity(.12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileStatTile extends StatelessWidget {
+  const _ProfileStatTile({
+    required this.emoji,
+    required this.value,
+    required this.label,
+  });
+  final String emoji;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 22)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.nunito(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _title,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Shared page header ────────────────────────────────────────────────────────
+
+class PageHeader extends StatelessWidget {
+  const PageHeader({super.key, required this.eyebrow, required this.title});
+  final String eyebrow;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  eyebrow,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          const _StreakBadge(streak: 7),
+          const SizedBox(width: 8),
+          const _ShellbyAvatar(),
+        ],
+      ),
+    );
+  }
+}
+
+class _StreakBadge extends StatelessWidget {
+  const _StreakBadge({required this.streak});
+  final int streak;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('🔥', style: TextStyle(fontSize: 14)),
+          const SizedBox(width: 4),
+          Text(
+            '$streak',
+            style: const TextStyle(
+              color: _title,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShellbyAvatar extends StatelessWidget {
+  const _ShellbyAvatar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: const BoxDecoration(
+        color: _bellySoft,
+        shape: BoxShape.circle,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Image.asset(
+        'assets/images/shellby_wave.webp',
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class PrepInfoCard extends StatelessWidget {
   const PrepInfoCard({
@@ -4470,7 +5416,7 @@ class StepProgress extends StatelessWidget {
   }
 }
 
-class PrimaryButton extends StatelessWidget {
+class PrimaryButton extends StatefulWidget {
   const PrimaryButton({
     super.key,
     required this.label,
@@ -4485,37 +5431,76 @@ class PrimaryButton extends StatelessWidget {
   final bool enabled;
 
   @override
+  State<PrimaryButton> createState() => _PrimaryButtonState();
+}
+
+class _PrimaryButtonState extends State<PrimaryButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 58,
-      child: FilledButton(
-        onPressed: enabled ? onPressed : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: _brand,
-          disabledBackgroundColor: _brand.withOpacity(.25),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
+    final active = widget.enabled;
+    final pressed = _pressed && active;
+    return GestureDetector(
+      onTapDown: active ? (_) => setState(() => _pressed = true) : null,
+      onTapUp: active ? (_) => setState(() => _pressed = false) : null,
+      onTapCancel: active ? () => setState(() => _pressed = false) : null,
+      onTap: active ? widget.onPressed : null,
+      child: SizedBox(
+        width: double.infinity,
+        height: 62,
+        child: Stack(
           children: [
-            Flexible(
-              child: Text(
-                label,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
+            // 3D ledge — visible only when not pressed and active
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                height: 58,
+                decoration: BoxDecoration(
+                  color: active ? _pressGreen : Colors.transparent,
+                  borderRadius: BorderRadius.circular(18),
                 ),
               ),
             ),
-            if (icon != null) ...[
-              const SizedBox(width: 10),
-              Icon(icon, size: 20),
-            ],
+            // Button face — slides down 4px on press
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 80),
+              curve: Curves.easeOut,
+              top: pressed ? 4 : 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                height: 58,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active ? _brand : _brand.withOpacity(.3),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.nunito(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    if (widget.icon != null) ...[
+                      const SizedBox(width: 10),
+                      Icon(widget.icon, size: 20, color: Colors.white),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -4593,11 +5578,16 @@ class AppCard extends StatelessWidget {
         color: _surface,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: _border),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black.withOpacity(.035),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: Color(0x142E1B47), // plum ink @ 8% opacity
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Color(0x0D2E1B47), // plum ink @ 5% opacity
+            blurRadius: 4,
+            offset: Offset(0, 2),
           ),
         ],
       ),
