@@ -41,6 +41,7 @@ const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
   defaultValue: 'gemini-2.5-flash',
 );
+const _onboardingPhaseTotal = 15;
 
 class ShellbyApp extends StatefulWidget {
   const ShellbyApp({super.key});
@@ -151,11 +152,16 @@ class _ShellbyAppState extends State<ShellbyApp> {
 }
 
 class AppState extends ChangeNotifier {
+  String name = '';
+  String email = '';
   String age = '';
   String occupation = '';
   String industry = 'Technology';
   String employmentStatus = 'Full-time';
   String incomeType = 'Fixed';
+  String incomeRhythm = 'Monthly';
+  String billsRhythm = 'Predictable dates';
+  String checkInRhythm = 'Weekly';
   String location = 'Urban';
   String responsibility = 'Mostly myself';
   String primaryConcern = 'Building emergency savings';
@@ -833,9 +839,10 @@ class WelcomeScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              const Spacer(),
               SizedBox(
-                width: 240,
-                height: 345,
+                width: 220,
+                height: 285,
                 child: Transform.translate(
                   offset: const Offset(-5, 0),
                   child: Image.asset(
@@ -847,29 +854,187 @@ class WelcomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                "Welcome! Let's prepare Shellby for you.",
+                'Shelby',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                      fontStyle: FontStyle.italic,
+                      fontSize: 48,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Your Finance friend',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 20,
+                  height: 1.35,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              PrimaryButton(
+                label: 'Create an account',
+                icon: Icons.person_add_alt_1_rounded,
+                onPressed: () =>
+                    _push(context, const PreparationContextScreen()),
+              ),
+              const SizedBox(height: 14),
+              SecondaryButton(
+                label: 'Login',
+                icon: Icons.login_rounded,
+                onPressed: () => _push(context, const LoginScreen()),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class LoginScreen extends StatelessWidget {
+  const LoginScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  onPressed: () => Navigator.maybePop(context),
+                  color: _brand,
+                  icon: const Icon(Icons.chevron_left_rounded, size: 34),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Center(
+                child: SizedBox(
+                  width: 150,
+                  height: 150,
+                  child: Image.asset(
+                    'assets/images/shellby_wave.webp',
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Welcome back',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                       fontStyle: FontStyle.italic,
                     ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               const Text(
-                "Build your financial path through careful reflection and expert AI guidance.",
+                'Log in and keep your money check-in rolling.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: _body,
-                  fontSize: 17,
+                  fontSize: 16,
                   height: 1.35,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 44),
-              PrimaryButton(
-                label: 'Get Started',
-                icon: Icons.arrow_forward_rounded,
-                onPressed: () =>
-                    _push(context, const PreparationOrientScreen()),
+              const SizedBox(height: 28),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: _surface,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _title.withOpacity(.08),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      decoration: inputDecoration('Email address').copyWith(
+                        prefixIcon: const Icon(
+                          Icons.mail_rounded,
+                          color: _body,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      decoration: inputDecoration('Password').copyWith(
+                        prefixIcon: const Icon(
+                          Icons.lock_rounded,
+                          color: _body,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () {},
+                        child: const Text(
+                          'Forgot password?',
+                          style: TextStyle(
+                            color: _purple,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    PrimaryButton(
+                      label: 'Login',
+                      icon: Icons.arrow_forward_rounded,
+                      onPressed: () =>
+                          _pushReplacement(context, const MainShell()),
+                    ),
+                    const SizedBox(height: 16),
+                    const _LoginDivider(),
+                    const SizedBox(height: 16),
+                    GoogleSignInButton(onPressed: () {}),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'New to Shelby?',
+                    style: TextStyle(
+                      color: _body,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        _push(context, const PreparationContextScreen()),
+                    child: const Text(
+                      'Create an account',
+                      style: TextStyle(
+                        color: _purple,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -879,6 +1044,91 @@ class WelcomeScreen extends StatelessWidget {
   }
 }
 
+class _LoginDivider extends StatelessWidget {
+  const _LoginDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      children: [
+        Expanded(child: Divider(color: _border, thickness: 1)),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'or',
+            style: TextStyle(
+              color: _body,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: _border, thickness: 1)),
+      ],
+    );
+  }
+}
+
+class GoogleSignInButton extends StatelessWidget {
+  const GoogleSignInButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 58,
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border, width: 2),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                'G',
+                style: GoogleFonts.nunito(
+                  color: _purple,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Sign in with Google',
+              style: TextStyle(
+                color: _title,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Preparation stage map:
+// Pre-onboarding: PreparationContextScreen, LifeContextScreen,
+// LifeRhythmScreen.
+// Orient: PreparationOrientScreen.
+// Invite: FinancialConcernScreen.
+// Surface: MotivationSurfaceScreen.
+// Specify: PsychBaselineScreen through PreparationCommitmentScreen.
 class PreparationOrientScreen extends StatefulWidget {
   const PreparationOrientScreen({super.key});
 
@@ -899,7 +1149,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
 
   void next() {
     if (index == _slides.length - 1) {
-      _push(context, const PreparationContextScreen());
+      _push(context, const FinancialConcernScreen());
       return;
     }
     controller.nextPage(
@@ -910,31 +1160,31 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
 
   static const _slides = [
     OrientationSlideData(
-      icon: Icons.route_rounded,
-      title: 'Your money path starts with a map.',
+      icon: Icons.flag_rounded,
+      title: 'Shelby helps you develop healthier financial habits.',
       body:
-          'Shellby helps you see your financial baseline before asking you to track anything.',
+          'He helps in making goals more attainable and handling money less stressful.',
       accent: _brand,
     ),
     OrientationSlideData(
-      icon: Icons.chat_bubble_rounded,
-      title: 'First, Shellby asks why.',
+      icon: Icons.insights_rounded,
+      title: 'It looks for useful patterns.',
       body:
-          'A goal works better when it comes from your own reason, not a random preset.',
+          'Shelby can help notice spending rhythms, savings gaps, debt pressure, and moments that affect your choices.',
       accent: _purple,
     ),
     OrientationSlideData(
-      icon: Icons.auto_graph_rounded,
-      title: 'Then we check if the goal fits.',
+      icon: Icons.lightbulb_rounded,
+      title: 'It shares gentle ideas.',
       body:
-          'Shellby compares your income, expenses, confidence, anxiety, and obligations before recommending a plan.',
+          'You may get simple prompts, goal ideas, and check-in suggestions that support the focus you choose.',
       accent: _amber,
     ),
     OrientationSlideData(
       icon: Icons.lock_rounded,
-      title: 'You choose what gets used.',
+      title: 'You stay in control.',
       body:
-          'Before collection begins, you decide what stays private, what can power AI, and what can be shared anonymously.',
+          'Shelby is not a bank, broker, or financial adviser. It will not move money, change device settings, read files, or collect data you do not approve.',
       accent: _red,
     ),
   ];
@@ -959,7 +1209,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
                   const Spacer(),
                   TextButton(
                     onPressed: () =>
-                        _push(context, const PreparationContextScreen()),
+                        _push(context, const FinancialConcernScreen()),
                     child: const Text(
                       'Skip',
                       style: TextStyle(
@@ -983,7 +1233,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
               OrientationDots(count: _slides.length, index: index),
               const SizedBox(height: 24),
               PrimaryButton(
-                label: isLast ? 'Set My Context' : 'Continue',
+                label: isLast ? 'Choose Focus' : 'Continue',
                 icon: Icons.arrow_forward_rounded,
                 onPressed: next,
               ),
@@ -1226,6 +1476,73 @@ class PreparationContextScreen extends StatefulWidget {
 }
 
 class _PreparationContextScreenState extends State<PreparationContextScreen> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final canContinue = state.name.isNotEmpty && state.email.isNotEmpty;
+    return OnboardingScaffold(
+      phase: 1,
+      title: 'Let Shelby know you.',
+      subtitle:
+          'Start with the basics so your check-ins can feel personal and easy to come back to.',
+      bottom: PrimaryButton(
+        label: 'Continue',
+        icon: Icons.arrow_forward_rounded,
+        enabled: canContinue,
+        onPressed: () => _push(context, const LifeContextScreen()),
+      ),
+      child: Column(
+        children: [
+          LabeledField(
+            label: 'Name',
+            icon: Icons.person_rounded,
+            child: TextField(
+              controller: nameController,
+              textInputAction: TextInputAction.next,
+              decoration: inputDecoration('What should Shelby call you?'),
+              onChanged: (value) => setState(() => state.name = value.trim()),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LabeledField(
+            label: 'Email',
+            icon: Icons.mail_rounded,
+            child: TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              decoration: inputDecoration('you@example.com'),
+              onChanged: (value) => setState(() => state.email = value.trim()),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const _LoginDivider(),
+          const SizedBox(height: 18),
+          GoogleSignInButton(onPressed: () {}),
+        ],
+      ),
+    );
+  }
+}
+
+class LifeContextScreen extends StatefulWidget {
+  const LifeContextScreen({super.key});
+
+  @override
+  State<LifeContextScreen> createState() => _LifeContextScreenState();
+}
+
+class _LifeContextScreenState extends State<LifeContextScreen> {
   final occupationController = TextEditingController();
 
   @override
@@ -1240,14 +1557,14 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
     final canContinue = state.age.isNotEmpty && state.occupation.isNotEmpty;
     return OnboardingScaffold(
       phase: 2,
-      title: 'Establish your context.',
+      title: 'What are you doing now?',
       subtitle:
-          'Shellby uses your life stage and obligations to avoid goals that look good on paper but do not fit real life.',
+          'Your work and life stage shape what feels doable. Shelby uses this to keep suggestions grounded in your real world.',
       bottom: PrimaryButton(
-        label: 'Choose Focus',
+        label: 'Map Money Rhythm',
         icon: Icons.arrow_forward_rounded,
         enabled: canContinue,
-        onPressed: () => _push(context, const FinancialConcernScreen()),
+        onPressed: () => _push(context, const LifeRhythmScreen()),
       ),
       child: Column(
         children: [
@@ -1311,7 +1628,35 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
                   setState(() => state.industry = value ?? state.industry),
             ),
           ),
-          const SizedBox(height: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class LifeRhythmScreen extends StatefulWidget {
+  const LifeRhythmScreen({super.key});
+
+  @override
+  State<LifeRhythmScreen> createState() => _LifeRhythmScreenState();
+}
+
+class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return OnboardingScaffold(
+      phase: 3,
+      title: 'How does money move for you?',
+      subtitle:
+          'Paydays, bills, shared responsibilities, and check-in habits all shape what Shelby should pay attention to.',
+      bottom: PrimaryButton(
+        label: 'See How Shelby Helps',
+        icon: Icons.arrow_forward_rounded,
+        onPressed: () => _push(context, const PreparationOrientScreen()),
+      ),
+      child: Column(
+        children: [
           LabeledField(
             label: 'Employment status',
             icon: Icons.badge_rounded,
@@ -1357,6 +1702,47 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
           ),
           const SizedBox(height: 18),
           LabeledField(
+            label: 'Income rhythm',
+            icon: Icons.event_repeat_rounded,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: ['Weekly', 'Twice a month', 'Monthly', 'Irregular']
+                  .map(
+                    (value) => CompactChoice(
+                      label: value,
+                      selected: state.incomeRhythm == value,
+                      onTap: () => setState(() => state.incomeRhythm = value),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LabeledField(
+            label: 'Bills rhythm',
+            icon: Icons.receipt_long_rounded,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                'Predictable dates',
+                'Scattered dates',
+                'Mostly automatic',
+                'Often surprise me',
+              ]
+                  .map(
+                    (value) => CompactChoice(
+                      label: value,
+                      selected: state.billsRhythm == value,
+                      onTap: () => setState(() => state.billsRhythm = value),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LabeledField(
             label: 'Financial responsibility',
             icon: Icons.family_restroom_rounded,
             child: Wrap(
@@ -1368,6 +1754,24 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
                       label: value,
                       selected: state.responsibility == value,
                       onTap: () => setState(() => state.responsibility = value),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LabeledField(
+            label: 'Money check-in rhythm',
+            icon: Icons.fact_check_rounded,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: ['Daily', 'Weekly', 'Monthly', 'Only when needed']
+                  .map(
+                    (value) => CompactChoice(
+                      label: value,
+                      selected: state.checkInRhythm == value,
+                      onTap: () => setState(() => state.checkInRhythm = value),
                     ),
                   )
                   .toList(),
@@ -1401,12 +1805,12 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
       ("I'm not sure yet", Icons.help_rounded),
     ];
     return OnboardingScaffold(
-      phase: 3,
-      title: 'What feels most important?',
+      phase: 4,
+      title: 'What brought you here today?',
       subtitle:
-          'Pick one starting focus. This is an invitation, not a permanent commitment.',
+          'Choose the money question you are most curious about right now. You can always change it later.',
       bottom: PrimaryButton(
-        label: 'Tell Shellby Why',
+        label: 'Tell Shelby Why',
         icon: Icons.arrow_forward_rounded,
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
@@ -1550,10 +1954,10 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     final hasReflection = state.reflectedMotivation.isNotEmpty;
     final canAnswer = !hasReflection && !loading;
     return OnboardingScaffold(
-      phase: 4,
-      title: 'Chat through your reason.',
+      phase: 5,
+      title: 'Tell Shelby what is behind it.',
       subtitle:
-          'Shellby asks follow-up questions based on what feels most important, then summarizes your motivation.',
+          'Share as much or as little as you want. Shelby will ask a few gentle follow-ups and reflect the heart of your goal back to you.',
       bottom: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1830,7 +2234,7 @@ class PsychBaselineScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 5,
+      phase: 6,
       title: 'Map your money mindset.',
       subtitle:
           'These scores help Shellby avoid advice that increases pressure or feels impossible to act on.',
@@ -1893,7 +2297,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 6,
+      phase: 7,
       title: 'Financial Scaffolding.',
       subtitle:
           'Quantify your economic standing for the financial pyramid health index.',
@@ -2195,7 +2599,7 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
       'Subscription creep',
     ];
     return OnboardingScaffold(
-      phase: 7,
+      phase: 8,
       title: 'Choose what Shellby tracks.',
       subtitle:
           'Preparation defines the variables before collection starts: what counts, what gets in the way, and what stays optional.',
@@ -2367,7 +2771,7 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
       ),
     ];
     return OnboardingScaffold(
-      phase: 8,
+      phase: 9,
       title: 'Specify a first goal.',
       subtitle:
           'Shellby uses your focus and reason to recommend one first goal. You can question it, modify it, or choose a common goal below.',
@@ -2545,7 +2949,7 @@ class GoalFeasibilityScreen extends StatelessWidget {
     final state = AppScope.of(context);
     final score = state.feasibilityScore.round();
     return OnboardingScaffold(
-      phase: 9,
+      phase: 10,
       title: 'Feasibility check.',
       subtitle:
           'A goal should be specific and challenging, but still realistic for your cash flow and confidence level.',
@@ -2607,7 +3011,7 @@ class PyramidPreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 10,
+      phase: 11,
       title: 'Preview your OT2 index.',
       subtitle:
           'This is Shellby’s first read on your financial pyramid before regular tracking begins.',
@@ -2687,7 +3091,7 @@ class _ConsentPrivacyScreenState extends State<ConsentPrivacyScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 11,
+      phase: 12,
       title: 'Choose data permissions.',
       subtitle:
           'Consent is tied to your goal. Essential data powers your plan; optional data expands AI and cooperative features.',
@@ -2775,7 +3179,7 @@ class _SocialStructureScreenState extends State<SocialStructureScreen> {
       ),
     ];
     return OnboardingScaffold(
-      phase: 12,
+      phase: 13,
       title: 'Set the social boundary.',
       subtitle:
           'Cooperative finance only works when the sharing structure is explicit before tracking starts.',
@@ -2812,7 +3216,7 @@ class PreparationCommitmentScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 13,
+      phase: 14,
       title: 'Your preparation contract.',
       subtitle:
           'Shellby reflects your own focus, goal, variables, consent, and sharing choices before collection begins.',
@@ -2869,7 +3273,7 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
             ? 'Record your first investment allocation'
             : 'Allocate your first emergency fund amount';
     return OnboardingScaffold(
-      phase: 13,
+      phase: 15,
       title: 'Begin collection.',
       subtitle:
           'The preparation stage is complete. Your first tracking action should directly support the goal you chose.',
@@ -5330,7 +5734,7 @@ class OnboardingScaffold extends StatelessWidget {
           padding: const EdgeInsets.all(22),
           child: Column(
             children: [
-              PhaseHeader(phase: phase, total: 13),
+              PhaseHeader(phase: phase, total: _onboardingPhaseTotal),
               const SizedBox(height: 28),
               Text(
                 title,
@@ -5501,6 +5905,58 @@ class _PrimaryButtonState extends State<PrimaryButton> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SecondaryButton extends StatelessWidget {
+  const SecondaryButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+  });
+
+  final String label;
+  final IconData? icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        height: 58,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: _bellySoft,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _belly, width: 2),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.nunito(
+                  color: _purple,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            if (icon != null) ...[
+              const SizedBox(width: 10),
+              Icon(icon, color: _purple, size: 20),
+            ],
           ],
         ),
       ),
