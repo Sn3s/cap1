@@ -338,6 +338,297 @@ class OrientationDots extends StatelessWidget {
   }
 }
 
+class GoalBranch {
+  const GoalBranch({
+    required this.layer,
+    required this.layerDescription,
+    required this.firstQuestion,
+    required this.icon,
+    required this.defaultGoalTitle,
+    required this.defaultGoalDescription,
+    required this.concerns,
+  });
+
+  final String layer;
+  final String layerDescription;
+  final String firstQuestion;
+  final IconData icon;
+  final String defaultGoalTitle;
+  final String defaultGoalDescription;
+  final List<GoalConcern> concerns;
+
+  GoalConcern closestConcern(String answer) {
+    final normalized = answer.toLowerCase();
+    GoalConcern best = concerns.first;
+    var bestScore = -1;
+    for (final concern in concerns) {
+      final score = concern.keywords
+          .where((keyword) => normalized.contains(keyword))
+          .length;
+      if (score > bestScore) {
+        best = concern;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+}
+
+class GoalConcern {
+  const GoalConcern({
+    required this.feltNeed,
+    required this.followUp,
+    required this.goalTitle,
+    required this.goalDescription,
+    required this.keywords,
+    required this.actionIds,
+    required this.backgroundEffect,
+    this.enableEmotionalLogs = false,
+    this.enableStressIndicators = false,
+  });
+
+  final String feltNeed;
+  final String followUp;
+  final String goalTitle;
+  final String goalDescription;
+  final List<String> keywords;
+  final List<String> actionIds;
+  final String backgroundEffect;
+  final bool enableEmotionalLogs;
+  final bool enableStressIndicators;
+}
+
+const _goalBranches = [
+  GoalBranch(
+    layer: 'Cash Flow & Basic Needs',
+    layerDescription:
+        'Get clear on income, spending, bills, and what has to be covered each month.',
+    firstQuestion: 'What is your biggest struggle with day-to-day spending?',
+    icon: Icons.account_balance_wallet_rounded,
+    defaultGoalTitle: 'Cash Flow Stability Plan',
+    defaultGoalDescription:
+        'Map income, fixed costs, and spending patterns so your monthly budget has a clear baseline.',
+    concerns: [
+      GoalConcern(
+        feltNeed: 'I just forget to track my expenses.',
+        followUp:
+            'How often would tracking feel realistic for you: daily, weekly, or every payday?',
+        goalTitle: 'Expense Tracking Routine',
+        goalDescription:
+            'Set up a simple expense tracking routine with reminders matched to your check-in rhythm.',
+        keywords: ['forget', 'track', 'expense', 'logging', 'reminder'],
+        actionIds: ['ACT3'],
+        backgroundEffect:
+            'Activates ACT3 tracking and sets up reminders based on the user check-in rhythm.',
+      ),
+      GoalConcern(
+        feltNeed: 'I buy things impulsively when I am stressed or bored.',
+        followUp:
+            'What usually comes right before the impulse purchase: stress, boredom, social pressure, ads, or wanting a quick reward?',
+        goalTitle: 'Emotional Spending Log',
+        goalDescription:
+            'Track spending alongside mood tags so Shelby can spot emotional spending patterns.',
+        keywords: ['impulse', 'stress', 'bored', 'emotion', 'trigger'],
+        actionIds: ['ACT3', 'ACT5'],
+        backgroundEffect:
+            'Activates ACT3 tracking and ACT5 emotional logs for spending-trigger insights.',
+        enableEmotionalLogs: true,
+      ),
+      GoalConcern(
+        feltNeed: 'My income changes every month, making it hard to plan.',
+        followUp:
+            'In a low-income month, what amount can you usually rely on, and which bills must be protected first?',
+        goalTitle: 'Irregular Income Buffer',
+        goalDescription:
+            'Create a hill-and-valley budget that plans from lower-income months instead of a fixed average.',
+        keywords: ['income', 'changes', 'irregular', 'variable', 'freelance'],
+        actionIds: ['ACT6'],
+        backgroundEffect:
+            'Activates ACT6 plan adjustments and switches the budget formula for irregular income.',
+      ),
+    ],
+  ),
+  GoalBranch(
+    layer: 'Financial Safety',
+    layerDescription:
+        'Build protection against surprise expenses, bill panic, and dipping into emergency money.',
+    firstQuestion: 'What stops you from keeping an emergency fund?',
+    icon: Icons.shield_rounded,
+    defaultGoalTitle: 'Emergency Cushion',
+    defaultGoalDescription:
+        'Build a practical safety buffer sized around your real bills and essential living costs.',
+    concerns: [
+      GoalConcern(
+        feltNeed: 'I always end up spending my savings on regular things.',
+        followUp:
+            'When you dip into savings, is it usually for bills, groceries, social plans, emergencies, or impulse purchases?',
+        goalTitle: 'Safety Shield Boundary',
+        goalDescription:
+            'Ring-fence emergency savings and add alerts when regular spending starts pulling from it.',
+        keywords: ['spending', 'savings', 'regular', 'dip', 'withdraw'],
+        actionIds: ['ACT2'],
+        backgroundEffect:
+            'Activates ACT2 goal boundaries and warning prompts for emergency fund withdrawals.',
+      ),
+      GoalConcern(
+        feltNeed: 'Unexpected bills constantly surprise and stress me out.',
+        followUp:
+            'Which bills create the most panic, and are they hard because of timing, amount, or surprise charges?',
+        goalTitle: 'Bill Calm Buffer',
+        goalDescription:
+            'Build a chronological bill buffer that lowers anxiety around upcoming due dates.',
+        keywords: ['bill', 'panic', 'stress', 'surprise', 'unexpected'],
+        actionIds: ['ACT5'],
+        backgroundEffect:
+            'Activates ACT5 insights and the financial anxiety score tracker.',
+        enableStressIndicators: true,
+      ),
+      GoalConcern(
+        feltNeed: 'I want to save, but I struggle to do it consistently.',
+        followUp:
+            'Would an automatic savings rule feel better as a percentage of payday income or a fixed peso amount?',
+        goalTitle: 'Payday Safety Sweep',
+        goalDescription:
+            'Set up a payday savings rule that builds the emergency cushion before the money blends into spending.',
+        keywords: ['save', 'consistent', 'struggle', 'automatic', 'payday'],
+        actionIds: ['ACT2'],
+        backgroundEffect:
+            'Activates ACT2 goal targets and suggests an automatic savings percentage every payday.',
+      ),
+    ],
+  ),
+  GoalBranch(
+    layer: 'Accumulating Wealth',
+    layerDescription:
+        'Move from staying afloat to reducing debt, saving consistently, and starting long-term growth.',
+    firstQuestion: 'Where should the app focus to help grow your wealth?',
+    icon: Icons.trending_up_rounded,
+    defaultGoalTitle: 'Net Worth Growth Plan',
+    defaultGoalDescription:
+        'Balance debt reduction, regular saving, and starter investing into one trackable plan.',
+    concerns: [
+      GoalConcern(
+        feltNeed: 'I need a clear plan to aggressively pay off my debts.',
+        followUp:
+            'Which debt should Shelby look at first, and do you care more about lowering interest, monthly pressure, or total payoff time?',
+        goalTitle: 'Debt Payoff Map',
+        goalDescription:
+            'Map a debt snowball or avalanche path so balances start moving in a visible direction.',
+        keywords: ['debt', 'pay', 'payoff', 'aggressive', 'loan'],
+        actionIds: ['ACT2'],
+        backgroundEffect:
+            'Activates ACT2 goal targets and the debt repayment target calculator.',
+      ),
+      GoalConcern(
+        feltNeed: 'I want to invest, but I am afraid of losing money.',
+        followUp:
+            'What would make investing feel safer: learning first, starting tiny, seeing simulations, or avoiding volatile choices?',
+        goalTitle: 'Starter Investing Confidence',
+        goalDescription:
+            'Pair a risk comfort check with a conservative first investing habit and simple growth simulation.',
+        keywords: ['invest', 'market', 'risk', 'afraid', 'losing'],
+        actionIds: ['ACT5'],
+        backgroundEffect:
+            'Activates ACT5 insights and triggers a risk tolerance questionnaire path.',
+      ),
+      GoalConcern(
+        feltNeed: 'I tend to spend more money whenever I get a raise.',
+        followUp:
+            'When your income rises, what grows first: rent, subscriptions, shopping, eating out, travel, or family support?',
+        goalTitle: 'Lifestyle Creep Monitor',
+        goalDescription:
+            'Monitor fixed expenses and spending creep when income changes so wealth gains do not disappear.',
+        keywords: ['raise', 'spend more', 'income', 'lifestyle', 'creep'],
+        actionIds: ['ACT6'],
+        backgroundEffect:
+            'Activates ACT6 adjustments and monitors fixed expenses to prevent lifestyle inflation.',
+      ),
+    ],
+  ),
+  GoalBranch(
+    layer: 'Financial Freedom',
+    layerDescription:
+        'Plan future milestones, shared goals, and guilt-free experiences without weakening your foundation.',
+    firstQuestion: 'How do you want to save for your big life milestones?',
+    icon: Icons.flag_rounded,
+    defaultGoalTitle: 'Future Lifestyle Fund',
+    defaultGoalDescription:
+        'Create milestone buckets for meaningful plans while protecting essential money and safety buffers.',
+    concerns: [
+      GoalConcern(
+        feltNeed:
+            'I am trying to save for multiple big things at the same time.',
+        followUp:
+            'Which milestone should come first: home, wedding, school, family support, travel, business, or something else?',
+        goalTitle: 'Milestone Bucket Plan',
+        goalDescription:
+            'Separate big goals into trackable buckets with target amounts, dates, and monthly contributions.',
+        keywords: ['multiple', 'big', 'home', 'wedding', 'school'],
+        actionIds: ['ACT2'],
+        backgroundEffect:
+            'Activates ACT2 goal targets and creates independent savings buckets with separate target dates.',
+      ),
+      GoalConcern(
+        feltNeed: 'I am saving for these milestones together with a partner.',
+        followUp:
+            'What do you need to align on first: target amount, timeline, contribution split, privacy, or spending priorities?',
+        goalTitle: 'Shared Future Alignment',
+        goalDescription:
+            'Prepare a collaborative goal with clear visibility, permissions, and shared progress tracking.',
+        keywords: ['partner', 'together', 'shared', 'align', 'collaborate'],
+        actionIds: ['ACT4'],
+        backgroundEffect:
+            'Activates ACT4 collaboration and opens account sharing options with privacy controls.',
+      ),
+      GoalConcern(
+        feltNeed:
+            'I want to spend money on travel and hobbies without feeling guilty.',
+        followUp:
+            'What kind of experience would you like to enjoy without guilt, and how often would feel reasonable?',
+        goalTitle: 'Guilt-Free Experience Fund',
+        goalDescription:
+            'Set aside a clear experience fund so joy spending is planned, visible, and separate from essentials.',
+        keywords: ['travel', 'hobby', 'guilty', 'fun', 'spend'],
+        actionIds: ['ACT5'],
+        backgroundEffect:
+            'Activates ACT5 insights and calculates how much fun money is safe to spend.',
+      ),
+    ],
+  ),
+];
+
+GoalBranch _branchForLayer(String layer) {
+  return _goalBranches.firstWhere(
+    (branch) => branch.layer == layer,
+    orElse: () => _goalBranches.first,
+  );
+}
+
+double _monthlyTargetForConcern(AppState state, GoalConcern concern) {
+  return switch (concern.goalTitle) {
+    'Expense Tracking Routine' => 0,
+    'Irregular Income Buffer' => math.max(500, state.expenses * .15),
+    'Emotional Spending Log' => 0,
+    'Buffer Duration Goal' => math.max(500, state.expenses / 6),
+    'Bill Calm Buffer' => math.max(300, state.expenses * .1),
+    'Safety Shield Boundary' => math.max(500, state.expenses / 6),
+    'Payday Safety Sweep' => math.max(500, state.expenses / 6),
+    'Debt Payoff Map' => math.max(400, state.debtPayments * .8),
+    'Starter Investing Confidence' => math.max(500, state.income * .08),
+    'Lifestyle Creep Monitor' => 0,
+    'Milestone Bucket Plan' => math.max(500, state.income * .1),
+    'Guilt-Free Experience Fund' => math.max(300, state.income * .05),
+    'Shared Future Alignment' => math.max(500, state.income * .08),
+    _ => 0,
+  };
+}
+
+String _reflectionForConcern(GoalConcern concern, String detail) {
+  final trimmed = detail.trim();
+  final extra = trimmed.isEmpty ? '' : ' You added: "$trimmed"';
+  return '${concern.goalDescription} Shelby will start with ${concern.goalTitle.toLowerCase()} because it is specific, trackable, and realistic to configure in the app. ${concern.backgroundEffect}$extra';
+}
+
 class PreparationContextScreen extends StatefulWidget {
   const PreparationContextScreen({super.key});
 
@@ -473,7 +764,10 @@ class _PreparationCredentialsScreenState
           GoogleSignInButton(
             busy: busy,
             onPressed: () => _runAuth(
-              (state) => state.signInWithGoogle(saveAfterSignIn: false),
+              (state) => state.signInWithGoogle(
+                saveAfterSignIn: false,
+                forceFreshGoogleSession: true,
+              ),
             ),
           ),
         ],
@@ -741,36 +1035,33 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final options = const [
-      ('Building emergency savings', Icons.shield_rounded),
-      ('Managing debt', Icons.credit_score_rounded),
-      ('Controlling spending', Icons.shopping_bag_rounded),
-      ('Starting investments', Icons.trending_up_rounded),
-      ('Planning a big purchase', Icons.flag_rounded),
-      ('Reducing financial anxiety', Icons.self_improvement_rounded),
-      ('Comparing with peers', Icons.groups_rounded),
-      ("I'm not sure yet", Icons.help_rounded),
-    ];
     return OnboardingScaffold(
       phase: 4,
       title: 'What brought you here today?',
       subtitle:
-          'Choose the money question you are most curious about right now. You can always change it later.',
+          'Choose the layer that best matches what you want Shelby to help with first.',
       bottom: PrimaryButton(
         label: 'Tell Shelby Why',
         icon: Icons.arrow_forward_rounded,
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
       child: Column(
-        children: options
+        children: _goalBranches
             .map(
-              (option) => Padding(
+              (branch) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: SelectableOption(
-                  icon: option.$2,
-                  title: option.$1,
-                  selected: state.primaryConcern == option.$1,
-                  onTap: () => setState(() => state.primaryConcern = option.$1),
+                  icon: branch.icon,
+                  title: branch.layer,
+                  body: branch.layerDescription,
+                  selected: state.primaryConcern == branch.layer,
+                  onTap: () => setState(() {
+                    state.primaryConcern = branch.layer;
+                    state.choosePresetGoal(
+                      branch.defaultGoalTitle,
+                      branch.defaultGoalDescription,
+                    );
+                  }),
                 ),
               ),
             )
@@ -796,6 +1087,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   bool seeded = false;
   bool loading = false;
   String error = '';
+  GoalBranch? activeBranch;
+  GoalConcern? activeConcern;
+  int detailAnswerCount = 0;
 
   @override
   void dispose() {
@@ -809,7 +1103,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     super.didChangeDependencies();
     if (seeded) return;
     final concern = AppScope.of(context).primaryConcern;
-    messages.add(ChatMessage(false, _firstQuestionFor(concern)));
+    activeBranch = _branchForLayer(concern);
+    messages.add(ChatMessage(false, activeBranch!.firstQuestion));
     seeded = true;
   }
 
@@ -820,11 +1115,48 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
 
     setState(() {
       error = '';
-      loading = true;
       messages.add(ChatMessage(true, answer));
       controller.clear();
     });
     _scrollToBottom();
+
+    final branch = activeBranch ?? _branchForLayer(state.primaryConcern);
+    final concern = activeConcern ?? branch.closestConcern(answer);
+    activeConcern = concern;
+
+    if (value != null || detailAnswerCount == 0) {
+      detailAnswerCount = 1;
+      state.setRecommendedGoal(
+        title: concern.goalTitle,
+        description: concern.goalDescription,
+        monthlyTarget: _monthlyTargetForConcern(state, concern),
+      );
+      state.configureGoalActions(
+        actionIds: concern.actionIds,
+        enableEmotionalLogs: concern.enableEmotionalLogs,
+        enableStressIndicators: concern.enableStressIndicators,
+      );
+      setState(() {
+        messages.add(ChatMessage(false, concern.followUp));
+      });
+      _scrollToBottom();
+      return;
+    }
+
+    detailAnswerCount += 1;
+    final summary = _reflectionForConcern(concern, answer);
+    state.setMotivation(summary);
+    setState(() {
+      messages.add(ChatMessage(false, summary));
+    });
+    _scrollToBottom();
+  }
+
+  Future<void> sendAiAnswer(String answer) async {
+    final state = AppScope.of(context);
+    setState(() {
+      loading = true;
+    });
 
     try {
       final userAnswerCount =
@@ -897,7 +1229,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final chips = _chipsForConcern(state.primaryConcern);
+    final branch = activeBranch ?? _branchForLayer(state.primaryConcern);
+    final chips = branch.concerns.map((concern) => concern.feltNeed).toList();
     final hasReflection = state.reflectedMotivation.isNotEmpty;
     final canAnswer = !hasReflection && !loading;
     return OnboardingScaffold(
@@ -934,10 +1267,10 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
         children: [
           if (!coach.isConfigured) ...[
             const PrepInfoCard(
-              icon: Icons.key_rounded,
-              title: 'Live AI setup needed',
+              icon: Icons.chat_bubble_rounded,
+              title: 'Guided chat is ready',
               body:
-                  'Run Shellby with Ollama or Gemini enabled to use this chatbot. API keys are not stored in source code.',
+                  'Suggested replies use Shelby’s built-in decision flow. Your typed answer can still be matched to the closest path.',
             ),
             const SizedBox(height: 14),
           ],
@@ -1039,67 +1372,11 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     );
   }
 
-  String _firstQuestionFor(String concern) {
-    return switch (concern) {
-      'Building emergency savings' =>
-        'What do you want an emergency fund to protect you from, and why would that matter to you?',
-      'Managing debt' =>
-        'When you think about your debt, what feels most important to change first: stress, cash flow, due dates, or the total balance?',
-      'Controlling spending' =>
-        'Which spending pattern would you most want to change, and what would feel better if you changed it?',
-      'Starting investments' =>
-        'What makes investing feel important now, and what would you want it to help you build toward?',
-      'Planning a big purchase' =>
-        'What purchase are you preparing for, and why does it matter at this stage of your life?',
-      'Reducing financial anxiety' =>
-        'When does money anxiety show up most, and what would feeling more in control look like for you?',
-      'Comparing with peers' =>
-        'What do you hope peer comparison will help you understand, and what kind of comparison would actually feel useful?',
-      _ =>
-        'What made you open Shellby now, even if you are not sure which financial goal to choose yet?',
-    };
-  }
-
   String _nextGoalDiscoveryQuestion(String concern, int userAnswerCount) {
-    if (userAnswerCount == 1) {
-      return switch (concern) {
-        'Building emergency savings' =>
-          'For your first milestone, would one month of essential expenses, three months, or a specific peso amount feel like the right target?',
-        'Managing debt' =>
-          'Which first debt target would feel most useful: lowering one balance, reducing monthly payments, or getting current on due dates?',
-        'Controlling spending' =>
-          'What first reduction target would feel realistic: cutting that category by 10%, setting a peso limit, or another amount?',
-        'Starting investments' =>
-          'What first investing milestone would feel realistic: a small monthly habit, a starter fund amount, or learning enough to feel confident?',
-        'Planning a big purchase' =>
-          'How much do you think this purchase will cost, or what rough price range should Shellby plan around?',
-        'Reducing financial anxiety' =>
-          'What would be a concrete sign that money feels calmer: checking balances weekly, having a buffer, paying bills earlier, or something else?',
-        'Comparing with peers' =>
-          'What specific comparison would help you most: savings rate, emergency fund months, debt load, spending categories, or income range?',
-        _ =>
-          'What first result would make Shellby feel useful to you: more savings, less debt stress, clearer spending, or a specific purchase plan?',
-      };
-    }
-
-    return switch (concern) {
-      'Building emergency savings' =>
-        'By when would you want to reach that first emergency fund milestone, and about how much could you set aside each month?',
-      'Managing debt' =>
-        'What timeframe would feel realistic for that first debt target, and how much extra could you put toward it each month?',
-      'Controlling spending' =>
-        'When would you want to see that spending change, and what habit or limit would make it realistic?',
-      'Starting investments' =>
-        'How soon would you want to start, and what monthly amount would feel sustainable while keeping your essentials covered?',
-      'Planning a big purchase' =>
-        'When would you like to make the purchase, and how much could you comfortably save for it each month?',
-      'Reducing financial anxiety' =>
-        'Over the next month, what small routine would feel realistic enough to lower that anxiety without overwhelming you?',
-      'Comparing with peers' =>
-        'How often would you want to review that comparison, and what boundary would keep it useful instead of stressful?',
-      _ =>
-        'What timeframe and monthly effort would feel realistic for that first result?',
-    };
+    final branch = _branchForLayer(concern);
+    return userAnswerCount <= 1
+        ? branch.concerns.first.followUp
+        : 'What monthly action would feel realistic enough to start with?';
   }
 
   bool _acceptsSuggestedDirection(String answer) {
@@ -1126,51 +1403,6 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       'that target',
     ];
     return acceptancePhrases.any(normalized.contains);
-  }
-
-  List<String> _chipsForConcern(String concern) {
-    return switch (concern) {
-      'Building emergency savings' => [
-          'Medical or family emergencies',
-          'Job uncertainty',
-          'I want peace of mind',
-        ],
-      'Managing debt' => [
-          'Due dates overwhelm me',
-          'Interest worries me',
-          'I want a payoff plan',
-        ],
-      'Controlling spending' => [
-          'I keep overspending',
-          'Social plans get expensive',
-          'Subscriptions pile up',
-        ],
-      'Starting investments' => [
-          'I want to start early',
-          'I am scared to invest alone',
-          'I need a safe first step',
-        ],
-      'Planning a big purchase' => [
-          'I need a realistic timeline',
-          'I do not want debt',
-          'This purchase matters to my family',
-        ],
-      'Reducing financial anxiety' => [
-          'I avoid checking balances',
-          'Small losses stress me out',
-          'I want to feel in control',
-        ],
-      'Comparing with peers' => [
-          'I want to know what is normal',
-          'I feel behind',
-          'I want anonymous benchmarks',
-        ],
-      _ => [
-          'I want stability',
-          'I feel behind my peers',
-          'Unexpected expenses scare me',
-        ],
-    };
   }
 }
 
@@ -1698,23 +1930,13 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final goals = [
-      (
-        'Emergency Shield',
-        'Build a 3-month emergency buffer in the next 12 months.',
-        Icons.shield_rounded,
-      ),
-      (
-        'Debt Reset',
-        'Reduce high-pressure debt while protecting basic cash flow.',
-        Icons.credit_score_rounded,
-      ),
-      (
-        'Investment Starter',
-        'Create a first investing habit after savings and obligations are stable.',
-        Icons.trending_up_rounded,
-      ),
-    ];
+    final goals = _goalBranches
+        .expand(
+          (branch) => branch.concerns.map(
+            (concern) => (concern, branch.icon),
+          ),
+        )
+        .toList();
     return OnboardingScaffold(
       phase: 9,
       title: 'Specify a first goal.',
@@ -1854,13 +2076,23 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
             (goal) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: SelectableOption(
-                icon: goal.$3,
-                title: goal.$1,
-                body: goal.$2,
-                selected: state.selectedGoal == goal.$1,
-                onTap: () => setState(
-                  () => state.choosePresetGoal(goal.$1, goal.$2),
-                ),
+                icon: goal.$2,
+                title: goal.$1.goalTitle,
+                body: goal.$1.goalDescription,
+                selected: state.selectedGoal == goal.$1.goalTitle,
+                onTap: () => setState(() {
+                  state.choosePresetGoal(
+                    goal.$1.goalTitle,
+                    goal.$1.goalDescription,
+                  );
+                  state.selectedGoalMonthlyTarget =
+                      _monthlyTargetForConcern(state, goal.$1);
+                  state.configureGoalActions(
+                    actionIds: goal.$1.actionIds,
+                    enableEmotionalLogs: goal.$1.enableEmotionalLogs,
+                    enableStressIndicators: goal.$1.enableStressIndicators,
+                  );
+                }),
               ),
             ),
           ),
@@ -1870,20 +2102,22 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
   }
 
   String _fallbackTitle(String concern) {
-    return switch (concern) {
-      'Managing debt' => 'Debt Reset',
-      'Starting investments' => 'Investment Starter',
-      'Controlling spending' => 'Spending Clarity Sprint',
-      'Planning a big purchase' => 'Big Purchase Fund',
-      'Reducing financial anxiety' => 'Calm Money Check-in',
-      'Comparing with peers' => 'Peer Benchmark Baseline',
-      _ => 'Emergency Shield',
-    };
+    return _branchForLayer(concern).defaultGoalTitle;
   }
 
   String _fallbackDescription(AppState state) {
-    return 'Set aside ${money(state.requiredMonthlyContribution)} monthly toward ${state.primaryConcern.toLowerCase()} while keeping cash flow realistic.';
+    return _branchForLayer(state.primaryConcern).defaultGoalDescription;
   }
+}
+
+IconData _goalIconFor(String selectedGoal) {
+  for (final branch in _goalBranches) {
+    if (branch.defaultGoalTitle == selectedGoal ||
+        branch.concerns.any((concern) => concern.goalTitle == selectedGoal)) {
+      return branch.icon;
+    }
+  }
+  return Icons.flag_rounded;
 }
 
 class GoalFeasibilityScreen extends StatelessWidget {
@@ -1912,11 +2146,7 @@ class GoalFeasibilityScreen extends StatelessWidget {
             title: state.selectedGoal,
             description: state.selectedGoalDescription,
             progress: score,
-            icon: state.selectedGoal == 'Debt Reset'
-                ? Icons.credit_score_rounded
-                : state.selectedGoal == 'Investment Starter'
-                    ? Icons.trending_up_rounded
-                    : Icons.shield_rounded,
+            icon: _goalIconFor(state.selectedGoal),
             tag: score >= 75
                 ? 'Strong fit'
                 : score >= 50
@@ -2183,6 +2413,15 @@ class PreparationCommitmentScreen extends StatelessWidget {
                       : state.motivation,
                 ),
                 SummaryRow('Goal', state.selectedGoal),
+                SummaryRow('Actions', state.selectedActionIds.join(', ')),
+                if (state.emotionalLogsEnabled)
+                  const SummaryRow(
+                      'Optional signal', 'Emotional spending logs'),
+                if (state.stressIndicatorsEnabled)
+                  const SummaryRow(
+                    'Optional signal',
+                    'Financial anxiety score',
+                  ),
                 SummaryRow(
                   'Monthly allocation',
                   money(state.requiredMonthlyContribution),
@@ -2212,11 +2451,30 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final action = state.selectedGoal == 'Debt Reset'
-        ? 'Add your next debt due date'
-        : state.selectedGoal == 'Investment Starter'
-            ? 'Record your first investment allocation'
-            : 'Allocate your first emergency fund amount';
+    final action = switch (state.selectedGoal) {
+      'Expense Tracking Routine' ||
+      'Irregular Income Buffer' ||
+      'Emotional Spending Log' ||
+      'Cash Flow Stability Plan' =>
+        'Log your first income or spending baseline',
+      'Buffer Duration Goal' ||
+      'Bill Calm Buffer' ||
+      'Safety Shield Boundary' ||
+      'Payday Safety Sweep' ||
+      'Emergency Cushion' =>
+        'Allocate your first safety buffer amount',
+      'Debt Payoff Map' => 'Add your first debt balance or due date',
+      'Starter Investing Confidence' ||
+      'Lifestyle Creep Monitor' ||
+      'Net Worth Growth Plan' =>
+        'Record your first saving or investment habit',
+      'Milestone Bucket Plan' ||
+      'Guilt-Free Experience Fund' ||
+      'Shared Future Alignment' ||
+      'Future Lifestyle Fund' =>
+        'Create your first milestone bucket',
+      _ => 'Add your first goal tracking action',
+    };
     return OnboardingScaffold(
       phase: 15,
       title: 'Begin collection.',
@@ -2228,7 +2486,10 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
         onPressed: () async {
           try {
             if (!state.isSignedIn) {
-              await state.signInWithGoogle(saveAfterSignIn: false);
+              await state.signInWithGoogle(
+                saveAfterSignIn: false,
+                forceFreshGoogleSession: true,
+              );
             }
             await state.saveProfile(markOnboardingComplete: true);
             if (!context.mounted) return;

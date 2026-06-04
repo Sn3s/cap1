@@ -12,14 +12,26 @@ class FirebaseProfileService {
     return _firestore.collection('profiles').doc(uid);
   }
 
-  static Future<UserCredential> signInWithGoogle() async {
+  static Future<UserCredential> signInWithGoogle({
+    bool forceFreshSession = false,
+  }) async {
     await GoogleSignIn.instance.initialize();
+    if (forceFreshSession) {
+      await GoogleSignIn.instance.signOut();
+      await _auth.signOut();
+    }
     final googleUser = await GoogleSignIn.instance.authenticate();
     final googleAuth = googleUser.authentication;
     final credential = GoogleAuthProvider.credential(
       idToken: googleAuth.idToken,
     );
-    return _auth.signInWithCredential(credential);
+    try {
+      return await _auth.signInWithCredential(credential);
+    } on FirebaseAuthException {
+      await GoogleSignIn.instance.signOut();
+      await _auth.signOut();
+      rethrow;
+    }
   }
 
   static Future<UserCredential> signInWithEmail({

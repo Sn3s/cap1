@@ -16,12 +16,12 @@ class AppState extends ChangeNotifier {
   String checkInRhythm = 'Weekly';
   String location = 'Urban';
   String responsibility = 'Mostly myself';
-  String primaryConcern = 'Building emergency savings';
+  String primaryConcern = 'Cash Flow & Basic Needs';
   String motivation = '';
   String reflectedMotivation = '';
-  String selectedGoal = 'Emergency Shield';
+  String selectedGoal = 'Cash Flow Stability Plan';
   String selectedGoalDescription =
-      'Build a 3-month emergency buffer in the next 12 months.';
+      'Map income, fixed costs, and spending patterns so your monthly budget has a clear baseline.';
   double selectedGoalMonthlyTarget = 0;
   String socialStructure = 'Private only';
   double confidence = 5;
@@ -41,6 +41,9 @@ class AppState extends ChangeNotifier {
   bool consentBenchmarking = false;
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
+  bool emotionalLogsEnabled = false;
+  bool stressIndicatorsEnabled = false;
+  final Set<String> selectedActionIds = {'ACT1'};
   final Set<String> trackingVariables = {
     'Income',
     'Expenses',
@@ -80,11 +83,19 @@ class AppState extends ChangeNotifier {
       income <= 0 ? 0 : (debtPayments / income * 100).clamp(0, 100);
   double get requiredMonthlyContribution {
     if (selectedGoalMonthlyTarget > 0) return selectedGoalMonthlyTarget;
-    if (selectedGoal == 'Debt Reset') return math.max(400, debtPayments * .8);
-    if (selectedGoal == 'Investment Starter') {
+    if (selectedGoal == 'Debt Payoff Map') {
+      return math.max(400, debtPayments * .8);
+    }
+    if (selectedGoal == 'Starter Investing Confidence' ||
+        selectedGoal == 'Net Worth Growth Plan') {
       return math.max(500, income * .12);
     }
-    return math.max(500, expenses * 3 / 12);
+    if (selectedGoal == 'Cash Flow Stability Plan' ||
+        selectedGoal == 'Expense Tracking Routine' ||
+        selectedGoal == 'Emotional Spending Log') {
+      return 0;
+    }
+    return math.max(500, expenses / 6);
   }
 
   double get feasibilityScore {
@@ -123,8 +134,11 @@ class AppState extends ChangeNotifier {
   Future<void> signInWithGoogle({
     bool requireCompletedProfile = false,
     bool saveAfterSignIn = true,
+    bool forceFreshGoogleSession = false,
   }) async {
-    final credential = await FirebaseProfileService.signInWithGoogle();
+    final credential = await FirebaseProfileService.signInWithGoogle(
+      forceFreshSession: forceFreshGoogleSession,
+    );
     final user = credential.user;
     if (user == null) {
       throw FirebaseAuthException(
@@ -275,6 +289,9 @@ class AppState extends ChangeNotifier {
       'consentBenchmarking': consentBenchmarking,
       'consentCommunity': consentCommunity,
       'consentTrustedCircle': consentTrustedCircle,
+      'emotionalLogsEnabled': emotionalLogsEnabled,
+      'stressIndicatorsEnabled': stressIndicatorsEnabled,
+      'selectedActionIds': selectedActionIds.toList()..sort(),
       'trackingVariables': trackingVariables.toList()..sort(),
       'interferingVariables': interferingVariables.toList()..sort(),
       'assets': assets.map((item) => item.toMap()).toList(),
@@ -332,6 +349,11 @@ class AppState extends ChangeNotifier {
     consentCommunity = data['consentCommunity'] as bool? ?? consentCommunity;
     consentTrustedCircle =
         data['consentTrustedCircle'] as bool? ?? consentTrustedCircle;
+    emotionalLogsEnabled =
+        data['emotionalLogsEnabled'] as bool? ?? emotionalLogsEnabled;
+    stressIndicatorsEnabled =
+        data['stressIndicatorsEnabled'] as bool? ?? stressIndicatorsEnabled;
+    _replaceSet(selectedActionIds, data['selectedActionIds']);
     _replaceSet(trackingVariables, data['trackingVariables']);
     _replaceSet(interferingVariables, data['interferingVariables']);
     _replaceMoneyItems(assets, data['assets']);
@@ -404,6 +426,27 @@ class AppState extends ChangeNotifier {
     selectedGoal = title;
     selectedGoalDescription = description;
     selectedGoalMonthlyTarget = 0;
+    notifyListeners();
+  }
+
+  void configureGoalActions({
+    required Iterable<String> actionIds,
+    bool enableEmotionalLogs = false,
+    bool enableStressIndicators = false,
+  }) {
+    selectedActionIds
+      ..clear()
+      ..add('ACT1')
+      ..addAll(actionIds);
+    emotionalLogsEnabled = enableEmotionalLogs;
+    stressIndicatorsEnabled = enableStressIndicators;
+    consentAi = selectedActionIds.contains('ACT5');
+    consentTrustedCircle = selectedActionIds.contains('ACT4');
+    if (selectedActionIds.contains('ACT4')) {
+      socialStructure = 'Collaborative goal';
+    } else if (socialStructure == 'Collaborative goal') {
+      socialStructure = 'Private only';
+    }
     notifyListeners();
   }
 
