@@ -1,0 +1,50 @@
+part of '../main.dart';
+
+class FirebaseProfileService {
+  const FirebaseProfileService._();
+
+  static final _auth = FirebaseAuth.instance;
+  static final _firestore = FirebaseFirestore.instance;
+
+  static User? get currentUser => _auth.currentUser;
+
+  static DocumentReference<Map<String, dynamic>> _profileRef(String uid) {
+    return _firestore.collection('profiles').doc(uid);
+  }
+
+  static Future<UserCredential> signInWithGoogle() async {
+    await GoogleSignIn.instance.initialize();
+    final googleUser = await GoogleSignIn.instance.authenticate();
+    final googleAuth = googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      idToken: googleAuth.idToken,
+    );
+    return _auth.signInWithCredential(credential);
+  }
+
+  static Future<UserCredential> signInWithEmail({
+    required String email,
+    required String password,
+  }) {
+    return _auth.signInWithEmailAndPassword(email: email, password: password);
+  }
+
+  static Future<Map<String, dynamic>?> loadProfile(String uid) async {
+    final snapshot = await _profileRef(uid).get();
+    return snapshot.data();
+  }
+
+  static Future<void> saveProfile({
+    required User user,
+    required Map<String, dynamic> profile,
+  }) {
+    return _profileRef(user.uid).set(profile, SetOptions(merge: true));
+  }
+
+  static Future<void> signOut() async {
+    await Future.wait([
+      _auth.signOut(),
+      GoogleSignIn.instance.signOut(),
+    ]);
+  }
+}
