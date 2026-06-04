@@ -17,18 +17,26 @@ class FirebaseProfileService {
   }) async {
     await GoogleSignIn.instance.initialize();
     if (forceFreshSession) {
-      await GoogleSignIn.instance.signOut();
+      await _disconnectGoogle();
       await _auth.signOut();
     }
-    final googleUser = await GoogleSignIn.instance.authenticate();
-    final googleAuth = googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      idToken: googleAuth.idToken,
-    );
     try {
+      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleAuth = googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+      );
       return await _auth.signInWithCredential(credential);
+    } on GoogleSignInException catch (exception) {
+      await _disconnectGoogle();
+      await _auth.signOut();
+      throw FirebaseAuthException(
+        code: 'google-sign-in-failed',
+        message: exception.description ??
+            'Google sign-in failed. Check that Firebase has this app debug SHA-1 and try again.',
+      );
     } on FirebaseAuthException {
-      await GoogleSignIn.instance.signOut();
+      await _disconnectGoogle();
       await _auth.signOut();
       rethrow;
     }
@@ -68,5 +76,13 @@ class FirebaseProfileService {
       _auth.signOut(),
       GoogleSignIn.instance.signOut(),
     ]);
+  }
+
+  static Future<void> _disconnectGoogle() async {
+    try {
+      await GoogleSignIn.instance.disconnect();
+    } on GoogleSignInException {
+      await GoogleSignIn.instance.signOut();
+    }
   }
 }
