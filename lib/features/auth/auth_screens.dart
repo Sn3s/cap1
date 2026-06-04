@@ -8,12 +8,12 @@ class AuthGate extends StatefulWidget {
 }
 
 class _AuthGateState extends State<AuthGate> {
-  late final Future<bool> _restoreFuture;
+  Future<bool>? _restoreFuture;
 
   @override
-  void initState() {
-    super.initState();
-    _restoreFuture = AppScope.of(context).restoreSignedInUser();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _restoreFuture ??= AppScope.of(context).restoreSignedInUser();
   }
 
   @override
@@ -258,7 +258,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     GoogleSignInButton(
                       busy: busy,
                       onPressed: () => _runAuth(
-                        (state) => state.signInWithGoogle(),
+                        (state) => state.signInWithGoogle(
+                          requireCompletedProfile: true,
+                        ),
                       ),
                     ),
                   ],

@@ -29,6 +29,16 @@ class FirebaseProfileService {
     return _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
+  static Future<UserCredential> createUserWithEmail({
+    required String email,
+    required String password,
+  }) {
+    return _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+  }
+
   static Future<Map<String, dynamic>?> loadProfile(String uid) async {
     final snapshot = await _profileRef(uid).get();
     return snapshot.data();

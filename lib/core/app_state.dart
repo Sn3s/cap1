@@ -5,6 +5,7 @@ class AppState extends ChangeNotifier {
   String name = '';
   String email = '';
   String? photoUrl;
+  bool onboardingComplete = false;
   String age = '';
   String occupation = '';
   String industry = 'Technology';
@@ -110,16 +111,19 @@ class AppState extends ChangeNotifier {
     if (user == null) return false;
     _applyFirebaseUser(user);
     final profile = await FirebaseProfileService.loadProfile(user.uid);
-    if (profile != null) {
-      _applyProfileMap(profile);
-    } else {
-      await saveProfile();
+    if (profile == null || profile['onboardingComplete'] != true) {
+      await signOut();
+      return false;
     }
+    _applyProfileMap(profile);
     notifyListeners();
     return true;
   }
 
-  Future<void> signInWithGoogle() async {
+  Future<void> signInWithGoogle({
+    bool requireCompletedProfile = false,
+    bool saveAfterSignIn = true,
+  }) async {
     final credential = await FirebaseProfileService.signInWithGoogle();
     final user = credential.user;
     if (user == null) {
@@ -130,10 +134,21 @@ class AppState extends ChangeNotifier {
     }
     _applyFirebaseUser(user);
     final profile = await FirebaseProfileService.loadProfile(user.uid);
+    if (requireCompletedProfile &&
+        (profile == null || profile['onboardingComplete'] != true)) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: 'incomplete-onboarding',
+        message:
+            'This account has not finished onboarding yet. Please create the account again and complete onboarding first.',
+      );
+    }
     if (profile != null) {
       _applyProfileMap(profile);
     }
-    await saveProfile();
+    if (saveAfterSignIn) {
+      await saveProfile();
+    }
     notifyListeners();
   }
 
@@ -154,18 +169,46 @@ class AppState extends ChangeNotifier {
     }
     _applyFirebaseUser(user);
     final profile = await FirebaseProfileService.loadProfile(user.uid);
-    if (profile != null) {
-      _applyProfileMap(profile);
-    } else {
-      await saveProfile();
+    if (profile == null || profile['onboardingComplete'] != true) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: 'incomplete-onboarding',
+        message:
+            'This account has not finished onboarding yet. Please create the account again and complete onboarding first.',
+      );
     }
+    _applyProfileMap(profile);
     notifyListeners();
   }
 
-  Future<void> saveProfile() async {
+  Future<void> createAccountWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final credential = await FirebaseProfileService.createUserWithEmail(
+      email: email.trim(),
+      password: password,
+    );
+    final user = credential.user;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'missing-user',
+        message: 'Account creation completed without a Firebase user.',
+      );
+    }
+    await user.updateDisplayName(name.trim().isEmpty ? null : name.trim());
+    _applyFirebaseUser(user);
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> saveProfile({bool markOnboardingComplete = false}) async {
     final user = FirebaseProfileService.currentUser;
     if (user == null) return;
     uid = user.uid;
+    if (markOnboardingComplete) {
+      onboardingComplete = true;
+    }
     await FirebaseProfileService.saveProfile(
       user: user,
       profile: _profileMap(user),
@@ -176,6 +219,7 @@ class AppState extends ChangeNotifier {
     await FirebaseProfileService.signOut();
     uid = null;
     photoUrl = null;
+    onboardingComplete = false;
     notifyListeners();
   }
 
@@ -193,6 +237,7 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic> _profileMap(User user) {
     return {
       'uid': user.uid,
+      'onboardingComplete': onboardingComplete,
       'name': name.trim().isEmpty ? user.displayName ?? '' : name.trim(),
       'email': email.trim().isEmpty ? user.email ?? '' : email.trim(),
       'photoUrl': photoUrl ?? user.photoURL,
@@ -243,6 +288,8 @@ class AppState extends ChangeNotifier {
 
   void _applyProfileMap(Map<String, dynamic> data) {
     uid = data['uid'] as String? ?? uid;
+    onboardingComplete =
+        data['onboardingComplete'] as bool? ?? onboardingComplete;
     name = data['name'] as String? ?? name;
     email = data['email'] as String? ?? email;
     photoUrl = data['photoUrl'] as String? ?? photoUrl;

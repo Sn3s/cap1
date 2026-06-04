@@ -348,52 +348,26 @@ class PreparationContextScreen extends StatefulWidget {
 
 class _PreparationContextScreenState extends State<PreparationContextScreen> {
   final nameController = TextEditingController();
-  final emailController = TextEditingController();
-  bool busy = false;
 
   @override
   void dispose() {
     nameController.dispose();
-    emailController.dispose();
     super.dispose();
-  }
-
-  Future<void> _signInWithGoogle() async {
-    if (busy) return;
-    setState(() => busy = true);
-    try {
-      final state = AppScope.of(context);
-      await state.signInWithGoogle();
-      nameController.text = state.name;
-      emailController.text = state.email;
-      if (!mounted) return;
-      _push(context, const LifeContextScreen());
-    } catch (error) {
-      if (!mounted) return;
-      _showAuthError(context, error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final canContinue = state.name.isNotEmpty && state.email.isNotEmpty;
+    final canContinue = state.name.isNotEmpty;
     return OnboardingScaffold(
       phase: 1,
       title: 'Let Shelby know you.',
-      subtitle:
-          'Start with the basics so your check-ins can feel personal and easy to come back to.',
+      subtitle: "Let's start with your name!",
       bottom: PrimaryButton(
         label: 'Continue',
         icon: Icons.arrow_forward_rounded,
-        enabled: canContinue && !busy,
-        onPressed: () async {
-          await state.saveProfile();
-          if (!context.mounted) return;
-          _push(context, const LifeContextScreen());
-        },
+        enabled: canContinue,
+        onPressed: () => _push(context, const PreparationCredentialsScreen()),
       ),
       child: Column(
         children: [
@@ -407,7 +381,59 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
               onChanged: (value) => setState(() => state.name = value.trim()),
             ),
           ),
-          const SizedBox(height: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class PreparationCredentialsScreen extends StatefulWidget {
+  const PreparationCredentialsScreen({super.key});
+
+  @override
+  State<PreparationCredentialsScreen> createState() =>
+      _PreparationCredentialsScreenState();
+}
+
+class _PreparationCredentialsScreenState
+    extends State<PreparationCredentialsScreen> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  bool busy = false;
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runAuth(Future<void> Function(AppState state) action) async {
+    if (busy) return;
+    setState(() => busy = true);
+    try {
+      final state = AppScope.of(context);
+      await action(state);
+      if (!mounted) return;
+      _push(context, const LifeContextScreen());
+    } catch (error) {
+      if (!mounted) return;
+      _showAuthError(context, error);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingScaffold(
+      phase: 1,
+      title: 'Create your account.',
+      subtitle:
+          'Use email and password or continue with Google so Shelby can save your profile.',
+      bottom: const SizedBox.shrink(),
+      child: Column(
+        children: [
           LabeledField(
             label: 'Email',
             icon: Icons.mail_rounded,
@@ -416,7 +442,29 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               decoration: inputDecoration('you@example.com'),
-              onChanged: (value) => setState(() => state.email = value.trim()),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LabeledField(
+            label: 'Password',
+            icon: Icons.lock_rounded,
+            child: TextField(
+              controller: passwordController,
+              obscureText: true,
+              textInputAction: TextInputAction.done,
+              decoration: inputDecoration('At least 6 characters'),
+            ),
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'Create account',
+            icon: Icons.person_add_alt_1_rounded,
+            enabled: !busy,
+            onPressed: () => _runAuth(
+              (state) => state.createAccountWithEmail(
+                email: emailController.text,
+                password: passwordController.text,
+              ),
             ),
           ),
           const SizedBox(height: 18),
@@ -424,7 +472,9 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
           const SizedBox(height: 18),
           GoogleSignInButton(
             busy: busy,
-            onPressed: _signInWithGoogle,
+            onPressed: () => _runAuth(
+              (state) => state.signInWithGoogle(saveAfterSignIn: false),
+            ),
           ),
         ],
       ),
@@ -2178,9 +2228,9 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
         onPressed: () async {
           try {
             if (!state.isSignedIn) {
-              await state.signInWithGoogle();
+              await state.signInWithGoogle(saveAfterSignIn: false);
             }
-            await state.saveProfile();
+            await state.saveProfile(markOnboardingComplete: true);
             if (!context.mounted) return;
             _pushReplacement(context, const MainShell());
           } catch (error) {
