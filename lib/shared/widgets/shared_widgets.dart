@@ -270,16 +270,50 @@ class ChatBubble extends StatelessWidget {
                   ),
                 ],
               )
-            : Text(
-                text,
-                style: TextStyle(
-                  color: fromUser ? Colors.white : _title,
-                  height: 1.32,
-                  fontWeight: FontWeight.w700,
+            : RichText(
+                text: TextSpan(
+                  style: TextStyle(
+                    color: fromUser ? Colors.white : _title,
+                    height: 1.32,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  children: _boldMarkdownSpans(
+                    text,
+                    fromUser ? Colors.white : _title,
+                  ),
                 ),
               ),
       ),
     );
+  }
+
+  List<TextSpan> _boldMarkdownSpans(String value, Color color) {
+    final spans = <TextSpan>[];
+    var remaining = value;
+    while (remaining.isNotEmpty) {
+      final start = remaining.indexOf('**');
+      if (start == -1) {
+        spans.add(TextSpan(text: remaining));
+        break;
+      }
+      if (start > 0) {
+        spans.add(TextSpan(text: remaining.substring(0, start)));
+      }
+      final afterStart = start + 2;
+      final end = remaining.indexOf('**', afterStart);
+      if (end == -1) {
+        spans.add(TextSpan(text: remaining.substring(start)));
+        break;
+      }
+      spans.add(
+        TextSpan(
+          text: remaining.substring(afterStart, end),
+          style: TextStyle(color: color, fontWeight: FontWeight.w900),
+        ),
+      );
+      remaining = remaining.substring(end + 2);
+    }
+    return spans;
   }
 }
 
@@ -477,6 +511,7 @@ class OnboardingScaffold extends StatelessWidget {
     required this.child,
     required this.bottom,
     this.centerTitle = false,
+    this.scrollBody = true,
   });
 
   final int phase;
@@ -485,6 +520,7 @@ class OnboardingScaffold extends StatelessWidget {
   final Widget child;
   final Widget bottom;
   final bool centerTitle;
+  final bool scrollBody;
 
   @override
   Widget build(BuildContext context) {
@@ -514,11 +550,13 @@ class OnboardingScaffold extends StatelessWidget {
               ),
               const SizedBox(height: 28),
               Expanded(
-                child: ListView(
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  children: [child],
-                ),
+                child: scrollBody
+                    ? ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        children: [child],
+                      )
+                    : child,
               ),
               const SizedBox(height: 18),
               bottom,

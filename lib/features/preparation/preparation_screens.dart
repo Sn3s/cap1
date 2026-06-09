@@ -34,7 +34,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
       icon: Icons.flag_rounded,
       title: 'Shelby helps you develop healthier financial habits.',
       body:
-          'He helps in making goals more attainable and handling money less stressful.',
+          'He helps make goals more attainable and money decisions easier to act on.',
       accent: _brand,
     ),
     OrientationSlideData(
@@ -398,6 +398,48 @@ class GoalConcern {
   final bool enableStressIndicators;
 }
 
+class GuidedPathway {
+  const GuidedPathway({
+    required this.layer,
+    required this.steps,
+  });
+
+  final String layer;
+  final List<GuidedStep> steps;
+}
+
+class GuidedStep {
+  const GuidedStep({
+    required this.title,
+    required this.question,
+    required this.options,
+    this.multiSelect = false,
+  });
+
+  final String title;
+  final String question;
+  final List<GuidedOption> options;
+  final bool multiSelect;
+}
+
+class GuidedOption {
+  const GuidedOption({
+    required this.label,
+    required this.text,
+    this.detail,
+    this.goalTitle,
+    this.keywords = const [],
+  });
+
+  final String label;
+  final String text;
+  final String? detail;
+  final String? goalTitle;
+  final List<String> keywords;
+
+  String get displayText => detail == null ? text : '$text $detail';
+}
+
 const _goalBranches = [
   GoalBranch(
     layer: 'Cash Flow & Basic Needs',
@@ -422,16 +464,17 @@ const _goalBranches = [
             'Activates ACT3 tracking and sets up reminders based on the user check-in rhythm.',
       ),
       GoalConcern(
-        feltNeed: 'I buy things impulsively when I am stressed or bored.',
+        feltNeed:
+            'I notice extra purchases around weekends, payday, or certain stores.',
         followUp:
-            'What usually comes right before the impulse purchase: stress, boredom, social pressure, ads, or wanting a quick reward?',
-        goalTitle: 'Emotional Spending Log',
+            'What usually comes right before the extra purchase: payday, weekends, social plans, ads, a specific store, or a quick reward?',
+        goalTitle: 'Spending Trigger Tracker',
         goalDescription:
-            'Track spending alongside mood tags so Shelby can spot emotional spending patterns.',
-        keywords: ['impulse', 'stress', 'bored', 'emotion', 'trigger'],
+            'Tag expense context like day, category, merchant, and payday timing so Shelby can spot repeat spending triggers.',
+        keywords: ['impulse', 'payday', 'weekend', 'store', 'trigger'],
         actionIds: ['ACT3', 'ACT5'],
         backgroundEffect:
-            'Activates ACT3 tracking and ACT5 emotional logs for spending-trigger insights.',
+            'Activates ACT3 tracking and ACT5 rule-based insights for repeat spending triggers.',
         enableEmotionalLogs: true,
       ),
       GoalConcern(
@@ -471,22 +514,22 @@ const _goalBranches = [
             'Activates ACT2 goal boundaries and warning prompts for emergency fund withdrawals.',
       ),
       GoalConcern(
-        feltNeed: 'Unexpected bills constantly surprise and stress me out.',
+        feltNeed: 'Unexpected bills or due dates keep disrupting my plan.',
         followUp:
-            'Which bills create the most panic, and are they hard because of timing, amount, or surprise charges?',
-        goalTitle: 'Bill Calm Buffer',
+            'Which bills disrupt your plan most, and are they hard because of timing, amount, or surprise charges?',
+        goalTitle: 'Bill Due-Date Buffer',
         goalDescription:
-            'Build a chronological bill buffer that lowers anxiety around upcoming due dates.',
-        keywords: ['bill', 'panic', 'stress', 'surprise', 'unexpected'],
+            'Build a due-date buffer that reserves money before scheduled bills and flags shortfalls early.',
+        keywords: ['bill', 'due', 'timing', 'surprise', 'unexpected'],
         actionIds: ['ACT5'],
         backgroundEffect:
-            'Activates ACT5 insights and the financial anxiety score tracker.',
+            'Activates ACT5 insights and the upcoming bill-buffer status tracker.',
         enableStressIndicators: true,
       ),
       GoalConcern(
         feltNeed: 'I want to save, but I struggle to do it consistently.',
         followUp:
-            'Would an automatic savings rule feel better as a percentage of payday income or a fixed peso amount?',
+            'Would an automatic savings rule work better as a percentage of payday income or a fixed peso amount?',
         goalTitle: 'Payday Safety Sweep',
         goalDescription:
             'Set up a payday savings rule that builds the emergency cushion before the money blends into spending.',
@@ -520,16 +563,16 @@ const _goalBranches = [
             'Activates ACT2 goal targets and the debt repayment target calculator.',
       ),
       GoalConcern(
-        feltNeed: 'I want to invest, but I am afraid of losing money.',
+        feltNeed: 'I want to start investing, but I have not completed setup.',
         followUp:
-            'What would make investing feel safer: learning first, starting tiny, seeing simulations, or avoiding volatile choices?',
-        goalTitle: 'Starter Investing Confidence',
+            'Which starter step should come first: learning the basics, choosing a monthly amount, opening an account, or making the first contribution?',
+        goalTitle: 'Starter Investing Habit',
         goalDescription:
-            'Pair a risk comfort check with a conservative first investing habit and simple growth simulation.',
-        keywords: ['invest', 'market', 'risk', 'afraid', 'losing'],
+            'Complete a starter investing checklist and track a small recurring contribution habit.',
+        keywords: ['invest', 'setup', 'monthly', 'first', 'contribution'],
         actionIds: ['ACT5'],
         backgroundEffect:
-            'Activates ACT5 insights and triggers a risk tolerance questionnaire path.',
+            'Activates ACT5 insights and the starter investing checklist path.',
       ),
       GoalConcern(
         feltNeed: 'I tend to spend more money whenever I get a raise.',
@@ -548,7 +591,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Financial Freedom',
     layerDescription:
-        'Plan future milestones, shared goals, and guilt-free experiences without weakening your foundation.',
+        'Plan future milestones, shared goals, and funded experiences without weakening your foundation.',
     firstQuestion: 'How do you want to save for your big life milestones?',
     icon: Icons.flag_rounded,
     defaultGoalTitle: 'Future Lifestyle Fund',
@@ -581,17 +624,542 @@ const _goalBranches = [
             'Activates ACT4 collaboration and opens account sharing options with privacy controls.',
       ),
       GoalConcern(
-        feltNeed:
-            'I want to spend money on travel and hobbies without feeling guilty.',
+        feltNeed: 'I spend on travel or hobbies without a clear funded bucket.',
         followUp:
-            'What kind of experience would you like to enjoy without guilt, and how often would feel reasonable?',
-        goalTitle: 'Guilt-Free Experience Fund',
+            'What kind of experience should have its own bucket, and how often would you want to fund it?',
+        goalTitle: 'Planned Experience Fund',
         goalDescription:
-            'Set aside a clear experience fund so joy spending is planned, visible, and separate from essentials.',
-        keywords: ['travel', 'hobby', 'guilty', 'fun', 'spend'],
+            'Set aside a clear experience fund so hobby and travel spending is planned, visible, and separate from essentials.',
+        keywords: ['travel', 'hobby', 'bucket', 'plan', 'spend'],
         actionIds: ['ACT5'],
         backgroundEffect:
-            'Activates ACT5 insights and calculates how much fun money is safe to spend.',
+            'Activates ACT5 insights and calculates how much planned experience money is available.',
+      ),
+    ],
+  ),
+];
+
+const _guidedPathways = [
+  GuidedPathway(
+    layer: 'Cash Flow & Basic Needs',
+    steps: [
+      GuidedStep(
+        title: 'Surface',
+        question:
+            'Before we turn this into a goal, what feels most true lately?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text:
+                'I keep meaning to check my spending, but the habit slips when life gets busy.',
+            keywords: ['busy', 'habit', 'spending', 'slips'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text:
+                'I notice extra purchases around weekends, payday, or certain stores.',
+            keywords: ['weekend', 'payday', 'store', 'spend'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text:
+                'I feel thrown off when bills, income, or timing do not line up.',
+            keywords: ['bills', 'income', 'timing', 'thrown off'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Select Focus',
+        question: 'What should your first cash-flow goal focus on?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Building a simple expense tracking routine.',
+            goalTitle: 'Expense Tracking Routine',
+            keywords: ['forget', 'track', 'momentum', 'routine', 'logging'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Tracking repeat spending triggers.',
+            goalTitle: 'Spending Trigger Tracker',
+            keywords: ['impulse', 'buy', 'payday', 'weekend', 'store'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Planning around unexpected bills or changing income cycles.',
+            goalTitle: 'Irregular Income Buffer',
+            keywords: ['unexpected', 'bill', 'income', 'cycle', 'disrupt'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Timeframe',
+        question:
+            'How long would you like this tracking cycle to run before we review your budget progress?',
+        options: [
+          GuidedOption(label: 'A', text: '1 Month', detail: '30-day cycle'),
+          GuidedOption(label: 'B', text: '3 Months', detail: '90-day cycle'),
+          GuidedOption(label: 'C', text: '6 Months', detail: '180-day cycle'),
+        ],
+      ),
+      GuidedStep(
+        title: 'Difficulty Level',
+        question:
+            'How strictly do you want to cap your variable spending during this cycle?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Relaxed Pace',
+            detail: 'Keep spending under 90% of net income.',
+            keywords: ['relaxed', 'easy', '90'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Balanced Pace',
+            detail: 'Keep spending under 75% of net income.',
+            keywords: ['balanced', 'medium', '75'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'High Focus Pace',
+            detail: 'Keep spending under 50% of net income.',
+            keywords: ['strict', 'high', '50'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Situations',
+        question: 'When should the app remind you to stay on track?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Payday',
+            text: 'Payday',
+            detail: 'Nudge me the moment an income transaction is added.',
+            keywords: ['payday', 'income'],
+          ),
+          GuidedOption(
+            label: 'Weekends',
+            text: 'Weekends',
+            detail: 'Remind me every Saturday morning.',
+            keywords: ['weekend', 'saturday'],
+          ),
+          GuidedOption(
+            label: 'Bill Days',
+            text: 'Bill Days',
+            detail: 'Remind me 2 days before a scheduled bill is due.',
+            keywords: ['bill', 'due'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Challenges',
+        question: 'What real hurdles should the app watch out for?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Impulse Buying',
+            text: 'Impulse Buying',
+            detail: 'Tag category, store, day, and payday context.',
+            keywords: ['impulse', 'category', 'store', 'payday', 'expense'],
+          ),
+          GuidedOption(
+            label: 'Budget Leaks',
+            text: 'Budget Leaks',
+            detail: 'Warn me if I spend more than my daily average.',
+            keywords: ['leak', 'daily', 'average'],
+          ),
+        ],
+      ),
+    ],
+  ),
+  GuidedPathway(
+    layer: 'Financial Safety',
+    steps: [
+      GuidedStep(
+        title: 'Surface',
+        question:
+            'What has been making financial safety feel difficult lately?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text:
+                'I save a little, but regular expenses keep pulling that money back out.',
+            keywords: ['save', 'regular', 'expenses', 'pulling'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Surprise expenses or due dates disrupt my monthly plan.',
+            keywords: ['surprise', 'expense', 'due', 'bill'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text:
+                'I want a cushion, but I need help making saving feel automatic.',
+            keywords: ['cushion', 'automatic', 'saving'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Select Focus',
+        question: 'Where should your first financial-safety goal focus?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Protecting savings from regular expenses.',
+            goalTitle: 'Safety Shield Boundary',
+            keywords: ['dip', 'savings', 'regular', 'withdraw'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Preparing for upcoming bills with a due-date buffer.',
+            goalTitle: 'Bill Due-Date Buffer',
+            keywords: ['unexpected', 'expense', 'due', 'bill', 'buffer'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Setting money aside consistently.',
+            goalTitle: 'Payday Safety Sweep',
+            keywords: ['save', 'consistent', 'aside', 'payday'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Timeframe',
+        question:
+            'How long do you want to give yourself to hit your target emergency fund?',
+        options: [
+          GuidedOption(label: 'A', text: '3 Months'),
+          GuidedOption(label: 'B', text: '6 Months'),
+          GuidedOption(label: 'C', text: '1 Year'),
+        ],
+      ),
+      GuidedStep(
+        title: 'Difficulty Level',
+        question:
+            'How much of your incoming funds are you willing to set aside to build this cushion?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Relaxed Pace',
+            detail: 'Track a 5% savings contribution rule.',
+            keywords: ['relaxed', '5'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Balanced Pace',
+            detail: 'Track a 10% savings contribution rule.',
+            keywords: ['balanced', '10'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'High Focus Pace',
+            detail: 'Track a 20% savings contribution rule.',
+            keywords: ['high', '20'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Situations',
+        question: 'When is it easiest for you to lock money into savings?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Payday Deposits',
+            text: 'Payday Deposits',
+            detail: 'Right when my regular paycheck lands.',
+            keywords: ['payday', 'paycheck'],
+          ),
+          GuidedOption(
+            label: 'Extra Cash Drops',
+            text: 'Extra Cash Drops',
+            detail: 'Whenever I log a bonus or side-income.',
+            keywords: ['bonus', 'extra', 'side'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Challenges',
+        question: 'What hurdles should the app monitor for your savings?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Savings Dipping',
+            text: 'Savings Dipping',
+            detail: 'Warn me if my emergency fund balance drops.',
+            keywords: ['dip', 'withdraw', 'balance'],
+          ),
+          GuidedOption(
+            label: 'Missed Contributions',
+            text: 'Missed Contributions',
+            detail:
+                'Alert me if a paycheck arrives but zero money moves to savings.',
+            keywords: ['missed', 'contribution', 'paycheck'],
+          ),
+        ],
+      ),
+    ],
+  ),
+  GuidedPathway(
+    layer: 'Accumulating Wealth',
+    steps: [
+      GuidedStep(
+        title: 'Surface',
+        question:
+            'What has been on your mind when you think about growing your money?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Debt payments keep taking up budget space every month.',
+            keywords: ['debt', 'payment', 'budget', 'space'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text:
+                'I want to start investing, but I have not completed the setup steps.',
+            keywords: ['invest', 'setup', 'steps', 'start'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text:
+                'When more money comes in, it seems to disappear into more spending.',
+            keywords: ['money', 'disappear', 'spending', 'income'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Select Focus',
+        question: 'Where should your first wealth-building goal focus?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Creating a clear debt payoff strategy.',
+            goalTitle: 'Debt Payoff Map',
+            keywords: ['debt', 'pay', 'loan', 'aggressive'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Completing a starter investing habit.',
+            goalTitle: 'Starter Investing Habit',
+            keywords: ['invest', 'setup', 'habit', 'contribution'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Preventing lifestyle creep when income increases.',
+            goalTitle: 'Lifestyle Creep Monitor',
+            keywords: ['income', 'raise', 'spend', 'creep'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Timeframe',
+        question:
+            'What is the timeframe for your first major wealth milestone?',
+        options: [
+          GuidedOption(label: 'A', text: '6 Months'),
+          GuidedOption(label: 'B', text: '1 Year'),
+          GuidedOption(label: 'C', text: '2 Years+'),
+        ],
+      ),
+      GuidedStep(
+        title: 'Difficulty Level',
+        question:
+            'What level of wealth optimization can you tolerate right now?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Conservative Pace',
+            detail:
+                'Pay off debt using minimum required amounts plus fixed extra cash.',
+            keywords: ['conservative', 'minimum', 'fixed'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Balanced Pace',
+            detail:
+                'Split extra cash 50/50 between debt payoff and investment accounts.',
+            keywords: ['balanced', 'split', '50'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Aggressive Pace',
+            detail:
+                'Push leftover monthly cash into growth assets or debt removal.',
+            keywords: ['aggressive', 'leftover', 'growth'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Situations',
+        question: 'What update triggers would keep you motivated?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Net Worth Sync',
+            text: 'Net Worth Sync',
+            detail:
+                'Show me a monthly recap of debt shrinking vs. investments growing.',
+            keywords: ['net worth', 'monthly', 'recap'],
+          ),
+          GuidedOption(
+            label: 'Income Milestones',
+            text: 'Income Milestones',
+            detail:
+                'Prompt me to increase savings whenever my net income baseline changes.',
+            keywords: ['income', 'milestone', 'raise'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Challenges',
+        question: 'What obstacles should the app flag on your wealth path?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Expense Creep',
+            text: 'Expense Creep',
+            detail: 'Flag if my fixed expenses increase after an income raise.',
+            keywords: ['expense', 'creep', 'raise'],
+          ),
+          GuidedOption(
+            label: 'Stagnant Cash',
+            text: 'Stagnant Cash',
+            detail: 'Warn me if cash sits in checking without being allocated.',
+            keywords: ['cash', 'checking', 'allocated'],
+          ),
+        ],
+      ),
+    ],
+  ),
+  GuidedPathway(
+    layer: 'Financial Freedom',
+    steps: [
+      GuidedStep(
+        title: 'Surface',
+        question:
+            'What makes spending for life, hobbies, or milestones feel complicated right now?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text:
+                'I have several things I care about, and it is hard to know what to fund first.',
+            keywords: ['several', 'care', 'fund', 'first'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text:
+                'I want to save for something meaningful without messing up my bills.',
+            keywords: ['meaningful', 'bills', 'save'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'I spend on hobbies or travel without a clear funded bucket.',
+            keywords: ['hobby', 'travel', 'bucket', 'spend'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Select Focus',
+        question: 'Where should your first lifestyle goal focus?',
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Balancing multiple future milestones.',
+            goalTitle: 'Milestone Bucket Plan',
+            keywords: ['multiple', 'milestone', 'balance', 'track'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Saving for one major milestone while covering bills.',
+            goalTitle: 'Future Lifestyle Fund',
+            keywords: ['single', 'major', 'milestone', 'bill'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Planning hobby or travel spending from a funded bucket.',
+            goalTitle: 'Planned Experience Fund',
+            keywords: ['hobby', 'travel', 'bucket', 'plan'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Timeframe',
+        question:
+            'When do you ideally want to complete or execute your next major lifestyle goal?',
+        options: [
+          GuidedOption(label: 'A', text: '1 to 3 Months'),
+          GuidedOption(label: 'B', text: '6 Months'),
+          GuidedOption(label: 'C', text: '1 Year'),
+        ],
+      ),
+      GuidedStep(
+        title: 'Difficulty Level',
+        question:
+            "How much room do you want to leave for 'fun money' allocations?",
+        options: [
+          GuidedOption(
+            label: 'A',
+            text: 'Safe & Slow',
+            detail: 'Cap lifestyle savings at 5% of monthly income.',
+            keywords: ['safe', 'slow', '5'],
+          ),
+          GuidedOption(
+            label: 'B',
+            text: 'Intentional',
+            detail:
+                'Allocate exactly 10% of monthly income into milestone buckets.',
+            keywords: ['intentional', '10'],
+          ),
+          GuidedOption(
+            label: 'C',
+            text: 'Lifestyle First',
+            detail:
+                'Allocate 20% to milestone buckets by reducing discretionary targets elsewhere.',
+            keywords: ['lifestyle', '20'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Situations',
+        question: 'What condition should mark this spending as ready?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Green Light Status',
+            text: 'Green Light Status',
+            detail:
+                'When essential bills and emergency savings are fully funded for the month.',
+            keywords: ['green', 'bill', 'emergency'],
+          ),
+          GuidedOption(
+            label: 'Target Proximity',
+            text: 'Target Proximity',
+            detail:
+                "When my milestone bucket reaches 90%, remind me it's safe to plan the spend.",
+            keywords: ['target', '90', 'bucket'],
+          ),
+        ],
+      ),
+      GuidedStep(
+        title: 'Challenges',
+        question: 'What hurdles should the app guard against?',
+        multiSelect: true,
+        options: [
+          GuidedOption(
+            label: 'Goal Congestion',
+            text: 'Goal Congestion',
+            detail:
+                'Warn me if I track more than 3 active milestone buckets at once.',
+            keywords: ['congestion', '3', 'bucket'],
+          ),
+          GuidedOption(
+            label: 'Premature Spending',
+            text: 'Premature Spending',
+            detail:
+                "Warn me before withdrawing if the bucket hasn't reached 100% of its target.",
+            keywords: ['premature', 'withdraw', '100'],
+          ),
+        ],
       ),
     ],
   ),
@@ -604,29 +1172,30 @@ GoalBranch _branchForLayer(String layer) {
   );
 }
 
+GuidedPathway _pathwayForLayer(String layer) {
+  return _guidedPathways.firstWhere(
+    (pathway) => pathway.layer == layer,
+    orElse: () => _guidedPathways.first,
+  );
+}
+
 double _monthlyTargetForConcern(AppState state, GoalConcern concern) {
   return switch (concern.goalTitle) {
     'Expense Tracking Routine' => 0,
     'Irregular Income Buffer' => math.max(500, state.expenses * .15),
-    'Emotional Spending Log' => 0,
+    'Spending Trigger Tracker' => 0,
     'Buffer Duration Goal' => math.max(500, state.expenses / 6),
-    'Bill Calm Buffer' => math.max(300, state.expenses * .1),
+    'Bill Due-Date Buffer' => math.max(300, state.expenses * .1),
     'Safety Shield Boundary' => math.max(500, state.expenses / 6),
     'Payday Safety Sweep' => math.max(500, state.expenses / 6),
     'Debt Payoff Map' => math.max(400, state.debtPayments * .8),
-    'Starter Investing Confidence' => math.max(500, state.income * .08),
+    'Starter Investing Habit' => math.max(500, state.income * .08),
     'Lifestyle Creep Monitor' => 0,
     'Milestone Bucket Plan' => math.max(500, state.income * .1),
-    'Guilt-Free Experience Fund' => math.max(300, state.income * .05),
+    'Planned Experience Fund' => math.max(300, state.income * .05),
     'Shared Future Alignment' => math.max(500, state.income * .08),
     _ => 0,
   };
-}
-
-String _reflectionForConcern(GoalConcern concern, String detail) {
-  final trimmed = detail.trim();
-  final extra = trimmed.isEmpty ? '' : ' You added: "$trimmed"';
-  return '${concern.goalDescription} Shelby will start with ${concern.goalTitle.toLowerCase()} because it is specific, trackable, and realistic to configure in the app. ${concern.backgroundEffect}$extra';
 }
 
 class PreparationContextScreen extends StatefulWidget {
@@ -1082,14 +1651,13 @@ class MotivationSurfaceScreen extends StatefulWidget {
 class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
-  final coach = const ShellbyAiCoach();
   final List<ChatMessage> messages = [];
   bool seeded = false;
-  bool loading = false;
+  bool flowComplete = false;
   String error = '';
-  GoalBranch? activeBranch;
-  GoalConcern? activeConcern;
-  int detailAnswerCount = 0;
+  late GuidedPathway pathway;
+  int stepIndex = 0;
+  final Map<int, List<GuidedOption>> answers = {};
 
   @override
   void dispose() {
@@ -1102,117 +1670,136 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (seeded) return;
-    final concern = AppScope.of(context).primaryConcern;
-    activeBranch = _branchForLayer(concern);
-    messages.add(ChatMessage(false, activeBranch!.firstQuestion));
+    pathway = _pathwayForLayer(AppScope.of(context).primaryConcern);
+    messages.add(ChatMessage(false, currentStep.question));
     seeded = true;
   }
 
-  Future<void> sendAnswer([String? value]) async {
-    final state = AppScope.of(context);
-    final answer = (value ?? controller.text).trim();
-    if (answer.isEmpty || loading) return;
+  GuidedStep get currentStep => pathway.steps[stepIndex];
 
+  List<GuidedOption> get currentOptions {
+    if (stepIndex != 1) return currentStep.options;
+    final surfaced = answers[0] ?? const <GuidedOption>[];
+    if (surfaced.isEmpty) return currentStep.options;
+    return _tailoredFocusOptions(currentStep.options, surfaced.first);
+  }
+
+  bool get isComplete => flowComplete;
+
+  bool get canContinueMulti =>
+      currentStep.multiSelect && (answers[stepIndex]?.isNotEmpty ?? false);
+
+  void chooseOption(GuidedOption option) {
+    if (isComplete) return;
     setState(() {
       error = '';
-      messages.add(ChatMessage(true, answer));
       controller.clear();
-    });
-    _scrollToBottom();
-
-    final branch = activeBranch ?? _branchForLayer(state.primaryConcern);
-    final concern = activeConcern ?? branch.closestConcern(answer);
-    activeConcern = concern;
-
-    if (value != null || detailAnswerCount == 0) {
-      detailAnswerCount = 1;
-      state.setRecommendedGoal(
-        title: concern.goalTitle,
-        description: concern.goalDescription,
-        monthlyTarget: _monthlyTargetForConcern(state, concern),
-      );
-      state.configureGoalActions(
-        actionIds: concern.actionIds,
-        enableEmotionalLogs: concern.enableEmotionalLogs,
-        enableStressIndicators: concern.enableStressIndicators,
-      );
-      setState(() {
-        messages.add(ChatMessage(false, concern.followUp));
-      });
-      _scrollToBottom();
-      return;
-    }
-
-    detailAnswerCount += 1;
-    final summary = _reflectionForConcern(concern, answer);
-    state.setMotivation(summary);
-    setState(() {
-      messages.add(ChatMessage(false, summary));
+      if (currentStep.multiSelect) {
+        final selected = [...answers[stepIndex] ?? const <GuidedOption>[]];
+        if (selected.contains(option)) {
+          selected.remove(option);
+        } else {
+          selected.add(option);
+        }
+        answers[stepIndex] = selected;
+      } else {
+        answers[stepIndex] = [option];
+        _commitCurrentStep();
+      }
     });
     _scrollToBottom();
   }
 
-  Future<void> sendAiAnswer(String answer) async {
+  void submitTypedAnswer() {
+    final typed = controller.text.trim();
+    if (typed.isEmpty || isComplete) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final option = _closestOption(typed, currentOptions);
+    setState(() {
+      error = '';
+      controller.clear();
+      answers[stepIndex] = currentStep.multiSelect
+          ? [...answers[stepIndex] ?? const <GuidedOption>[], option]
+          : [option];
+      messages.add(ChatMessage(true, typed));
+      messages.add(
+        ChatMessage(
+          false,
+          'Closest fit: ${option.displayText}',
+        ),
+      );
+      if (!currentStep.multiSelect) {
+        _advanceAfterCommittedAnswer();
+      }
+    });
+    _scrollToBottom();
+  }
+
+  void continueMultiSelect() {
+    if (!canContinueMulti || isComplete) return;
+    setState(_commitCurrentStep);
+    _scrollToBottom();
+  }
+
+  void _commitCurrentStep() {
+    final selected = answers[stepIndex] ?? const <GuidedOption>[];
+    if (selected.isEmpty) return;
+    messages.add(
+      ChatMessage(
+        true,
+        selected.map((option) => option.displayText).join(', '),
+      ),
+    );
+    _advanceAfterCommittedAnswer();
+  }
+
+  void _advanceAfterCommittedAnswer() {
+    if (stepIndex < pathway.steps.length - 1) {
+      stepIndex += 1;
+      messages.add(ChatMessage(false, currentStep.question));
+      return;
+    }
+    _finishGuidedFlow();
+  }
+
+  void _finishGuidedFlow() {
+    flowComplete = true;
+    final state = AppScope.of(context);
+    final focusAnswers = answers[1] ?? const <GuidedOption>[];
+    final focus = focusAnswers.isEmpty ? null : focusAnswers.first;
+    final branch = _branchForLayer(state.primaryConcern);
+    final concern = _concernForGoal(branch, focus?.goalTitle) ??
+        branch.closestConcern(focus?.text ?? '');
+    state.setRecommendedGoal(
+      title: concern.goalTitle,
+      description: concern.goalDescription,
+      monthlyTarget: _monthlyTargetForConcern(state, concern),
+    );
+    state.configureGoalActions(
+      actionIds: concern.actionIds,
+      enableEmotionalLogs: concern.enableEmotionalLogs ||
+          _selectedLabels().contains('Impulse Buying'),
+      enableStressIndicators: concern.enableStressIndicators,
+    );
+    state.setMotivation(_guidedReflection(branch, concern));
+    messages.add(ChatMessage(false, _selectionSummary()));
+  }
+
+  void resetGuidedChat() {
     final state = AppScope.of(context);
     setState(() {
-      loading = true;
+      error = '';
+      flowComplete = false;
+      stepIndex = 0;
+      pathway = _pathwayForLayer(state.primaryConcern);
+      controller.clear();
+      answers.clear();
+      messages
+        ..clear()
+        ..add(ChatMessage(false, pathway.steps.first.question));
+      state.resetGuidedPathDetails();
     });
-
-    try {
-      final userAnswerCount =
-          messages.where((message) => message.fromUser).length;
-      final shouldSummarize = userAnswerCount >= 3 ||
-          (userAnswerCount >= 2 && _acceptsSuggestedDirection(answer));
-      final result = await coach.send(
-        concern: state.primaryConcern,
-        messages: messages,
-        userAnswerCount: userAnswerCount,
-        shouldSummarize: shouldSummarize,
-        requiredFollowUp: shouldSummarize
-            ? null
-            : _nextGoalDiscoveryQuestion(
-                state.primaryConcern,
-                userAnswerCount,
-              ),
-      );
-      if (!mounted) return;
-      setState(() {
-        messages.add(ChatMessage(false, result.reply));
-        loading = false;
-      });
-      if (result.isComplete && result.conclusion.isNotEmpty) {
-        state.setMotivation(result.conclusion);
-      }
-      _scrollToBottom();
-    } on AiSetupException {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error =
-            'Configure AI with Ollama or Gemini. For Ollama: ollama serve, then flutter run --dart-define=AI_PROVIDER=ollama';
-        messages.add(
-          const ChatMessage(
-            false,
-            'I can guide this conversation once the AI provider is reachable.',
-          ),
-        );
-      });
-      _scrollToBottom();
-    } catch (exception) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error =
-            'AI response failed. Check Ollama, connection, API key, or model.';
-        messages.add(
-          ChatMessage(
-            false,
-            'I had trouble reaching the AI service. You can try again in a moment. Details: $exception',
-          ),
-        );
-      });
-      _scrollToBottom();
-    }
+    _scrollToBottom();
   }
 
   void _scrollToBottom() {
@@ -1229,15 +1816,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final branch = activeBranch ?? _branchForLayer(state.primaryConcern);
-    final chips = branch.concerns.map((concern) => concern.feltNeed).toList();
     final hasReflection = state.reflectedMotivation.isNotEmpty;
-    final canAnswer = !hasReflection && !loading;
+    final selected = answers[stepIndex] ?? const <GuidedOption>[];
     return OnboardingScaffold(
       phase: 5,
-      title: 'Tell Shelby what is behind it.',
+      title: 'Shape your path.',
       subtitle:
-          'Share as much or as little as you want. Shelby will ask a few gentle follow-ups and reflect the heart of your goal back to you.',
+          'Pick an answer or type one. Shelby maps typed replies to the closest choice.',
+      scrollBody: false,
       bottom: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1255,9 +1841,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
             const SizedBox(height: 10),
           ],
           PrimaryButton(
-            label: hasReflection ? 'Confirm Reflection' : 'Finish With AI',
+            label: hasReflection ? 'Confirm Path' : 'Complete the choices',
             icon: Icons.arrow_forward_rounded,
-            enabled: hasReflection && !loading,
+            enabled: hasReflection,
             onPressed: () => _push(context, const PsychBaselineScreen()),
           ),
         ],
@@ -1265,31 +1851,36 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!coach.isConfigured) ...[
-            const PrepInfoCard(
-              icon: Icons.chat_bubble_rounded,
-              title: 'Guided chat is ready',
-              body:
-                  'Suggested replies use Shelby’s built-in decision flow. Your typed answer can still be matched to the closest path.',
-            ),
-            const SizedBox(height: 14),
-          ],
-          AppCard(
-            padding: EdgeInsets.zero,
-            child: SizedBox(
-              height: 360,
+          Expanded(
+            child: AppCard(
+              padding: EdgeInsets.zero,
               child: ListView.separated(
                 controller: scrollController,
-                padding: const EdgeInsets.all(14),
-                itemCount: messages.length + (loading ? 1 : 0),
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                primary: false,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                itemCount: messages.length + (hasReflection ? 1 : 2),
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  if (loading && index == messages.length) {
-                    return const ChatBubble(
-                      fromUser: false,
-                      text: 'Shellby is thinking...',
-                      loading: true,
+                  if (!hasReflection && index == messages.length) {
+                    return GuidedChatControls(
+                      step: currentStep,
+                      options: currentOptions,
+                      selected: selected,
+                      controller: controller,
+                      canContinueMulti: canContinueMulti,
+                      onOptionTap: chooseOption,
+                      onContinue: continueMultiSelect,
+                      onSubmitTyped: submitTypedAnswer,
                     );
+                  }
+                  final resetIndex = messages.length + (hasReflection ? 0 : 1);
+                  if (index == resetIndex) {
+                    return GuidedChatResetButton(onPressed: resetGuidedChat);
                   }
                   final message = messages[index];
                   return ChatBubble(
@@ -1300,109 +1891,494 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: chips
-                .map(
-                  (chip) => ActionChip(
-                    label: Text(chip),
-                    onPressed: canAnswer ? () => sendAnswer(chip) : null,
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 4,
-                  enabled: !hasReflection,
-                  decoration: inputDecoration('Type your own answer...'),
-                  onSubmitted: (_) => sendAnswer(),
-                ),
-              ),
-              const SizedBox(width: 10),
-              IconButton.filled(
-                style: IconButton.styleFrom(
-                  backgroundColor: _brand,
-                  fixedSize: const Size(54, 54),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-                onPressed: canAnswer ? () => sendAnswer() : null,
-                icon: const Icon(Icons.arrow_forward_rounded),
-              ),
-            ],
-          ),
-          if (hasReflection) ...[
-            const SizedBox(height: 22),
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'What you told Shellby',
-                    style: TextStyle(
-                      color: _title,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    state.reflectedMotivation,
-                    style: const TextStyle(
-                      color: _body,
-                      height: 1.35,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  String _nextGoalDiscoveryQuestion(String concern, int userAnswerCount) {
-    final branch = _branchForLayer(concern);
-    return userAnswerCount <= 1
-        ? branch.concerns.first.followUp
-        : 'What monthly action would feel realistic enough to start with?';
+  GuidedOption _closestOption(String answer, List<GuidedOption> options) {
+    final normalized = answer.toLowerCase();
+    GuidedOption best = options.first;
+    var bestScore = -1;
+    for (final option in options) {
+      final searchable = [
+        option.label,
+        option.text,
+        option.detail ?? '',
+        ...option.keywords,
+      ].join(' ').toLowerCase();
+      final score = searchable
+          .split(RegExp(r'[^a-z0-9]+'))
+          .where((word) => word.length > 2 && normalized.contains(word))
+          .length;
+      if (score > bestScore) {
+        best = option;
+        bestScore = score;
+      }
+    }
+    return best;
   }
 
-  bool _acceptsSuggestedDirection(String answer) {
-    final normalized = answer.toLowerCase();
-    final acceptancePhrases = [
-      'i agree',
-      'agree',
-      'yes',
-      'yeah',
-      'yup',
-      'okay',
-      'ok',
-      'sounds good',
-      'that works',
-      'good for me',
-      'follow what you said',
-      'follow your suggestion',
-      'follow that',
-      'i will follow',
-      'i want to follow',
-      'let us do that',
-      "let's do that",
-      'that goal',
-      'that target',
+  GoalConcern? _concernForGoal(GoalBranch branch, String? goalTitle) {
+    if (goalTitle == null) return null;
+    for (final concern in branch.concerns) {
+      if (concern.goalTitle == goalTitle) return concern;
+    }
+    return null;
+  }
+
+  List<GuidedOption> _tailoredFocusOptions(
+    List<GuidedOption> options,
+    GuidedOption surfaced,
+  ) {
+    final labels = switch ((pathway.layer, surfaced.label)) {
+      ('Cash Flow & Basic Needs', 'A') => ['A', 'C'],
+      ('Cash Flow & Basic Needs', 'B') => ['B', 'A'],
+      ('Cash Flow & Basic Needs', 'C') => ['C', 'A'],
+      ('Financial Safety', 'A') => ['A', 'C'],
+      ('Financial Safety', 'B') => ['B', 'A'],
+      ('Financial Safety', 'C') => ['C', 'A'],
+      ('Accumulating Wealth', 'A') => ['A', 'C'],
+      ('Accumulating Wealth', 'B') => ['B', 'A'],
+      ('Accumulating Wealth', 'C') => ['C', 'A'],
+      ('Financial Freedom', 'A') => ['A', 'B'],
+      ('Financial Freedom', 'B') => ['B', 'A'],
+      ('Financial Freedom', 'C') => ['C', 'B'],
+      _ => options.map((option) => option.label).toList(),
+    };
+    final tailored = [
+      for (final label in labels)
+        ...options.where((option) => option.label == label),
     ];
-    return acceptancePhrases.any(normalized.contains);
+    return tailored.isEmpty ? options : tailored;
+  }
+
+  Set<String> _selectedLabels() {
+    return answers.values
+        .expand((options) => options)
+        .map((option) => option.label)
+        .toSet();
+  }
+
+  String _guidedReflection(GoalBranch branch, GoalConcern concern) {
+    final lines = <String>[];
+    for (var i = 0; i < pathway.steps.length; i += 1) {
+      final selected = answers[i] ?? const <GuidedOption>[];
+      if (selected.isEmpty) continue;
+      lines.add(
+        '${pathway.steps[i].title}: ${selected.map((option) => option.displayText).join(', ')}',
+      );
+    }
+    return '${concern.goalDescription} Shelby will start with ${concern.goalTitle.toLowerCase()} because it matches your ${branch.layer.toLowerCase()} pathway. ${concern.backgroundEffect} ${lines.join(' ')}';
+  }
+
+  String _selectionSummary() {
+    final surfaced = _firstAnswer(0);
+    final focus = _firstAnswer(1);
+    final timeframe = _firstAnswer(2);
+    final difficulty = _firstAnswer(3);
+    final situations = answers[4] ?? const <GuidedOption>[];
+    final challenges = answers[5] ?? const <GuidedOption>[];
+
+    final surfaceText = surfaced == null
+        ? null
+        : 'You shared that **${_surfacePhrase(surfaced)}**.';
+    final opening = focus == null
+        ? 'Your first goal is ready'
+        : 'You want your first goal to focus on **${_focusPhrase(focus)}**';
+    final timeframeText =
+        timeframe == null ? '' : ' over **${_timeframePhrase(timeframe)}**';
+    final difficultyText = difficulty == null
+        ? ''
+        : ', using **${_difficultyPhrase(difficulty)}**';
+    final firstSentence = '$opening$timeframeText$difficultyText.';
+
+    final followUps = <String>[
+      if (situations.isNotEmpty)
+        'remind you around ${_boldOptionList(situations)}',
+      if (challenges.isNotEmpty) 'watch for ${_boldOptionList(challenges)}',
+    ];
+    final goalText = followUps.isEmpty
+        ? firstSentence
+        : '$firstSentence Shelby will ${_joinWithAnd(followUps)}.';
+    return surfaceText == null ? goalText : '$surfaceText $goalText';
+  }
+
+  GuidedOption? _firstAnswer(int index) {
+    final selected = answers[index] ?? const <GuidedOption>[];
+    return selected.isEmpty ? null : selected.first;
+  }
+
+  String _focusPhrase(GuidedOption option) {
+    return switch (option.goalTitle) {
+      'Expense Tracking Routine' =>
+        'remembering to track your spending and keep momentum',
+      'Spending Trigger Tracker' => 'tracking repeat spending triggers',
+      'Irregular Income Buffer' =>
+        'how unexpected bills or changing income cycles disrupt your plans',
+      'Safety Shield Boundary' =>
+        'protecting your savings from regular expenses',
+      'Bill Due-Date Buffer' => 'building a buffer around upcoming bills',
+      'Payday Safety Sweep' => 'setting money aside consistently on your own',
+      'Debt Payoff Map' =>
+        'building a clear strategy to pay down your existing debts',
+      'Starter Investing Habit' =>
+        'completing starter investing setup steps and contributions',
+      'Lifestyle Creep Monitor' =>
+        'keeping spending steady when your income increases',
+      'Milestone Bucket Plan' =>
+        'balancing multiple future milestones at the same time',
+      'Future Lifestyle Fund' =>
+        'saving for one major milestone while keeping regular bills covered',
+      'Planned Experience Fund' =>
+        'planning hobbies and travel from a funded bucket',
+      _ => _trimPeriod(option.text),
+    };
+  }
+
+  String _surfacePhrase(GuidedOption option) {
+    return switch (_trimPeriod(option.text)) {
+      'I keep meaning to check my spending, but the habit slips when life gets busy' =>
+        'checking your spending gets harder when life gets busy',
+      'I notice extra purchases around weekends, payday, or certain stores' =>
+        'extra purchases tend to show up around specific days, paydays, or stores',
+      'I feel thrown off when bills, income, or timing do not line up' =>
+        'bills, income, or timing can throw your plan off',
+      'I save a little, but regular expenses keep pulling that money back out' =>
+        'regular expenses keep pulling money back out of savings',
+      'Surprise expenses or due dates disrupt my monthly plan' =>
+        'surprise expenses or due dates disrupt your monthly plan',
+      'I want a cushion, but I need help making saving feel automatic' =>
+        'you want saving to feel more automatic',
+      'Debt payments keep taking up budget space every month' =>
+        'debt payments keep taking up budget space',
+      'I want to start investing, but I have not completed the setup steps' =>
+        'starter investing still needs clear setup steps',
+      'When more money comes in, it seems to disappear into more spending' =>
+        'extra income can disappear into extra spending',
+      'I have several things I care about, and it is hard to know what to fund first' =>
+        'you have several meaningful goals competing for attention',
+      'I want to save for something meaningful without messing up my bills' =>
+        'you want to fund something meaningful while keeping bills steady',
+      'I spend on hobbies or travel without a clear funded bucket' =>
+        'hobby or travel spending needs its own funded bucket',
+      final value => value.toLowerCase(),
+    };
+  }
+
+  String _timeframePhrase(GuidedOption option) {
+    return switch (_trimPeriod(option.text)) {
+      '1 Month' => '1 month',
+      '3 Months' => '3 months',
+      '6 Months' => '6 months',
+      '1 Year' => '1 year',
+      '2 Years+' => '2+ years',
+      '1 to 3 Months' => '1 to 3 months',
+      final value => value.toLowerCase(),
+    };
+  }
+
+  String _difficultyPhrase(GuidedOption option) {
+    return switch (_trimPeriod(option.text)) {
+      'Relaxed Pace' => 'a relaxed pace',
+      'Balanced Pace' => 'a balanced pace',
+      'High Focus Pace' => 'a high-focus pace',
+      'Conservative Pace' => 'a conservative pace',
+      'Aggressive Pace' => 'an aggressive pace',
+      'Safe & Slow' => 'a safe and slow pace',
+      'Intentional' => 'an intentional approach',
+      'Lifestyle First' => 'a lifestyle-first approach',
+      final value => value.toLowerCase(),
+    };
+  }
+
+  String _boldOptionList(List<GuidedOption> options) {
+    return _joinWithAnd(
+      options.map((option) => '**${_trimPeriod(option.text)}**').toList(),
+    );
+  }
+
+  String _joinWithAnd(List<String> values) {
+    if (values.length <= 1) return values.join();
+    if (values.length == 2) return '${values.first} and ${values.last}';
+    return '${values.sublist(0, values.length - 1).join(', ')}, and ${values.last}';
+  }
+
+  String _trimPeriod(String value) {
+    final trimmed = value.trim();
+    return trimmed.endsWith('.')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+  }
+}
+
+class GuidedChatControls extends StatelessWidget {
+  const GuidedChatControls({
+    super.key,
+    required this.step,
+    required this.options,
+    required this.selected,
+    required this.controller,
+    required this.canContinueMulti,
+    required this.onOptionTap,
+    required this.onContinue,
+    required this.onSubmitTyped,
+  });
+
+  final GuidedStep step;
+  final List<GuidedOption> options;
+  final List<GuidedOption> selected;
+  final TextEditingController controller;
+  final bool canContinueMulti;
+  final ValueChanged<GuidedOption> onOptionTap;
+  final VoidCallback onContinue;
+  final VoidCallback onSubmitTyped;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ...options.map(
+              (option) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: GuidedChatOptionButton(
+                  option: option,
+                  multiSelect: step.multiSelect,
+                  selected: selected.contains(option),
+                  onTap: () => onOptionTap(option),
+                ),
+              ),
+            ),
+            if (step.multiSelect) ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                height: 38,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _brand,
+                    disabledBackgroundColor: _border,
+                    foregroundColor: Colors.white,
+                    disabledForegroundColor: _body,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: canContinueMulti ? onContinue : null,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text(
+                    'Continue',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 6),
+            GuidedChatComposer(
+              controller: controller,
+              onSubmit: onSubmitTyped,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GuidedChatResetButton extends StatelessWidget {
+  const GuidedChatResetButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: const Icon(Icons.refresh_rounded, size: 17),
+        label: const Text('Reset chat'),
+        style: TextButton.styleFrom(
+          foregroundColor: _purple,
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          textStyle: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class GuidedChatComposer extends StatelessWidget {
+  const GuidedChatComposer({
+    super.key,
+    required this.controller,
+    required this.onSubmit,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 42,
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              minLines: 1,
+              maxLines: 1,
+              textInputAction: TextInputAction.send,
+              decoration: const InputDecoration(
+                hintText: 'Type your own answer',
+                hintStyle: TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.fromLTRB(12, 10, 8, 10),
+              ),
+              style: const TextStyle(
+                color: _title,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+              onSubmitted: (_) => onSubmit(),
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            height: 38,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              style: IconButton.styleFrom(
+                backgroundColor: _brand,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: onSubmit,
+              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+            ),
+          ),
+          const SizedBox(width: 2),
+        ],
+      ),
+    );
+  }
+}
+
+class GuidedChatOptionButton extends StatelessWidget {
+  const GuidedChatOptionButton({
+    super.key,
+    required this.option,
+    required this.multiSelect,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final GuidedOption option;
+  final bool multiSelect;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? _bellySoft : _bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: selected ? _brand : _border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 22,
+              height: 22,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected ? _brand : _surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: selected ? _brand : _border),
+              ),
+              child: selected
+                  ? Icon(
+                      multiSelect
+                          ? Icons.check_rounded
+                          : Icons.radio_button_checked_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    )
+                  : Text(
+                      option.label.isEmpty ? '' : option.label.substring(0, 1),
+                      style: const TextStyle(
+                        color: _brand,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    option.text,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      height: 1.15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (option.detail != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      option.detail!,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 10.5,
+                        height: 1.15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1434,9 +2410,10 @@ class PsychBaselineScreen extends StatelessWidget {
           ),
           const SizedBox(height: 34),
           ScoreSlider(
-            title: 'How anxious do you feel when checking your finances?',
-            left: 'Calm',
-            right: 'Anxious',
+            title:
+                'How much pressure do you notice when checking your finances?',
+            left: 'Low',
+            right: 'High',
             value: state.anxiety,
             onChanged: state.updateAnxiety,
           ),
@@ -2243,7 +3220,7 @@ class PyramidPreviewScreen extends StatelessWidget {
                 ),
                 SummaryRow(
                   'Mindset',
-                  'Confidence ${state.confidence.round()} / Anxiety ${state.anxiety.round()}',
+                  'Confidence ${state.confidence.round()} / Pressure ${state.anxiety.round()}',
                 ),
               ],
             ),
@@ -2416,11 +3393,13 @@ class PreparationCommitmentScreen extends StatelessWidget {
                 SummaryRow('Actions', state.selectedActionIds.join(', ')),
                 if (state.emotionalLogsEnabled)
                   const SummaryRow(
-                      'Optional signal', 'Emotional spending logs'),
+                    'Optional tracker',
+                    'Spending trigger tags',
+                  ),
                 if (state.stressIndicatorsEnabled)
                   const SummaryRow(
-                    'Optional signal',
-                    'Financial anxiety score',
+                    'Optional tracker',
+                    'Upcoming bill-buffer status',
                   ),
                 SummaryRow(
                   'Monthly allocation',
@@ -2454,22 +3433,22 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
     final action = switch (state.selectedGoal) {
       'Expense Tracking Routine' ||
       'Irregular Income Buffer' ||
-      'Emotional Spending Log' ||
+      'Spending Trigger Tracker' ||
       'Cash Flow Stability Plan' =>
         'Log your first income or spending baseline',
       'Buffer Duration Goal' ||
-      'Bill Calm Buffer' ||
+      'Bill Due-Date Buffer' ||
       'Safety Shield Boundary' ||
       'Payday Safety Sweep' ||
       'Emergency Cushion' =>
         'Allocate your first safety buffer amount',
       'Debt Payoff Map' => 'Add your first debt balance or due date',
-      'Starter Investing Confidence' ||
+      'Starter Investing Habit' ||
       'Lifestyle Creep Monitor' ||
       'Net Worth Growth Plan' =>
         'Record your first saving or investment habit',
       'Milestone Bucket Plan' ||
-      'Guilt-Free Experience Fund' ||
+      'Planned Experience Fund' ||
       'Shared Future Alignment' ||
       'Future Lifestyle Fund' =>
         'Create your first milestone bucket',

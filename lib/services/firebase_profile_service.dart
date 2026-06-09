@@ -5,6 +5,8 @@ class FirebaseProfileService {
 
   static final _auth = FirebaseAuth.instance;
   static final _firestore = FirebaseFirestore.instance;
+  static const _webClientId =
+      '837901302693-40aao89shd99d4obt9pph1uvgrkqnt13.apps.googleusercontent.com';
 
   static User? get currentUser => _auth.currentUser;
 
@@ -15,9 +17,9 @@ class FirebaseProfileService {
   static Future<UserCredential> signInWithGoogle({
     bool forceFreshSession = false,
   }) async {
-    await GoogleSignIn.instance.initialize();
+    await GoogleSignIn.instance.initialize(serverClientId: _webClientId);
     if (forceFreshSession) {
-      await _disconnectGoogle();
+      await _signOutGoogle();
       await _auth.signOut();
     }
     try {
@@ -28,16 +30,13 @@ class FirebaseProfileService {
       );
       return await _auth.signInWithCredential(credential);
     } on GoogleSignInException catch (exception) {
-      await _disconnectGoogle();
-      await _auth.signOut();
+      await _clearAuthState();
       throw FirebaseAuthException(
         code: 'google-sign-in-failed',
-        message: exception.description ??
-            'Google sign-in failed. Check that Firebase has this app debug SHA-1 and try again.',
+        message: _googleSignInMessage(exception),
       );
     } on FirebaseAuthException {
-      await _disconnectGoogle();
-      await _auth.signOut();
+      await _clearAuthState();
       rethrow;
     }
   }
@@ -72,17 +71,32 @@ class FirebaseProfileService {
   }
 
   static Future<void> signOut() async {
+    await _clearAuthState();
+  }
+
+  static Future<void> _clearAuthState() async {
     await Future.wait([
       _auth.signOut(),
-      GoogleSignIn.instance.signOut(),
+      _signOutGoogle(),
     ]);
   }
 
-  static Future<void> _disconnectGoogle() async {
+  static Future<void> _signOutGoogle() async {
     try {
-      await GoogleSignIn.instance.disconnect();
-    } on GoogleSignInException {
       await GoogleSignIn.instance.signOut();
+    } on GoogleSignInException {
+      // Google cleanup is best effort; Firebase sign-out is the source of truth.
     }
+  }
+
+  static String _googleSignInMessage(GoogleSignInException exception) {
+    final description = exception.description?.trim();
+    if (description != null &&
+        description.toLowerCase().contains('account reauth failed')) {
+      return 'Google could not refresh that account session. Please try again and choose your Google account when prompted.';
+    }
+    return description?.isNotEmpty == true
+        ? description!
+        : 'Google sign-in failed. Check that Firebase has this app debug SHA-1 and try again.';
   }
 }

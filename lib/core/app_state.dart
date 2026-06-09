@@ -86,13 +86,13 @@ class AppState extends ChangeNotifier {
     if (selectedGoal == 'Debt Payoff Map') {
       return math.max(400, debtPayments * .8);
     }
-    if (selectedGoal == 'Starter Investing Confidence' ||
+    if (selectedGoal == 'Starter Investing Habit' ||
         selectedGoal == 'Net Worth Growth Plan') {
       return math.max(500, income * .12);
     }
     if (selectedGoal == 'Cash Flow Stability Plan' ||
         selectedGoal == 'Expense Tracking Routine' ||
-        selectedGoal == 'Emotional Spending Log') {
+        selectedGoal == 'Spending Trigger Tracker') {
       return 0;
     }
     return math.max(500, expenses / 6);
@@ -408,6 +408,26 @@ class AppState extends ChangeNotifier {
     reflectedMotivation = motivation.isEmpty
         ? 'You want a clearer financial plan that feels realistic for your life.'
         : motivation;
+    notifyListeners();
+  }
+
+  void resetGuidedPathDetails() {
+    motivation = '';
+    reflectedMotivation = '';
+    final branch = _branchForLayer(primaryConcern);
+    selectedGoal = branch.defaultGoalTitle;
+    selectedGoalDescription = branch.defaultGoalDescription;
+    selectedGoalMonthlyTarget = 0;
+    selectedActionIds
+      ..clear()
+      ..add('ACT1');
+    emotionalLogsEnabled = false;
+    stressIndicatorsEnabled = false;
+    consentAi = false;
+    consentTrustedCircle = false;
+    if (socialStructure == 'Collaborative goal') {
+      socialStructure = 'Private only';
+    }
     notifyListeners();
   }
 

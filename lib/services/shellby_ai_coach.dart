@@ -236,8 +236,8 @@ $alreadyAsked
 Conversation so far:
 $transcript
 
-Respond as Shellby in a warm, human, emotionally intelligent way.
-First acknowledge what the user just shared. Validate the feeling or tradeoff without exaggerating.
+Respond as Shellby in a warm, practical, and specific way.
+First acknowledge what the user just shared. Validate the tradeoff without exaggerating.
 Be honest and grounded. Do not over-praise, diagnose, or sound like a script.
 Use at least one concrete detail from the user's latest answer so it feels like a real reply.
 If the user says they do not know, normalize that briefly. Do not add a separate benchmark unless it appears inside the required follow-up question.
@@ -292,7 +292,7 @@ User preparation data:
 - Emergency fund months: ${state.emergencyMonths.toStringAsFixed(1)}
 - Debt payments: PHP ${state.debtPayments.toStringAsFixed(0)}
 - Confidence: ${state.confidence.round()}/10
-- Anxiety: ${state.anxiety.round()}/10
+- Financial pressure: ${state.anxiety.round()}/10
 - Peer pressure: ${state.peerPressure.round()}/10
 
 Goal chat:
@@ -310,7 +310,7 @@ Return only JSON with keys reply, title, description, monthly_target.
       'Starting investments' => 'Investment Starter',
       'Controlling spending' => 'Spending Clarity Sprint',
       'Planning a big purchase' => 'Big Purchase Fund',
-      'Reducing financial anxiety' => 'Calm Money Check-in',
+      'Reducing financial pressure' => 'Money Check-in Routine',
       'Comparing with peers' => 'Peer Benchmark Baseline',
       _ => 'Emergency Shield',
     };
@@ -391,7 +391,7 @@ Follow these rules:
 - Do not give regulated financial advice.
 - Do not recommend specific financial products, banks, brokers, or securities.
 - If the user asks a question or requests a modification, answer briefly and revise the goal.
-- Prefer safer foundational goals when anxiety is high or surplus is low.
+- Prefer safer foundational goals when financial pressure is high or surplus is low.
 
 Return only valid JSON:
 {
