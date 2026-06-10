@@ -47,6 +47,11 @@ class AppState extends ChangeNotifier {
   bool consentBenchmarking = false;
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
+  bool notificationsAllowed = false;
+  bool thirdPartyDataLinkingAllowed = false;
+  bool automaticDataGatheringAllowed = false;
+  bool personalDataConsent = false;
+  bool dataRetentionConsent = false;
   bool emotionalLogsEnabled = false;
   bool stressIndicatorsEnabled = false;
   final Set<String> selectedActionIds = {'ACT1'};
@@ -301,6 +306,11 @@ class AppState extends ChangeNotifier {
       'consentBenchmarking': consentBenchmarking,
       'consentCommunity': consentCommunity,
       'consentTrustedCircle': consentTrustedCircle,
+      'notificationsAllowed': notificationsAllowed,
+      'thirdPartyDataLinkingAllowed': thirdPartyDataLinkingAllowed,
+      'automaticDataGatheringAllowed': automaticDataGatheringAllowed,
+      'personalDataConsent': personalDataConsent,
+      'dataRetentionConsent': dataRetentionConsent,
       'emotionalLogsEnabled': emotionalLogsEnabled,
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
       'selectedActionIds': selectedActionIds.toList()..sort(),
@@ -373,6 +383,18 @@ class AppState extends ChangeNotifier {
     consentCommunity = data['consentCommunity'] as bool? ?? consentCommunity;
     consentTrustedCircle =
         data['consentTrustedCircle'] as bool? ?? consentTrustedCircle;
+    notificationsAllowed =
+        data['notificationsAllowed'] as bool? ?? notificationsAllowed;
+    thirdPartyDataLinkingAllowed =
+        data['thirdPartyDataLinkingAllowed'] as bool? ??
+            thirdPartyDataLinkingAllowed;
+    automaticDataGatheringAllowed =
+        data['automaticDataGatheringAllowed'] as bool? ??
+            automaticDataGatheringAllowed;
+    personalDataConsent =
+        data['personalDataConsent'] as bool? ?? personalDataConsent;
+    dataRetentionConsent =
+        data['dataRetentionConsent'] as bool? ?? dataRetentionConsent;
     emotionalLogsEnabled =
         data['emotionalLogsEnabled'] as bool? ?? emotionalLogsEnabled;
     stressIndicatorsEnabled =
@@ -452,6 +474,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateGuidedChatSummary({
+    String? surface,
+    String? goalFocus,
+    String? timeframe,
+    String? difficulty,
+    String? situations,
+    String? challenges,
+  }) {
+    if (surface != null) chatSurfaceSummary = surface.trim();
+    if (goalFocus != null) chatGoalFocusSummary = goalFocus.trim();
+    if (timeframe != null) chatTimeframeSummary = timeframe.trim();
+    if (difficulty != null) chatDifficultySummary = difficulty.trim();
+    if (situations != null) chatSituationsSummary = situations.trim();
+    if (challenges != null) chatChallengesSummary = challenges.trim();
+    notifyListeners();
+  }
+
   void resetGuidedPathDetails() {
     motivation = '';
     reflectedMotivation = '';
@@ -475,6 +514,24 @@ class AppState extends ChangeNotifier {
     if (socialStructure == 'Collaborative goal') {
       socialStructure = 'Private only';
     }
+    notifyListeners();
+  }
+
+  void acceptAppPermissions({required bool notificationGranted}) {
+    notificationsAllowed = notificationGranted;
+    thirdPartyDataLinkingAllowed = true;
+    automaticDataGatheringAllowed = true;
+    notifyListeners();
+  }
+
+  void acceptPersonalDataConsent() {
+    personalDataConsent = true;
+    consentBaseline = true;
+    notifyListeners();
+  }
+
+  void acceptDataRetentionConsent() {
+    dataRetentionConsent = true;
     notifyListeners();
   }
 

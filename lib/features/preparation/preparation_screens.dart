@@ -1198,6 +1198,24 @@ double _monthlyTargetForConcern(AppState state, GoalConcern concern) {
   };
 }
 
+void _pushFinancialConcernWithFullHistory(BuildContext context) {
+  final navigator = Navigator.of(context);
+  navigator.pushAndRemoveUntil(
+    MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+    (_) => false,
+  );
+  for (final page in const [
+    PreparationContextScreen(),
+    PreparationCredentialsScreen(),
+    LifeContextScreen(),
+    LifeRhythmScreen(),
+    PreparationOrientScreen(),
+    FinancialConcernScreen(),
+  ]) {
+    navigator.push(MaterialPageRoute(builder: (_) => page));
+  }
+}
+
 class PreparationContextScreen extends StatefulWidget {
   const PreparationContextScreen({super.key});
 
@@ -1609,6 +1627,14 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
       title: 'What brought you here today?',
       subtitle:
           'Choose the layer that best matches what you want Shelby to help with first.',
+      onBack: () {
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+          return;
+        }
+        _pushFinancialConcernWithFullHistory(context);
+      },
       bottom: PrimaryButton(
         label: 'Tell Shelby Why',
         icon: Icons.arrow_forward_rounded,
@@ -2384,7 +2410,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 8,
+      phase: 11,
       title: 'Financial Scaffolding.',
       subtitle:
           'Quantify your economic standing for the financial pyramid health index.',
@@ -2684,7 +2710,7 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
       'Subscription creep',
     ];
     return OnboardingScaffold(
-      phase: 9,
+      phase: 12,
       title: 'Choose what Shellby tracks.',
       subtitle:
           'Preparation defines the variables before collection starts: what counts, what gets in the way, and what stays optional.',
@@ -2753,12 +2779,7 @@ class GoalQuestionnaireScreen extends StatelessWidget {
               onPressed: () {
                 state.primaryConcern = _goalBranches.first.layer;
                 state.resetGuidedPathDetails();
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(
-                    builder: (_) => const FinancialConcernScreen(),
-                  ),
-                  (_) => false,
-                );
+                _pushFinancialConcernWithFullHistory(context);
               },
               icon: const Icon(Icons.refresh_rounded, size: 16),
               label: const Text('Redo Conversation'),
@@ -2782,21 +2803,53 @@ class GoalQuestionnaireScreen extends StatelessWidget {
   }
 }
 
-class RecommendedPlanScreen extends StatelessWidget {
+class RecommendedPlanScreen extends StatefulWidget {
   const RecommendedPlanScreen({super.key});
+
+  @override
+  State<RecommendedPlanScreen> createState() => _RecommendedPlanScreenState();
+}
+
+class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
+  void _selectPlan(AppState state, GoalConcern concern) {
+    setState(() {
+      _applyRecommendedConcern(state, concern);
+      state.updateGuidedChatSummary(
+        goalFocus: _optionSummaryForGoalTitle(
+          state.primaryConcern,
+          concern.goalTitle,
+        ),
+      );
+    });
+  }
+
+  void _redoConversation(AppState state) {
+    state.primaryConcern = _goalBranches.first.layer;
+    state.resetGuidedPathDetails();
+    _pushFinancialConcernWithFullHistory(context);
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final branch = _branchForLayer(state.primaryConcern);
+    final selectedConcern = _concernForGoalTitle(branch, state.selectedGoal) ??
+        branch.closestConcern(state.chatGoalFocusSummary);
+    final planOptions = [
+      selectedConcern,
+      ...branch.concerns.where(
+        (concern) => concern.goalTitle != selectedConcern.goalTitle,
+      ),
+    ];
     return OnboardingScaffold(
       phase: 7,
       title: 'Recommended plan.',
       subtitle:
           'Based on your chat, Shellby has a first plan to start with before exact finances are added.',
       bottom: PrimaryButton(
-        label: 'Add Financial Baseline',
+        label: 'Set App Permissions',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const FinancialBaselineScreen()),
+        onPressed: () => _push(context, const AppPermissionScreen()),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2863,6 +2916,428 @@ class RecommendedPlanScreen extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 14),
+          const Text(
+            'Other close-fit plans',
+            style: TextStyle(
+              color: _title,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...planOptions.map(
+            (concern) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: RecommendedPlanOption(
+                concern: concern,
+                selected: concern.goalTitle == state.selectedGoal,
+                isTopRecommendation:
+                    concern.goalTitle == selectedConcern.goalTitle,
+                onTap: () => _selectPlan(state, concern),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Align(
+            alignment: Alignment.center,
+            child: TextButton.icon(
+              onPressed: () => _redoConversation(state),
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Redo Conversation'),
+              style: TextButton.styleFrom(
+                foregroundColor: _purple,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RecommendedPlanOption extends StatelessWidget {
+  const RecommendedPlanOption({
+    super.key,
+    required this.concern,
+    required this.selected,
+    required this.isTopRecommendation,
+    required this.onTap,
+  });
+
+  final GoalConcern concern;
+  final bool selected;
+  final bool isTopRecommendation;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        width: double.infinity,
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: selected ? _bellySoft : _surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? _purple : _border,
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              color: selected ? _purple : _body,
+              size: 22,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          concern.goalTitle,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (isTopRecommendation)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _brand.withValues(alpha: .12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'Best fit',
+                            style: TextStyle(
+                              color: _brand,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    concern.goalDescription,
+                    style: const TextStyle(
+                      color: _body,
+                      height: 1.3,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AppPermissionScreen extends StatefulWidget {
+  const AppPermissionScreen({super.key});
+
+  @override
+  State<AppPermissionScreen> createState() => _AppPermissionScreenState();
+}
+
+class _AppPermissionScreenState extends State<AppPermissionScreen> {
+  bool busy = false;
+
+  Future<void> _allow() async {
+    if (busy) return;
+    setState(() => busy = true);
+    var notificationGranted = false;
+    try {
+      final status = await Permission.notification
+          .request()
+          .timeout(const Duration(seconds: 3));
+      notificationGranted = status.isGranted;
+    } catch (_) {
+      notificationGranted = false;
+    }
+    if (!mounted) return;
+    AppScope.of(context).acceptAppPermissions(
+      notificationGranted: notificationGranted,
+    );
+    _push(context, const PersonalDataConsentScreen());
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingScaffold(
+      phase: 8,
+      title: 'App permissions.',
+      subtitle:
+          'Shellby will ask before using phone features or connecting outside data sources.',
+      bottom: PrimaryButton(
+        label: busy ? 'Requesting...' : 'Allow',
+        icon: Icons.notifications_active_rounded,
+        enabled: !busy,
+        onPressed: _allow,
+      ),
+      child: const Column(
+        children: [
+          PermissionInfoCard(
+            icon: Icons.notifications_active_rounded,
+            title: 'Notifications',
+            body:
+                'Used for payday reminders, bill-day nudges, check-ins, missed contribution alerts, and goal progress prompts.',
+          ),
+          SizedBox(height: 12),
+          PermissionInfoCard(
+            icon: Icons.account_balance_rounded,
+            title: 'Third Party Data Linking',
+            body:
+                'Used only if you choose to connect external banks, e-wallets, or similar financial accounts in the future.',
+          ),
+          SizedBox(height: 12),
+          PermissionInfoCard(
+            icon: Icons.sync_rounded,
+            title: 'Automatic Data Gathering',
+            body:
+                'Used to update allowed financial data automatically instead of asking you to enter every item by hand.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PersonalDataConsentScreen extends StatelessWidget {
+  const PersonalDataConsentScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return OnboardingScaffold(
+      phase: 9,
+      title: 'Personal data consent.',
+      subtitle:
+          'Shellby collects only the specific data needed to build and track your plan.',
+      bottom: PrimaryButton(
+        label: 'I Agree',
+        icon: Icons.check_circle_rounded,
+        onPressed: () {
+          state.acceptPersonalDataConsent();
+          _push(context, const DataRetentionConsentScreen());
+        },
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppCard(
+            child: Column(
+              children: [
+                ConsentDataRow(
+                  label: 'Account details',
+                  value: 'Name, email address, user ID, and profile photo.',
+                ),
+                ConsentDataRow(
+                  label: 'Profile context',
+                  value:
+                      'Age or life stage, occupation, industry, employment status, location type, and financial responsibility.',
+                ),
+                ConsentDataRow(
+                  label: 'Money rhythm',
+                  value:
+                      'Income type, income schedule, bill schedule, and check-in rhythm.',
+                ),
+                ConsentDataRow(
+                  label: 'Conversation answers',
+                  value:
+                      'Selected concern, goal focus, timeframe, pace, helpful situations, and expected hurdles.',
+                ),
+                ConsentDataRow(
+                  label: 'Financial baseline',
+                  value:
+                      'Income, expenses, variable expenses, savings, emergency months, debt payments, subscriptions, assets, and liabilities that you enter.',
+                ),
+                ConsentDataRow(
+                  label: 'Tracking choices',
+                  value:
+                      'Selected goal variables, interfering variables, consent choices, and sharing preference.',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DataRetentionConsentScreen extends StatelessWidget {
+  const DataRetentionConsentScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return OnboardingScaffold(
+      phase: 10,
+      title: 'Data retention.',
+      subtitle:
+          'Your data stays available only while it is needed for your Shellby account and financial plan.',
+      bottom: PrimaryButton(
+        label: 'I Agree',
+        icon: Icons.check_circle_rounded,
+        onPressed: () {
+          state.acceptDataRetentionConsent();
+          _push(context, const PreparationCommitmentScreen());
+        },
+      ),
+      child: const Column(
+        children: [
+          PermissionInfoCard(
+            icon: Icons.schedule_rounded,
+            title: 'How long data is kept',
+            body:
+                'Shellby keeps your account, onboarding, consent, goal, and financial tracking data while your account is active so your plan can continue across sessions.',
+          ),
+          SizedBox(height: 12),
+          PermissionInfoCard(
+            icon: Icons.restart_alt_rounded,
+            title: 'Reset control',
+            body:
+                'You can reset your conversation, goal details, financial baseline, tracking choices, or other stored data from the Settings menu.',
+          ),
+          SizedBox(height: 12),
+          PermissionInfoCard(
+            icon: Icons.delete_outline_rounded,
+            title: 'Deletion control',
+            body:
+                'If you delete your account, Shellby will remove your stored profile and app data except records that must be kept for legal or security reasons.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PermissionInfoCard extends StatelessWidget {
+  const PermissionInfoCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconBubble(icon),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    color: _body,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ConsentDataRow extends StatelessWidget {
+  const ConsentDataRow({
+    super.key,
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.verified_rounded, color: _brand, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: _body,
+                    height: 1.3,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -2919,51 +3394,302 @@ class PlanStepRow extends StatelessWidget {
   }
 }
 
-class GuidedSummaryCard extends StatelessWidget {
+String _optionSummaryForStep(int stepIndex, GuidedOption option) {
+  final phrase = switch (stepIndex) {
+    0 => _surfaceSummaryPhrase(option),
+    1 => _focusSummaryPhrase(option),
+    2 => _timeframeSummaryPhrase(option),
+    3 => _difficultySummaryPhrase(option),
+    _ => _cleanOptionText(option.text),
+  };
+  if (phrase.isEmpty) return '';
+  return phrase[0].toUpperCase() + phrase.substring(1);
+}
+
+String _surfaceSummaryPhrase(GuidedOption option) {
+  return switch (_cleanOptionText(option.text)) {
+    'I keep meaning to check my spending, but the habit slips when life gets busy' =>
+      'checking your spending gets harder when life gets busy',
+    'I notice extra purchases around weekends, payday, or certain stores' =>
+      'extra purchases tend to show up around specific days, paydays, or stores',
+    'I feel thrown off when bills, income, or timing do not line up' =>
+      'bills, income, or timing can throw your plan off',
+    'I save a little, but regular expenses keep pulling that money back out' =>
+      'regular expenses keep pulling money back out of savings',
+    'Surprise expenses or due dates disrupt my monthly plan' =>
+      'surprise expenses or due dates disrupt your monthly plan',
+    'I want a cushion, but I need help making saving feel automatic' =>
+      'you want saving to feel more automatic',
+    'Debt payments keep taking up budget space every month' =>
+      'debt payments keep taking up budget space',
+    'I want to start investing, but I have not completed the setup steps' =>
+      'starter investing still needs clear setup steps',
+    'When more money comes in, it seems to disappear into more spending' =>
+      'extra income can disappear into extra spending',
+    'I have several things I care about, and it is hard to know what to fund first' =>
+      'you have several meaningful goals competing for attention',
+    'I want to save for something meaningful without messing up my bills' =>
+      'you want to fund something meaningful while keeping bills steady',
+    'I spend on hobbies or travel without a clear funded bucket' =>
+      'hobby or travel spending needs its own funded bucket',
+    final value => value.toLowerCase(),
+  };
+}
+
+String _focusSummaryPhrase(GuidedOption option) {
+  return switch (option.goalTitle) {
+    'Expense Tracking Routine' =>
+      'remembering to track your spending and keep momentum',
+    'Spending Trigger Tracker' => 'tracking repeat spending triggers',
+    'Irregular Income Buffer' =>
+      'how unexpected bills or changing income cycles disrupt your plans',
+    'Safety Shield Boundary' => 'protecting your savings from regular expenses',
+    'Bill Due-Date Buffer' => 'building a buffer around upcoming bills',
+    'Payday Safety Sweep' => 'setting money aside consistently on your own',
+    'Debt Payoff Map' =>
+      'building a clear strategy to pay down your existing debts',
+    'Starter Investing Habit' =>
+      'completing starter investing setup steps and contributions',
+    'Lifestyle Creep Monitor' =>
+      'keeping spending steady when your income increases',
+    'Milestone Bucket Plan' =>
+      'balancing multiple future milestones at the same time',
+    'Future Lifestyle Fund' =>
+      'saving for one major milestone while keeping regular bills covered',
+    'Planned Experience Fund' =>
+      'planning hobbies and travel from a funded bucket',
+    _ => _cleanOptionText(option.text),
+  };
+}
+
+String _timeframeSummaryPhrase(GuidedOption option) {
+  return switch (_cleanOptionText(option.text)) {
+    '1 Month' => '1 month',
+    '3 Months' => '3 months',
+    '6 Months' => '6 months',
+    '1 Year' => '1 year',
+    '2 Years+' => '2+ years',
+    '1 to 3 Months' => '1 to 3 months',
+    final value => value.toLowerCase(),
+  };
+}
+
+String _difficultySummaryPhrase(GuidedOption option) {
+  return switch (_cleanOptionText(option.text)) {
+    'Relaxed Pace' => 'a relaxed pace',
+    'Balanced Pace' => 'a balanced pace',
+    'High Focus Pace' => 'a high-focus pace',
+    'Conservative Pace' => 'a conservative pace',
+    'Aggressive Pace' => 'an aggressive pace',
+    'Safe & Slow' => 'a safe and slow pace',
+    'Intentional' => 'an intentional approach',
+    'Lifestyle First' => 'a lifestyle-first approach',
+    final value => value.toLowerCase(),
+  };
+}
+
+String _cleanOptionText(String value) {
+  final trimmed = value.trim();
+  return trimmed.endsWith('.')
+      ? trimmed.substring(0, trimmed.length - 1)
+      : trimmed;
+}
+
+String _joinSummaryValues(List<String> values) {
+  if (values.length <= 1) return values.join();
+  if (values.length == 2) return '${values.first} and ${values.last}';
+  return '${values.sublist(0, values.length - 1).join(', ')}, and ${values.last}';
+}
+
+GoalConcern? _concernForGoalTitle(GoalBranch branch, String? goalTitle) {
+  if (goalTitle == null) return null;
+  for (final concern in branch.concerns) {
+    if (concern.goalTitle == goalTitle) return concern;
+  }
+  return null;
+}
+
+void _applyRecommendedConcern(AppState state, GoalConcern concern) {
+  state.setRecommendedGoal(
+    title: concern.goalTitle,
+    description: concern.goalDescription,
+    monthlyTarget: _monthlyTargetForConcern(state, concern),
+  );
+  state.configureGoalActions(
+    actionIds: concern.actionIds,
+    enableEmotionalLogs: concern.enableEmotionalLogs,
+    enableStressIndicators: concern.enableStressIndicators,
+  );
+}
+
+String _optionSummaryForGoalTitle(String layer, String goalTitle) {
+  final pathway = _pathwayForLayer(layer);
+  for (final option in pathway.steps[1].options) {
+    if (option.goalTitle == goalTitle) return _optionSummaryForStep(1, option);
+  }
+  return goalTitle;
+}
+
+class GuidedSummaryCard extends StatefulWidget {
   const GuidedSummaryCard({super.key, required this.state});
 
   final AppState state;
 
   @override
+  State<GuidedSummaryCard> createState() => _GuidedSummaryCardState();
+}
+
+class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
+  AppState get state => widget.state;
+
+  GuidedPathway get pathway => _pathwayForLayer(state.primaryConcern);
+
+  GuidedOption _selectedOption(int stepIndex, String summary) {
+    final options = pathway.steps[stepIndex].options;
+    for (final option in options) {
+      if (_optionSummaryForStep(stepIndex, option) == summary) return option;
+    }
+    if (stepIndex == 1) {
+      for (final option in options) {
+        if (option.goalTitle == state.selectedGoal) return option;
+      }
+    }
+    return options.first;
+  }
+
+  List<GuidedOption> _selectedMultiOptions(int stepIndex, String summary) {
+    final options = pathway.steps[stepIndex].options;
+    final normalized = summary.toLowerCase();
+    final selected = options
+        .where((option) =>
+            normalized.contains(_cleanOptionText(option.text).toLowerCase()))
+        .toList();
+    return selected.isEmpty ? [options.first] : selected;
+  }
+
+  void _updateSingle(int stepIndex, GuidedOption option) {
+    setState(() {
+      final summary = _optionSummaryForStep(stepIndex, option);
+      switch (stepIndex) {
+        case 0:
+          state.updateGuidedChatSummary(surface: summary);
+        case 1:
+          _applyGoalFocus(option);
+        case 2:
+          state.updateGuidedChatSummary(timeframe: summary);
+        case 3:
+          state.updateGuidedChatSummary(difficulty: summary);
+      }
+    });
+  }
+
+  void _applyGoalFocus(GuidedOption option) {
+    final branch = _branchForLayer(state.primaryConcern);
+    final concern = _concernForGoalTitle(branch, option.goalTitle) ??
+        branch.closestConcern(option.text);
+    _applyRecommendedConcern(state, concern);
+    state.updateGuidedChatSummary(
+      goalFocus: _optionSummaryForStep(1, option),
+    );
+  }
+
+  Future<void> _editMulti({
+    required BuildContext context,
+    required int stepIndex,
+    required String title,
+    required List<GuidedOption> selected,
+  }) async {
+    final options = pathway.steps[stepIndex].options;
+    final chosen = selected.toSet();
+    final result = await showDialog<List<GuidedOption>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: _surface,
+              title: Text(
+                title,
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: options
+                    .map(
+                      (option) => CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: _brand,
+                        value: chosen.contains(option),
+                        title: Text(
+                          option.text,
+                          style: const TextStyle(
+                            color: _title,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        subtitle: option.detail == null
+                            ? null
+                            : Text(
+                                option.detail!,
+                                style: const TextStyle(
+                                  color: _body,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                        onChanged: (value) {
+                          setDialogState(() {
+                            if (value ?? false) {
+                              chosen.add(option);
+                            } else {
+                              chosen.remove(option);
+                            }
+                          });
+                        },
+                      ),
+                    )
+                    .toList(),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: chosen.isEmpty
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(chosen.toList()),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (result == null || result.isEmpty) return;
+    final summary = _joinSummaryValues(
+      result.map((option) => _cleanOptionText(option.text)).toList(),
+    );
+    setState(() {
+      if (stepIndex == 4) {
+        state.updateGuidedChatSummary(situations: summary);
+      } else if (stepIndex == 5) {
+        state.updateGuidedChatSummary(challenges: summary);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final items = [
-      (
-        icon: Icons.lightbulb_rounded,
-        label: 'What brought you here',
-        value: _summaryFallback(
-          state.chatSurfaceSummary,
-          'You want a clearer financial plan that matches your current situation.',
-        ),
-      ),
-      (
-        icon: Icons.flag_rounded,
-        label: 'Goal focus',
-        value: _summaryFallback(
-          state.chatGoalFocusSummary,
-          state.selectedGoal.toLowerCase(),
-        ),
-      ),
-      (
-        icon: Icons.calendar_month_rounded,
-        label: 'Timeframe',
-        value: _summaryFallback(state.chatTimeframeSummary, 'First cycle'),
-      ),
-      (
-        icon: Icons.speed_rounded,
-        label: 'Pace',
-        value: _summaryFallback(state.chatDifficultySummary, 'Balanced pace'),
-      ),
-      (
-        icon: Icons.notifications_active_rounded,
-        label: 'Useful reminders',
-        value: _summaryFallback(state.chatSituationsSummary, 'Check-in rhythm'),
-      ),
-      (
-        icon: Icons.warning_rounded,
-        label: 'Hurdles to watch',
-        value: _summaryFallback(state.chatChallengesSummary, 'Budget changes'),
-      ),
-    ];
+    final surface = _selectedOption(0, state.chatSurfaceSummary);
+    final focus = _selectedOption(1, state.chatGoalFocusSummary);
+    final timeframe = _selectedOption(2, state.chatTimeframeSummary);
+    final difficulty = _selectedOption(3, state.chatDifficultySummary);
+    final situations = _selectedMultiOptions(4, state.chatSituationsSummary);
+    final challenges = _selectedMultiOptions(5, state.chatChallengesSummary);
 
     return AppCard(
       child: Column(
@@ -2986,14 +3712,67 @@ class GuidedSummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ...items.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: GuidedSummaryRow(
-                icon: item.icon,
-                label: item.label,
-                value: item.value,
-              ),
+          GuidedSummaryOptionRow(
+            icon: Icons.lightbulb_rounded,
+            label: 'What brought you here',
+            value: _cleanOptionText(surface.text),
+            options: pathway.steps[0].options,
+            onChanged: (option) => _updateSingle(0, option),
+          ),
+          const SizedBox(height: 10),
+          GuidedSummaryOptionRow(
+            icon: Icons.flag_rounded,
+            label: 'Goal focus',
+            value: _cleanOptionText(focus.text),
+            options: pathway.steps[1].options,
+            onChanged: (option) => _updateSingle(1, option),
+          ),
+          const SizedBox(height: 10),
+          GuidedSummaryOptionRow(
+            icon: Icons.calendar_month_rounded,
+            label: 'Timeframe',
+            value: _cleanOptionText(timeframe.text),
+            options: pathway.steps[2].options,
+            onChanged: (option) => _updateSingle(2, option),
+          ),
+          const SizedBox(height: 10),
+          GuidedSummaryOptionRow(
+            icon: Icons.speed_rounded,
+            label: 'Pace',
+            value: difficulty.displayText,
+            options: pathway.steps[3].options,
+            onChanged: (option) => _updateSingle(3, option),
+          ),
+          const SizedBox(height: 10),
+          GuidedSummaryEditRow(
+            icon: Icons.notifications_active_rounded,
+            label: 'Useful reminders',
+            value: _joinSummaryValues(
+              situations
+                  .map((option) => _cleanOptionText(option.text))
+                  .toList(),
+            ),
+            onTap: () => _editMulti(
+              context: context,
+              stepIndex: 4,
+              title: 'Useful reminders',
+              selected: situations,
+            ),
+          ),
+          const SizedBox(height: 10),
+          GuidedSummaryEditRow(
+            icon: Icons.warning_rounded,
+            label: 'Hurdles to watch',
+            value: _joinSummaryValues(
+              challenges
+                  .map((option) => _cleanOptionText(option.text))
+                  .toList(),
+            ),
+            onTap: () => _editMulti(
+              context: context,
+              stepIndex: 5,
+              title: 'Hurdles to watch',
+              selected: challenges,
             ),
           ),
         ],
@@ -3002,59 +3781,196 @@ class GuidedSummaryCard extends StatelessWidget {
   }
 }
 
-class GuidedSummaryRow extends StatelessWidget {
-  const GuidedSummaryRow({
+class GuidedSummaryOptionRow extends StatelessWidget {
+  const GuidedSummaryOptionRow({
     super.key,
     required this.icon,
     required this.label,
     required this.value,
+    required this.options,
+    required this.onChanged,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final List<GuidedOption> options;
+  final ValueChanged<GuidedOption> onChanged;
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: _bg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _border),
+  Future<void> _showOptions(BuildContext context) async {
+    final selected = await showModalBottomSheet<GuidedOption>(
+      context: context,
+      backgroundColor: _surface,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: _brand, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
                   style: const TextStyle(
-                    color: _body,
-                    fontSize: 10.5,
+                    color: _title,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: _title,
-                    fontSize: 13,
-                    height: 1.25,
-                    fontWeight: FontWeight.w800,
+                const SizedBox(height: 10),
+                ...options.map(
+                  (option) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => Navigator.of(sheetContext).pop(option),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _bg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: _border),
+                        ),
+                        child: Text(
+                          option.displayText,
+                          style: const TextStyle(
+                            color: _title,
+                            height: 1.25,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        ],
+        );
+      },
+    );
+    if (selected != null) onChanged(selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => _showOptions(context),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: _brand, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 13,
+                      height: 1.25,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.keyboard_arrow_down_rounded,
+                color: _purple, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GuidedSummaryEditRow extends StatelessWidget {
+  const GuidedSummaryEditRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: _brand, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 13,
+                      height: 1.25,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.edit_rounded, color: _purple, size: 17),
+          ],
+        ),
       ),
     );
   }
@@ -3357,7 +4273,7 @@ class GoalFeasibilityScreen extends StatelessWidget {
     final state = AppScope.of(context);
     final score = state.feasibilityScore.round();
     return OnboardingScaffold(
-      phase: 10,
+      phase: 13,
       title: 'Feasibility check.',
       subtitle:
           'A goal should be specific and challenging, but still realistic for your cash flow and confidence level.',
@@ -3415,14 +4331,14 @@ class PyramidPreviewScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 11,
+      phase: 14,
       title: 'Preview your OT2 index.',
       subtitle:
           'This is Shellby’s first read on your financial pyramid before regular tracking begins.',
       bottom: PrimaryButton(
-        label: 'Set Privacy',
+        label: 'Choose Sharing Structure',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const ConsentPrivacyScreen()),
+        onPressed: () => _push(context, const SocialStructureScreen()),
       ),
       child: Column(
         children: [
@@ -3583,7 +4499,7 @@ class _SocialStructureScreenState extends State<SocialStructureScreen> {
       ),
     ];
     return OnboardingScaffold(
-      phase: 13,
+      phase: 15,
       title: 'Set the social boundary.',
       subtitle:
           'Cooperative finance only works when the sharing structure is explicit before tracking starts.',
@@ -3620,55 +4536,153 @@ class PreparationCommitmentScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 14,
-      title: 'Your preparation contract.',
+      phase: 11,
+      title: 'Final Review.',
       subtitle:
-          'Shellby reflects your own focus, goal, variables, consent, and sharing choices before collection begins.',
+          'Here is the record of the choices you made before Shellby starts your plan.',
       bottom: PrimaryButton(
         label: 'Start First Tracking Step',
         icon: Icons.arrow_forward_rounded,
         onPressed: () => _push(context, const FirstCollectionHandoffScreen()),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppCard(
-            child: Column(
-              children: [
-                SummaryRow('Focus', state.primaryConcern),
-                SummaryRow(
-                  'Reason',
-                  state.motivation.isEmpty
-                      ? 'Build a realistic financial plan.'
-                      : state.motivation,
+          ReviewSection(
+            icon: Icons.chat_bubble_rounded,
+            title: 'Conversation choices',
+            rows: [
+              ('What brought you here', state.primaryConcern),
+              (
+                'Starting point',
+                _summaryFallback(
+                  state.chatSurfaceSummary,
+                  'No conversation summary recorded.',
                 ),
-                SummaryRow('Goal', state.selectedGoal),
-                SummaryRow('Actions', state.selectedActionIds.join(', ')),
-                if (state.emotionalLogsEnabled)
-                  const SummaryRow(
-                    'Optional tracker',
-                    'Spending trigger tags',
-                  ),
-                if (state.stressIndicatorsEnabled)
-                  const SummaryRow(
-                    'Optional tracker',
-                    'Upcoming bill-buffer status',
-                  ),
-                SummaryRow(
-                  'Monthly allocation',
-                  money(state.requiredMonthlyContribution),
-                ),
-                SummaryRow('Feasibility', '${state.feasibilityScore.round()}%'),
-                SummaryRow('Tracking', state.trackingVariables.join(', ')),
-                SummaryRow('Sharing', state.socialStructure),
-              ],
-            ),
+              ),
+              (
+                'Goal focus',
+                _summaryFallback(
+                    state.chatGoalFocusSummary, state.selectedGoal),
+              ),
+              (
+                'Timeframe',
+                _summaryFallback(state.chatTimeframeSummary, 'Not selected'),
+              ),
+              (
+                'Pace',
+                _summaryFallback(state.chatDifficultySummary, 'Not selected'),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          ReviewSection(
+            icon: Icons.event_repeat_rounded,
+            title: 'Money rhythm',
+            rows: [
+              ('Employment status', state.employmentStatus),
+              ('Income type', state.incomeType),
+              ('Income rhythm', state.incomeRhythm),
+              ('Bills rhythm', state.billsRhythm),
+              ('Financial responsibility', state.responsibility),
+              ('Check-in rhythm', state.checkInRhythm),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ReviewSection(
+            icon: Icons.flag_rounded,
+            title: 'Plan setup',
+            rows: [
+              ('Selected goal', state.selectedGoal),
+              ('Target rule', _targetRuleForGoal(state)),
+              (
+                'First app action',
+                _firstTrackingActionForGoal(state.selectedGoal),
+              ),
+              (
+                'Helpful reminders',
+                _summaryFallback(state.chatSituationsSummary, 'Not selected'),
+              ),
+              (
+                'Hurdles to watch',
+                _summaryFallback(state.chatChallengesSummary, 'Not selected'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           const PrepInfoCard(
             icon: Icons.edit_rounded,
-            title: 'Still adjustable',
+            title: 'You can still make changes later',
             body:
-                'Preparation is a contract you can revise. You can edit goals, privacy, and sharing later.',
+                'You can reset conversation details, goal choices, and stored data from the Settings menu.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ReviewSection extends StatelessWidget {
+  const ReviewSection({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.rows,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<(String, String)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconBubble(icon),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...rows.map(
+            (row) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    row.$1,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    row.$2,
+                    style: const TextStyle(
+                      color: _title,
+                      height: 1.28,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -3682,37 +4696,13 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final action = switch (state.selectedGoal) {
-      'Expense Tracking Routine' ||
-      'Irregular Income Buffer' ||
-      'Spending Trigger Tracker' ||
-      'Cash Flow Stability Plan' =>
-        'Log your first income or spending baseline',
-      'Buffer Duration Goal' ||
-      'Bill Due-Date Buffer' ||
-      'Safety Shield Boundary' ||
-      'Payday Safety Sweep' ||
-      'Emergency Cushion' =>
-        'Allocate your first safety buffer amount',
-      'Debt Payoff Map' => 'Add your first debt balance or due date',
-      'Starter Investing Habit' ||
-      'Lifestyle Creep Monitor' ||
-      'Net Worth Growth Plan' =>
-        'Record your first saving or investment habit',
-      'Milestone Bucket Plan' ||
-      'Planned Experience Fund' ||
-      'Shared Future Alignment' ||
-      'Future Lifestyle Fund' =>
-        'Create your first milestone bucket',
-      _ => 'Add your first goal tracking action',
-    };
     return OnboardingScaffold(
-      phase: 15,
-      title: 'Begin collection.',
-      subtitle:
-          'The preparation stage is complete. Your first tracking action should directly support the goal you chose.',
+      phase: 12,
+      title: 'Get ready to start your journey with Shelby!',
+      subtitle: 'Your onboarding choices are ready.',
+      centerTitle: true,
       bottom: PrimaryButton(
-        label: 'Enter Shellby',
+        label: 'Start with Shelby',
         icon: Icons.arrow_forward_rounded,
         onPressed: () async {
           try {
@@ -3732,21 +4722,15 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
         },
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Ghost(size: 96),
-          const SizedBox(height: 18),
-          PrepInfoCard(
-            icon: Icons.playlist_add_check_rounded,
-            title: action,
-            body:
-                'This handoff keeps collection connected to your goal instead of dropping you into a blank dashboard.',
-          ),
-          const SizedBox(height: 12),
-          PrepInfoCard(
-            icon: Icons.flag_rounded,
-            title: state.selectedGoal,
-            body:
-                'Shellby will use your selected variables and consent choices to build feedback around this goal.',
+          Center(
+            child: Image.asset(
+              'assets/images/shellby_arms_out.webp',
+              height: 260,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
           ),
         ],
       ),

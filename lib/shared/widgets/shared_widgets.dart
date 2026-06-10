@@ -512,6 +512,7 @@ class OnboardingScaffold extends StatelessWidget {
     required this.bottom,
     this.centerTitle = false,
     this.scrollBody = true,
+    this.onBack,
   });
 
   final int phase;
@@ -521,6 +522,7 @@ class OnboardingScaffold extends StatelessWidget {
   final Widget bottom;
   final bool centerTitle;
   final bool scrollBody;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -531,7 +533,11 @@ class OnboardingScaffold extends StatelessWidget {
           padding: const EdgeInsets.all(22),
           child: Column(
             children: [
-              PhaseHeader(phase: phase, total: _onboardingPhaseTotal),
+              PhaseHeader(
+                phase: phase,
+                total: _onboardingPhaseTotal,
+                onBack: onBack,
+              ),
               const SizedBox(height: 28),
               Text(
                 title,
@@ -569,17 +575,23 @@ class OnboardingScaffold extends StatelessWidget {
 }
 
 class PhaseHeader extends StatelessWidget {
-  const PhaseHeader({super.key, required this.phase, required this.total});
+  const PhaseHeader({
+    super.key,
+    required this.phase,
+    required this.total,
+    this.onBack,
+  });
 
   final int phase;
   final int total;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         IconButton(
-          onPressed: () => Navigator.maybePop(context),
+          onPressed: onBack ?? () => Navigator.maybePop(context),
           color: _brand,
           icon: const Icon(Icons.chevron_left_rounded, size: 32),
         ),

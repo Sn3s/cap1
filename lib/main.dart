@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'firebase_options.dart';
 
@@ -59,7 +60,7 @@ const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
   defaultValue: 'gemini-2.5-flash',
 );
-const _onboardingPhaseTotal = 15;
+const _onboardingPhaseTotal = 12;
 
 class ShellbyApp extends StatefulWidget {
   const ShellbyApp({super.key});
