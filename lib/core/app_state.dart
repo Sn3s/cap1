@@ -19,6 +19,12 @@ class AppState extends ChangeNotifier {
   String primaryConcern = 'Cash Flow & Basic Needs';
   String motivation = '';
   String reflectedMotivation = '';
+  String chatSurfaceSummary = '';
+  String chatGoalFocusSummary = '';
+  String chatTimeframeSummary = '';
+  String chatDifficultySummary = '';
+  String chatSituationsSummary = '';
+  String chatChallengesSummary = '';
   String selectedGoal = 'Cash Flow Stability Plan';
   String selectedGoalDescription =
       'Map income, fixed costs, and spending patterns so your monthly budget has a clear baseline.';
@@ -268,6 +274,12 @@ class AppState extends ChangeNotifier {
       'primaryConcern': primaryConcern,
       'motivation': motivation,
       'reflectedMotivation': reflectedMotivation,
+      'chatSurfaceSummary': chatSurfaceSummary,
+      'chatGoalFocusSummary': chatGoalFocusSummary,
+      'chatTimeframeSummary': chatTimeframeSummary,
+      'chatDifficultySummary': chatDifficultySummary,
+      'chatSituationsSummary': chatSituationsSummary,
+      'chatChallengesSummary': chatChallengesSummary,
       'selectedGoal': selectedGoal,
       'selectedGoalDescription': selectedGoalDescription,
       'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
@@ -324,6 +336,18 @@ class AppState extends ChangeNotifier {
     motivation = data['motivation'] as String? ?? motivation;
     reflectedMotivation =
         data['reflectedMotivation'] as String? ?? reflectedMotivation;
+    chatSurfaceSummary =
+        data['chatSurfaceSummary'] as String? ?? chatSurfaceSummary;
+    chatGoalFocusSummary =
+        data['chatGoalFocusSummary'] as String? ?? chatGoalFocusSummary;
+    chatTimeframeSummary =
+        data['chatTimeframeSummary'] as String? ?? chatTimeframeSummary;
+    chatDifficultySummary =
+        data['chatDifficultySummary'] as String? ?? chatDifficultySummary;
+    chatSituationsSummary =
+        data['chatSituationsSummary'] as String? ?? chatSituationsSummary;
+    chatChallengesSummary =
+        data['chatChallengesSummary'] as String? ?? chatChallengesSummary;
     selectedGoal = data['selectedGoal'] as String? ?? selectedGoal;
     selectedGoalDescription =
         data['selectedGoalDescription'] as String? ?? selectedGoalDescription;
@@ -411,9 +435,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setGuidedChatSummary({
+    required String surface,
+    required String goalFocus,
+    required String timeframe,
+    required String difficulty,
+    required String situations,
+    required String challenges,
+  }) {
+    chatSurfaceSummary = surface.trim();
+    chatGoalFocusSummary = goalFocus.trim();
+    chatTimeframeSummary = timeframe.trim();
+    chatDifficultySummary = difficulty.trim();
+    chatSituationsSummary = situations.trim();
+    chatChallengesSummary = challenges.trim();
+    notifyListeners();
+  }
+
   void resetGuidedPathDetails() {
     motivation = '';
     reflectedMotivation = '';
+    chatSurfaceSummary = '';
+    chatGoalFocusSummary = '';
+    chatTimeframeSummary = '';
+    chatDifficultySummary = '';
+    chatSituationsSummary = '';
+    chatChallengesSummary = '';
     final branch = _branchForLayer(primaryConcern);
     selectedGoal = branch.defaultGoalTitle;
     selectedGoalDescription = branch.defaultGoalDescription;

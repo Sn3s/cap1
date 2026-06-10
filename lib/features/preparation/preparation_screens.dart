@@ -1782,6 +1782,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       enableStressIndicators: concern.enableStressIndicators,
     );
     state.setMotivation(_guidedReflection(branch, concern));
+    state.setGuidedChatSummary(
+      surface: _summarySentence(_firstAnswer(0), _surfacePhrase),
+      goalFocus: _summarySentence(_firstAnswer(1), _focusPhrase),
+      timeframe: _summarySentence(_firstAnswer(2), _timeframePhrase),
+      difficulty: _summarySentence(_firstAnswer(3), _difficultyPhrase),
+      situations: _summaryList(answers[4] ?? const <GuidedOption>[]),
+      challenges: _summaryList(answers[5] ?? const <GuidedOption>[]),
+    );
     messages.add(ChatMessage(false, _selectionSummary()));
   }
 
@@ -1841,10 +1849,10 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
             const SizedBox(height: 10),
           ],
           PrimaryButton(
-            label: hasReflection ? 'Confirm Path' : 'Complete the choices',
+            label: hasReflection ? 'Review Goal Plan' : 'Complete the choices',
             icon: Icons.arrow_forward_rounded,
             enabled: hasReflection,
-            onPressed: () => _push(context, const PsychBaselineScreen()),
+            onPressed: () => _push(context, const GoalQuestionnaireScreen()),
           ),
         ],
       ),
@@ -1973,35 +1981,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   }
 
   String _selectionSummary() {
-    final surfaced = _firstAnswer(0);
-    final focus = _firstAnswer(1);
-    final timeframe = _firstAnswer(2);
-    final difficulty = _firstAnswer(3);
-    final situations = answers[4] ?? const <GuidedOption>[];
-    final challenges = answers[5] ?? const <GuidedOption>[];
-
-    final surfaceText = surfaced == null
-        ? null
-        : 'You shared that **${_surfacePhrase(surfaced)}**.';
-    final opening = focus == null
-        ? 'Your first goal is ready'
-        : 'You want your first goal to focus on **${_focusPhrase(focus)}**';
-    final timeframeText =
-        timeframe == null ? '' : ' over **${_timeframePhrase(timeframe)}**';
-    final difficultyText = difficulty == null
-        ? ''
-        : ', using **${_difficultyPhrase(difficulty)}**';
-    final firstSentence = '$opening$timeframeText$difficultyText.';
-
-    final followUps = <String>[
-      if (situations.isNotEmpty)
-        'remind you around ${_boldOptionList(situations)}',
-      if (challenges.isNotEmpty) 'watch for ${_boldOptionList(challenges)}',
-    ];
-    final goalText = followUps.isEmpty
-        ? firstSentence
-        : '$firstSentence Shelby will ${_joinWithAnd(followUps)}.';
-    return surfaceText == null ? goalText : '$surfaceText $goalText';
+    return "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm.";
   }
 
   GuidedOption? _firstAnswer(int index) {
@@ -2092,10 +2072,19 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     };
   }
 
-  String _boldOptionList(List<GuidedOption> options) {
+  String _summarySentence(
+    GuidedOption? option,
+    String Function(GuidedOption option) phraseFor,
+  ) {
+    if (option == null) return '';
+    final phrase = phraseFor(option);
+    if (phrase.isEmpty) return '';
+    return phrase[0].toUpperCase() + phrase.substring(1);
+  }
+
+  String _summaryList(List<GuidedOption> options) {
     return _joinWithAnd(
-      options.map((option) => '**${_trimPeriod(option.text)}**').toList(),
-    );
+        options.map((option) => _trimPeriod(option.text)).toList());
   }
 
   String _joinWithAnd(List<String> values) {
@@ -2382,64 +2371,6 @@ class GuidedChatOptionButton extends StatelessWidget {
   }
 }
 
-class PsychBaselineScreen extends StatelessWidget {
-  const PsychBaselineScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    return OnboardingScaffold(
-      phase: 6,
-      title: 'Map your money mindset.',
-      subtitle:
-          'These scores help Shellby avoid advice that increases pressure or feels impossible to act on.',
-      bottom: PrimaryButton(
-        label: 'Add Financial Baseline',
-        icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const FinancialBaselineScreen()),
-      ),
-      child: Column(
-        children: [
-          ScoreSlider(
-            title:
-                'How confident do you feel making independent financial decisions?',
-            left: 'Low',
-            right: 'High',
-            value: state.confidence,
-            onChanged: state.updateConfidence,
-          ),
-          const SizedBox(height: 34),
-          ScoreSlider(
-            title:
-                'How much pressure do you notice when checking your finances?',
-            left: 'Low',
-            right: 'High',
-            value: state.anxiety,
-            onChanged: state.updateAnxiety,
-          ),
-          const SizedBox(height: 34),
-          ScoreSlider(
-            title: 'How often do you avoid looking at your balances?',
-            left: 'Rarely',
-            right: 'Often',
-            value: state.avoidance,
-            onChanged: state.updateAvoidance,
-          ),
-          const SizedBox(height: 34),
-          ScoreSlider(
-            title:
-                'How much do peers affect your spending or investing choices?',
-            left: 'Little',
-            right: 'A lot',
-            value: state.peerPressure,
-            onChanged: state.updatePeerPressure,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class FinancialBaselineScreen extends StatefulWidget {
   const FinancialBaselineScreen({super.key});
 
@@ -2453,7 +2384,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 7,
+      phase: 8,
       title: 'Financial Scaffolding.',
       subtitle:
           'Quantify your economic standing for the financial pyramid health index.',
@@ -2753,14 +2684,14 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
       'Subscription creep',
     ];
     return OnboardingScaffold(
-      phase: 8,
+      phase: 9,
       title: 'Choose what Shellby tracks.',
       subtitle:
           'Preparation defines the variables before collection starts: what counts, what gets in the way, and what stays optional.',
       bottom: PrimaryButton(
-        label: 'Draft Goals',
+        label: 'Check Feasibility',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const GoalQuestionnaireScreen()),
+        onPressed: () => _push(context, const GoalFeasibilityScreen()),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2791,139 +2722,81 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
   }
 }
 
-class GoalQuestionnaireScreen extends StatefulWidget {
+class GoalQuestionnaireScreen extends StatelessWidget {
   const GoalQuestionnaireScreen({super.key});
-
-  @override
-  State<GoalQuestionnaireScreen> createState() =>
-      _GoalQuestionnaireScreenState();
-}
-
-class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
-  final controller = TextEditingController();
-  final scrollController = ScrollController();
-  final coach = const ShellbyAiCoach();
-  final List<ChatMessage> messages = [];
-  bool seeded = false;
-  bool loading = false;
-  String error = '';
-
-  @override
-  void dispose() {
-    controller.dispose();
-    scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (seeded) return;
-    seeded = true;
-    messages.add(
-      const ChatMessage(
-        false,
-        'I drafted a first goal from your focus and reason. You can ask me to explain it or modify the target.',
-      ),
-    );
-    WidgetsBinding.instance.addPostFrameCallback((_) => generateGoal());
-  }
-
-  Future<void> generateGoal([String? prompt]) async {
-    final state = AppScope.of(context);
-    if (loading) return;
-    setState(() {
-      error = '';
-      loading = true;
-      if (prompt != null && prompt.trim().isNotEmpty) {
-        messages.add(ChatMessage(true, prompt.trim()));
-        controller.clear();
-      }
-    });
-    _scrollToBottom();
-
-    try {
-      final result = await coach.recommendGoal(
-        state: state,
-        messages: messages,
-      );
-      if (!mounted) return;
-      state.setRecommendedGoal(
-        title: result.title,
-        description: result.description,
-        monthlyTarget: result.monthlyTarget,
-      );
-      setState(() {
-        messages.add(ChatMessage(false, result.reply));
-        loading = false;
-      });
-      _scrollToBottom();
-    } on AiSetupException {
-      if (!mounted) return;
-      state.setRecommendedGoal(
-        title: _fallbackTitle(state.primaryConcern),
-        description: _fallbackDescription(state),
-        monthlyTarget: state.requiredMonthlyContribution,
-      );
-      setState(() {
-        loading = false;
-        error =
-            'Configure AI with Ollama or Gemini. For Ollama: ollama serve, then flutter run --dart-define=AI_PROVIDER=ollama';
-        messages.add(
-          const ChatMessage(
-            false,
-            'I created a local draft for now. Once the AI provider is reachable, I can revise this goal conversationally.',
-          ),
-        );
-      });
-      _scrollToBottom();
-    } catch (exception) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = 'Goal AI failed. Check Ollama, connection, API key, or model.';
-        messages.add(
-          ChatMessage(
-            false,
-            'I had trouble revising the goal. You can try again. Details: $exception',
-          ),
-        );
-      });
-      _scrollToBottom();
-    }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!scrollController.hasClients) return;
-      scrollController.animateTo(
-        scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final goals = _goalBranches
-        .expand(
-          (branch) => branch.concerns.map(
-            (concern) => (concern, branch.icon),
-          ),
-        )
-        .toList();
     return OnboardingScaffold(
-      phase: 9,
-      title: 'Specify a first goal.',
+      phase: 6,
+      title: 'Conversation summary.',
+      subtitle: 'Here is the clearest version of what you told Shellby.',
+      bottom: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PrimaryButton(
+            label: 'See Recommended Plan',
+            icon: Icons.arrow_forward_rounded,
+            onPressed: () => _push(context, const RecommendedPlanScreen()),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GuidedSummaryCard(state: state),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.center,
+            child: TextButton.icon(
+              onPressed: () {
+                state.primaryConcern = _goalBranches.first.layer;
+                state.resetGuidedPathDetails();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (_) => const FinancialConcernScreen(),
+                  ),
+                  (_) => false,
+                );
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Redo Conversation'),
+              style: TextButton.styleFrom(
+                foregroundColor: _purple,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RecommendedPlanScreen extends StatelessWidget {
+  const RecommendedPlanScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return OnboardingScaffold(
+      phase: 7,
+      title: 'Recommended plan.',
       subtitle:
-          'Shellby uses your focus and reason to recommend one first goal. You can question it, modify it, or choose a common goal below.',
+          'Based on your chat, Shellby has a first plan to start with before exact finances are added.',
       bottom: PrimaryButton(
-        label: 'Check Feasibility',
+        label: 'Add Financial Baseline',
         icon: Icons.arrow_forward_rounded,
-        enabled: !loading,
-        onPressed: () => _push(context, const GoalFeasibilityScreen()),
+        onPressed: () => _push(context, const FinancialBaselineScreen()),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2934,14 +2807,14 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
               children: [
                 Row(
                   children: [
-                    const IconBubble(Icons.auto_awesome_rounded),
+                    IconBubble(_goalIconFor(state.selectedGoal)),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         state.selectedGoal,
                         style: const TextStyle(
                           color: _title,
-                          fontSize: 20,
+                          fontSize: 21,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -2957,119 +2830,169 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 14),
-                SummaryRow(
-                  'Suggested monthly target',
-                  money(state.requiredMonthlyContribution),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Column(
+                    children: [
+                      SummaryRow(
+                        'Target rule',
+                        _targetRuleForGoal(state),
+                      ),
+                      SummaryRow('Focus area', state.primaryConcern),
+                      SummaryRow(
+                        'First app action',
+                        _firstTrackingActionForGoal(state.selectedGoal),
+                      ),
+                    ],
+                  ),
                 ),
-                SummaryRow('Based on', state.primaryConcern),
-                SummaryRow(
-                  'Reason',
-                  state.motivation.isEmpty
-                      ? 'Build a realistic financial plan.'
-                      : state.motivation,
+                const SizedBox(height: 16),
+                ..._planStepsForGoal(state).map(
+                  (step) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: PlanStepRow(step: step),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          if (error.isNotEmpty) ...[
-            Text(
-              error,
-              style: const TextStyle(
-                color: _red,
-                fontSize: 12,
-                height: 1.25,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
-          AppCard(
-            padding: EdgeInsets.zero,
-            child: SizedBox(
-              height: 260,
-              child: ListView.separated(
-                controller: scrollController,
-                padding: const EdgeInsets.all(14),
-                itemCount: messages.length + (loading ? 1 : 0),
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  if (loading && index == messages.length) {
-                    return const ChatBubble(
-                      fromUser: false,
-                      text: 'Shellby is refining the goal...',
-                      loading: true,
-                    );
-                  }
-                  final message = messages[index];
-                  return ChatBubble(
-                    fromUser: message.fromUser,
-                    text: message.text,
-                  );
-                },
-              ),
-            ),
+        ],
+      ),
+    );
+  }
+}
+
+class PlanStepRow extends StatelessWidget {
+  const PlanStepRow({super.key, required this.step});
+
+  final ({IconData icon, String title, String body}) step;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: const BoxDecoration(
+            color: _surface,
+            shape: BoxShape.circle,
           ),
-          const SizedBox(height: 12),
-          Row(
+          child: Icon(step.icon, color: _brand, size: 18),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: inputDecoration(
-                    'Ask or modify: make it easier, faster, safer...',
-                  ),
-                  onSubmitted: generateGoal,
+              Text(
+                step.title,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(width: 10),
-              IconButton.filled(
-                style: IconButton.styleFrom(
-                  backgroundColor: _brand,
-                  fixedSize: const Size(54, 54),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+              const SizedBox(height: 3),
+              Text(
+                step.body,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
                 ),
-                onPressed: loading ? null : () => generateGoal(controller.text),
-                icon: const Icon(Icons.arrow_forward_rounded),
               ),
             ],
           ),
-          const SizedBox(height: 22),
-          const Text(
-            'Other common goals',
-            style: TextStyle(
-              color: _title,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
+        ),
+      ],
+    );
+  }
+}
+
+class GuidedSummaryCard extends StatelessWidget {
+  const GuidedSummaryCard({super.key, required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      (
+        icon: Icons.lightbulb_rounded,
+        label: 'What brought you here',
+        value: _summaryFallback(
+          state.chatSurfaceSummary,
+          'You want a clearer financial plan that matches your current situation.',
+        ),
+      ),
+      (
+        icon: Icons.flag_rounded,
+        label: 'Goal focus',
+        value: _summaryFallback(
+          state.chatGoalFocusSummary,
+          state.selectedGoal.toLowerCase(),
+        ),
+      ),
+      (
+        icon: Icons.calendar_month_rounded,
+        label: 'Timeframe',
+        value: _summaryFallback(state.chatTimeframeSummary, 'First cycle'),
+      ),
+      (
+        icon: Icons.speed_rounded,
+        label: 'Pace',
+        value: _summaryFallback(state.chatDifficultySummary, 'Balanced pace'),
+      ),
+      (
+        icon: Icons.notifications_active_rounded,
+        label: 'Useful reminders',
+        value: _summaryFallback(state.chatSituationsSummary, 'Check-in rhythm'),
+      ),
+      (
+        icon: Icons.warning_rounded,
+        label: 'Hurdles to watch',
+        value: _summaryFallback(state.chatChallengesSummary, 'Budget changes'),
+      ),
+    ];
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              IconBubble(Icons.forum_rounded),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'What you told Shellby',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          ...goals.map(
-            (goal) => Padding(
+          const SizedBox(height: 14),
+          ...items.map(
+            (item) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: SelectableOption(
-                icon: goal.$2,
-                title: goal.$1.goalTitle,
-                body: goal.$1.goalDescription,
-                selected: state.selectedGoal == goal.$1.goalTitle,
-                onTap: () => setState(() {
-                  state.choosePresetGoal(
-                    goal.$1.goalTitle,
-                    goal.$1.goalDescription,
-                  );
-                  state.selectedGoalMonthlyTarget =
-                      _monthlyTargetForConcern(state, goal.$1);
-                  state.configureGoalActions(
-                    actionIds: goal.$1.actionIds,
-                    enableEmotionalLogs: goal.$1.enableEmotionalLogs,
-                    enableStressIndicators: goal.$1.enableStressIndicators,
-                  );
-                }),
+              child: GuidedSummaryRow(
+                icon: item.icon,
+                label: item.label,
+                value: item.value,
               ),
             ),
           ),
@@ -3077,14 +3000,343 @@ class _GoalQuestionnaireScreenState extends State<GoalQuestionnaireScreen> {
       ),
     );
   }
+}
 
-  String _fallbackTitle(String concern) {
-    return _branchForLayer(concern).defaultGoalTitle;
-  }
+class GuidedSummaryRow extends StatelessWidget {
+  const GuidedSummaryRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
-  String _fallbackDescription(AppState state) {
-    return _branchForLayer(state.primaryConcern).defaultGoalDescription;
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: _brand, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    height: 1.25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
+}
+
+String _summaryFallback(String value, String fallback) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? fallback : trimmed;
+}
+
+List<({IconData icon, String title, String body})> _planStepsForGoal(
+  AppState state,
+) {
+  final targetRule = _targetRuleForGoal(state).toLowerCase();
+  return switch (state.selectedGoal) {
+    'Expense Tracking Routine' => [
+        (
+          icon: Icons.receipt_long_rounded,
+          title: 'Start with a simple log',
+          body:
+              'Record income and expenses on your chosen check-in rhythm so the app can build a reliable baseline.',
+        ),
+        (
+          icon: Icons.notifications_active_rounded,
+          title: 'Use reminders',
+          body:
+              'Let Shellby remind you around the moments you selected in the chat.',
+        ),
+        (
+          icon: Icons.insights_rounded,
+          title: 'Review the pattern',
+          body:
+              'After the cycle, compare planned spending with what actually happened.',
+        ),
+      ],
+    'Spending Trigger Tracker' => [
+        (
+          icon: Icons.sell_rounded,
+          title: 'Tag repeat triggers',
+          body:
+              'When logging expenses, tag useful context like category, store, day, and payday timing.',
+        ),
+        (
+          icon: Icons.warning_rounded,
+          title: 'Watch budget leaks',
+          body:
+              'Shellby will flag spending that rises above your usual daily average or selected trigger pattern.',
+        ),
+        (
+          icon: Icons.tune_rounded,
+          title: 'Adjust one rule',
+          body:
+              'Pick one spending rule to test during the first cycle instead of changing everything at once.',
+        ),
+      ],
+    'Irregular Income Buffer' => [
+        (
+          icon: Icons.calendar_month_rounded,
+          title: 'Plan from low-income months',
+          body:
+              'Use conservative income estimates so fixed bills stay covered when income changes.',
+        ),
+        (
+          icon: Icons.savings_rounded,
+          title: 'Build a buffer',
+          body:
+              'Start with $targetRule, then convert it to an amount after the financial baseline.',
+        ),
+        (
+          icon: Icons.sync_alt_rounded,
+          title: 'Update after each payday',
+          body:
+              'Adjust the month plan whenever actual income lands higher or lower than expected.',
+        ),
+      ],
+    'Bill Due-Date Buffer' => [
+        (
+          icon: Icons.event_available_rounded,
+          title: 'Map upcoming due dates',
+          body:
+              'List the bills that usually disrupt your plan and sort them by due date.',
+        ),
+        (
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Reserve before bills hit',
+          body:
+              'Use $targetRule as the first buffer rule until actual bills and income are entered.',
+        ),
+        (
+          icon: Icons.notifications_active_rounded,
+          title: 'Flag shortfalls early',
+          body:
+              'Shellby will warn you before a bill date if the reserved amount is not enough.',
+        ),
+      ],
+    'Starter Investing Habit' => [
+        (
+          icon: Icons.checklist_rounded,
+          title: 'Complete the starter checklist',
+          body:
+              'Track basic setup steps before focusing on larger contribution targets.',
+        ),
+        (
+          icon: Icons.repeat_rounded,
+          title: 'Set a small recurring habit',
+          body:
+              'Use $targetRule as the first draft contribution rule until the financial baseline is added.',
+        ),
+        (
+          icon: Icons.show_chart_rounded,
+          title: 'Review monthly consistency',
+          body:
+              'The app will track whether the habit happened, not just the ending balance.',
+        ),
+      ],
+    'Planned Experience Fund' => [
+        (
+          icon: Icons.flag_rounded,
+          title: 'Create one funded bucket',
+          body:
+              'Choose the hobby, travel, or experience bucket that should be funded first.',
+        ),
+        (
+          icon: Icons.savings_rounded,
+          title: 'Set the allocation',
+          body:
+              'Use $targetRule as the first funding rule until the app can calculate an exact amount.',
+        ),
+        (
+          icon: Icons.verified_rounded,
+          title: 'Spend only when ready',
+          body:
+              'Shellby will treat the bucket as ready once the selected condition is met.',
+        ),
+      ],
+    'Debt Payoff Map' => [
+        (
+          icon: Icons.list_alt_rounded,
+          title: 'Add debt details',
+          body:
+              'Record balances, due dates, minimum payments, and interest if available.',
+        ),
+        (
+          icon: Icons.payments_rounded,
+          title: 'Choose the payoff amount',
+          body:
+              'Start with $targetRule, then calculate the amount after debt details are entered.',
+        ),
+        (
+          icon: Icons.trending_down_rounded,
+          title: 'Track balance movement',
+          body:
+              'Review whether balances are actually shrinking after each payment cycle.',
+        ),
+      ],
+    'Lifestyle Creep Monitor' => [
+        (
+          icon: Icons.price_check_rounded,
+          title: 'Lock the current baseline',
+          body:
+              'Save your current fixed and variable spending before income changes.',
+        ),
+        (
+          icon: Icons.trending_up_rounded,
+          title: 'Watch new expenses',
+          body:
+              'Shellby will flag fixed expenses that rise after a raise or income increase.',
+        ),
+        (
+          icon: Icons.savings_rounded,
+          title: 'Route extra income',
+          body:
+              'Decide where new surplus should go before it blends into regular spending.',
+        ),
+      ],
+    _ => [
+        (
+          icon: Icons.flag_rounded,
+          title: 'Define the target',
+          body:
+              'Use the recommended goal as the first measurable outcome Shellby will track.',
+        ),
+        (
+          icon: Icons.savings_rounded,
+          title: 'Set the first allocation',
+          body:
+              'Start with $targetRule, then convert it to an amount after the baseline is added.',
+        ),
+        (
+          icon: Icons.fact_check_rounded,
+          title: 'Review progress',
+          body:
+              'Check whether the plan is working before increasing difficulty.',
+        ),
+      ],
+  };
+}
+
+String _targetRuleForGoal(AppState state) {
+  final pace = state.chatDifficultySummary.toLowerCase();
+  final relaxed = pace.contains('relaxed') ||
+      pace.contains('safe and slow') ||
+      pace.contains('conservative');
+  final high = pace.contains('high-focus') ||
+      pace.contains('aggressive') ||
+      pace.contains('lifestyle-first');
+
+  return switch (state.selectedGoal) {
+    'Expense Tracking Routine' ||
+    'Spending Trigger Tracker' ||
+    'Irregular Income Buffer' ||
+    'Cash Flow Stability Plan' =>
+      high
+          ? 'Keep spending under 50% of net income'
+          : relaxed
+              ? 'Keep spending under 90% of net income'
+              : 'Keep spending under 75% of net income',
+    'Safety Shield Boundary' ||
+    'Bill Due-Date Buffer' ||
+    'Payday Safety Sweep' ||
+    'Emergency Cushion' =>
+      high
+          ? 'Save 20% of incoming funds'
+          : relaxed
+              ? 'Save 5% of incoming funds'
+              : 'Save 10% of incoming funds',
+    'Debt Payoff Map' => high
+        ? 'Put most leftover cash toward debt'
+        : relaxed
+            ? 'Pay minimums plus a fixed extra amount'
+            : 'Split extra cash between debt payoff and savings',
+    'Starter Investing Habit' => high
+        ? 'Invest up to 20% of available surplus'
+        : relaxed
+            ? 'Start with 5% of available surplus'
+            : 'Start with 10% of available surplus',
+    'Lifestyle Creep Monitor' => high
+        ? 'Route most new income to goals'
+        : relaxed
+            ? 'Route 5% of new income to goals'
+            : 'Route 10% of new income to goals',
+    'Milestone Bucket Plan' ||
+    'Planned Experience Fund' ||
+    'Shared Future Alignment' ||
+    'Future Lifestyle Fund' =>
+      high
+          ? 'Allocate 20% of monthly income to buckets'
+          : relaxed
+              ? 'Allocate 5% of monthly income to buckets'
+              : 'Allocate 10% of monthly income to buckets',
+    _ => high
+        ? 'Start with 20% of monthly income'
+        : relaxed
+            ? 'Start with 5% of monthly income'
+            : 'Start with 10% of monthly income',
+  };
+}
+
+String _firstTrackingActionForGoal(String selectedGoal) {
+  return switch (selectedGoal) {
+    'Expense Tracking Routine' ||
+    'Spending Trigger Tracker' ||
+    'Irregular Income Buffer' ||
+    'Cash Flow Stability Plan' =>
+      'Log income and expenses',
+    'Bill Due-Date Buffer' ||
+    'Safety Shield Boundary' ||
+    'Payday Safety Sweep' ||
+    'Emergency Cushion' =>
+      'Set the first buffer amount',
+    'Debt Payoff Map' => 'Add debt balances and due dates',
+    'Starter Investing Habit' ||
+    'Lifestyle Creep Monitor' ||
+    'Net Worth Growth Plan' =>
+      'Record a saving or investing habit',
+    'Milestone Bucket Plan' ||
+    'Planned Experience Fund' ||
+    'Shared Future Alignment' ||
+    'Future Lifestyle Fund' =>
+      'Create a milestone bucket',
+    _ => 'Add the first tracking action',
+  };
 }
 
 IconData _goalIconFor(String selectedGoal) {
