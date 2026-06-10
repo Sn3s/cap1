@@ -188,7 +188,6 @@ class DashboardPage extends StatelessWidget {
                                   text: '₱48 less',
                                   style: const TextStyle(
                                     color: _brand,
-                                    color: _brand,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),

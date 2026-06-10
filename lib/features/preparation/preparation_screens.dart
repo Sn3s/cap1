@@ -4727,7 +4727,7 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
           Center(
             child: Image.asset(
               'assets/images/shellby_arms_out.webp',
-              height: 260,
+              height: 400,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
             ),
