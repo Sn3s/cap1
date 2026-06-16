@@ -3079,9 +3079,7 @@ class _AppPermissionScreenState extends State<AppPermissionScreen> {
     setState(() => busy = true);
     var notificationGranted = false;
     try {
-      final status = await Permission.notification
-          .request()
-          .timeout(const Duration(seconds: 3));
+      final status = await Permission.notification.request();
       notificationGranted = status.isGranted;
     } catch (_) {
       notificationGranted = false;

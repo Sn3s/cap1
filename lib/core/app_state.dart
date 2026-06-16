@@ -318,6 +318,7 @@ class AppState extends ChangeNotifier {
       'interferingVariables': interferingVariables.toList()..sort(),
       'assets': assets.map((item) => item.toMap()).toList(),
       'liabilities': liabilities.map((item) => item.toMap()).toList(),
+      'onboardingSelections': _onboardingSelectionsMap(),
       'healthScore': healthScore,
       'feasibilityScore': feasibilityScore,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -325,90 +326,266 @@ class AppState extends ChangeNotifier {
     };
   }
 
+  Map<String, dynamic> _onboardingSelectionsMap() {
+    return {
+      'profileContext': {
+        'age': age,
+        'occupation': occupation,
+        'industry': industry,
+      },
+      'moneyRhythm': {
+        'employmentStatus': employmentStatus,
+        'incomeType': incomeType,
+        'incomeRhythm': incomeRhythm,
+        'billsRhythm': billsRhythm,
+        'responsibility': responsibility,
+        'checkInRhythm': checkInRhythm,
+        'location': location,
+      },
+      'conversationChoices': {
+        'primaryConcern': primaryConcern,
+        'motivation': motivation,
+        'reflectedMotivation': reflectedMotivation,
+        'surface': chatSurfaceSummary,
+        'goalFocus': chatGoalFocusSummary,
+        'timeframe': chatTimeframeSummary,
+        'difficulty': chatDifficultySummary,
+        'situations': chatSituationsSummary,
+        'challenges': chatChallengesSummary,
+      },
+      'planSetup': {
+        'selectedGoal': selectedGoal,
+        'selectedGoalDescription': selectedGoalDescription,
+        'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
+        'selectedActionIds': selectedActionIds.toList()..sort(),
+        'emotionalLogsEnabled': emotionalLogsEnabled,
+        'stressIndicatorsEnabled': stressIndicatorsEnabled,
+      },
+      'financialBaseline': {
+        'income': income,
+        'expenses': expenses,
+        'variableExpenses': variableExpenses,
+        'savings': savings,
+        'emergencyMonths': emergencyMonths,
+        'debtPayments': debtPayments,
+        'investments': investments,
+        'subscriptions': subscriptions,
+        'assets': assets.map((item) => item.toMap()).toList(),
+        'liabilities': liabilities.map((item) => item.toMap()).toList(),
+      },
+      'trackingChoices': {
+        'trackingVariables': trackingVariables.toList()..sort(),
+        'interferingVariables': interferingVariables.toList()..sort(),
+        'socialStructure': socialStructure,
+      },
+      'permissionsAndConsent': {
+        'consentBaseline': consentBaseline,
+        'consentAi': consentAi,
+        'consentBenchmarking': consentBenchmarking,
+        'consentCommunity': consentCommunity,
+        'consentTrustedCircle': consentTrustedCircle,
+        'notificationsAllowed': notificationsAllowed,
+        'thirdPartyDataLinkingAllowed': thirdPartyDataLinkingAllowed,
+        'automaticDataGatheringAllowed': automaticDataGatheringAllowed,
+        'personalDataConsent': personalDataConsent,
+        'dataRetentionConsent': dataRetentionConsent,
+      },
+      'derivedScores': {
+        'healthScore': healthScore,
+        'feasibilityScore': feasibilityScore,
+      },
+    };
+  }
+
   void _applyProfileMap(Map<String, dynamic> data) {
+    final onboardingSelections =
+        _mapFrom(data['onboardingSelections']) ?? const <String, dynamic>{};
+    final profileContext = _mapFrom(onboardingSelections['profileContext']) ??
+        const <String, dynamic>{};
+    final moneyRhythm = _mapFrom(onboardingSelections['moneyRhythm']) ??
+        const <String, dynamic>{};
+    final conversationChoices =
+        _mapFrom(onboardingSelections['conversationChoices']) ??
+            const <String, dynamic>{};
+    final planSetup = _mapFrom(onboardingSelections['planSetup']) ??
+        const <String, dynamic>{};
+    final financialBaseline =
+        _mapFrom(onboardingSelections['financialBaseline']) ??
+            const <String, dynamic>{};
+    final trackingChoices = _mapFrom(onboardingSelections['trackingChoices']) ??
+        const <String, dynamic>{};
+    final permissionsAndConsent =
+        _mapFrom(onboardingSelections['permissionsAndConsent']) ??
+            const <String, dynamic>{};
     uid = data['uid'] as String? ?? uid;
     onboardingComplete =
         data['onboardingComplete'] as bool? ?? onboardingComplete;
     name = data['name'] as String? ?? name;
     email = data['email'] as String? ?? email;
     photoUrl = data['photoUrl'] as String? ?? photoUrl;
-    age = data['age'] as String? ?? age;
-    occupation = data['occupation'] as String? ?? occupation;
-    industry = data['industry'] as String? ?? industry;
-    employmentStatus = data['employmentStatus'] as String? ?? employmentStatus;
-    incomeType = data['incomeType'] as String? ?? incomeType;
-    incomeRhythm = data['incomeRhythm'] as String? ?? incomeRhythm;
-    billsRhythm = data['billsRhythm'] as String? ?? billsRhythm;
-    checkInRhythm = data['checkInRhythm'] as String? ?? checkInRhythm;
-    location = data['location'] as String? ?? location;
-    responsibility = data['responsibility'] as String? ?? responsibility;
-    primaryConcern = data['primaryConcern'] as String? ?? primaryConcern;
-    motivation = data['motivation'] as String? ?? motivation;
-    reflectedMotivation =
-        data['reflectedMotivation'] as String? ?? reflectedMotivation;
-    chatSurfaceSummary =
-        data['chatSurfaceSummary'] as String? ?? chatSurfaceSummary;
-    chatGoalFocusSummary =
-        data['chatGoalFocusSummary'] as String? ?? chatGoalFocusSummary;
-    chatTimeframeSummary =
-        data['chatTimeframeSummary'] as String? ?? chatTimeframeSummary;
-    chatDifficultySummary =
-        data['chatDifficultySummary'] as String? ?? chatDifficultySummary;
-    chatSituationsSummary =
-        data['chatSituationsSummary'] as String? ?? chatSituationsSummary;
-    chatChallengesSummary =
-        data['chatChallengesSummary'] as String? ?? chatChallengesSummary;
-    selectedGoal = data['selectedGoal'] as String? ?? selectedGoal;
-    selectedGoalDescription =
-        data['selectedGoalDescription'] as String? ?? selectedGoalDescription;
+    age = data['age'] as String? ?? profileContext['age'] as String? ?? age;
+    occupation = data['occupation'] as String? ??
+        profileContext['occupation'] as String? ??
+        occupation;
+    industry = data['industry'] as String? ??
+        profileContext['industry'] as String? ??
+        industry;
+    employmentStatus = data['employmentStatus'] as String? ??
+        moneyRhythm['employmentStatus'] as String? ??
+        employmentStatus;
+    incomeType = data['incomeType'] as String? ??
+        moneyRhythm['incomeType'] as String? ??
+        incomeType;
+    incomeRhythm = data['incomeRhythm'] as String? ??
+        moneyRhythm['incomeRhythm'] as String? ??
+        incomeRhythm;
+    billsRhythm = data['billsRhythm'] as String? ??
+        moneyRhythm['billsRhythm'] as String? ??
+        billsRhythm;
+    checkInRhythm = data['checkInRhythm'] as String? ??
+        moneyRhythm['checkInRhythm'] as String? ??
+        checkInRhythm;
+    location = data['location'] as String? ??
+        moneyRhythm['location'] as String? ??
+        location;
+    responsibility = data['responsibility'] as String? ??
+        moneyRhythm['responsibility'] as String? ??
+        responsibility;
+    primaryConcern = data['primaryConcern'] as String? ??
+        conversationChoices['primaryConcern'] as String? ??
+        primaryConcern;
+    motivation = data['motivation'] as String? ??
+        conversationChoices['motivation'] as String? ??
+        motivation;
+    reflectedMotivation = data['reflectedMotivation'] as String? ??
+        conversationChoices['reflectedMotivation'] as String? ??
+        reflectedMotivation;
+    chatSurfaceSummary = data['chatSurfaceSummary'] as String? ??
+        conversationChoices['surface'] as String? ??
+        chatSurfaceSummary;
+    chatGoalFocusSummary = data['chatGoalFocusSummary'] as String? ??
+        conversationChoices['goalFocus'] as String? ??
+        chatGoalFocusSummary;
+    chatTimeframeSummary = data['chatTimeframeSummary'] as String? ??
+        conversationChoices['timeframe'] as String? ??
+        chatTimeframeSummary;
+    chatDifficultySummary = data['chatDifficultySummary'] as String? ??
+        conversationChoices['difficulty'] as String? ??
+        chatDifficultySummary;
+    chatSituationsSummary = data['chatSituationsSummary'] as String? ??
+        conversationChoices['situations'] as String? ??
+        chatSituationsSummary;
+    chatChallengesSummary = data['chatChallengesSummary'] as String? ??
+        conversationChoices['challenges'] as String? ??
+        chatChallengesSummary;
+    selectedGoal = data['selectedGoal'] as String? ??
+        planSetup['selectedGoal'] as String? ??
+        selectedGoal;
+    selectedGoalDescription = data['selectedGoalDescription'] as String? ??
+        planSetup['selectedGoalDescription'] as String? ??
+        selectedGoalDescription;
     selectedGoalMonthlyTarget = _doubleFrom(
-        data['selectedGoalMonthlyTarget'], selectedGoalMonthlyTarget);
-    socialStructure = data['socialStructure'] as String? ?? socialStructure;
+      data['selectedGoalMonthlyTarget'] ??
+          planSetup['selectedGoalMonthlyTarget'],
+      selectedGoalMonthlyTarget,
+    );
+    socialStructure = data['socialStructure'] as String? ??
+        trackingChoices['socialStructure'] as String? ??
+        socialStructure;
     confidence = _doubleFrom(data['confidence'], confidence);
     anxiety = _doubleFrom(data['anxiety'], anxiety);
     avoidance = _doubleFrom(data['avoidance'], avoidance);
     peerPressure = _doubleFrom(data['peerPressure'], peerPressure);
-    income = _doubleFrom(data['income'], income);
-    expenses = _doubleFrom(data['expenses'], expenses);
-    variableExpenses = _doubleFrom(data['variableExpenses'], variableExpenses);
-    savings = _doubleFrom(data['savings'], savings);
-    emergencyMonths = _doubleFrom(data['emergencyMonths'], emergencyMonths);
-    debtPayments = _doubleFrom(data['debtPayments'], debtPayments);
-    investments = _doubleFrom(data['investments'], investments);
-    subscriptions = _doubleFrom(data['subscriptions'], subscriptions);
-    consentBaseline = data['consentBaseline'] as bool? ?? consentBaseline;
-    consentAi = data['consentAi'] as bool? ?? consentAi;
-    consentBenchmarking =
-        data['consentBenchmarking'] as bool? ?? consentBenchmarking;
-    consentCommunity = data['consentCommunity'] as bool? ?? consentCommunity;
-    consentTrustedCircle =
-        data['consentTrustedCircle'] as bool? ?? consentTrustedCircle;
-    notificationsAllowed =
-        data['notificationsAllowed'] as bool? ?? notificationsAllowed;
+    income = _doubleFrom(data['income'] ?? financialBaseline['income'], income);
+    expenses = _doubleFrom(
+        data['expenses'] ?? financialBaseline['expenses'], expenses);
+    variableExpenses = _doubleFrom(
+      data['variableExpenses'] ?? financialBaseline['variableExpenses'],
+      variableExpenses,
+    );
+    savings =
+        _doubleFrom(data['savings'] ?? financialBaseline['savings'], savings);
+    emergencyMonths = _doubleFrom(
+      data['emergencyMonths'] ?? financialBaseline['emergencyMonths'],
+      emergencyMonths,
+    );
+    debtPayments = _doubleFrom(
+      data['debtPayments'] ?? financialBaseline['debtPayments'],
+      debtPayments,
+    );
+    investments = _doubleFrom(
+      data['investments'] ?? financialBaseline['investments'],
+      investments,
+    );
+    subscriptions = _doubleFrom(
+      data['subscriptions'] ?? financialBaseline['subscriptions'],
+      subscriptions,
+    );
+    consentBaseline = data['consentBaseline'] as bool? ??
+        permissionsAndConsent['consentBaseline'] as bool? ??
+        consentBaseline;
+    consentAi = data['consentAi'] as bool? ??
+        permissionsAndConsent['consentAi'] as bool? ??
+        consentAi;
+    consentBenchmarking = data['consentBenchmarking'] as bool? ??
+        permissionsAndConsent['consentBenchmarking'] as bool? ??
+        consentBenchmarking;
+    consentCommunity = data['consentCommunity'] as bool? ??
+        permissionsAndConsent['consentCommunity'] as bool? ??
+        consentCommunity;
+    consentTrustedCircle = data['consentTrustedCircle'] as bool? ??
+        permissionsAndConsent['consentTrustedCircle'] as bool? ??
+        consentTrustedCircle;
+    notificationsAllowed = data['notificationsAllowed'] as bool? ??
+        permissionsAndConsent['notificationsAllowed'] as bool? ??
+        notificationsAllowed;
     thirdPartyDataLinkingAllowed =
         data['thirdPartyDataLinkingAllowed'] as bool? ??
+            permissionsAndConsent['thirdPartyDataLinkingAllowed'] as bool? ??
             thirdPartyDataLinkingAllowed;
     automaticDataGatheringAllowed =
         data['automaticDataGatheringAllowed'] as bool? ??
+            permissionsAndConsent['automaticDataGatheringAllowed'] as bool? ??
             automaticDataGatheringAllowed;
-    personalDataConsent =
-        data['personalDataConsent'] as bool? ?? personalDataConsent;
-    dataRetentionConsent =
-        data['dataRetentionConsent'] as bool? ?? dataRetentionConsent;
-    emotionalLogsEnabled =
-        data['emotionalLogsEnabled'] as bool? ?? emotionalLogsEnabled;
-    stressIndicatorsEnabled =
-        data['stressIndicatorsEnabled'] as bool? ?? stressIndicatorsEnabled;
-    _replaceSet(selectedActionIds, data['selectedActionIds']);
-    _replaceSet(trackingVariables, data['trackingVariables']);
-    _replaceSet(interferingVariables, data['interferingVariables']);
-    _replaceMoneyItems(assets, data['assets']);
-    _replaceMoneyItems(liabilities, data['liabilities']);
+    personalDataConsent = data['personalDataConsent'] as bool? ??
+        permissionsAndConsent['personalDataConsent'] as bool? ??
+        personalDataConsent;
+    dataRetentionConsent = data['dataRetentionConsent'] as bool? ??
+        permissionsAndConsent['dataRetentionConsent'] as bool? ??
+        dataRetentionConsent;
+    emotionalLogsEnabled = data['emotionalLogsEnabled'] as bool? ??
+        planSetup['emotionalLogsEnabled'] as bool? ??
+        emotionalLogsEnabled;
+    stressIndicatorsEnabled = data['stressIndicatorsEnabled'] as bool? ??
+        planSetup['stressIndicatorsEnabled'] as bool? ??
+        stressIndicatorsEnabled;
+    _replaceSet(
+      selectedActionIds,
+      data['selectedActionIds'] ?? planSetup['selectedActionIds'],
+    );
+    _replaceSet(
+      trackingVariables,
+      data['trackingVariables'] ?? trackingChoices['trackingVariables'],
+    );
+    _replaceSet(
+      interferingVariables,
+      data['interferingVariables'] ?? trackingChoices['interferingVariables'],
+    );
+    _replaceMoneyItems(assets, data['assets'] ?? financialBaseline['assets']);
+    _replaceMoneyItems(
+      liabilities,
+      data['liabilities'] ?? financialBaseline['liabilities'],
+    );
   }
 
   double _doubleFrom(Object? value, double fallback) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  Map<String, dynamic>? _mapFrom(Object? value) {
+    if (value is! Map) return null;
+    return Map<String, dynamic>.from(value);
   }
 
   void _replaceSet(Set<String> target, Object? value) {

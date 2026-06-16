@@ -57,10 +57,16 @@ class DashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final name = state.name.trim();
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const PageHeader(eyebrow: 'GOOD MORNING', title: 'Hi, Felix! 👋'),
+        PageHeader(
+          eyebrow: 'GOOD MORNING',
+          title: name.isEmpty ? 'Hi!' : 'Hi $name',
+        ),
         const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -648,16 +654,21 @@ class GoalsPage extends StatelessWidget {
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
 
-  static const _settings = [
-    ('Notifications', Icons.notifications_outlined, 'On'),
-    ('Privacy & security', Icons.shield_outlined, ''),
-    ('Linked accounts', Icons.credit_card_outlined, '3'),
-    ('Appearance', Icons.palette_outlined, 'Light'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final settings = [
+      _SettingData(
+        'User Selections',
+        Icons.fact_check_outlined,
+        'View',
+        () => _push(context, const UserSelectionsScreen()),
+      ),
+      const _SettingData('Notifications', Icons.notifications_outlined, 'On'),
+      const _SettingData('Privacy & security', Icons.shield_outlined, ''),
+      const _SettingData('Linked accounts', Icons.credit_card_outlined, '3'),
+      const _SettingData('Appearance', Icons.palette_outlined, 'Light'),
+    ];
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
@@ -756,54 +767,12 @@ class ProfilePage extends StatelessWidget {
               AppCard(
                 padding: EdgeInsets.zero,
                 child: Column(
-                  children: _settings.asMap().entries.map((e) {
+                  children: settings.asMap().entries.map((e) {
                     final s = e.value;
-                    final isLast = e.key == _settings.length - 1;
+                    final isLast = e.key == settings.length - 1;
                     return Column(
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 16,
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 38,
-                                height: 38,
-                                decoration: BoxDecoration(
-                                  color: _bellySoft,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Icon(s.$2, color: _purple, size: 20),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Text(
-                                  s.$1,
-                                  style: const TextStyle(
-                                    color: _title,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              if (s.$3.isNotEmpty)
-                                Text(
-                                  s.$3,
-                                  style: const TextStyle(
-                                    color: _body,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.chevron_right_rounded,
-                                color: _body,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ),
+                        _SettingsRow(data: s),
                         if (!isLast)
                           const Divider(
                             height: 1,
@@ -832,6 +801,383 @@ class ProfilePage extends StatelessWidget {
     );
   }
 }
+
+class _SettingData {
+  const _SettingData(this.title, this.icon, this.value, [this.onTap]);
+
+  final String title;
+  final IconData icon;
+  final String value;
+  final VoidCallback? onTap;
+}
+
+class _SettingsRow extends StatelessWidget {
+  const _SettingsRow({required this.data});
+
+  final _SettingData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: data.onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(data.icon, color: _purple, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                data.title,
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (data.value.isNotEmpty)
+              Text(
+                data.value,
+                style: const TextStyle(
+                  color: _body,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: _body, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class UserSelectionsScreen extends StatelessWidget {
+  const UserSelectionsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            _SelectionsHeader(
+              title: 'User Selections',
+              subtitle: 'Details saved from your onboarding choices.',
+              onBack: () => Navigator.maybePop(context),
+            ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  _SelectionSection(
+                    icon: Icons.person_rounded,
+                    title: 'Account Details',
+                    rows: [
+                      ('Name', _fallback(state.name, 'Not provided')),
+                      ('Email', _fallback(state.email, 'Not provided')),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.work_rounded,
+                    title: 'Profile Context',
+                    rows: [
+                      (
+                        'Age & life stage',
+                        _fallback(state.age, 'Not selected')
+                      ),
+                      (
+                        'Occupation',
+                        _fallback(state.occupation, 'Not provided'),
+                      ),
+                      ('Industry', state.industry),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.event_repeat_rounded,
+                    title: 'Money Rhythm',
+                    rows: [
+                      ('Employment status', state.employmentStatus),
+                      ('Income type', state.incomeType),
+                      ('Income rhythm', state.incomeRhythm),
+                      ('Bills rhythm', state.billsRhythm),
+                      ('Financial responsibility', state.responsibility),
+                      ('Check-in rhythm', state.checkInRhythm),
+                      ('Location type', state.location),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.chat_bubble_rounded,
+                    title: 'Conversation Choices',
+                    rows: [
+                      ('Primary concern', state.primaryConcern),
+                      (
+                        'Starting point',
+                        _fallback(
+                          state.chatSurfaceSummary,
+                          'No conversation summary recorded.',
+                        ),
+                      ),
+                      (
+                        'Goal focus',
+                        _fallback(
+                            state.chatGoalFocusSummary, state.selectedGoal),
+                      ),
+                      (
+                        'Timeframe',
+                        _fallback(state.chatTimeframeSummary, 'Not selected'),
+                      ),
+                      (
+                        'Pace',
+                        _fallback(state.chatDifficultySummary, 'Not selected'),
+                      ),
+                      (
+                        'Helpful reminders',
+                        _fallback(state.chatSituationsSummary, 'Not selected'),
+                      ),
+                      (
+                        'Hurdles to watch',
+                        _fallback(state.chatChallengesSummary, 'Not selected'),
+                      ),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.flag_rounded,
+                    title: 'Plan Setup',
+                    rows: [
+                      ('Selected goal', state.selectedGoal),
+                      ('Goal description', state.selectedGoalDescription),
+                      ('Target rule', _targetRuleForGoal(state)),
+                      (
+                        'Monthly target',
+                        money(state.selectedGoalMonthlyTarget),
+                      ),
+                      (
+                        'First app action',
+                        _firstTrackingActionForGoal(state.selectedGoal),
+                      ),
+                      (
+                        'Selected action IDs',
+                        _joinSelections(state.selectedActionIds),
+                      ),
+                      (
+                        'Emotional logs',
+                        state.emotionalLogsEnabled ? 'Enabled' : 'Disabled',
+                      ),
+                      (
+                        'Stress indicators',
+                        state.stressIndicatorsEnabled ? 'Enabled' : 'Disabled',
+                      ),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.savings_rounded,
+                    title: 'Financial Baseline',
+                    rows: [
+                      ('Income', money(state.income)),
+                      ('Expenses', money(state.expenses)),
+                      ('Variable expenses', money(state.variableExpenses)),
+                      ('Savings', money(state.savings)),
+                      (
+                        'Emergency months',
+                        state.emergencyMonths.toStringAsFixed(1),
+                      ),
+                      ('Debt payments', money(state.debtPayments)),
+                      ('Investments', money(state.investments)),
+                      ('Subscriptions', money(state.subscriptions)),
+                      ('Assets', _moneyItemsSummary(state.assets)),
+                      ('Liabilities', _moneyItemsSummary(state.liabilities)),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.tune_rounded,
+                    title: 'Tracking Choices',
+                    rows: [
+                      (
+                        'Goal variables',
+                        _joinSelections(state.trackingVariables),
+                      ),
+                      (
+                        'Interfering variables',
+                        _joinSelections(state.interferingVariables),
+                      ),
+                      ('Sharing structure', state.socialStructure),
+                    ],
+                  ),
+                  _SelectionSection(
+                    icon: Icons.verified_user_rounded,
+                    title: 'Permissions & Consent',
+                    rows: [
+                      ('Financial baseline', _yesNo(state.consentBaseline)),
+                      ('AI analysis', _yesNo(state.consentAi)),
+                      (
+                        'Anonymous peer benchmarks',
+                        _yesNo(state.consentBenchmarking),
+                      ),
+                      ('Community feedback', _yesNo(state.consentCommunity)),
+                      (
+                        'Trusted circle sharing',
+                        _yesNo(state.consentTrustedCircle),
+                      ),
+                      ('Notifications', _yesNo(state.notificationsAllowed)),
+                      (
+                        'Third-party data linking',
+                        _yesNo(state.thirdPartyDataLinkingAllowed),
+                      ),
+                      (
+                        'Automatic data gathering',
+                        _yesNo(state.automaticDataGatheringAllowed),
+                      ),
+                      (
+                        'Personal data consent',
+                        _yesNo(state.personalDataConsent)
+                      ),
+                      (
+                        'Data retention consent',
+                        _yesNo(state.dataRetentionConsent)
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectionsHeader extends StatelessWidget {
+  const _SelectionsHeader({
+    required this.title,
+    required this.subtitle,
+    required this.onBack,
+  });
+
+  final String title;
+  final String subtitle;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 20, 0),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: onBack,
+            color: _purple,
+            icon: const Icon(Icons.chevron_left_rounded, size: 32),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(title, style: Theme.of(context).textTheme.headlineLarge),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectionSection extends StatelessWidget {
+  const _SelectionSection({
+    required this.icon,
+    required this.title,
+    required this.rows,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<(String, String)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: _purple, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...rows.map(
+              (row) => SummaryRow(row.$1, row.$2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _fallback(String value, String fallback) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? fallback : trimmed;
+}
+
+String _joinSelections(Iterable<String> values) {
+  final sorted = values.where((value) => value.trim().isNotEmpty).toList()
+    ..sort();
+  return sorted.isEmpty ? 'Not selected' : sorted.join(', ');
+}
+
+String _moneyItemsSummary(List<MoneyItem> items) {
+  if (items.isEmpty) return 'None added';
+  return items.map((item) => '${item.name}: ${money(item.value)}').join(', ');
+}
+
+String _yesNo(bool value) => value ? 'Yes' : 'No';
 
 // ─── Activity page ────────────────────────────────────────────────────────────
 
