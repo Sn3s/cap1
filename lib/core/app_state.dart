@@ -274,7 +274,6 @@ class AppState extends ChangeNotifier {
       'incomeRhythm': incomeRhythm,
       'billsRhythm': billsRhythm,
       'checkInRhythm': checkInRhythm,
-      'location': location,
       'responsibility': responsibility,
       'primaryConcern': primaryConcern,
       'motivation': motivation,
@@ -288,24 +287,6 @@ class AppState extends ChangeNotifier {
       'selectedGoal': selectedGoal,
       'selectedGoalDescription': selectedGoalDescription,
       'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
-      'socialStructure': socialStructure,
-      'confidence': confidence,
-      'anxiety': anxiety,
-      'avoidance': avoidance,
-      'peerPressure': peerPressure,
-      'income': income,
-      'expenses': expenses,
-      'variableExpenses': variableExpenses,
-      'savings': savings,
-      'emergencyMonths': emergencyMonths,
-      'debtPayments': debtPayments,
-      'investments': investments,
-      'subscriptions': subscriptions,
-      'consentBaseline': consentBaseline,
-      'consentAi': consentAi,
-      'consentBenchmarking': consentBenchmarking,
-      'consentCommunity': consentCommunity,
-      'consentTrustedCircle': consentTrustedCircle,
       'notificationsAllowed': notificationsAllowed,
       'thirdPartyDataLinkingAllowed': thirdPartyDataLinkingAllowed,
       'automaticDataGatheringAllowed': automaticDataGatheringAllowed,
@@ -314,13 +295,7 @@ class AppState extends ChangeNotifier {
       'emotionalLogsEnabled': emotionalLogsEnabled,
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
       'selectedActionIds': selectedActionIds.toList()..sort(),
-      'trackingVariables': trackingVariables.toList()..sort(),
-      'interferingVariables': interferingVariables.toList()..sort(),
-      'assets': assets.map((item) => item.toMap()).toList(),
-      'liabilities': liabilities.map((item) => item.toMap()).toList(),
       'onboardingSelections': _onboardingSelectionsMap(),
-      'healthScore': healthScore,
-      'feasibilityScore': feasibilityScore,
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -340,7 +315,6 @@ class AppState extends ChangeNotifier {
         'billsRhythm': billsRhythm,
         'responsibility': responsibility,
         'checkInRhythm': checkInRhythm,
-        'location': location,
       },
       'conversationChoices': {
         'primaryConcern': primaryConcern,
@@ -361,38 +335,12 @@ class AppState extends ChangeNotifier {
         'emotionalLogsEnabled': emotionalLogsEnabled,
         'stressIndicatorsEnabled': stressIndicatorsEnabled,
       },
-      'financialBaseline': {
-        'income': income,
-        'expenses': expenses,
-        'variableExpenses': variableExpenses,
-        'savings': savings,
-        'emergencyMonths': emergencyMonths,
-        'debtPayments': debtPayments,
-        'investments': investments,
-        'subscriptions': subscriptions,
-        'assets': assets.map((item) => item.toMap()).toList(),
-        'liabilities': liabilities.map((item) => item.toMap()).toList(),
-      },
-      'trackingChoices': {
-        'trackingVariables': trackingVariables.toList()..sort(),
-        'interferingVariables': interferingVariables.toList()..sort(),
-        'socialStructure': socialStructure,
-      },
       'permissionsAndConsent': {
-        'consentBaseline': consentBaseline,
-        'consentAi': consentAi,
-        'consentBenchmarking': consentBenchmarking,
-        'consentCommunity': consentCommunity,
-        'consentTrustedCircle': consentTrustedCircle,
         'notificationsAllowed': notificationsAllowed,
         'thirdPartyDataLinkingAllowed': thirdPartyDataLinkingAllowed,
         'automaticDataGatheringAllowed': automaticDataGatheringAllowed,
         'personalDataConsent': personalDataConsent,
         'dataRetentionConsent': dataRetentionConsent,
-      },
-      'derivedScores': {
-        'healthScore': healthScore,
-        'feasibilityScore': feasibilityScore,
       },
     };
   }
@@ -408,11 +356,6 @@ class AppState extends ChangeNotifier {
         _mapFrom(onboardingSelections['conversationChoices']) ??
             const <String, dynamic>{};
     final planSetup = _mapFrom(onboardingSelections['planSetup']) ??
-        const <String, dynamic>{};
-    final financialBaseline =
-        _mapFrom(onboardingSelections['financialBaseline']) ??
-            const <String, dynamic>{};
-    final trackingChoices = _mapFrom(onboardingSelections['trackingChoices']) ??
         const <String, dynamic>{};
     final permissionsAndConsent =
         _mapFrom(onboardingSelections['permissionsAndConsent']) ??
@@ -445,9 +388,6 @@ class AppState extends ChangeNotifier {
     checkInRhythm = data['checkInRhythm'] as String? ??
         moneyRhythm['checkInRhythm'] as String? ??
         checkInRhythm;
-    location = data['location'] as String? ??
-        moneyRhythm['location'] as String? ??
-        location;
     responsibility = data['responsibility'] as String? ??
         moneyRhythm['responsibility'] as String? ??
         responsibility;
@@ -489,53 +429,6 @@ class AppState extends ChangeNotifier {
           planSetup['selectedGoalMonthlyTarget'],
       selectedGoalMonthlyTarget,
     );
-    socialStructure = data['socialStructure'] as String? ??
-        trackingChoices['socialStructure'] as String? ??
-        socialStructure;
-    confidence = _doubleFrom(data['confidence'], confidence);
-    anxiety = _doubleFrom(data['anxiety'], anxiety);
-    avoidance = _doubleFrom(data['avoidance'], avoidance);
-    peerPressure = _doubleFrom(data['peerPressure'], peerPressure);
-    income = _doubleFrom(data['income'] ?? financialBaseline['income'], income);
-    expenses = _doubleFrom(
-        data['expenses'] ?? financialBaseline['expenses'], expenses);
-    variableExpenses = _doubleFrom(
-      data['variableExpenses'] ?? financialBaseline['variableExpenses'],
-      variableExpenses,
-    );
-    savings =
-        _doubleFrom(data['savings'] ?? financialBaseline['savings'], savings);
-    emergencyMonths = _doubleFrom(
-      data['emergencyMonths'] ?? financialBaseline['emergencyMonths'],
-      emergencyMonths,
-    );
-    debtPayments = _doubleFrom(
-      data['debtPayments'] ?? financialBaseline['debtPayments'],
-      debtPayments,
-    );
-    investments = _doubleFrom(
-      data['investments'] ?? financialBaseline['investments'],
-      investments,
-    );
-    subscriptions = _doubleFrom(
-      data['subscriptions'] ?? financialBaseline['subscriptions'],
-      subscriptions,
-    );
-    consentBaseline = data['consentBaseline'] as bool? ??
-        permissionsAndConsent['consentBaseline'] as bool? ??
-        consentBaseline;
-    consentAi = data['consentAi'] as bool? ??
-        permissionsAndConsent['consentAi'] as bool? ??
-        consentAi;
-    consentBenchmarking = data['consentBenchmarking'] as bool? ??
-        permissionsAndConsent['consentBenchmarking'] as bool? ??
-        consentBenchmarking;
-    consentCommunity = data['consentCommunity'] as bool? ??
-        permissionsAndConsent['consentCommunity'] as bool? ??
-        consentCommunity;
-    consentTrustedCircle = data['consentTrustedCircle'] as bool? ??
-        permissionsAndConsent['consentTrustedCircle'] as bool? ??
-        consentTrustedCircle;
     notificationsAllowed = data['notificationsAllowed'] as bool? ??
         permissionsAndConsent['notificationsAllowed'] as bool? ??
         notificationsAllowed;
@@ -563,19 +456,6 @@ class AppState extends ChangeNotifier {
       selectedActionIds,
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
     );
-    _replaceSet(
-      trackingVariables,
-      data['trackingVariables'] ?? trackingChoices['trackingVariables'],
-    );
-    _replaceSet(
-      interferingVariables,
-      data['interferingVariables'] ?? trackingChoices['interferingVariables'],
-    );
-    _replaceMoneyItems(assets, data['assets'] ?? financialBaseline['assets']);
-    _replaceMoneyItems(
-      liabilities,
-      data['liabilities'] ?? financialBaseline['liabilities'],
-    );
   }
 
   double _doubleFrom(Object? value, double fallback) {
@@ -593,17 +473,6 @@ class AppState extends ChangeNotifier {
     target
       ..clear()
       ..addAll(value.whereType<String>());
-  }
-
-  void _replaceMoneyItems(List<MoneyItem> target, Object? value) {
-    if (value is! Iterable) return;
-    target
-      ..clear()
-      ..addAll(
-        value.whereType<Map>().map(
-              (item) => MoneyItem.fromMap(Map<String, dynamic>.from(item)),
-            ),
-      );
   }
 
   void updateConfidence(double value) {

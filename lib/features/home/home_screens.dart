@@ -915,7 +915,6 @@ class UserSelectionsScreen extends StatelessWidget {
                       ('Bills rhythm', state.billsRhythm),
                       ('Financial responsibility', state.responsibility),
                       ('Check-in rhythm', state.checkInRhythm),
-                      ('Location type', state.location),
                     ],
                   ),
                   _SelectionSection(
@@ -969,10 +968,6 @@ class UserSelectionsScreen extends StatelessWidget {
                         _firstTrackingActionForGoal(state.selectedGoal),
                       ),
                       (
-                        'Selected action IDs',
-                        _joinSelections(state.selectedActionIds),
-                      ),
-                      (
                         'Emotional logs',
                         state.emotionalLogsEnabled ? 'Enabled' : 'Disabled',
                       ),
@@ -983,54 +978,9 @@ class UserSelectionsScreen extends StatelessWidget {
                     ],
                   ),
                   _SelectionSection(
-                    icon: Icons.savings_rounded,
-                    title: 'Financial Baseline',
-                    rows: [
-                      ('Income', money(state.income)),
-                      ('Expenses', money(state.expenses)),
-                      ('Variable expenses', money(state.variableExpenses)),
-                      ('Savings', money(state.savings)),
-                      (
-                        'Emergency months',
-                        state.emergencyMonths.toStringAsFixed(1),
-                      ),
-                      ('Debt payments', money(state.debtPayments)),
-                      ('Investments', money(state.investments)),
-                      ('Subscriptions', money(state.subscriptions)),
-                      ('Assets', _moneyItemsSummary(state.assets)),
-                      ('Liabilities', _moneyItemsSummary(state.liabilities)),
-                    ],
-                  ),
-                  _SelectionSection(
-                    icon: Icons.tune_rounded,
-                    title: 'Tracking Choices',
-                    rows: [
-                      (
-                        'Goal variables',
-                        _joinSelections(state.trackingVariables),
-                      ),
-                      (
-                        'Interfering variables',
-                        _joinSelections(state.interferingVariables),
-                      ),
-                      ('Sharing structure', state.socialStructure),
-                    ],
-                  ),
-                  _SelectionSection(
                     icon: Icons.verified_user_rounded,
                     title: 'Permissions & Consent',
                     rows: [
-                      ('Financial baseline', _yesNo(state.consentBaseline)),
-                      ('AI analysis', _yesNo(state.consentAi)),
-                      (
-                        'Anonymous peer benchmarks',
-                        _yesNo(state.consentBenchmarking),
-                      ),
-                      ('Community feedback', _yesNo(state.consentCommunity)),
-                      (
-                        'Trusted circle sharing',
-                        _yesNo(state.consentTrustedCircle),
-                      ),
                       ('Notifications', _yesNo(state.notificationsAllowed)),
                       (
                         'Third-party data linking',
@@ -1164,17 +1114,6 @@ class _SelectionSection extends StatelessWidget {
 String _fallback(String value, String fallback) {
   final trimmed = value.trim();
   return trimmed.isEmpty ? fallback : trimmed;
-}
-
-String _joinSelections(Iterable<String> values) {
-  final sorted = values.where((value) => value.trim().isNotEmpty).toList()
-    ..sort();
-  return sorted.isEmpty ? 'Not selected' : sorted.join(', ');
-}
-
-String _moneyItemsSummary(List<MoneyItem> items) {
-  if (items.isEmpty) return 'None added';
-  return items.map((item) => '${item.name}: ${money(item.value)}').join(', ');
 }
 
 String _yesNo(bool value) => value ? 'Yes' : 'No';

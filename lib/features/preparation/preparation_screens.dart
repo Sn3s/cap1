@@ -3165,7 +3165,7 @@ class PersonalDataConsentScreen extends StatelessWidget {
                 ConsentDataRow(
                   label: 'Profile context',
                   value:
-                      'Age or life stage, occupation, industry, employment status, location type, and financial responsibility.',
+                      'Age or life stage, occupation, industry, employment status, and financial responsibility.',
                 ),
                 ConsentDataRow(
                   label: 'Money rhythm',
@@ -3178,14 +3178,14 @@ class PersonalDataConsentScreen extends StatelessWidget {
                       'Selected concern, goal focus, timeframe, pace, helpful situations, and expected hurdles.',
                 ),
                 ConsentDataRow(
-                  label: 'Financial baseline',
+                  label: 'Plan recommendation',
                   value:
-                      'Income, expenses, variable expenses, savings, emergency months, debt payments, subscriptions, assets, and liabilities that you enter.',
+                      'Selected goal, target rule, first app action, and optional plan flags created from your answers.',
                 ),
                 ConsentDataRow(
-                  label: 'Tracking choices',
+                  label: 'Permissions and consent',
                   value:
-                      'Selected goal variables, interfering variables, consent choices, and sharing preference.',
+                      'Notification choice, future data-linking permission, automatic data-gathering permission, personal data consent, and data retention consent.',
                 ),
               ],
             ),
@@ -3228,7 +3228,7 @@ class DataRetentionConsentScreen extends StatelessWidget {
             icon: Icons.restart_alt_rounded,
             title: 'Reset control',
             body:
-                'You can reset your conversation, goal details, financial baseline, tracking choices, or other stored data from the Settings menu.',
+                'You can reset your conversation, goal details, consent choices, or other stored data from the Settings menu.',
           ),
           SizedBox(height: 12),
           PermissionInfoCard(

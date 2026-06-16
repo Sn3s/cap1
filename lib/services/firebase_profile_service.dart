@@ -67,7 +67,7 @@ class FirebaseProfileService {
     required User user,
     required Map<String, dynamic> profile,
   }) {
-    return _profileRef(user.uid).set(profile, SetOptions(merge: true));
+    return _profileRef(user.uid).set(profile);
   }
 
   static Future<void> signOut() async {
