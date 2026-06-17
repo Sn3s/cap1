@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -18,6 +19,7 @@ part 'features/auth/auth_screens.dart';
 part 'features/home/home_screens.dart';
 part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
+part 'services/fakemaya_service.dart';
 part 'services/firebase_profile_service.dart';
 part 'services/shellby_ai_coach.dart';
 part 'shared/widgets/shared_widgets.dart';

@@ -1,0 +1,609 @@
+part of '../main.dart';
+
+class FakeMayaService {
+  const FakeMayaService._();
+
+  static const _supabaseUrl = 'https://rizxgcgooukdckpfhkkr.supabase.co';
+  static const _publishableKey =
+      'sb_publishable_7kUampSawoDOCylHDsHyHQ_43TopGft';
+  static const _walletTable = 'wallet_states';
+
+  static Future<FakeMayaSession> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/auth/v1/token',
+      query: {'grant_type': 'password'},
+      body: {
+        'email': email.trim().toLowerCase(),
+        'password': password,
+      },
+    );
+    final auth = _mapFrom(response) ?? const <String, dynamic>{};
+    final user = _mapFrom(auth['user']) ?? const <String, dynamic>{};
+    final userId = user['id'] as String?;
+    if (userId == null || userId.isEmpty) {
+      throw const FakeMayaException('FakeMaya did not return an account id.');
+    }
+
+    final accessToken = auth['access_token'] as String? ?? '';
+    final summary = await loadWalletSummary(
+      userId: userId,
+      accessToken: accessToken,
+      email: user['email'] as String? ?? email,
+      name: _accountName(user, email),
+      phone: user['phone'] as String? ?? '+63 917 000 0000',
+    );
+    return FakeMayaSession(
+      userId: userId,
+      email: user['email'] as String? ?? email.trim().toLowerCase(),
+      name: _accountName(user, email),
+      phone: user['phone'] as String? ?? '+63 917 000 0000',
+      provider: _provider(user),
+      accessToken: accessToken,
+      refreshToken: auth['refresh_token'] as String? ?? '',
+      expiresAt: DateTime.now().add(
+        Duration(seconds: auth['expires_in'] as int? ?? 3600),
+      ),
+      summary: summary,
+    );
+  }
+
+  static Future<FakeMayaSession> refreshSession(FakeMayaLink link) async {
+    if (link.refreshToken.isEmpty) {
+      throw const FakeMayaException('Please log in to FakeMaya again.');
+    }
+    final response = await _request(
+      'POST',
+      '/auth/v1/token',
+      query: {'grant_type': 'refresh_token'},
+      body: {'refresh_token': link.refreshToken},
+    );
+    final auth = _mapFrom(response) ?? const <String, dynamic>{};
+    final user = _mapFrom(auth['user']) ?? const <String, dynamic>{};
+    final userId = user['id'] as String? ?? link.userId;
+    final accessToken = auth['access_token'] as String? ?? '';
+    final summary = await loadWalletSummary(
+      userId: userId,
+      accessToken: accessToken,
+      email: user['email'] as String? ?? link.email,
+      name: _accountName(user, link.email),
+      phone: user['phone'] as String? ?? link.phone,
+    );
+    return FakeMayaSession(
+      userId: userId,
+      email: user['email'] as String? ?? link.email,
+      name: _accountName(user, link.email),
+      phone: user['phone'] as String? ?? link.phone,
+      provider: _provider(user, fallback: link.provider),
+      accessToken: accessToken,
+      refreshToken: auth['refresh_token'] as String? ?? link.refreshToken,
+      expiresAt: DateTime.now().add(
+        Duration(seconds: auth['expires_in'] as int? ?? 3600),
+      ),
+      summary: summary,
+    );
+  }
+
+  static Future<FakeMayaAccountSummary> loadWalletSummary({
+    required String userId,
+    required String accessToken,
+    required String email,
+    required String name,
+    required String phone,
+  }) async {
+    Object? rows;
+    try {
+      rows = await _request(
+        'GET',
+        '/rest/v1/$_walletTable',
+        query: {
+          'select':
+              'wallet,savings,time_deposit,goal_balance,app_state,updated_at',
+          'user_id': 'eq.$userId',
+          'limit': '1',
+        },
+        accessToken: accessToken,
+      );
+    } on FakeMayaException catch (error) {
+      if (_isMissingWalletTable(error.message)) {
+        return _defaultWalletSummary();
+      }
+      rethrow;
+    }
+    if (rows is List && rows.isNotEmpty) {
+      return FakeMayaAccountSummary.fromMap(_mapFrom(rows.first)!);
+    }
+
+    final fresh = _defaultWalletSummary();
+    try {
+      await _request(
+        'POST',
+        '/rest/v1/$_walletTable',
+        query: {'on_conflict': 'user_id'},
+        accessToken: accessToken,
+        headers: {'Prefer': 'resolution=merge-duplicates'},
+        body: {
+          'user_id': userId,
+          'email': email,
+          'full_name': name,
+          'phone': phone,
+          'wallet': fresh.wallet,
+          'savings': fresh.savings,
+          'time_deposit': fresh.timeDeposit,
+          'goal_balance': fresh.goalBalance,
+          'app_state': fresh.toFakeMayaAppState(),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+      );
+    } on FakeMayaException catch (error) {
+      if (!_isMissingWalletTable(error.message)) rethrow;
+    }
+    return fresh;
+  }
+
+  static Future<FakeMayaSession> depositToPersonalGoal({
+    required FakeMayaLink link,
+    required double amount,
+  }) async {
+    if (amount <= 0) {
+      throw const FakeMayaException('Enter a valid allocation amount.');
+    }
+
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    if (amount > summary.wallet) {
+      throw const FakeMayaException('Not enough in FakeMaya wallet.');
+    }
+
+    final transaction = FakeMayaTransaction(
+      title: 'Deposited to goal',
+      detail: summary.goalName,
+      age: 'Just now',
+      amountText: '+ ${_formatPeso(amount)}',
+    );
+    final nextSummary = summary.copyWith(
+      wallet: summary.wallet - amount,
+      goalBalance: summary.goalBalance + amount,
+      transactions: [transaction, ...summary.transactions].take(5).toList(),
+      updatedAt: DateTime.now(),
+    );
+
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': nextSummary.wallet,
+        'savings': nextSummary.savings,
+        'time_deposit': nextSummary.timeDeposit,
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
+  static FakeMayaAccountSummary _defaultWalletSummary() {
+    return FakeMayaAccountSummary(
+      wallet: 1000,
+      savings: 0,
+      timeDeposit: 0,
+      goalName: 'japan',
+      goalEmoji: '👠',
+      goalBalance: 0,
+      goalTarget: 25000,
+      creditLimit: 15000,
+      creditUsed: 0,
+      transactions: const [
+        FakeMayaTransaction(
+          title: 'Account opened',
+          detail: 'Welcome wallet funds',
+          age: 'Just now',
+          amountText: '+ ₱1,000.00',
+        ),
+      ],
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  static Future<Object?> _request(
+    String method,
+    String path, {
+    Map<String, String> query = const {},
+    Map<String, String> headers = const {},
+    Map<String, Object?>? body,
+    String? accessToken,
+  }) async {
+    final uri = Uri.parse('$_supabaseUrl$path').replace(queryParameters: query);
+    final client = HttpClient();
+    try {
+      final request = await client.openUrl(method, uri);
+      request.headers
+        ..set('apikey', _publishableKey)
+        ..set(HttpHeaders.contentTypeHeader, 'application/json');
+      if (accessToken != null && accessToken.isNotEmpty) {
+        request.headers
+            .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+      }
+      for (final entry in headers.entries) {
+        request.headers.set(entry.key, entry.value);
+      }
+      if (body != null) {
+        request.write(jsonEncode(body));
+      }
+      final response = await request.close();
+      final payload = await response.transform(utf8.decoder).join();
+      final decoded = payload.isEmpty ? null : jsonDecode(payload);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final message = _mapFrom(decoded)?['msg'] ??
+            _mapFrom(decoded)?['message'] ??
+            _mapFrom(decoded)?['error_description'] ??
+            'FakeMaya request failed (${response.statusCode}).';
+        throw FakeMayaException(message.toString());
+      }
+      return decoded;
+    } on SocketException {
+      throw const FakeMayaException(
+          'Could not reach FakeMaya. Check your connection.');
+    } on FormatException {
+      throw const FakeMayaException(
+          'FakeMaya returned an unreadable response.');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Map<String, dynamic>? _mapFrom(Object? value) {
+    if (value is! Map) return null;
+    return Map<String, dynamic>.from(value);
+  }
+
+  static bool _isMissingWalletTable(String message) {
+    final normalized = message.toLowerCase();
+    return normalized.contains('wallet_states') &&
+        (normalized.contains('schema cache') ||
+            normalized.contains('could not find the table') ||
+            normalized.contains('does not exist'));
+  }
+
+  static String _accountName(Map<String, dynamic> user, String fallbackEmail) {
+    final metadata =
+        _mapFrom(user['user_metadata']) ?? const <String, dynamic>{};
+    final fromMetadata = metadata['full_name'] ?? metadata['name'];
+    if (fromMetadata is String && fromMetadata.trim().isNotEmpty) {
+      return fromMetadata.trim();
+    }
+    final local =
+        fallbackEmail.split('@').first.replaceAll(RegExp(r'[._-]+'), ' ');
+    final parts = local.split(' ').where((part) => part.isNotEmpty);
+    final name = parts
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+    return name.isEmpty ? 'Maya User' : name;
+  }
+
+  static String _provider(Map<String, dynamic> user,
+      {String fallback = 'email'}) {
+    final metadata =
+        _mapFrom(user['app_metadata']) ?? const <String, dynamic>{};
+    return metadata['provider'] == 'google' ? 'google' : fallback;
+  }
+
+  static String _formatPeso(double value) {
+    final rounded = value.toStringAsFixed(2);
+    final parts = rounded.split('.');
+    final chars = parts.first.split('').reversed.toList();
+    final grouped = <String>[];
+    for (var i = 0; i < chars.length; i++) {
+      if (i != 0 && i % 3 == 0) grouped.add(',');
+      grouped.add(chars[i]);
+    }
+    return '₱${grouped.reversed.join()}.${parts.last}';
+  }
+}
+
+class FakeMayaException implements Exception {
+  const FakeMayaException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class FakeMayaSession {
+  const FakeMayaSession({
+    required this.userId,
+    required this.email,
+    required this.name,
+    required this.phone,
+    required this.provider,
+    required this.accessToken,
+    required this.refreshToken,
+    required this.expiresAt,
+    required this.summary,
+  });
+
+  final String userId;
+  final String email;
+  final String name;
+  final String phone;
+  final String provider;
+  final String accessToken;
+  final String refreshToken;
+  final DateTime expiresAt;
+  final FakeMayaAccountSummary summary;
+}
+
+class FakeMayaLink {
+  const FakeMayaLink({
+    required this.userId,
+    required this.email,
+    required this.name,
+    required this.phone,
+    required this.provider,
+    required this.accessToken,
+    required this.refreshToken,
+    required this.expiresAt,
+    required this.summary,
+  });
+
+  final String userId;
+  final String email;
+  final String name;
+  final String phone;
+  final String provider;
+  final String accessToken;
+  final String refreshToken;
+  final DateTime? expiresAt;
+  final FakeMayaAccountSummary summary;
+
+  bool get canRefresh => refreshToken.isNotEmpty;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'userId': userId,
+      'email': email,
+      'name': name,
+      'phone': phone,
+      'provider': provider,
+      'accessToken': accessToken,
+      'refreshToken': refreshToken,
+      'expiresAt': expiresAt?.toIso8601String(),
+      'summary': summary.toMap(),
+    };
+  }
+
+  factory FakeMayaLink.fromSession(FakeMayaSession session) {
+    return FakeMayaLink(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: session.summary,
+    );
+  }
+
+  factory FakeMayaLink.fromMap(Map<String, dynamic> data) {
+    return FakeMayaLink(
+      userId: data['userId'] as String? ?? '',
+      email: data['email'] as String? ?? '',
+      name: data['name'] as String? ?? 'Maya User',
+      phone: data['phone'] as String? ?? '',
+      provider: data['provider'] as String? ?? 'email',
+      accessToken: data['accessToken'] as String? ?? '',
+      refreshToken: data['refreshToken'] as String? ?? '',
+      expiresAt: DateTime.tryParse(data['expiresAt'] as String? ?? ''),
+      summary: FakeMayaAccountSummary.fromMap(
+        Map<String, dynamic>.from(data['summary'] as Map? ?? const {}),
+      ),
+    );
+  }
+}
+
+class FakeMayaAccountSummary {
+  const FakeMayaAccountSummary({
+    required this.wallet,
+    required this.savings,
+    required this.timeDeposit,
+    required this.goalName,
+    required this.goalEmoji,
+    required this.goalBalance,
+    required this.goalTarget,
+    required this.creditLimit,
+    required this.creditUsed,
+    required this.transactions,
+    required this.updatedAt,
+  });
+
+  final double wallet;
+  final double savings;
+  final double timeDeposit;
+  final String goalName;
+  final String goalEmoji;
+  final double goalBalance;
+  final double goalTarget;
+  final double creditLimit;
+  final double creditUsed;
+  final List<FakeMayaTransaction> transactions;
+  final DateTime? updatedAt;
+
+  double get totalBalance => wallet + savings + timeDeposit + goalBalance;
+  double get availableCredit => math.max(0, creditLimit - creditUsed);
+
+  FakeMayaAccountSummary copyWith({
+    double? wallet,
+    double? savings,
+    double? timeDeposit,
+    String? goalName,
+    String? goalEmoji,
+    double? goalBalance,
+    double? goalTarget,
+    double? creditLimit,
+    double? creditUsed,
+    List<FakeMayaTransaction>? transactions,
+    DateTime? updatedAt,
+  }) {
+    return FakeMayaAccountSummary(
+      wallet: wallet ?? this.wallet,
+      savings: savings ?? this.savings,
+      timeDeposit: timeDeposit ?? this.timeDeposit,
+      goalName: goalName ?? this.goalName,
+      goalEmoji: goalEmoji ?? this.goalEmoji,
+      goalBalance: goalBalance ?? this.goalBalance,
+      goalTarget: goalTarget ?? this.goalTarget,
+      creditLimit: creditLimit ?? this.creditLimit,
+      creditUsed: creditUsed ?? this.creditUsed,
+      transactions: transactions ?? this.transactions,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  List<MoneyItem> toMoneyItems() {
+    return [
+      MoneyItem('FakeMaya Wallet', 'Linked from FakeMaya', wallet),
+      MoneyItem('FakeMaya Savings', 'Linked from FakeMaya', savings),
+      MoneyItem('FakeMaya Time Deposit', 'Linked from FakeMaya', timeDeposit),
+      MoneyItem('FakeMaya $goalName', 'Linked from FakeMaya', goalBalance),
+    ];
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'wallet': wallet,
+      'savings': savings,
+      'timeDeposit': timeDeposit,
+      'goalName': goalName,
+      'goalEmoji': goalEmoji,
+      'goalBalance': goalBalance,
+      'goalTarget': goalTarget,
+      'creditLimit': creditLimit,
+      'creditUsed': creditUsed,
+      'transactions':
+          transactions.map((transaction) => transaction.toMap()).toList(),
+      'updatedAt': updatedAt?.toIso8601String(),
+    };
+  }
+
+  Map<String, dynamic> toFakeMayaAppState() {
+    return {
+      'wallet': wallet,
+      'savings': savings,
+      'timeDeposit': timeDeposit,
+      'goal': {
+        'name': goalName,
+        'emoji': goalEmoji,
+        'balance': goalBalance,
+        'target': goalTarget,
+        'daysLeft': 180,
+        'rate': 8,
+        'account': '8189 3753 6162',
+      },
+      'creditLimit': creditLimit,
+      'creditUsed': creditUsed,
+      'transactions':
+          transactions.map((transaction) => transaction.toMap()).toList(),
+    };
+  }
+
+  factory FakeMayaAccountSummary.fromMap(Map<String, dynamic> data) {
+    final appState =
+        Map<String, dynamic>.from(data['app_state'] as Map? ?? const {});
+    final goal =
+        Map<String, dynamic>.from(appState['goal'] as Map? ?? const {});
+    return FakeMayaAccountSummary(
+      wallet: _doubleFrom(data['wallet'] ?? appState['wallet'], 1000),
+      savings: _doubleFrom(data['savings'] ?? appState['savings'], 0),
+      timeDeposit:
+          _doubleFrom(data['time_deposit'] ?? appState['timeDeposit'], 0),
+      goalName: _stringFrom(data['goalName'] ?? goal['name'], 'Personal Goal'),
+      goalEmoji: _stringFrom(data['goalEmoji'] ?? goal['emoji'], '🎯'),
+      goalBalance: _doubleFrom(data['goal_balance'] ?? goal['balance'], 0),
+      goalTarget: _doubleFrom(data['goalTarget'] ?? goal['target'], 25000),
+      creditLimit: _doubleFrom(appState['creditLimit'], 15000),
+      creditUsed: _doubleFrom(appState['creditUsed'], 0),
+      transactions:
+          _transactionsFrom(appState['transactions'] ?? data['transactions']),
+      updatedAt: DateTime.tryParse(data['updated_at'] as String? ?? ''),
+    );
+  }
+
+  static List<FakeMayaTransaction> _transactionsFrom(Object? value) {
+    if (value is! Iterable) return const [];
+    return value
+        .map((item) => item is Map
+            ? FakeMayaTransaction.fromMap(Map<String, dynamic>.from(item))
+            : null)
+        .whereType<FakeMayaTransaction>()
+        .toList();
+  }
+
+  static double _doubleFrom(Object? value, double fallback) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  static String _stringFrom(Object? value, String fallback) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+}
+
+class FakeMayaTransaction {
+  const FakeMayaTransaction({
+    required this.title,
+    required this.detail,
+    required this.age,
+    required this.amountText,
+  });
+
+  final String title;
+  final String detail;
+  final String age;
+  final String amountText;
+
+  double get amount {
+    final sign = amountText.trimLeft().startsWith('-') ? -1.0 : 1.0;
+    final normalized = amountText.replaceAll(RegExp(r'[^0-9.]'), '');
+    return sign * (double.tryParse(normalized) ?? 0);
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'detail': detail,
+      'age': age,
+      'amount': amountText,
+    };
+  }
+
+  factory FakeMayaTransaction.fromMap(Map<String, dynamic> data) {
+    return FakeMayaTransaction(
+      title: data['title'] as String? ?? 'FakeMaya transaction',
+      detail: data['detail'] as String? ?? 'FakeMaya',
+      age: data['age'] as String? ?? 'Just now',
+      amountText: data['amount'] as String? ?? '',
+    );
+  }
+}

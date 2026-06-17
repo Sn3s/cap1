@@ -52,6 +52,16 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
+String _wholeMoney(String value) {
+  final chars = value.split('').reversed.toList();
+  final grouped = <String>[];
+  for (var i = 0; i < chars.length; i++) {
+    if (i != 0 && i % 3 == 0) grouped.add(',');
+    grouped.add(chars[i]);
+  }
+  return grouped.reversed.join();
+}
+
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
@@ -59,6 +69,16 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final name = state.name.trim();
+    final balance =
+        state.hasFakeMayaLink ? state.linkedFakeMayaBalance : 24840.55;
+    final balanceParts = balance.toStringAsFixed(2).split('.');
+    final spendable =
+        state.hasFakeMayaLink ? state.fakeMayaLink!.summary.wallet : 1240.0;
+    final saved = state.hasFakeMayaLink
+        ? state.fakeMayaLink!.summary.savings +
+            state.fakeMayaLink!.summary.timeDeposit +
+            state.fakeMayaLink!.summary.goalBalance
+        : 320.0;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
@@ -99,7 +119,8 @@ class DashboardPage extends StatelessWidget {
                                 text: TextSpan(
                                   children: [
                                     TextSpan(
-                                      text: '₱ 24,840',
+                                      text:
+                                          '₱ ${_wholeMoney(balanceParts.first)}',
                                       style: GoogleFonts.nunito(
                                         fontSize: 36,
                                         fontWeight: FontWeight.w800,
@@ -108,7 +129,7 @@ class DashboardPage extends StatelessWidget {
                                       ),
                                     ),
                                     TextSpan(
-                                      text: '.55',
+                                      text: '.${balanceParts.last}',
                                       style: GoogleFonts.nunito(
                                         fontSize: 20,
                                         fontWeight: FontWeight.w700,
@@ -227,8 +248,10 @@ class DashboardPage extends StatelessWidget {
                       icon: Icons.account_balance_wallet_rounded,
                       iconColor: _brand,
                       label: 'Spendable',
-                      value: '₱ 1,240',
-                      delta: '↑ ₱80 this week',
+                      value: money(spendable),
+                      delta: state.hasFakeMayaLink
+                          ? 'FakeMaya wallet'
+                          : '↑ ₱80 this week',
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -237,8 +260,10 @@ class DashboardPage extends StatelessWidget {
                       icon: Icons.savings_rounded,
                       iconColor: _purple,
                       label: 'Saved',
-                      value: '₱ 320',
-                      delta: '64% of goal',
+                      value: money(saved),
+                      delta: state.hasFakeMayaLink
+                          ? 'FakeMaya savings'
+                          : '64% of goal',
                     ),
                   ),
                 ],
@@ -449,204 +474,1564 @@ class _InsightsPageState extends State<InsightsPage> {
 class GoalsPage extends StatelessWidget {
   const GoalsPage({super.key});
 
-  static const _allGoals = [
-    ('Trip to Lisbon', '✈️', 640.0, 2000.0, 32, _purple),
-    ('New laptop', '💻', 900.0, 1500.0, 60, _brand),
-    ('Emergency fund', '🚨', 1200.0, 3000.0, 40, _red),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final cycle = _goalCycleFor(state);
+    final buckets = _goalBucketsFor(state);
+    final totalSaved = buckets.fold(0.0, (sum, bucket) => sum + bucket.current);
+    final totalTarget = buckets.fold(0.0, (sum, bucket) => sum + bucket.target);
+    final primary = buckets.first;
+    final cycleSteps = _cycleStepsForGoal(state);
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const PageHeader(eyebrow: "WHAT YOU'RE SAVING FOR", title: 'Goals'),
+        const PageHeader(eyebrow: 'COLLECTION MODE', title: 'Goals'),
         const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Featured goal card
+              Row(
+                children: [
+                  _GoalCycleChip(cycle: cycle),
+                  const SizedBox(width: 8),
+                  _GoalLayerChip(goal: state.selectedGoal),
+                ],
+              ),
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.fromLTRB(20, 20, 100, 20),
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  color: _purple,
-                  borderRadius: BorderRadius.circular(26),
+                  color: const Color(0xFFE7C76A),
+                  borderRadius: BorderRadius.circular(24),
                 ),
-                child: Stack(
-                  clipBehavior: Clip.none,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const Text(
+                      'TOTAL IN GOAL BUCKETS',
+                      style: TextStyle(
+                        color: _title,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      money(totalSaved),
+                      style: GoogleFonts.nunito(
+                        color: _title,
+                        fontSize: 36,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'of ${money(totalTarget)} across ${buckets.length} active ${buckets.length == 1 ? 'goal' : 'goals'}',
+                      style: const TextStyle(
+                        color: _title,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
                       children: [
-                        Text(
-                          'ALMOST THERE!',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(.7),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2,
+                        Expanded(
+                          child: _GoalStatTile(
+                            label: 'Cycle target',
+                            value: money(cycle.allocation),
+                            color: _title,
+                            background: Colors.white.withOpacity(.35),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text('☕ ', style: TextStyle(fontSize: 20)),
-                            Text(
-                              'Coffee fund',
-                              style: GoogleFonts.fredoka(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        RichText(
-                          text: TextSpan(
-                            children: [
-                              TextSpan(
-                                text: '₱205',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              TextSpan(
-                                text: ' / ₱250',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withOpacity(.65),
-                                ),
-                              ),
-                            ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _GoalStatTile(
+                            label: 'Green light',
+                            value: cycle.greenLight ? 'Ready' : 'Waiting',
+                            color: cycle.greenLight ? _brand : _amber,
+                            background: Colors.white.withOpacity(.35),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: .82,
-                            minHeight: 8,
-                            color: Colors.white,
-                            backgroundColor: Colors.white.withOpacity(.25),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '₱45 to go · 🐢 you got this',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(.8),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _GoalStatTile(
+                            label: 'Guard',
+                            value: buckets.length >= 3 ? 'Max 3' : 'Active',
+                            color: buckets.length >= 3 ? _amber : _purple,
+                            background: Colors.white.withOpacity(.35),
                           ),
                         ),
                       ],
-                    ),
-                    // Shellby mascot on the right
-                    Positioned(
-                      right: -80,
-                      bottom: -12,
-                      child: SizedBox(
-                        width: 90,
-                        height: 90,
-                        child: Image.asset(
-                          'assets/images/shellby_wave.webp',
-                          fit: BoxFit.contain,
-                        ),
-                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
-              Text(
-                'All goals',
-                style: GoogleFonts.fredoka(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: _title,
-                ),
+              const SizedBox(height: 16),
+              _GoalBucketCard(
+                bucket: primary,
+                featured: true,
+                onTap: () => _showBucketActions(context, primary),
+                onEdit: () => _showBucketEditor(context, primary),
+                onAllocate: () => _showAllocationSheet(context, primary),
+              ),
+              const SizedBox(height: 22),
+              SectionTitle(
+                title: 'Your buckets',
+                action: '${buckets.length} active',
               ),
               const SizedBox(height: 12),
-              ..._allGoals.map(
-                (g) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              g.$2,
-                              style: const TextStyle(fontSize: 18),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                g.$1,
-                                style: const TextStyle(
-                                  color: _title,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${g.$5}%',
-                              style: TextStyle(
-                                color: g.$6,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: g.$5 / 100,
-                            minHeight: 8,
-                            color: g.$6,
-                            backgroundColor: g.$6.withOpacity(.12),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Text(
-                              '₱${g.$3.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                color: _title,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              'of ₱${g.$4.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                color: _body,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+              ...buckets.skip(1).map(
+                    (bucket) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _GoalBucketCard(
+                        bucket: bucket,
+                        onTap: () => _showBucketActions(context, bucket),
+                        onEdit: () => _showBucketEditor(context, bucket),
+                        onAllocate: () => _showAllocationSheet(context, bucket),
+                      ),
                     ),
                   ),
+              if (buckets.length == 1)
+                AppCard(
+                  child: Row(
+                    children: [
+                      IconBubble(
+                        Icons.add_rounded,
+                        color: _purple,
+                        background: _bellySoft,
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Text(
+                          'Shelby will suggest another bucket only when this goal family needs one.',
+                          style: TextStyle(
+                            color: _body,
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (buckets.length >= 3)
+                const Padding(
+                  padding: EdgeInsets.only(top: 2),
+                  child: Center(
+                    child: Text(
+                      'Goal congestion guard active - 3 is your max.',
+                      style: TextStyle(
+                        color: _amber,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 22),
+              SectionTitle(title: 'This cycle', action: cycle.rhythm),
+              const SizedBox(height: 12),
+              AppCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: cycleSteps.asMap().entries.map((entry) {
+                    final isLast = entry.key == cycleSteps.length - 1;
+                    return Column(
+                      children: [
+                        _GoalCycleStepRow(
+                          step: entry.value,
+                          index: entry.key + 1,
+                          isLast: isLast,
+                        ),
+                        if (!isLast)
+                          const Divider(
+                            height: 1,
+                            color: _border,
+                            indent: 74,
+                          ),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _showBucketActions(BuildContext context, _GoalBucket bucket) {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GoalBucketActionsSheet(
+        bucket: bucket,
+        onEdit: () {
+          Navigator.pop(context);
+          _showBucketEditor(context, bucket);
+        },
+        onAllocate: () {
+          Navigator.pop(context);
+          _showAllocationSheet(context, bucket);
+        },
+      ),
+    );
+  }
+
+  Future<void> _showBucketEditor(BuildContext context, _GoalBucket bucket) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GoalBucketEditorSheet(bucket: bucket),
+    );
+  }
+
+  Future<void> _showAllocationSheet(BuildContext context, _GoalBucket bucket) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _GoalAllocationSheet(bucket: bucket),
+    );
+  }
+}
+
+class _GoalBucket {
+  const _GoalBucket({
+    required this.id,
+    required this.emoji,
+    required this.name,
+    required this.role,
+    required this.current,
+    required this.target,
+    required this.monthly,
+    required this.color,
+    required this.linked,
+  });
+
+  final String id;
+  final String emoji;
+  final String name;
+  final String role;
+  final double current;
+  final double target;
+  final double monthly;
+  final Color color;
+  final bool linked;
+
+  int get percent =>
+      target <= 0 ? 0 : (current / target * 100).clamp(0, 100).round();
+  double get remaining => math.max(0, target - current);
+
+  CollectionBucketOverride toOverride() {
+    return CollectionBucketOverride(
+      id: id,
+      name: name,
+      role: role,
+      emoji: emoji,
+      current: current,
+      target: target,
+      monthly: monthly,
+    );
+  }
+
+  _GoalBucket applyOverride(CollectionBucketOverride? override) {
+    if (override == null) return this;
+    return _GoalBucket(
+      id: id,
+      emoji: override.emoji.trim().isEmpty ? emoji : override.emoji.trim(),
+      name: override.name.trim().isEmpty ? name : override.name.trim(),
+      role: override.role.trim().isEmpty ? role : override.role.trim(),
+      current: override.current,
+      target: override.target <= 0 ? target : override.target,
+      monthly: override.monthly <= 0 ? monthly : override.monthly,
+      color: color,
+      linked: linked,
+    );
+  }
+}
+
+class _GoalCycle {
+  const _GoalCycle({
+    required this.number,
+    required this.rhythm,
+    required this.allocation,
+    required this.greenLight,
+  });
+
+  final int number;
+  final String rhythm;
+  final double allocation;
+  final bool greenLight;
+}
+
+class _GoalCycleStep {
+  const _GoalCycleStep({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.color,
+    this.note,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Color color;
+  final String? note;
+}
+
+_GoalCycle _goalCycleFor(AppState state) {
+  final rhythm =
+      state.checkInRhythm.trim().isEmpty ? 'Weekly' : state.checkInRhythm;
+  final cycleNumber = switch (rhythm.toLowerCase()) {
+    final text when text.contains('daily') => 7,
+    final text when text.contains('payday') => 2,
+    final text when text.contains('monthly') => 1,
+    _ => 4,
+  };
+  final allocation = _cycleAllocationFromSelections(state);
+  final linkedWallet = state.fakeMayaLink?.summary.wallet ?? 0;
+  final greenLight = state.hasFakeMayaLink
+      ? linkedWallet >= math.min(allocation, 1000)
+      : state.monthlySurplus > 0;
+  return _GoalCycle(
+    number: cycleNumber,
+    rhythm: rhythm,
+    allocation: allocation,
+    greenLight: greenLight,
+  );
+}
+
+List<_GoalBucket> _goalBucketsFor(AppState state) {
+  final cycle = _goalCycleFor(state);
+  final goal = state.selectedGoal;
+  final linked = state.hasFakeMayaLink;
+  final summary = state.fakeMayaLink?.summary;
+  final layer = _layerForGoal(goal);
+  final salaryTarget = _salaryBasedMonthlyGoalTarget(state);
+  final baseTarget =
+      salaryTarget ?? math.max(cycle.allocation * 3, _targetForGoal(state));
+  final current = _currentForGoal(state, layer);
+  final fakeMayaGoalTarget = summary == null
+      ? baseTarget
+      : math.max(summary.goalTarget, summary.goalBalance);
+  final primaryTarget = linked && salaryTarget == null
+      ? fakeMayaGoalTarget
+      : math.max(baseTarget, linked ? (summary?.goalBalance ?? 0) : current);
+  final buckets = <_GoalBucket>[
+    _GoalBucket(
+      id: linked ? 'fakemaya-personal-goal' : _bucketIdFor(goal),
+      emoji: linked ? (summary?.goalEmoji ?? '🎯') : _emojiForGoal(goal),
+      name: linked ? (summary?.goalName ?? goal) : goal,
+      role: linked ? 'FakeMaya personal goal' : _bucketRoleForGoal(goal),
+      current: linked ? (summary?.goalBalance ?? current) : current,
+      target: primaryTarget,
+      monthly: cycle.allocation,
+      color: linked ? _purple : _colorForLayer(layer),
+      linked: linked,
+    ),
+  ];
+
+  if (_isFreedomGoal(goal)) {
+    buckets.addAll([
+      _GoalBucket(
+        id: 'safety-buffer',
+        emoji: '🛡️',
+        name: 'Safety buffer',
+        role: 'Guard bucket',
+        current: linked ? (summary?.savings ?? 0) : state.savings,
+        target: math.max(5000, state.expenses),
+        monthly: math.max(500, cycle.allocation * .35),
+        color: _brand,
+        linked: linked,
+      ),
+      _GoalBucket(
+        id: 'experience-fund',
+        emoji: '🌅',
+        name: 'Experience fund',
+        role: 'Optional bucket',
+        current: linked ? (summary?.goalBalance ?? 0) : 0,
+        target: math.max(12000, cycle.allocation * 4),
+        monthly: math.max(500, cycle.allocation * .5),
+        color: _purple,
+        linked: linked,
+      ),
+    ]);
+  } else if (_isSafetyGoal(goal)) {
+    buckets.add(
+      _GoalBucket(
+        id: 'bill-buffer',
+        emoji: '📅',
+        name: 'Bill buffer',
+        role: 'Next protected need',
+        current:
+            linked ? (summary?.wallet ?? 0) : math.max(0, state.monthlySurplus),
+        target: math.max(3000, state.expenses * .4),
+        monthly: math.max(300, cycle.allocation * .5),
+        color: _amber,
+        linked: linked,
+      ),
+    );
+  } else if (_isWealthGoal(goal)) {
+    buckets.add(
+      _GoalBucket(
+        id: 'growth-habit',
+        emoji: '📈',
+        name: 'Growth habit',
+        role: 'Consistency tracker',
+        current: state.investments * .08,
+        target: math.max(10000, cycle.allocation * 4),
+        monthly: cycle.allocation,
+        color: _purple,
+        linked: false,
+      ),
+    );
+  }
+
+  return buckets
+      .take(3)
+      .map((bucket) =>
+          bucket.applyOverride(state.goalBucketOverrides[bucket.id]))
+      .toList();
+}
+
+String _bucketIdFor(String value) {
+  final cleaned = value
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  return cleaned.isEmpty ? 'goal-bucket' : cleaned;
+}
+
+List<_GoalCycleStep> _cycleStepsForGoal(AppState state) {
+  final goal = state.selectedGoal;
+  final rhythm = state.checkInRhythm;
+  if (_isCashFlowGoal(goal)) {
+    return [
+      _GoalCycleStep(
+        icon: Icons.sync_rounded,
+        title: 'Shelby watches Maya activity',
+        body:
+            'Digital wallet movement is collected automatically after linking.',
+        color: _brand,
+      ),
+      _GoalCycleStep(
+        icon: Icons.sell_rounded,
+        title: 'Transactions get tagged',
+        body: 'Spending, income, merchant, and timing context feed this goal.',
+        color: _purple,
+      ),
+      _GoalCycleStep(
+        icon: Icons.event_available_rounded,
+        title: '$rhythm summary',
+        body:
+            'At your chosen rhythm, Shelby shows what changed and what needs attention.',
+        color: _amber,
+        note:
+            'Cash purchases get one gentle reminder when Maya cannot detect them.',
+      ),
+    ];
+  }
+  if (_isSafetyGoal(goal)) {
+    return [
+      _GoalCycleStep(
+        icon: Icons.visibility_rounded,
+        title: 'Silent savings watch',
+        body:
+            'Shelby monitors wallet and savings balances without asking for daily input.',
+        color: _brand,
+      ),
+      _GoalCycleStep(
+        icon: Icons.shield_rounded,
+        title: 'Withdrawal guard',
+        body:
+            'If money leaves a protected bucket, Shelby asks why before logging it.',
+        color: _red,
+        note: 'This is awareness, not a hard block. Your money stays yours.',
+      ),
+      _GoalCycleStep(
+        icon: Icons.fact_check_rounded,
+        title: 'Buffer review',
+        body:
+            'Each cycle checks whether bills and emergency needs are still covered.',
+        color: _purple,
+      ),
+    ];
+  }
+  if (_isWealthGoal(goal)) {
+    return [
+      _GoalCycleStep(
+        icon: Icons.account_tree_rounded,
+        title: 'Track the active balance',
+        body:
+            'Debt, investing, or surplus movement becomes the main collection variable.',
+        color: _purple,
+      ),
+      _GoalCycleStep(
+        icon: Icons.payments_rounded,
+        title: 'Allocate surplus',
+        body: 'Shelby uses your pace rule to suggest what can move this cycle.',
+        color: _brand,
+      ),
+      _GoalCycleStep(
+        icon: Icons.trending_up_rounded,
+        title: 'Review movement',
+        body:
+            'The cycle completes when balances actually move in the intended direction.',
+        color: _amber,
+      ),
+    ];
+  }
+  return [
+    _GoalCycleStep(
+      icon: Icons.flag_rounded,
+      title: 'Create or pick a milestone bucket',
+      body: 'The selected future goal becomes the first bucket Shelby tracks.',
+      color: _purple,
+    ),
+    _GoalCycleStep(
+      icon: Icons.verified_rounded,
+      title: 'Wait for green light',
+      body: 'Allocation stays paused until income and essentials look covered.',
+      color: _brand,
+    ),
+    _GoalCycleStep(
+      icon: Icons.savings_rounded,
+      title: 'Allocate to the bucket',
+      body: 'Once green-lit, move the suggested amount into the active bucket.',
+      color: _amber,
+      note:
+          'Goal congestion guard keeps this to a maximum of 3 active buckets.',
+    ),
+  ];
+}
+
+double _cycleAllocationFromSelections(AppState state) {
+  final salaryTarget = _salaryBasedMonthlyGoalTarget(state);
+  if (salaryTarget != null) return salaryTarget;
+
+  final monthly = _monthlyAllocationFromSelections(state);
+  final divisor = _cycleDivisorFor(state);
+  final cycleAmount = monthly / divisor;
+  if (cycleAmount <= 0) return 0;
+  return math.max(100, _roundToNearest(cycleAmount, 50));
+}
+
+double _monthlyAllocationFromSelections(AppState state) {
+  final salaryTarget = _salaryBasedMonthlyGoalTarget(state);
+  if (salaryTarget != null) return salaryTarget;
+
+  final explicitTarget = state.selectedGoalMonthlyTarget;
+  final base = explicitTarget > 0
+      ? explicitTarget
+      : _monthlyAllocationBaseForGoal(state);
+  if (base <= 0) return 0;
+
+  final adjusted = base *
+      _responsibilityFactor(state) *
+      _incomeStabilityFactor(state) *
+      _billsRhythmFactor(state);
+
+  final monthlySurplus = math.max(0.0, state.monthlySurplus);
+  if (monthlySurplus <= 0) {
+    return math.min(adjusted, math.max(100.0, state.income * .03));
+  }
+
+  final cap = _isCashFlowGoal(state.selectedGoal)
+      ? math.max(adjusted, monthlySurplus)
+      : monthlySurplus * _surplusCapFactor(state);
+  return math.min(adjusted, cap);
+}
+
+double _monthlyAllocationBaseForGoal(AppState state) {
+  final percent = _pacePercentFor(state);
+  final goal = state.selectedGoal;
+  final income = _goalMonthlyIncome(state);
+  if (_isCashFlowGoal(goal)) {
+    if (goal == 'Irregular Income Buffer') {
+      return math.max(300, state.expenses * .15);
+    }
+    return 0;
+  }
+  if (goal == 'Debt Payoff Map') {
+    return math.max(400, state.debtPayments * (percent >= .2 ? 1.1 : .8));
+  }
+  if (goal == 'Lifestyle Creep Monitor') {
+    return math.max(300, income * percent);
+  }
+  if (goal == 'Starter Investing Habit') {
+    return math.max(300, income * math.min(percent, .12));
+  }
+  if (_isSafetyGoal(goal) || _isFreedomGoal(goal)) {
+    return math.max(300, income * percent);
+  }
+  return math.max(300, income * percent);
+}
+
+double? _salaryBasedMonthlyGoalTarget(AppState state) {
+  return state.monthlySalary > 0 ? state.monthlySalary * .10 : null;
+}
+
+double _goalMonthlyIncome(AppState state) {
+  return state.monthlySalary > 0 ? state.monthlySalary : state.income;
+}
+
+double _pacePercentFor(AppState state) {
+  final pace = state.chatDifficultySummary.toLowerCase();
+  if (pace.contains('20') ||
+      pace.contains('high-focus') ||
+      pace.contains('aggressive') ||
+      pace.contains('lifestyle-first')) {
+    return .20;
+  }
+  if (pace.contains('5') ||
+      pace.contains('relaxed') ||
+      pace.contains('safe and slow') ||
+      pace.contains('conservative')) {
+    return .05;
+  }
+  return .10;
+}
+
+double _cycleDivisorFor(AppState state) {
+  final checkIn = state.checkInRhythm.toLowerCase();
+  if (checkIn.contains('daily')) return 30;
+  if (checkIn.contains('weekly')) return 4.33;
+  if (checkIn.contains('monthly')) return 1;
+
+  final incomeRhythm = state.incomeRhythm.toLowerCase();
+  if (incomeRhythm.contains('weekly')) return 4.33;
+  if (incomeRhythm.contains('twice')) return 2;
+  if (incomeRhythm.contains('monthly')) return 1;
+  return 2;
+}
+
+double _responsibilityFactor(AppState state) {
+  final responsibility = state.responsibility.toLowerCase();
+  if (responsibility.contains('family')) return .75;
+  if (responsibility.contains('shared')) return .85;
+  return 1;
+}
+
+double _incomeStabilityFactor(AppState state) {
+  final type = state.incomeType.toLowerCase();
+  final rhythm = state.incomeRhythm.toLowerCase();
+  if (type.contains('variable') && rhythm.contains('irregular')) return .70;
+  if (type.contains('variable') || rhythm.contains('irregular')) return .82;
+  return 1;
+}
+
+double _billsRhythmFactor(AppState state) {
+  final rhythm = state.billsRhythm.toLowerCase();
+  if (rhythm.contains('surprise')) return .80;
+  if (rhythm.contains('scattered')) return .90;
+  return 1;
+}
+
+double _surplusCapFactor(AppState state) {
+  final pace = _pacePercentFor(state);
+  if (pace >= .20) return .90;
+  if (pace <= .05) return .45;
+  return .65;
+}
+
+double _roundToNearest(double value, double step) {
+  return (value / step).round() * step;
+}
+
+double _targetForGoal(AppState state) {
+  final salaryTarget = _salaryBasedMonthlyGoalTarget(state);
+  if (salaryTarget != null) return salaryTarget;
+
+  final goal = state.selectedGoal;
+  if (_isCashFlowGoal(goal)) return math.max(5000, state.expenses);
+  if (_isSafetyGoal(goal)) return math.max(10000, state.expenses * 2);
+  if (_isWealthGoal(goal)) return math.max(15000, state.debtPayments * 12);
+  return math.max(25000, state.requiredMonthlyContribution * 4);
+}
+
+double _currentForGoal(AppState state, int layer) {
+  final summary = state.fakeMayaLink?.summary;
+  if (summary != null) {
+    return switch (layer) {
+      1 => math.max(0, summary.wallet),
+      2 => summary.savings + summary.timeDeposit,
+      3 => math.max(0, state.investments - state.totalLiabilities * .1),
+      _ => summary.goalBalance,
+    };
+  }
+  return switch (layer) {
+    1 => math.max(0, state.monthlySurplus),
+    2 => state.savings,
+    3 => math.max(0, state.investments - state.totalLiabilities * .1),
+    _ => state.savings,
+  };
+}
+
+int _layerForGoal(String goal) {
+  if (_isCashFlowGoal(goal)) return 1;
+  if (_isSafetyGoal(goal)) return 2;
+  if (_isWealthGoal(goal)) return 3;
+  return 4;
+}
+
+bool _isCashFlowGoal(String goal) {
+  return goal == 'Expense Tracking Routine' ||
+      goal == 'Spending Trigger Tracker' ||
+      goal == 'Irregular Income Buffer' ||
+      goal == 'Cash Flow Stability Plan';
+}
+
+bool _isSafetyGoal(String goal) {
+  return goal == 'Safety Shield Boundary' ||
+      goal == 'Bill Due-Date Buffer' ||
+      goal == 'Payday Safety Sweep' ||
+      goal == 'Emergency Cushion';
+}
+
+bool _isWealthGoal(String goal) {
+  return goal == 'Debt Payoff Map' ||
+      goal == 'Starter Investing Habit' ||
+      goal == 'Lifestyle Creep Monitor' ||
+      goal == 'Net Worth Growth Plan';
+}
+
+bool _isFreedomGoal(String goal) =>
+    !_isCashFlowGoal(goal) && !_isSafetyGoal(goal) && !_isWealthGoal(goal);
+
+String _emojiForGoal(String goal) {
+  return switch (goal) {
+    'Expense Tracking Routine' => '🧾',
+    'Spending Trigger Tracker' => '🧭',
+    'Irregular Income Buffer' => '🌊',
+    'Safety Shield Boundary' => '🛡️',
+    'Bill Due-Date Buffer' => '📅',
+    'Payday Safety Sweep' => '💸',
+    'Debt Payoff Map' => '🧱',
+    'Starter Investing Habit' => '🌱',
+    'Lifestyle Creep Monitor' => '📈',
+    'Shared Future Alignment' => '🤝',
+    'Planned Experience Fund' => '✈️',
+    'Milestone Bucket Plan' || 'Future Lifestyle Fund' => '🎯',
+    _ => '🐢',
+  };
+}
+
+String _bucketRoleForGoal(String goal) {
+  if (_isCashFlowGoal(goal)) return 'Tracking bucket';
+  if (_isSafetyGoal(goal)) return 'Protected reserve';
+  if (_isWealthGoal(goal)) return 'Movement target';
+  return 'Milestone bucket';
+}
+
+Color _colorForLayer(int layer) {
+  return switch (layer) {
+    1 => _brand,
+    2 => _red,
+    3 => _purple,
+    _ => const Color(0xFFE7C76A),
+  };
+}
+
+class _GoalCycleChip extends StatelessWidget {
+  const _GoalCycleChip({required this.cycle});
+
+  final _GoalCycle cycle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.repeat_rounded, size: 14, color: _purple),
+          const SizedBox(width: 6),
+          Text(
+            'Cycle ${cycle.number} · ${cycle.rhythm}',
+            style: const TextStyle(
+              color: _purple,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalLayerChip extends StatelessWidget {
+  const _GoalLayerChip({required this.goal});
+
+  final String goal;
+
+  @override
+  Widget build(BuildContext context) {
+    final layer = _layerForGoal(goal);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: _colorForLayer(layer).withOpacity(.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        'L$layer',
+        style: TextStyle(
+          color: _colorForLayer(layer),
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalStatTile extends StatelessWidget {
+  const _GoalStatTile({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.background,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalBucketCard extends StatelessWidget {
+  const _GoalBucketCard({
+    required this.bucket,
+    this.featured = false,
+    this.onTap,
+    this.onEdit,
+    this.onAllocate,
+  });
+
+  final _GoalBucket bucket;
+  final bool featured;
+  final VoidCallback? onTap;
+  final VoidCallback? onEdit;
+  final VoidCallback? onAllocate;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(bucket.emoji,
+                    style: TextStyle(fontSize: featured ? 28 : 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        bucket.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.fredoka(
+                          color: _title,
+                          fontSize: featured ? 22 : 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        '${bucket.role} · ${bucket.linked ? 'FakeMaya linked' : 'Shellby tracked'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '${bucket.percent}%',
+                  style: TextStyle(
+                    color: bucket.color,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              money(bucket.current),
+              style: GoogleFonts.nunito(
+                color: _title,
+                fontSize: featured ? 32 : 24,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: bucket.percent / 100,
+                minHeight: featured ? 12 : 9,
+                color: bucket.color,
+                backgroundColor: bucket.color.withOpacity(.14),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '${money(bucket.remaining)} remaining',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${money(bucket.monthly)} / cycle',
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: SecondaryButton(
+                    label: 'Edit',
+                    icon: Icons.edit_rounded,
+                    onPressed: onEdit ?? () {},
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Allocate',
+                    icon: Icons.add_rounded,
+                    onPressed: onAllocate ?? () {},
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalBucketActionsSheet extends StatelessWidget {
+  const _GoalBucketActionsSheet({
+    required this.bucket,
+    required this.onEdit,
+    required this.onAllocate,
+  });
+
+  final _GoalBucket bucket;
+  final VoidCallback onEdit;
+  final VoidCallback onAllocate;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${bucket.emoji} ${bucket.name}',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${money(bucket.current)} of ${money(bucket.target)} · ${bucket.percent}% funded',
+            style: const TextStyle(
+              color: _body,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'Allocate funds',
+            icon: Icons.add_rounded,
+            onPressed: onAllocate,
+          ),
+          const SizedBox(height: 10),
+          SecondaryButton(
+            label: 'Edit bucket details',
+            icon: Icons.edit_rounded,
+            onPressed: onEdit,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalBucketEditorSheet extends StatefulWidget {
+  const _GoalBucketEditorSheet({required this.bucket});
+
+  final _GoalBucket bucket;
+
+  @override
+  State<_GoalBucketEditorSheet> createState() => _GoalBucketEditorSheetState();
+}
+
+class _GoalBucketEditorSheetState extends State<_GoalBucketEditorSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _emoji;
+  late final TextEditingController _name;
+  late final TextEditingController _role;
+  late final TextEditingController _current;
+  late final TextEditingController _target;
+  late final TextEditingController _monthly;
+
+  @override
+  void initState() {
+    super.initState();
+    final bucket = widget.bucket;
+    _emoji = TextEditingController(text: bucket.emoji);
+    _name = TextEditingController(text: bucket.name);
+    _role = TextEditingController(text: bucket.role);
+    _current = TextEditingController(text: bucket.current.toStringAsFixed(2));
+    _target = TextEditingController(text: bucket.target.toStringAsFixed(2));
+    _monthly = TextEditingController(text: bucket.monthly.toStringAsFixed(2));
+  }
+
+  @override
+  void dispose() {
+    _emoji.dispose();
+    _name.dispose();
+    _role.dispose();
+    _current.dispose();
+    _target.dispose();
+    _monthly.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Edit bucket',
+              style: GoogleFonts.fredoka(
+                color: _title,
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                SizedBox(
+                  width: 74,
+                  child: TextFormField(
+                    controller: _emoji,
+                    decoration: inputDecoration('Emoji'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller: _name,
+                    decoration: inputDecoration('Bucket name'),
+                    validator: _required,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _role,
+              decoration: inputDecoration('Role'),
+              validator: _required,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _current,
+                    decoration: inputDecoration('Current amount'),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: _moneyValidator,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller: _target,
+                    decoration: inputDecoration('Target'),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: _moneyValidator,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _monthly,
+              decoration: inputDecoration('Cycle allocation'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              validator: _moneyValidator,
+            ),
+            const SizedBox(height: 18),
+            PrimaryButton(
+              label: 'Save bucket',
+              icon: Icons.check_rounded,
+              onPressed: _save,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String? _required(String? value) {
+    return (value ?? '').trim().isEmpty ? 'Required' : null;
+  }
+
+  String? _moneyValidator(String? value) {
+    final amount = _parseMoney(value ?? '');
+    return amount == null || amount < 0 ? 'Enter a valid amount' : null;
+  }
+
+  void _save() {
+    if (!_formKey.currentState!.validate()) return;
+    AppScope.of(context).updateGoalBucketOverride(
+      CollectionBucketOverride(
+        id: widget.bucket.id,
+        name: _name.text.trim(),
+        role: _role.text.trim(),
+        emoji: _emoji.text.trim().isEmpty
+            ? widget.bucket.emoji
+            : _emoji.text.trim(),
+        current: _parseMoney(_current.text) ?? widget.bucket.current,
+        target: _parseMoney(_target.text) ?? widget.bucket.target,
+        monthly: _parseMoney(_monthly.text) ?? widget.bucket.monthly,
+      ),
+    );
+    AppScope.of(context).saveProfile();
+    Navigator.pop(context);
+  }
+}
+
+class _GoalAllocationSheet extends StatefulWidget {
+  const _GoalAllocationSheet({required this.bucket});
+
+  final _GoalBucket bucket;
+
+  @override
+  State<_GoalAllocationSheet> createState() => _GoalAllocationSheetState();
+}
+
+class _GoalAllocationSheetState extends State<_GoalAllocationSheet> {
+  static const double _sliderMin = 50;
+  static const double _sliderStep = 50;
+
+  late final TextEditingController _amountText;
+  late double _amount;
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _amount = math.min(
+      math.max(_sliderMin, widget.bucket.monthly),
+      math.max(_sliderMin, widget.bucket.remaining),
+    );
+    _amountText = TextEditingController(text: _plainMoney(_amount));
+  }
+
+  @override
+  void dispose() {
+    _amountText.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sliderMax = _sliderMax;
+    final sliderDivisions = ((sliderMax - _sliderMin) / _sliderStep).round();
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Add to ${widget.bucket.name}',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.bucket.linked
+                ? 'Logged in Shellby from your linked FakeMaya bucket.'
+                : 'Manual allocation for this cycle.',
+            style: const TextStyle(
+              color: _body,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _bellySoft,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'ALLOCATION AMOUNT',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  money(_amount),
+                  style: GoogleFonts.nunito(
+                    color: _title,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _amountText,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: inputDecoration('Enter allocation amount'),
+                  onChanged: _setAmountFromText,
+                ),
+                const SizedBox(height: 6),
+                Slider(
+                  min: _sliderMin,
+                  max: sliderMax,
+                  divisions: sliderDivisions <= 0 ? null : sliderDivisions,
+                  value: _amount.clamp(_sliderMin, sliderMax),
+                  onChanged: _setAmountFromSlider,
+                ),
+                Row(
+                  children: [
+                    const Text(
+                      '₱50',
+                      style:
+                          TextStyle(color: _body, fontWeight: FontWeight.w700),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Suggested ${money(widget.bucket.monthly)}',
+                      style: const TextStyle(
+                        color: _body,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: _syncing ? 'Syncing...' : 'Allocate ${money(_amount)}',
+            icon: Icons.savings_rounded,
+            enabled: !_syncing && _amount > 0,
+            onPressed: _allocate,
+          ),
+        ],
+      ),
+    );
+  }
+
+  double get _sliderMax {
+    final rawMax = math.max(
+      _amount,
+      math.max(widget.bucket.remaining, widget.bucket.monthly),
+    );
+    return math.max(_sliderMin, _roundUpToNearest(rawMax, _sliderStep));
+  }
+
+  void _setAmountFromText(String value) {
+    final parsed = _parseMoney(value);
+    setState(() => _amount = parsed == null || parsed < 0 ? 0 : parsed);
+  }
+
+  void _setAmountFromSlider(double value) {
+    final snapped = _roundToNearest(value, _sliderStep).clamp(
+      _sliderMin,
+      _sliderMax,
+    );
+    setState(() {
+      _amount = snapped.toDouble();
+      _amountText.text = _plainMoney(_amount);
+      _amountText.selection = TextSelection.collapsed(
+        offset: _amountText.text.length,
+      );
+    });
+  }
+
+  static double _roundUpToNearest(double value, double step) {
+    return (value / step).ceil() * step;
+  }
+
+  static String _plainMoney(double value) {
+    return value % 1 == 0 ? value.toStringAsFixed(0) : value.toStringAsFixed(2);
+  }
+
+  Future<void> _allocate() async {
+    if (_syncing || _amount <= 0) return;
+    setState(() => _syncing = true);
+    try {
+      await AppScope.of(context).allocateToGoalBucket(
+        bucket: widget.bucket.toOverride(),
+        amount: _amount,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.bucket.id == 'fakemaya-personal-goal'
+                ? 'Allocated and synced to FakeMaya.'
+                : 'Allocation saved.',
+          ),
+        ),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
+}
+
+class _GoalSheetFrame extends StatelessWidget {
+  const _GoalSheetFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        decoration: const BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _border,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 18),
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+double? _parseMoney(String value) {
+  final normalized = value.replaceAll(RegExp(r'[^0-9.]'), '');
+  return double.tryParse(normalized);
+}
+
+class _GoalCycleStepRow extends StatelessWidget {
+  const _GoalCycleStepRow({
+    required this.step,
+    required this.index,
+    required this.isLast,
+  });
+
+  final _GoalCycleStep step;
+  final int index;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: step.color.withOpacity(.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(step.icon, color: step.color, size: 20),
+                    Positioned(
+                      right: 4,
+                      bottom: 3,
+                      child: Text(
+                        '$index',
+                        style: TextStyle(
+                          color: step.color,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  step.title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  step.body,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (step.note != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: step.color.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      step.note!,
+                      style: TextStyle(
+                        color: step.color,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -666,7 +2051,12 @@ class ProfilePage extends StatelessWidget {
       ),
       const _SettingData('Notifications', Icons.notifications_outlined, 'On'),
       const _SettingData('Privacy & security', Icons.shield_outlined, ''),
-      const _SettingData('Linked accounts', Icons.credit_card_outlined, '3'),
+      _SettingData(
+        'Linked accounts',
+        Icons.credit_card_outlined,
+        state.hasFakeMayaLink ? '1' : 'None',
+        () => _push(context, const LinkedAccountsScreen()),
+      ),
       const _SettingData('Appearance', Icons.palette_outlined, 'Light'),
     ];
     return ListView(
@@ -860,6 +2250,470 @@ class _SettingsRow extends StatelessWidget {
   }
 }
 
+class LinkedAccountsScreen extends StatelessWidget {
+  const LinkedAccountsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final link = state.fakeMayaLink;
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            _SelectionsHeader(
+              title: 'Linked accounts',
+              subtitle:
+                  'Connect wallets so Shellby can read balances for your plan.',
+              onBack: () => Navigator.maybePop(context),
+            ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE6F8EE),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.account_balance_wallet_rounded,
+                                color: Color(0xFF00A650),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'FakeMaya',
+                                    style: GoogleFonts.fredoka(
+                                      color: _title,
+                                      fontSize: 21,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    link == null
+                                        ? 'Not linked'
+                                        : 'Linked as ${link.email}',
+                                    style: const TextStyle(
+                                      color: _body,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _LinkStatusPill(linked: link != null),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        if (link == null) ...[
+                          const Text(
+                            'Log in to FakeMaya inside Shellby to connect your wallet, savings, time deposit, and goal balances.',
+                            style: TextStyle(
+                              color: _body,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          PrimaryButton(
+                            label: 'Link account to FakeMaya',
+                            icon: Icons.link_rounded,
+                            onPressed: () => _showFakeMayaLogin(context),
+                          ),
+                        ] else ...[
+                          _FakeMayaBalanceGrid(summary: link.summary),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SecondaryButton(
+                                  label: 'Refresh',
+                                  icon: Icons.sync_rounded,
+                                  onPressed: () => _refreshFakeMaya(context),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SecondaryButton(
+                                  label: 'Unlink',
+                                  icon: Icons.link_off_rounded,
+                                  onPressed: () => _unlinkFakeMaya(context),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (link != null) ...[
+                    const SizedBox(height: 16),
+                    _FakeMayaAccountList(summary: link.summary),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showFakeMayaLogin(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _FakeMayaLoginSheet(),
+    );
+  }
+
+  Future<void> _refreshFakeMaya(BuildContext context) async {
+    await _runLinkedAccountAction(
+      context,
+      action: () => AppScope.of(context).refreshFakeMayaAccount(),
+      success: 'FakeMaya balances refreshed.',
+    );
+  }
+
+  Future<void> _unlinkFakeMaya(BuildContext context) async {
+    await _runLinkedAccountAction(
+      context,
+      action: () => AppScope.of(context).unlinkFakeMayaAccount(),
+      success: 'FakeMaya unlinked from Shellby.',
+    );
+  }
+
+  Future<void> _runLinkedAccountAction(
+    BuildContext context, {
+    required Future<void> Function() action,
+    required String success,
+  }) async {
+    try {
+      await action();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(success)));
+    } on FakeMayaException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
+  }
+}
+
+class _FakeMayaLoginSheet extends StatefulWidget {
+  const _FakeMayaLoginSheet();
+
+  @override
+  State<_FakeMayaLoginSheet> createState() => _FakeMayaLoginSheetState();
+}
+
+class _FakeMayaLoginSheetState extends State<_FakeMayaLoginSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF00B14F),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'm',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Sign in to FakeMaya',
+                          style: GoogleFonts.fredoka(
+                            color: _title,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Text(
+                          'Shellby will read your balances after login.',
+                          style: TextStyle(
+                            color: _body,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: inputDecoration('FakeMaya email'),
+                validator: (value) =>
+                    (value ?? '').trim().isEmpty ? 'Enter your email' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _password,
+                obscureText: true,
+                decoration: inputDecoration('FakeMaya password'),
+                validator: (value) =>
+                    (value ?? '').isEmpty ? 'Enter your password' : null,
+                onFieldSubmitted: (_) => _submit(),
+              ),
+              const SizedBox(height: 18),
+              PrimaryButton(
+                label: _loading ? 'Linking...' : 'Link account',
+                icon: Icons.lock_open_rounded,
+                enabled: !_loading,
+                onPressed: _submit,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    try {
+      await AppScope.of(context).linkFakeMayaAccount(
+        email: _email.text,
+        password: _password.text,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya is now linked to Shellby.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+}
+
+class _LinkStatusPill extends StatelessWidget {
+  const _LinkStatusPill({required this.linked});
+
+  final bool linked;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: linked ? _brand.withOpacity(.12) : _bellySoft,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        linked ? 'Linked' : 'Available',
+        style: TextStyle(
+          color: linked ? _brand : _purple,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _FakeMayaBalanceGrid extends StatelessWidget {
+  const _FakeMayaBalanceGrid({required this.summary});
+
+  final FakeMayaAccountSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: _LinkedBalanceTile(
+                label: 'Total balance',
+                value: money(summary.totalBalance),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _LinkedBalanceTile(
+                label: 'Available credit',
+                value: money(summary.availableCredit),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _FakeMayaAccountList extends StatelessWidget {
+  const _FakeMayaAccountList({required this.summary});
+
+  final FakeMayaAccountSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [
+      ('Wallet', Icons.account_balance_wallet_rounded, summary.wallet),
+      ('Savings', Icons.savings_rounded, summary.savings),
+      ('Time Deposit', Icons.lock_clock_rounded, summary.timeDeposit),
+      ('Personal Goal', Icons.flag_rounded, summary.goalBalance),
+      ('Easy Credit Used', Icons.credit_card_rounded, summary.creditUsed),
+    ];
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: rows.asMap().entries.map((entry) {
+          final row = entry.value;
+          return Column(
+            children: [
+              ListTile(
+                leading: Icon(row.$2, color: _purple),
+                title: Text(
+                  row.$1,
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                trailing: Text(
+                  money(row.$3),
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (entry.key != rows.length - 1)
+                const Divider(height: 1, color: _border, indent: 70),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _LinkedBalanceTile extends StatelessWidget {
+  const _LinkedBalanceTile({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              color: _title,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class UserSelectionsScreen extends StatelessWidget {
   const UserSelectionsScreen({super.key});
 
@@ -961,7 +2815,7 @@ class UserSelectionsScreen extends StatelessWidget {
                       ('Target rule', _targetRuleForGoal(state)),
                       (
                         'Monthly target',
-                        money(state.selectedGoalMonthlyTarget),
+                        money(_monthlyAllocationFromSelections(state)),
                       ),
                       (
                         'First app action',
@@ -1121,12 +2975,31 @@ String _yesNo(bool value) => value ? 'Yes' : 'No';
 // ─── Activity page ────────────────────────────────────────────────────────────
 
 class _TxData {
-  const _TxData(this.name, this.category, this.amount, this.icon, this.color);
+  const _TxData(
+    this.name,
+    this.category,
+    this.amount,
+    this.icon,
+    this.color, {
+    this.age = 'Just now',
+    this.source = 'Shellby',
+  });
+
   final String name;
   final String category;
   final double amount;
   final IconData icon;
   final Color color;
+  final String age;
+  final String source;
+
+  bool matchesFilter(String filter) {
+    if (filter == 'All') return true;
+    if (filter == 'Money in') return amount > 0;
+    if (filter == 'Money out') return amount < 0;
+    return category.toLowerCase().contains(filter.toLowerCase()) ||
+        name.toLowerCase().contains(filter.toLowerCase());
+  }
 }
 
 class ActivityPage extends StatefulWidget {
@@ -1139,7 +3012,7 @@ class ActivityPage extends StatefulWidget {
 class _ActivityPageState extends State<ActivityPage> {
   String _filter = 'All';
 
-  static const _filters = ['All', 'Income', 'Food', 'Bills', 'Fun'];
+  static const _filters = ['All', 'Money in', 'Money out', 'Wallet', 'Savings'];
 
   static const _groups = [
     (
@@ -1172,12 +3045,60 @@ class _ActivityPageState extends State<ActivityPage> {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final linked = state.hasFakeMayaLink;
+    final fakeMayaTransactions =
+        state.fakeMayaLink?.summary.transactions ?? const [];
+    final allTransactions = linked
+        ? fakeMayaTransactions.map(_txFromFakeMaya).toList()
+        : _groups.expand((group) => group.$2).toList();
+    final groups = linked
+        ? [
+            (
+              'FAKEMAYA HISTORY',
+              allTransactions,
+            ),
+          ]
+        : _groups;
+    final visibleGroups = groups
+        .map(
+          (group) => (
+            group.$1,
+            group.$2.where((tx) => tx.matchesFilter(_filter)).toList(),
+          ),
+        )
+        .where((group) => group.$2.isNotEmpty)
+        .toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const PageHeader(eyebrow: 'EVERY MOVE', title: 'Activity'),
+        if (linked) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Tracking movement from ${state.fakeMayaLink!.email}',
+                    style: const TextStyle(
+                      color: _body,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => _refreshFakeMaya(context),
+                  icon: const Icon(Icons.sync_rounded, size: 18),
+                  label: const Text('Refresh'),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
-        // Filter chips
         SizedBox(
           height: 44,
           child: ListView.separated(
@@ -1216,47 +3137,837 @@ class _ActivityPageState extends State<ActivityPage> {
         ),
         const SizedBox(height: 16),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-            children: _groups.map((group) {
-              final rows = group.$2;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          child: visibleGroups.isEmpty
+              ? _EmptyActivity(linked: linked)
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  children: [
+                    _ActivityCalendarSummary(transactions: allTransactions),
+                    const SizedBox(height: 18),
+                    ...visibleGroups.map((group) {
+                      final rows = group.$2;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            group.$1,
+                            style: const TextStyle(
+                              color: _body,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          AppCard(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: rows.asMap().entries.map((e) {
+                                final tx = e.value;
+                                final isLast = e.key == rows.length - 1;
+                                return Column(
+                                  children: [
+                                    _ActivityRow(data: tx),
+                                    if (!isLast)
+                                      const Divider(
+                                        height: 1,
+                                        color: _border,
+                                        indent: 70,
+                                      ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                      );
+                    }),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _refreshFakeMaya(BuildContext context) async {
+    try {
+      await AppScope.of(context).refreshFakeMayaAccount();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya activity refreshed.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
+  }
+
+  static _TxData _txFromFakeMaya(FakeMayaTransaction tx) {
+    final amount = tx.amount;
+    final title = tx.title.toLowerCase();
+    final detail = tx.detail.toLowerCase();
+    if (title.contains('cash in') ||
+        title.contains('loan') ||
+        title.contains('opened')) {
+      return _TxData(
+        tx.title,
+        tx.detail,
+        amount,
+        Icons.arrow_downward_rounded,
+        _brand,
+        age: tx.age,
+        source: 'FakeMaya',
+      );
+    }
+    if (title.contains('sent') || title.contains('repayment')) {
+      return _TxData(
+        tx.title,
+        tx.detail,
+        amount,
+        Icons.arrow_upward_rounded,
+        _red,
+        age: tx.age,
+        source: 'FakeMaya',
+      );
+    }
+    if (title.contains('deposit') ||
+        detail.contains('savings') ||
+        detail.contains('goal')) {
+      return _TxData(
+        tx.title,
+        tx.detail,
+        amount,
+        Icons.savings_rounded,
+        _purple,
+        age: tx.age,
+        source: 'FakeMaya',
+      );
+    }
+    return _TxData(
+      tx.title,
+      tx.detail,
+      amount,
+      amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
+      amount >= 0 ? _brand : _red,
+      age: tx.age,
+      source: 'FakeMaya',
+    );
+  }
+}
+
+class _ActivityCalendarSummary extends StatefulWidget {
+  const _ActivityCalendarSummary({required this.transactions});
+
+  final List<_TxData> transactions;
+
+  @override
+  State<_ActivityCalendarSummary> createState() =>
+      _ActivityCalendarSummaryState();
+}
+
+class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
+  bool _expanded = false;
+  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final income = widget.transactions
+        .where((tx) => tx.amount > 0)
+        .fold(0.0, (sum, tx) => sum + tx.amount);
+    final expense = widget.transactions
+        .where((tx) => tx.amount < 0)
+        .fold(0.0, (sum, tx) => sum + tx.amount.abs());
+    final balance = income - expense;
+    final days = _calendarDays(
+      widget.transactions,
+      _month,
+      salaryAmount: state.monthlySalary,
+      salaryWeekOfMonth: state.salaryWeekOfMonth,
+      salaryWeekday: state.salaryWeekday,
+    );
+
+    return AppCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Monthly',
+                style: TextStyle(
+                  color: _purple,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Icon(Icons.expand_more_rounded, color: _purple, size: 18),
+              const Spacer(),
+              if (_expanded) ...[
+                IconButton(
+                  onPressed: () => setState(() {
+                    _month = DateTime(_month.year, _month.month - 1);
+                  }),
+                  icon: const Icon(Icons.chevron_left_rounded),
+                  color: _purple,
+                  visualDensity: VisualDensity.compact,
+                ),
+                Text(
+                  '${_month.year} ${_monthLabel(_month.month)}',
+                  style: GoogleFonts.fredoka(
+                    color: _title,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() {
+                    _month = DateTime(_month.year, _month.month + 1);
+                  }),
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  color: _purple,
+                  visualDensity: VisualDensity.compact,
+                ),
+                const Spacer(),
+              ] else
+                Text(
+                  '${_month.year} ${_monthLabel(_month.month)}',
+                  style: GoogleFonts.fredoka(
+                    color: _title,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              const SizedBox(width: 10),
+              IconButton(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(
+                  _expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                ),
+                color: _purple,
+                style: IconButton.styleFrom(backgroundColor: _bellySoft),
+              ),
+            ],
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 16),
+              child: Column(
                 children: [
+                  const Row(
+                    children: [
+                      _WeekdayLabel('Mon'),
+                      _WeekdayLabel('Tue'),
+                      _WeekdayLabel('Wed'),
+                      _WeekdayLabel('Thu'),
+                      _WeekdayLabel('Fri'),
+                      _WeekdayLabel('Sat'),
+                      _WeekdayLabel('Sun'),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: days.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 7,
+                      mainAxisSpacing: 6,
+                      crossAxisSpacing: 6,
+                      childAspectRatio: .72,
+                    ),
+                    itemBuilder: (context, index) {
+                      final day = days[index];
+                      return _CalendarDayTile(
+                        day: day,
+                        selected: day.inCurrentMonth &&
+                            day.day == DateTime.now().day &&
+                            _month.year == DateTime.now().year &&
+                            _month.month == DateTime.now().month,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 180),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: _ActivitySummaryStat(
+                  label: 'Income',
+                  value: money(income),
+                  color: _brand,
+                ),
+              ),
+              Expanded(
+                child: _ActivitySummaryStat(
+                  label: 'Expense',
+                  value: money(expense),
+                  color: _red,
+                ),
+              ),
+              Expanded(
+                child: _ActivitySummaryStat(
+                  label: 'Balance',
+                  value: money(balance),
+                  color: _title,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _SalaryPromptRow(
+            amount: state.monthlySalary,
+            weekOfMonth: state.salaryWeekOfMonth,
+            weekday: state.salaryWeekday,
+            onTap: () => _showSalarySheet(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showSalarySheet(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _SalaryScheduleSheet(),
+    );
+  }
+
+  static List<_CalendarDayData> _calendarDays(
+    List<_TxData> transactions,
+    DateTime month, {
+    required double salaryAmount,
+    required int salaryWeekOfMonth,
+    required int salaryWeekday,
+  }) {
+    final first = DateTime(month.year, month.month);
+    final nextMonth = DateTime(month.year, month.month + 1);
+    final daysInMonth = nextMonth.difference(first).inDays;
+    final leading = first.weekday - DateTime.monday;
+    final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+    final payday = salaryAmount > 0
+        ? _paydayForMonth(month, salaryWeekOfMonth, salaryWeekday)
+        : null;
+    final cells = <_CalendarDayData>[];
+    for (var index = 0; index < totalCells; index++) {
+      final date = first.add(Duration(days: index - leading));
+      final isPayday = date.month == month.month && date.day == payday;
+      cells.add(
+        _CalendarDayData(
+          day: date.day,
+          income: 0,
+          expense: 0,
+          expectedIncome: isPayday ? salaryAmount : 0,
+          isPayday: isPayday,
+          inCurrentMonth: date.month == month.month,
+        ),
+      );
+    }
+
+    for (var i = 0; i < transactions.length; i++) {
+      final tx = transactions[i];
+      final dayNumber = (i % daysInMonth) + 1;
+      final slot = leading + dayNumber - 1;
+      final current = cells[slot];
+      cells[slot] = current.copyWith(
+        income: current.income + (tx.amount > 0 ? tx.amount : 0),
+        expense: current.expense + (tx.amount < 0 ? tx.amount.abs() : 0),
+      );
+    }
+    return cells;
+  }
+
+  static int? _paydayForMonth(
+    DateTime month,
+    int weekOfMonth,
+    int weekday,
+  ) {
+    if (weekOfMonth < 1 || weekOfMonth > 4) return null;
+    if (weekday < DateTime.monday || weekday > DateTime.sunday) return null;
+
+    final first = DateTime(month.year, month.month);
+    final offset = (weekday - first.weekday + 7) % 7;
+    final day = 1 + offset + ((weekOfMonth - 1) * 7);
+    final daysInMonth =
+        DateTime(month.year, month.month + 1).difference(first).inDays;
+    return day <= daysInMonth ? day : null;
+  }
+
+  static String _monthLabel(int month) {
+    const labels = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return labels[month - 1];
+  }
+}
+
+class _SalaryPromptRow extends StatelessWidget {
+  const _SalaryPromptRow({
+    required this.amount,
+    required this.weekOfMonth,
+    required this.weekday,
+    required this.onTap,
+  });
+
+  final double amount;
+  final int weekOfMonth;
+  final int weekday;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSalary = amount > 0;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.payments_rounded, color: _purple, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasSalary
+                      ? 'Monthly salary indicated'
+                      : 'Indicate monthly salary',
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                if (hasSalary)
                   Text(
-                    group.$1,
+                    '${money(amount)} · Every ${_ordinal(weekOfMonth)} ${_weekdayLabel(weekday)} of the month',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: _body,
-                      fontSize: 11,
+                      fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  AppCard(
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: rows.asMap().entries.map((e) {
-                        final tx = e.value;
-                        final isLast = e.key == rows.length - 1;
-                        return Column(
-                          children: [
-                            _ActivityRow(data: tx),
-                            if (!isLast)
-                              const Divider(
-                                height: 1,
-                                color: _border,
-                                indent: 70,
-                              ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onTap,
+            child: Text(hasSalary ? 'Edit' : 'Set'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SalaryScheduleSheet extends StatefulWidget {
+  const _SalaryScheduleSheet();
+
+  @override
+  State<_SalaryScheduleSheet> createState() => _SalaryScheduleSheetState();
+}
+
+class _SalaryScheduleSheetState extends State<_SalaryScheduleSheet> {
+  final _amount = TextEditingController();
+  int _weekOfMonth = 1;
+  int _weekday = DateTime.friday;
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    final state = AppScope.of(context);
+    _amount.text =
+        state.monthlySalary > 0 ? state.monthlySalary.toStringAsFixed(2) : '';
+    _weekOfMonth = state.salaryWeekOfMonth;
+    _weekday = state.salaryWeekday;
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Monthly salary',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Set the expected amount and when it usually arrives.',
+            style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: inputDecoration('Monthly salary amount'),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _bellySoft,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'Every ${_ordinal(_weekOfMonth)} ${_weekdayLabel(_weekday)} of the month',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 148,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: FixedExtentScrollController(
+                            initialItem: _weekOfMonth - 1,
+                          ),
+                          itemExtent: 40,
+                          onSelectedItemChanged: (index) =>
+                              setState(() => _weekOfMonth = index + 1),
+                          children: const [
+                            Center(child: Text('1st')),
+                            Center(child: Text('2nd')),
+                            Center(child: Text('3rd')),
+                            Center(child: Text('4th')),
                           ],
-                        );
-                      }).toList(),
-                    ),
+                        ),
+                      ),
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: FixedExtentScrollController(
+                            initialItem: _weekday - 1,
+                          ),
+                          itemExtent: 40,
+                          onSelectedItemChanged: (index) =>
+                              setState(() => _weekday = index + 1),
+                          children: const [
+                            Center(child: Text('Mon')),
+                            Center(child: Text('Tues')),
+                            Center(child: Text('Wed')),
+                            Center(child: Text('Thurs')),
+                            Center(child: Text('Fri')),
+                            Center(child: Text('Sat')),
+                            Center(child: Text('Sun')),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                ],
-              );
-            }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'Save salary',
+            icon: Icons.check_rounded,
+            onPressed: _save,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _save() {
+    final amount = _parseMoney(_amount.text) ?? 0;
+    AppScope.of(context).setMonthlySalarySchedule(
+      amount: amount,
+      weekOfMonth: _weekOfMonth,
+      weekday: _weekday,
+    );
+    AppScope.of(context).saveProfile();
+    Navigator.pop(context);
+  }
+}
+
+String _ordinal(int value) {
+  return switch (value) {
+    1 => '1st',
+    2 => '2nd',
+    3 => '3rd',
+    _ => '4th',
+  };
+}
+
+String _weekdayLabel(int value) {
+  return switch (value) {
+    DateTime.monday => 'Mon',
+    DateTime.tuesday => 'Tues',
+    DateTime.wednesday => 'Wed',
+    DateTime.thursday => 'Thurs',
+    DateTime.friday => 'Fri',
+    DateTime.saturday => 'Sat',
+    _ => 'Sun',
+  };
+}
+
+class _CalendarDayData {
+  const _CalendarDayData({
+    required this.day,
+    required this.income,
+    required this.expense,
+    required this.expectedIncome,
+    required this.isPayday,
+    required this.inCurrentMonth,
+  });
+
+  final int day;
+  final double income;
+  final double expense;
+  final double expectedIncome;
+  final bool isPayday;
+  final bool inCurrentMonth;
+
+  _CalendarDayData copyWith({double? income, double? expense}) {
+    return _CalendarDayData(
+      day: day,
+      income: income ?? this.income,
+      expense: expense ?? this.expense,
+      expectedIncome: expectedIncome,
+      isPayday: isPayday,
+      inCurrentMonth: inCurrentMonth,
+    );
+  }
+}
+
+class _WeekdayLabel extends StatelessWidget {
+  const _WeekdayLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Center(
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CalendarDayTile extends StatelessWidget {
+  const _CalendarDayTile({required this.day, required this.selected});
+
+  final _CalendarDayData day;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPayday = day.inCurrentMonth && day.isPayday;
+    final backgroundColor = isPayday
+        ? _brand.withOpacity(selected ? .24 : .12)
+        : selected
+            ? const Color(0xFFFFDD64)
+            : _bg;
+    final borderColor = isPayday
+        ? _brand.withOpacity(.38)
+        : selected
+            ? Colors.transparent
+            : _border;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            '${day.day}',
+            style: TextStyle(
+              color: isPayday
+                  ? _brand
+                  : day.inCurrentMonth
+                      ? _purple
+                      : _body.withOpacity(.45),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const Spacer(),
+          if (day.expectedIncome > 0)
+            FittedBox(
+              child: Text(
+                money(day.expectedIncome).replaceFirst('₱ ', '₱'),
+                style: const TextStyle(
+                  color: _brand,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          if (day.income > 0)
+            FittedBox(
+              child: Text(
+                money(day.income).replaceFirst('₱ ', '₱'),
+                style: const TextStyle(
+                  color: _brand,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          if (day.expense > 0)
+            FittedBox(
+              child: Text(
+                money(day.expense).replaceFirst('₱ ', '₱'),
+                style: const TextStyle(
+                  color: _red,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivitySummaryStat extends StatelessWidget {
+  const _ActivitySummaryStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            style: GoogleFonts.nunito(
+              color: color,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyActivity extends StatelessWidget {
+  const _EmptyActivity({required this.linked});
+
+  final bool linked;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      children: [
+        AppCard(
+          child: Column(
+            children: [
+              const Icon(
+                Icons.receipt_long_rounded,
+                color: _purple,
+                size: 34,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                linked
+                    ? 'No matching FakeMaya activity yet.'
+                    : 'No activity yet.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                linked
+                    ? 'Make a wallet, savings, credit, or loan movement in FakeMaya, then refresh.'
+                    : 'Link FakeMaya to see wallet movement here.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _body,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -1297,7 +4008,9 @@ class _ActivityRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  data.category,
+                  data.source == 'FakeMaya'
+                      ? '${data.category} • ${data.age}'
+                      : data.category,
                   style: const TextStyle(
                     color: _body,
                     fontSize: 12,

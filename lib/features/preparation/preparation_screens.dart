@@ -4168,6 +4168,10 @@ List<({IconData icon, String title, String body})> _planStepsForGoal(
 }
 
 String _targetRuleForGoal(AppState state) {
+  if (state.monthlySalary > 0) {
+    return 'Allocate 10% of monthly salary';
+  }
+
   final pace = state.chatDifficultySummary.toLowerCase();
   final relaxed = pace.contains('relaxed') ||
       pace.contains('safe and slow') ||

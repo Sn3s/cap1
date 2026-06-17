@@ -42,6 +42,9 @@ class AppState extends ChangeNotifier {
   double debtPayments = 650;
   double investments = 12000;
   double subscriptions = 145;
+  double monthlySalary = 0;
+  int salaryWeekOfMonth = 1;
+  int salaryWeekday = DateTime.friday;
   bool consentBaseline = true;
   bool consentAi = true;
   bool consentBenchmarking = false;
@@ -54,6 +57,9 @@ class AppState extends ChangeNotifier {
   bool dataRetentionConsent = false;
   bool emotionalLogsEnabled = false;
   bool stressIndicatorsEnabled = false;
+  FakeMayaLink? fakeMayaLink;
+  double allocatedThisCycle = 0;
+  final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {'ACT1'};
   final Set<String> trackingVariables = {
     'Income',
@@ -81,6 +87,8 @@ class AppState extends ChangeNotifier {
   ];
 
   bool get isSignedIn => uid != null;
+  bool get hasFakeMayaLink => fakeMayaLink != null;
+  double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
 
   double get totalAssets => assets.fold(0, (sum, item) => sum + item.value);
   double get totalLiabilities =>
@@ -93,6 +101,7 @@ class AppState extends ChangeNotifier {
   double get debtToIncome =>
       income <= 0 ? 0 : (debtPayments / income * 100).clamp(0, 100);
   double get requiredMonthlyContribution {
+    if (monthlySalary > 0) return monthlySalary * .10;
     if (selectedGoalMonthlyTarget > 0) return selectedGoalMonthlyTarget;
     if (selectedGoal == 'Debt Payoff Map') {
       return math.max(400, debtPayments * .8);
@@ -245,6 +254,8 @@ class AppState extends ChangeNotifier {
     uid = null;
     photoUrl = null;
     onboardingComplete = false;
+    fakeMayaLink = null;
+    _removeFakeMayaMoneyItems();
     notifyListeners();
   }
 
@@ -294,6 +305,13 @@ class AppState extends ChangeNotifier {
       'dataRetentionConsent': dataRetentionConsent,
       'emotionalLogsEnabled': emotionalLogsEnabled,
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
+      'monthlySalary': monthlySalary,
+      'salaryWeekOfMonth': salaryWeekOfMonth,
+      'salaryWeekday': salaryWeekday,
+      'fakeMayaLink': fakeMayaLink?.toMap(),
+      'allocatedThisCycle': allocatedThisCycle,
+      'goalBucketOverrides':
+          goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
       'selectedActionIds': selectedActionIds.toList()..sort(),
       'onboardingSelections': _onboardingSelectionsMap(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -452,6 +470,33 @@ class AppState extends ChangeNotifier {
     stressIndicatorsEnabled = data['stressIndicatorsEnabled'] as bool? ??
         planSetup['stressIndicatorsEnabled'] as bool? ??
         stressIndicatorsEnabled;
+    monthlySalary = _doubleFrom(data['monthlySalary'], monthlySalary);
+    salaryWeekOfMonth =
+        (data['salaryWeekOfMonth'] as num?)?.toInt() ?? salaryWeekOfMonth;
+    salaryWeekday = (data['salaryWeekday'] as num?)?.toInt() ?? salaryWeekday;
+    final fakeMayaData = _mapFrom(data['fakeMayaLink']);
+    fakeMayaLink =
+        fakeMayaData == null ? null : FakeMayaLink.fromMap(fakeMayaData);
+    _syncFakeMayaMoneyItems();
+    allocatedThisCycle = _doubleFrom(
+      data['allocatedThisCycle'],
+      allocatedThisCycle,
+    );
+    final bucketData = _mapFrom(data['goalBucketOverrides']);
+    if (bucketData != null) {
+      goalBucketOverrides
+        ..clear()
+        ..addEntries(
+          bucketData.entries.map(
+            (entry) => MapEntry(
+              entry.key,
+              CollectionBucketOverride.fromMap(
+                _mapFrom(entry.value) ?? const <String, dynamic>{},
+              ),
+            ),
+          ),
+        );
+    }
     _replaceSet(
       selectedActionIds,
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
@@ -692,6 +737,91 @@ class AppState extends ChangeNotifier {
     liabilities.remove(item);
     notifyListeners();
   }
+
+  void setMonthlySalarySchedule({
+    required double amount,
+    required int weekOfMonth,
+    required int weekday,
+  }) {
+    monthlySalary = amount;
+    salaryWeekOfMonth = weekOfMonth.clamp(1, 4);
+    salaryWeekday = weekday.clamp(DateTime.monday, DateTime.sunday);
+    notifyListeners();
+  }
+
+  void updateGoalBucketOverride(CollectionBucketOverride bucket) {
+    goalBucketOverrides[bucket.id] = bucket;
+    notifyListeners();
+  }
+
+  Future<void> allocateToGoalBucket({
+    required CollectionBucketOverride bucket,
+    required double amount,
+  }) async {
+    if (amount <= 0) return;
+    if (bucket.id == 'fakemaya-personal-goal' && fakeMayaLink != null) {
+      final session = await FakeMayaService.depositToPersonalGoal(
+        link: fakeMayaLink!,
+        amount: amount,
+      );
+      fakeMayaLink = FakeMayaLink.fromSession(session);
+      _syncFakeMayaMoneyItems();
+    } else {
+      goalBucketOverrides[bucket.id] = bucket.copyWith(
+        current: bucket.current + amount,
+      );
+    }
+    allocatedThisCycle += amount;
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> linkFakeMayaAccount({
+    required String email,
+    required String password,
+  }) async {
+    final session = await FakeMayaService.signInWithEmail(
+      email: email,
+      password: password,
+    );
+    fakeMayaLink = FakeMayaLink.fromSession(session);
+    thirdPartyDataLinkingAllowed = true;
+    automaticDataGatheringAllowed = true;
+    _syncFakeMayaMoneyItems();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> refreshFakeMayaAccount() async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final session = await FakeMayaService.refreshSession(link);
+    fakeMayaLink = FakeMayaLink.fromSession(session);
+    _syncFakeMayaMoneyItems();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> unlinkFakeMayaAccount() async {
+    fakeMayaLink = null;
+    _removeFakeMayaMoneyItems();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  void _syncFakeMayaMoneyItems() {
+    _removeFakeMayaMoneyItems();
+    final link = fakeMayaLink;
+    if (link == null) return;
+    assets.addAll(link.summary.toMoneyItems());
+    savings = link.summary.savings +
+        link.summary.timeDeposit +
+        link.summary.goalBalance;
+  }
+
+  void _removeFakeMayaMoneyItems() {
+    assets.removeWhere((item) => item.description == 'Linked from FakeMaya');
+  }
 }
 
 class MoneyItem {
@@ -716,6 +846,74 @@ class MoneyItem {
       data['description'] as String? ?? 'No description yet',
       rawValue is num ? rawValue.toDouble() : 0,
     );
+  }
+}
+
+class CollectionBucketOverride {
+  const CollectionBucketOverride({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.emoji,
+    required this.current,
+    required this.target,
+    required this.monthly,
+  });
+
+  final String id;
+  final String name;
+  final String role;
+  final String emoji;
+  final double current;
+  final double target;
+  final double monthly;
+
+  CollectionBucketOverride copyWith({
+    String? name,
+    String? role,
+    String? emoji,
+    double? current,
+    double? target,
+    double? monthly,
+  }) {
+    return CollectionBucketOverride(
+      id: id,
+      name: name ?? this.name,
+      role: role ?? this.role,
+      emoji: emoji ?? this.emoji,
+      current: current ?? this.current,
+      target: target ?? this.target,
+      monthly: monthly ?? this.monthly,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'role': role,
+      'emoji': emoji,
+      'current': current,
+      'target': target,
+      'monthly': monthly,
+    };
+  }
+
+  factory CollectionBucketOverride.fromMap(Map<String, dynamic> data) {
+    return CollectionBucketOverride(
+      id: data['id'] as String? ?? '',
+      name: data['name'] as String? ?? 'Goal bucket',
+      role: data['role'] as String? ?? 'Milestone bucket',
+      emoji: data['emoji'] as String? ?? '🎯',
+      current: _numberFrom(data['current'], 0),
+      target: _numberFrom(data['target'], 0),
+      monthly: _numberFrom(data['monthly'], 0),
+    );
+  }
+
+  static double _numberFrom(Object? value, double fallback) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? fallback;
   }
 }
 
