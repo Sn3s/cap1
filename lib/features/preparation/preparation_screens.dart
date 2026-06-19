@@ -32,6 +32,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
   static const _slides = [
     OrientationSlideData(
       icon: Icons.flag_rounded,
+      illustrationAsset: 'assets/images/healthy_shelby.png',
       title: 'Shelby helps you develop healthier financial habits.',
       body:
           'He helps make goals more attainable and money decisions easier to act on.',
@@ -39,6 +40,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
     ),
     OrientationSlideData(
       icon: Icons.insights_rounded,
+      illustrationAsset: 'assets/images/patterns_shelby.png',
       title: 'It looks for useful patterns.',
       body:
           'Shelby can help notice spending rhythms, savings gaps, debt pressure, and moments that affect your choices.',
@@ -46,6 +48,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
     ),
     OrientationSlideData(
       icon: Icons.lightbulb_rounded,
+      illustrationAsset: 'assets/images/share_shelby.png',
       title: 'It shares gentle ideas.',
       body:
           'You may get simple prompts, goal ideas, and check-in suggestions that support the focus you choose.',
@@ -53,6 +56,7 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
     ),
     OrientationSlideData(
       icon: Icons.lock_rounded,
+      illustrationAsset: 'assets/images/control_shelby.png',
       title: 'You stay in control.',
       body:
           'Shelby is not a bank, broker, or financial adviser. It will not move money, change device settings, read files, or collect data you do not approve.',
@@ -130,12 +134,14 @@ class _PreparationOrientScreenState extends State<PreparationOrientScreen> {
 class OrientationSlideData {
   const OrientationSlideData({
     required this.icon,
+    required this.illustrationAsset,
     required this.title,
     required this.body,
     required this.accent,
   });
 
   final IconData icon;
+  final String illustrationAsset;
   final String title;
   final String body;
   final Color accent;
@@ -201,64 +207,10 @@ class OrientationIllustration extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: data.accent.withOpacity(.12),
-              shape: BoxShape.circle,
-            ),
-          ),
-          Positioned(
-            top: size * .08,
-            right: size * .12,
-            child: MiniBadge(
-              icon: data.icon,
-              color: data.accent,
-              label: 'Prep',
-            ),
-          ),
-          Positioned(
-            left: size * .06,
-            bottom: size * .18,
-            child: MiniBadge(
-              icon: Icons.payments_rounded,
-              color: _sage,
-              label: 'PHP',
-            ),
-          ),
-          Positioned(
-            right: size * .08,
-            bottom: size * .08,
-            child: MiniBadge(
-              icon: Icons.check_rounded,
-              color: _brand,
-              label: 'Fit',
-            ),
-          ),
-          Container(
-            width: size * .62,
-            height: size * .62,
-            decoration: BoxDecoration(
-              color: _bellySoft,
-              borderRadius: BorderRadius.circular(44),
-              border: Border.all(color: _border),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  top: size * .11,
-                  child: Icon(data.icon, color: data.accent, size: 42),
-                ),
-                Ghost(size: size * .36),
-              ],
-            ),
-          ),
-        ],
+      child: Image.asset(
+        data.illustrationAsset,
+        fit: BoxFit.contain,
+        semanticLabel: data.title,
       ),
     );
   }

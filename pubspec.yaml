@@ -63,6 +63,10 @@ flutter:
   assets:
     - assets/images/shellby_wave.webp
     - assets/images/shellby_arms_out.webp
+    - assets/images/healthy_shelby.png
+    - assets/images/patterns_shelby.png
+    - assets/images/share_shelby.png
+    - assets/images/control_shelby.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
