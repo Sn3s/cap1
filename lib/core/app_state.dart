@@ -43,6 +43,7 @@ class AppState extends ChangeNotifier {
   double investments = 12000;
   double subscriptions = 145;
   double monthlySalary = 0;
+  double irregularIncomeFloor = 0;
   int salaryWeekOfMonth = 1;
   int salaryWeekday = DateTime.friday;
   bool consentBaseline = true;
@@ -318,6 +319,7 @@ class AppState extends ChangeNotifier {
       'emotionalLogsEnabled': emotionalLogsEnabled,
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
       'monthlySalary': monthlySalary,
+      'irregularIncomeFloor': irregularIncomeFloor,
       'salaryWeekOfMonth': salaryWeekOfMonth,
       'salaryWeekday': salaryWeekday,
       'fakeMayaLink': fakeMayaLink?.toMap(),
@@ -366,6 +368,7 @@ class AppState extends ChangeNotifier {
         'selectedGoal': selectedGoal,
         'selectedGoalDescription': selectedGoalDescription,
         'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
+        'irregularIncomeFloor': irregularIncomeFloor,
         'selectedActionIds': selectedActionIds.toList()..sort(),
         'emotionalLogsEnabled': emotionalLogsEnabled,
         'stressIndicatorsEnabled': stressIndicatorsEnabled,
@@ -488,6 +491,10 @@ class AppState extends ChangeNotifier {
         planSetup['stressIndicatorsEnabled'] as bool? ??
         stressIndicatorsEnabled;
     monthlySalary = _doubleFrom(data['monthlySalary'], monthlySalary);
+    irregularIncomeFloor = _doubleFrom(
+      data['irregularIncomeFloor'] ?? planSetup['irregularIncomeFloor'],
+      irregularIncomeFloor,
+    );
     salaryWeekOfMonth =
         (data['salaryWeekOfMonth'] as num?)?.toInt() ?? salaryWeekOfMonth;
     salaryWeekday = (data['salaryWeekday'] as num?)?.toInt() ?? salaryWeekday;
@@ -814,6 +821,11 @@ class AppState extends ChangeNotifier {
     required String action,
   }) {
     planAdjustmentActions[transactionId] = action;
+    notifyListeners();
+  }
+
+  void setIrregularIncomeFloor(double amount) {
+    irregularIncomeFloor = math.max(0, amount);
     notifyListeners();
   }
 
