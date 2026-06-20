@@ -163,11 +163,12 @@ class FakeMayaService {
       detail: summary.goalName,
       age: 'Just now',
       amountText: '+ ${_formatPeso(amount)}',
+      createdAt: DateTime.now(),
     );
     final nextSummary = summary.copyWith(
       wallet: summary.wallet - amount,
       goalBalance: summary.goalBalance + amount,
-      transactions: [transaction, ...summary.transactions].take(5).toList(),
+      transactions: [transaction, ...summary.transactions],
       updatedAt: DateTime.now(),
     );
 
@@ -211,12 +212,13 @@ class FakeMayaService {
       goalTarget: 25000,
       creditLimit: 15000,
       creditUsed: 0,
-      transactions: const [
+      transactions: [
         FakeMayaTransaction(
           title: 'Account opened',
           detail: 'Welcome wallet funds',
           age: 'Just now',
           amountText: '+ ₱1,000.00',
+          createdAt: DateTime.now(),
         ),
       ],
       updatedAt: DateTime.now(),
@@ -572,16 +574,37 @@ class FakeMayaAccountSummary {
 
 class FakeMayaTransaction {
   const FakeMayaTransaction({
+    this.id,
     required this.title,
     required this.detail,
-    required this.age,
+    required String age,
     required this.amountText,
-  });
+    this.createdAt,
+    this.category,
+    this.subcategory,
+    this.tag,
+    this.note,
+    this.excludedFromInsights = false,
+    this.labeledAt,
+  }) : _fallbackAge = age;
 
+  final String? id;
   final String title;
   final String detail;
-  final String age;
+  final String _fallbackAge;
   final String amountText;
+  final DateTime? createdAt;
+  final String? category;
+  final String? subcategory;
+  final String? tag;
+  final String? note;
+  final bool excludedFromInsights;
+  final DateTime? labeledAt;
+
+  String get age {
+    final timestamp = createdAt;
+    return timestamp == null ? _fallbackAge : _formatDateTime(timestamp);
+  }
 
   double get amount {
     final sign = amountText.trimLeft().startsWith('-') ? -1.0 : 1.0;
@@ -589,21 +612,127 @@ class FakeMayaTransaction {
     return sign * (double.tryParse(normalized) ?? 0);
   }
 
+  String get transactionId {
+    final explicit = id?.trim() ?? '';
+    if (explicit.isNotEmpty) return explicit;
+    final timestamp = createdAt?.toIso8601String() ?? _fallbackAge;
+    return Uri.encodeComponent('$title|$detail|$timestamp|$amountText');
+  }
+
+  bool get isLabeled => (category?.trim().isNotEmpty ?? false);
+
+  bool get isWalletCashMovement {
+    final value = '$title $detail'.toLowerCase();
+    return value.contains('cash in') || value.contains('cash out');
+  }
+
+  String get counterpartyKey {
+    var value = detail.trim().toLowerCase();
+    value = value.replaceFirst(RegExp(r'^(from|to)\s*:\s*'), '');
+    value = value.split('·').first.trim();
+    value = value.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+    return value.isEmpty ? title.trim().toLowerCase() : value;
+  }
+
+  String get patternKey => '${amount < 0 ? 'out' : 'in'}|$counterpartyKey';
+
+  FakeMayaTransaction copyWithLabel({
+    required String category,
+    String? subcategory,
+    String? tag,
+    String? note,
+    bool excludedFromInsights = false,
+    DateTime? labeledAt,
+  }) {
+    return FakeMayaTransaction(
+      id: transactionId,
+      title: title,
+      detail: detail,
+      age: _fallbackAge,
+      amountText: amountText,
+      createdAt: createdAt,
+      category: category,
+      subcategory: subcategory,
+      tag: tag,
+      note: note,
+      excludedFromInsights: excludedFromInsights,
+      labeledAt: labeledAt ?? DateTime.now(),
+    );
+  }
+
+  FakeMayaTransaction withLabelFrom(FakeMayaTransaction other) {
+    if (!other.isLabeled) return this;
+    return copyWithLabel(
+      category: other.category!,
+      subcategory: other.subcategory,
+      tag: other.tag,
+      note: other.note,
+      excludedFromInsights: other.excludedFromInsights,
+      labeledAt: other.labeledAt,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
+      'id': transactionId,
       'title': title,
       'detail': detail,
-      'age': age,
+      'age': _fallbackAge,
       'amount': amountText,
+      'createdAt': createdAt?.toIso8601String(),
+      'category': category,
+      'subcategory': subcategory,
+      'tag': tag,
+      'note': note,
+      'excludedFromInsights': excludedFromInsights,
+      'labeledAt': labeledAt?.toIso8601String(),
+      'patternKey': patternKey,
     };
   }
 
   factory FakeMayaTransaction.fromMap(Map<String, dynamic> data) {
     return FakeMayaTransaction(
+      id: data['id'] as String?,
       title: data['title'] as String? ?? 'FakeMaya transaction',
       detail: data['detail'] as String? ?? 'FakeMaya',
       age: data['age'] as String? ?? 'Just now',
       amountText: data['amount'] as String? ?? '',
+      createdAt: _dateTimeFrom(data['createdAt'] ?? data['created_at']),
+      category: data['category'] as String?,
+      subcategory: data['subcategory'] as String?,
+      tag: data['tag'] as String?,
+      note: data['note'] as String?,
+      excludedFromInsights: data['excludedFromInsights'] as bool? ?? false,
+      labeledAt: DateTime.tryParse(data['labeledAt'] as String? ?? ''),
     );
+  }
+
+  static DateTime? _dateTimeFrom(Object? value) {
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  static String _formatDateTime(DateTime value) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = value.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour < 12 ? 'AM' : 'PM';
+    final year = local.year == DateTime.now().year ? '' : ', ${local.year}';
+    return '${months[local.month - 1]} ${local.day}$year, '
+        '$hour:$minute $period';
   }
 }

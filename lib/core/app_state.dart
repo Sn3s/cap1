@@ -58,6 +58,7 @@ class AppState extends ChangeNotifier {
   bool emotionalLogsEnabled = false;
   bool stressIndicatorsEnabled = false;
   FakeMayaLink? fakeMayaLink;
+  final Map<String, TransactionLabelRule> transactionLabelRules = {};
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {'ACT1'};
@@ -309,6 +310,9 @@ class AppState extends ChangeNotifier {
       'salaryWeekOfMonth': salaryWeekOfMonth,
       'salaryWeekday': salaryWeekday,
       'fakeMayaLink': fakeMayaLink?.toMap(),
+      'transactionLabelRules': transactionLabelRules.map(
+        (key, value) => MapEntry(key, value.toMap()),
+      ),
       'allocatedThisCycle': allocatedThisCycle,
       'goalBucketOverrides':
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
@@ -477,6 +481,26 @@ class AppState extends ChangeNotifier {
     final fakeMayaData = _mapFrom(data['fakeMayaLink']);
     fakeMayaLink =
         fakeMayaData == null ? null : FakeMayaLink.fromMap(fakeMayaData);
+    final labelRuleData = _mapFrom(data['transactionLabelRules']);
+    transactionLabelRules.clear();
+    if (labelRuleData != null) {
+      for (final entry in labelRuleData.entries) {
+        final value = _mapFrom(entry.value);
+        if (value != null) {
+          transactionLabelRules[entry.key] =
+              TransactionLabelRule.fromMap(value);
+        }
+      }
+    }
+    for (final transaction
+        in fakeMayaLink?.summary.transactions ?? <FakeMayaTransaction>[]) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules.putIfAbsent(
+          transaction.patternKey,
+          () => TransactionLabelRule.fromTransaction(transaction),
+        );
+      }
+    }
     _syncFakeMayaMoneyItems();
     allocatedThisCycle = _doubleFrom(
       data['allocatedThisCycle'],
@@ -796,8 +820,81 @@ class AppState extends ChangeNotifier {
     final link = fakeMayaLink;
     if (link == null) return;
     final session = await FakeMayaService.refreshSession(link);
-    fakeMayaLink = FakeMayaLink.fromSession(session);
+    final savedById = {
+      for (final transaction in link.summary.transactions)
+        transaction.transactionId: transaction,
+    };
+    final mergedTransactions = session.summary.transactions.map((transaction) {
+      final saved = savedById[transaction.transactionId];
+      if (saved != null && saved.isLabeled) {
+        return transaction.withLabelFrom(saved);
+      }
+      final rule = transactionLabelRules[transaction.patternKey];
+      return rule == null ? transaction : rule.applyTo(transaction);
+    }).toList();
+    fakeMayaLink = FakeMayaLink(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: session.summary.copyWith(transactions: mergedTransactions),
+    );
     _syncFakeMayaMoneyItems();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> labelFakeMayaTransaction({
+    required String transactionId,
+    required String category,
+    String? subcategory,
+    String? tag,
+    String? note,
+    bool excludedFromInsights = false,
+  }) async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final target = link.summary.transactions
+        .where((transaction) => transaction.transactionId == transactionId)
+        .firstOrNull;
+    if (target == null) return;
+    final labeledTarget = target.copyWithLabel(
+      category: category,
+      subcategory: subcategory,
+      tag: tag,
+      note: note,
+      excludedFromInsights: excludedFromInsights,
+    );
+    final rule = TransactionLabelRule.fromTransaction(labeledTarget);
+    if (excludedFromInsights) {
+      transactionLabelRules.remove(target.patternKey);
+    } else {
+      transactionLabelRules[target.patternKey] = rule;
+    }
+    final transactions = link.summary.transactions.map((transaction) {
+      if (transaction.transactionId == transactionId) return labeledTarget;
+      if (!excludedFromInsights &&
+          !transaction.isLabeled &&
+          transaction.patternKey == target.patternKey) {
+        return rule.applyTo(transaction);
+      }
+      return transaction;
+    }).toList();
+    fakeMayaLink = FakeMayaLink(
+      userId: link.userId,
+      email: link.email,
+      name: link.name,
+      phone: link.phone,
+      provider: link.provider,
+      accessToken: link.accessToken,
+      refreshToken: link.refreshToken,
+      expiresAt: link.expiresAt,
+      summary: link.summary.copyWith(transactions: transactions),
+    );
     await saveProfile();
     notifyListeners();
   }
@@ -821,6 +918,54 @@ class AppState extends ChangeNotifier {
 
   void _removeFakeMayaMoneyItems() {
     assets.removeWhere((item) => item.description == 'Linked from FakeMaya');
+  }
+}
+
+class TransactionLabelRule {
+  const TransactionLabelRule({
+    required this.category,
+    this.subcategory,
+    this.tag,
+    this.note,
+  });
+
+  final String category;
+  final String? subcategory;
+  final String? tag;
+  final String? note;
+
+  factory TransactionLabelRule.fromTransaction(
+    FakeMayaTransaction transaction,
+  ) {
+    return TransactionLabelRule(
+      category: transaction.category!,
+      subcategory: transaction.subcategory,
+      tag: transaction.tag,
+    );
+  }
+
+  FakeMayaTransaction applyTo(FakeMayaTransaction transaction) {
+    return transaction.copyWithLabel(
+      category: category,
+      subcategory: subcategory,
+      tag: tag,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'category': category,
+        'subcategory': subcategory,
+        'tag': tag,
+        'note': note,
+      };
+
+  factory TransactionLabelRule.fromMap(Map<String, dynamic> data) {
+    return TransactionLabelRule(
+      category: data['category'] as String? ?? 'Other expense',
+      subcategory: data['subcategory'] as String?,
+      tag: data['tag'] as String?,
+      note: data['note'] as String?,
+    );
   }
 }
 
