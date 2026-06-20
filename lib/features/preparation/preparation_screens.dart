@@ -4120,6 +4120,11 @@ List<({IconData icon, String title, String body})> _planStepsForGoal(
 }
 
 String _targetRuleForGoal(AppState state) {
+  if (state.selectedGoal == 'Irregular Income Buffer') {
+    return state.irregularIncomeFloor > 0
+        ? 'Compare each Cash In against the ${money(state.irregularIncomeFloor)} monthly floor'
+        : 'Set a monthly income floor in the Goals collection trace';
+  }
   if (state.monthlySalary > 0) {
     return 'Allocate 10% of monthly salary';
   }
@@ -4135,7 +4140,6 @@ String _targetRuleForGoal(AppState state) {
   return switch (state.selectedGoal) {
     'Expense Tracking Routine' ||
     'Spending Trigger Tracker' ||
-    'Irregular Income Buffer' ||
     'Cash Flow Stability Plan' =>
       high
           ? 'Keep spending under 50% of net income'

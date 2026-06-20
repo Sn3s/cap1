@@ -41,7 +41,7 @@ void main() {
     final now = DateTime.now();
     final state = AppState()
       ..selectedGoal = 'Irregular Income Buffer'
-      ..income = 15000
+      ..irregularIncomeFloor = 15000
       ..fakeMayaLink = _fakeMayaLink(
         transactions: [
           FakeMayaTransaction(

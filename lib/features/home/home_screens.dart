@@ -827,7 +827,9 @@ class GoalsPage extends StatelessWidget {
                                     : 'Cycle target',
                             value:
                                 state.selectedGoal == 'Irregular Income Buffer'
-                                    ? money(irregularIncome!.floor)
+                                    ? irregularIncome!.hasFloor
+                                        ? money(irregularIncome.floor)
+                                        : 'Not set'
                                     : money(cycle.allocation),
                             color: _title,
                             background: Colors.white.withOpacity(.35),
@@ -843,20 +845,24 @@ class GoalsPage extends StatelessWidget {
                                 ? cycle.greenLight
                                     ? 'Ready'
                                     : 'Waiting'
-                                : irregularIncome.events.isEmpty
-                                    ? 'Waiting'
-                                    : irregularIncome.isShortfall
-                                        ? 'Shortfall'
-                                        : 'Surplus',
+                                : !irregularIncome.hasFloor
+                                    ? 'Set floor'
+                                    : irregularIncome.events.isEmpty
+                                        ? 'Waiting'
+                                        : irregularIncome.isShortfall
+                                            ? 'Shortfall'
+                                            : 'Surplus',
                             color: irregularIncome == null
                                 ? cycle.greenLight
                                     ? _brand
                                     : _amber
-                                : irregularIncome.events.isEmpty
+                                : !irregularIncome.hasFloor
                                     ? _amber
-                                    : irregularIncome.isShortfall
-                                        ? _red
-                                        : _brand,
+                                    : irregularIncome.events.isEmpty
+                                        ? _amber
+                                        : irregularIncome.isShortfall
+                                            ? _red
+                                            : _brand,
                             background: Colors.white.withOpacity(.35),
                           ),
                         ),
@@ -1034,7 +1040,7 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
               Expanded(
                 child: _GoalStatTile(
                   label: 'Income floor',
-                  value: money(data.floor),
+                  value: data.hasFloor ? money(data.floor) : 'Not set',
                   color: _title,
                   background: _bg,
                 ),
@@ -1050,22 +1056,39 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
               ),
             ],
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _showIncomeFloorSheet(context, state),
+              icon: const Icon(Icons.edit_rounded, size: 16),
+              label: Text(
+                  data.hasFloor ? 'Change income floor' : 'Set income floor'),
+              style: TextButton.styleFrom(foregroundColor: _purple),
+            ),
+          ),
           const SizedBox(height: 10),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: (data.isShortfall ? _red : _brand).withOpacity(.09),
+              color: (!data.hasFloor
+                      ? _amber
+                      : data.isShortfall
+                          ? _red
+                          : _brand)
+                  .withOpacity(.09),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Text(
-              data.events.isEmpty
-                  ? 'Waiting for the next Cash In event. Income amount, sender, and timestamp are captured automatically.'
-                  : data.isShortfall
-                      ? '${money(data.difference)} below the floor. ACT6 needs a recorded plan adjustment.'
-                      : '${money(data.difference)} above the floor. ACT6 can route the surplus to the income buffer.',
+              !data.hasFloor
+                  ? 'Set the monthly income floor to start ACT6 comparisons. This value is controlled here and can be changed anytime.'
+                  : data.events.isEmpty
+                      ? 'Waiting for the next Cash In event. Income amount, sender, and timestamp are captured automatically.'
+                      : data.isShortfall
+                          ? '${money(data.difference)} below the floor. ACT6 needs a recorded plan adjustment.'
+                          : '${money(data.difference)} above the floor. ACT6 can route the surplus to the income buffer.',
               style: TextStyle(
-                color: data.isShortfall ? _red : _title,
+                color: data.hasFloor && data.isShortfall ? _red : _title,
                 fontWeight: FontWeight.w800,
                 height: 1.35,
               ),
@@ -1131,9 +1154,17 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
                                 ),
                               ),
                               Text(
-                                event.isSurplus ? 'SURPLUS' : 'SHORTFALL',
+                                !event.hasFloor
+                                    ? 'WAITING FOR FLOOR'
+                                    : event.isSurplus
+                                        ? 'SURPLUS'
+                                        : 'SHORTFALL',
                                 style: TextStyle(
-                                  color: event.isSurplus ? _brand : _red,
+                                  color: !event.hasFloor
+                                      ? _amber
+                                      : event.isSurplus
+                                          ? _brand
+                                          : _red,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -1146,11 +1177,13 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
                       SizedBox(
                         width: double.infinity,
                         child: TextButton.icon(
-                          onPressed: () => _showPlanAdjustmentSheet(
-                            context,
-                            state,
-                            event,
-                          ),
+                          onPressed: event.hasFloor
+                              ? () => _showPlanAdjustmentSheet(
+                                    context,
+                                    state,
+                                    event,
+                                  )
+                              : null,
                           icon: Icon(
                             action == null
                                 ? Icons.edit_note_rounded
@@ -1252,6 +1285,96 @@ class _CollectionStatusRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+Future<void> _showIncomeFloorSheet(
+  BuildContext context,
+  AppState state,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _IncomeFloorSheet(state: state),
+  );
+}
+
+class _IncomeFloorSheet extends StatefulWidget {
+  const _IncomeFloorSheet({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_IncomeFloorSheet> createState() => _IncomeFloorSheetState();
+}
+
+class _IncomeFloorSheetState extends State<_IncomeFloorSheet> {
+  late final TextEditingController _amount = TextEditingController(
+    text: widget.state.irregularIncomeFloor > 0
+        ? widget.state.irregularIncomeFloor.toStringAsFixed(0)
+        : '',
+  );
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Set your income floor',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Use the minimum monthly income your fixed plan should safely rely on—not your best or average month.',
+            style: TextStyle(
+              color: _body,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextFormField(
+            controller: _amount,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: inputDecoration('Monthly income floor'),
+          ),
+          const SizedBox(height: 18),
+          PrimaryButton(
+            label: 'Save income floor',
+            icon: Icons.check_rounded,
+            onPressed: _save,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    final amount = _parseMoney(_amount.text);
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid income floor.')),
+      );
+      return;
+    }
+    widget.state.setIrregularIncomeFloor(amount);
+    await widget.state.saveProfile();
+    if (mounted) Navigator.pop(context);
   }
 }
 
@@ -1478,8 +1601,9 @@ class _IrregularIncomeEvent {
   final double runningIncome;
   final double floor;
 
-  bool get isSurplus => runningIncome >= floor;
-  double get difference => (runningIncome - floor).abs();
+  bool get hasFloor => floor > 0;
+  bool get isSurplus => hasFloor && runningIncome >= floor;
+  double get difference => hasFloor ? (runningIncome - floor).abs() : 0;
 }
 
 class _IrregularIncomeCycleData {
@@ -1501,12 +1625,13 @@ class _IrregularIncomeCycleData {
   final int labeledExpenseCount;
   final double expenseTotal;
 
-  bool get isShortfall => incomeTotal < floor;
-  double get difference => (incomeTotal - floor).abs();
+  bool get hasFloor => floor > 0;
+  bool get isShortfall => hasFloor && incomeTotal < floor;
+  double get difference => hasFloor ? (incomeTotal - floor).abs() : 0;
 }
 
 _IrregularIncomeCycleData _irregularIncomeCycleFor(AppState state) {
-  final floor = state.income > 0 ? state.income : 15000.0;
+  final floor = state.irregularIncomeFloor;
   final transactions =
       state.fakeMayaLink?.summary.transactions ?? <FakeMayaTransaction>[];
   final now = DateTime.now();
@@ -1684,14 +1809,19 @@ List<_GoalCycleStep> _cycleStepsForGoal(AppState state) {
       _GoalCycleStep(
         icon: Icons.tune_rounded,
         title: 'Run ACT6 after each credit',
-        body:
-            '$responses of ${data.events.length} budget adjustment responses recorded against the ${money(data.floor)} floor.',
-        color: responses == data.events.length && data.events.isNotEmpty
+        body: data.hasFloor
+            ? '$responses of ${data.events.length} budget adjustment responses recorded against the ${money(data.floor)} floor.'
+            : 'Set an income floor before ACT6 can classify credits as surplus or shortfall.',
+        color: data.hasFloor &&
+                responses == data.events.length &&
+                data.events.isNotEmpty
             ? _brand
             : _amber,
-        note: data.isShortfall
-            ? 'Current result: ${money(data.difference)} shortfall.'
-            : 'Current result: ${money(data.difference)} surplus.',
+        note: !data.hasFloor
+            ? 'The income floor is editable from the collection trace.'
+            : data.isShortfall
+                ? 'Current result: ${money(data.difference)} shortfall.'
+                : 'Current result: ${money(data.difference)} surplus.',
       ),
       _GoalCycleStep(
         icon: Icons.fact_check_rounded,
@@ -3614,6 +3744,13 @@ class UserSelectionsScreen extends StatelessWidget {
                     rows: [
                       ('Selected goal', state.selectedGoal),
                       ('Goal description', state.selectedGoalDescription),
+                      if (state.selectedGoal == 'Irregular Income Buffer')
+                        (
+                          'Income floor',
+                          state.irregularIncomeFloor > 0
+                              ? money(state.irregularIncomeFloor)
+                              : 'Not set',
+                        ),
                       ('Target rule', _targetRuleForGoal(state)),
                       (
                         'Monthly target',
