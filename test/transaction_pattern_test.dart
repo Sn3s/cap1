@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/main.dart';
+import 'package:cap1/main.dart';
 
 void main() {
   test('counterparty pattern ignores FakeMaya detail decoration', () {

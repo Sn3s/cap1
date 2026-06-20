@@ -59,6 +59,8 @@ class AppState extends ChangeNotifier {
   bool stressIndicatorsEnabled = false;
   FakeMayaLink? fakeMayaLink;
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
+  final Map<String, String> planAdjustmentActions = {};
+  final Map<String, double> anxietyCheckIns = {};
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {'ACT1'};
@@ -97,6 +99,15 @@ class AppState extends ChangeNotifier {
   double get netWorth => totalAssets - totalLiabilities + 24500.40;
   double get monthlySurplus =>
       income - expenses - variableExpenses - debtPayments;
+  String get currentAnxietyWeekKey {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - DateTime.monday));
+    return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-'
+        '${monday.day.toString().padLeft(2, '0')}';
+  }
+
+  bool get hasCurrentWeekAnxietyCheckIn =>
+      anxietyCheckIns.containsKey(currentAnxietyWeekKey);
   double get savingsRate =>
       income <= 0 ? 0 : (savings / income * 100).clamp(0, 100);
   double get debtToIncome =>
@@ -313,6 +324,8 @@ class AppState extends ChangeNotifier {
       'transactionLabelRules': transactionLabelRules.map(
         (key, value) => MapEntry(key, value.toMap()),
       ),
+      'planAdjustmentActions': planAdjustmentActions,
+      'anxietyCheckIns': anxietyCheckIns,
       'allocatedThisCycle': allocatedThisCycle,
       'goalBucketOverrides':
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
@@ -492,6 +505,24 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    final adjustmentData = _mapFrom(data['planAdjustmentActions']);
+    planAdjustmentActions
+      ..clear()
+      ..addAll(
+        adjustmentData?.map(
+              (key, value) => MapEntry(key, value?.toString() ?? ''),
+            ) ??
+            const {},
+      );
+    final anxietyData = _mapFrom(data['anxietyCheckIns']);
+    anxietyCheckIns
+      ..clear()
+      ..addAll(
+        anxietyData?.map(
+              (key, value) => MapEntry(key, _doubleFrom(value, 0)),
+            ) ??
+            const {},
+      );
     for (final transaction
         in fakeMayaLink?.summary.transactions ?? <FakeMayaTransaction>[]) {
       if (transaction.isLabeled && !transaction.excludedFromInsights) {
@@ -778,15 +809,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void recordPlanAdjustment({
+    required String transactionId,
+    required String action,
+  }) {
+    planAdjustmentActions[transactionId] = action;
+    notifyListeners();
+  }
+
+  void recordWeeklyAnxietyCheckIn(double value) {
+    anxietyCheckIns[currentAnxietyWeekKey] = value.clamp(1, 5).toDouble();
+    notifyListeners();
+  }
+
   Future<void> allocateToGoalBucket({
     required CollectionBucketOverride bucket,
     required double amount,
   }) async {
     if (amount <= 0) return;
-    if (bucket.id == 'fakemaya-personal-goal' && fakeMayaLink != null) {
-      final session = await FakeMayaService.depositToPersonalGoal(
+    final linkedAccount = switch (bucket.id) {
+      'fakemaya-savings' => FakeMayaGoalAccount.savings,
+      'fakemaya-time-deposit' => FakeMayaGoalAccount.timeDeposit,
+      'fakemaya-personal-goal' => FakeMayaGoalAccount.personalGoal,
+      _ => null,
+    };
+    if (linkedAccount != null && fakeMayaLink != null) {
+      final session = await FakeMayaService.allocateFromWallet(
         link: fakeMayaLink!,
         amount: amount,
+        account: linkedAccount,
       );
       fakeMayaLink = FakeMayaLink.fromSession(session);
       _syncFakeMayaMoneyItems();

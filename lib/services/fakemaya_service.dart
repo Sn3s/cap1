@@ -1,5 +1,7 @@
 part of '../main.dart';
 
+enum FakeMayaGoalAccount { savings, timeDeposit, personalGoal }
+
 class FakeMayaService {
   const FakeMayaService._();
 
@@ -147,6 +149,18 @@ class FakeMayaService {
   static Future<FakeMayaSession> depositToPersonalGoal({
     required FakeMayaLink link,
     required double amount,
+  }) {
+    return allocateFromWallet(
+      link: link,
+      amount: amount,
+      account: FakeMayaGoalAccount.personalGoal,
+    );
+  }
+
+  static Future<FakeMayaSession> allocateFromWallet({
+    required FakeMayaLink link,
+    required double amount,
+    required FakeMayaGoalAccount account,
   }) async {
     if (amount <= 0) {
       throw const FakeMayaException('Enter a valid allocation amount.');
@@ -158,16 +172,34 @@ class FakeMayaService {
       throw const FakeMayaException('Not enough in FakeMaya wallet.');
     }
 
+    final transactionTitle = switch (account) {
+      FakeMayaGoalAccount.savings => 'Deposited to',
+      FakeMayaGoalAccount.timeDeposit => 'Express deposit',
+      FakeMayaGoalAccount.personalGoal => 'Deposited to goal',
+    };
+    final transactionDetail = switch (account) {
+      FakeMayaGoalAccount.savings => 'My Savings',
+      FakeMayaGoalAccount.timeDeposit => 'Maya Black',
+      FakeMayaGoalAccount.personalGoal => summary.goalName,
+    };
     final transaction = FakeMayaTransaction(
-      title: 'Deposited to goal',
-      detail: summary.goalName,
+      title: transactionTitle,
+      detail: transactionDetail,
       age: 'Just now',
       amountText: '+ ${_formatPeso(amount)}',
       createdAt: DateTime.now(),
     );
     final nextSummary = summary.copyWith(
       wallet: summary.wallet - amount,
-      goalBalance: summary.goalBalance + amount,
+      savings: account == FakeMayaGoalAccount.savings
+          ? summary.savings + amount
+          : summary.savings,
+      timeDeposit: account == FakeMayaGoalAccount.timeDeposit
+          ? summary.timeDeposit + amount
+          : summary.timeDeposit,
+      goalBalance: account == FakeMayaGoalAccount.personalGoal
+          ? summary.goalBalance + amount
+          : summary.goalBalance,
       transactions: [transaction, ...summary.transactions],
       updatedAt: DateTime.now(),
     );
