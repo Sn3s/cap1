@@ -44,6 +44,9 @@ class AppState extends ChangeNotifier {
   double subscriptions = 145;
   double monthlySalary = 0;
   double irregularIncomeFloor = 0;
+  double basicNeedsMonthlyTarget = 0;
+  double basicNeedsAllocationPercent = 0.50;
+  double bufferAllocationPercent = 0.20;
   int salaryWeekOfMonth = 1;
   int salaryWeekday = DateTime.friday;
   bool consentBaseline = true;
@@ -320,6 +323,9 @@ class AppState extends ChangeNotifier {
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
       'monthlySalary': monthlySalary,
       'irregularIncomeFloor': irregularIncomeFloor,
+      'basicNeedsMonthlyTarget': basicNeedsMonthlyTarget,
+      'basicNeedsAllocationPercent': basicNeedsAllocationPercent,
+      'bufferAllocationPercent': bufferAllocationPercent,
       'salaryWeekOfMonth': salaryWeekOfMonth,
       'salaryWeekday': salaryWeekday,
       'fakeMayaLink': fakeMayaLink?.toMap(),
@@ -369,6 +375,9 @@ class AppState extends ChangeNotifier {
         'selectedGoalDescription': selectedGoalDescription,
         'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
         'irregularIncomeFloor': irregularIncomeFloor,
+        'basicNeedsMonthlyTarget': basicNeedsMonthlyTarget,
+        'basicNeedsAllocationPercent': basicNeedsAllocationPercent,
+        'bufferAllocationPercent': bufferAllocationPercent,
         'selectedActionIds': selectedActionIds.toList()..sort(),
         'emotionalLogsEnabled': emotionalLogsEnabled,
         'stressIndicatorsEnabled': stressIndicatorsEnabled,
@@ -494,6 +503,18 @@ class AppState extends ChangeNotifier {
     irregularIncomeFloor = _doubleFrom(
       data['irregularIncomeFloor'] ?? planSetup['irregularIncomeFloor'],
       irregularIncomeFloor,
+    );
+    basicNeedsMonthlyTarget = _doubleFrom(
+      data['basicNeedsMonthlyTarget'] ?? planSetup['basicNeedsMonthlyTarget'],
+      basicNeedsMonthlyTarget,
+    );
+    basicNeedsAllocationPercent = _doubleFrom(
+      data['basicNeedsAllocationPercent'] ?? planSetup['basicNeedsAllocationPercent'],
+      basicNeedsAllocationPercent,
+    );
+    bufferAllocationPercent = _doubleFrom(
+      data['bufferAllocationPercent'] ?? planSetup['bufferAllocationPercent'],
+      bufferAllocationPercent,
     );
     salaryWeekOfMonth =
         (data['salaryWeekOfMonth'] as num?)?.toInt() ?? salaryWeekOfMonth;
@@ -826,6 +847,17 @@ class AppState extends ChangeNotifier {
 
   void setIrregularIncomeFloor(double amount) {
     irregularIncomeFloor = math.max(0, amount);
+    notifyListeners();
+  }
+
+  void setBasicNeedsConfig({
+    required double monthlyTarget,
+    required double needsPercent,
+    required double bufferPercent,
+  }) {
+    basicNeedsMonthlyTarget = math.max(0, monthlyTarget);
+    basicNeedsAllocationPercent = needsPercent.clamp(0.0, 1.0);
+    bufferAllocationPercent = bufferPercent.clamp(0.0, 1.0);
     notifyListeners();
   }
 

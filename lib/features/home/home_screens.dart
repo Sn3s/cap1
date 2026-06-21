@@ -786,7 +786,7 @@ class GoalsPage extends StatelessWidget {
                   children: [
                     Text(
                       state.selectedGoal == 'Irregular Income Buffer'
-                          ? 'INCOME BUFFER AVAILABLE'
+                          ? 'BASIC NEEDS BUCKET'
                           : 'TOTAL IN GOAL BUCKETS',
                       style: const TextStyle(
                         color: _title,
@@ -808,7 +808,7 @@ class GoalsPage extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       state.selectedGoal == 'Irregular Income Buffer'
-                          ? 'Cash-flow equalizer inside Wallet · ${money(totalTarget)} income floor'
+                          ? 'Buffer: ${money(irregularIncome?.bufferBalance ?? 0)} · Target: ${money(totalTarget)}'
                           : 'of ${money(totalTarget)} across ${buckets.length} active ${buckets.length == 1 ? 'goal' : 'goals'}',
                       style: const TextStyle(
                         color: _title,
@@ -816,108 +816,20 @@ class GoalsPage extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _GoalStatTile(
-                            label:
-                                state.selectedGoal == 'Irregular Income Buffer'
-                                    ? 'Income floor'
-                                    : 'Cycle target',
-                            value:
-                                state.selectedGoal == 'Irregular Income Buffer'
-                                    ? irregularIncome!.hasFloor
-                                        ? money(irregularIncome.floor)
-                                        : 'Not set'
-                                    : money(cycle.allocation),
-                            color: _title,
-                            background: Colors.white.withOpacity(.35),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _GoalStatTile(
-                            label: irregularIncome == null
-                                ? 'Green light'
-                                : 'ACT6 status',
-                            value: irregularIncome == null
-                                ? cycle.greenLight
-                                    ? 'Ready'
-                                    : 'Waiting'
-                                : !irregularIncome.hasFloor
-                                    ? 'Set floor'
-                                    : irregularIncome.events.isEmpty
-                                        ? 'Waiting'
-                                        : irregularIncome.isShortfall
-                                            ? 'Shortfall'
-                                            : 'Surplus',
-                            color: irregularIncome == null
-                                ? cycle.greenLight
-                                    ? _brand
-                                    : _amber
-                                : !irregularIncome.hasFloor
-                                    ? _amber
-                                    : irregularIncome.events.isEmpty
-                                        ? _amber
-                                        : irregularIncome.isShortfall
-                                            ? _red
-                                            : _brand,
-                            background: Colors.white.withOpacity(.35),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _GoalStatTile(
-                            label: 'Account',
-                            value: primary.accountName
-                                .replaceFirst('FakeMaya ', ''),
-                            color: _purple,
-                            background: Colors.white.withOpacity(.35),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-              _GoalBucketCard(
-                bucket: primary,
-                featured: true,
-                onTap: () => _showBucketActions(context, primary),
-                onEdit: () => _showBucketEditor(context, primary),
-                onAllocate: () => _showAllocationSheet(context, primary),
-              ),
-              if (state.selectedGoal == 'Irregular Income Buffer') ...[
-                const SizedBox(height: 16),
-                _IrregularIncomeCollectionCard(
-                  data: irregularIncome!,
+              if (irregularIncome != null)
+                _IrregularIncomeCollectionCard(data: irregularIncome)
+              else
+                _GoalBucketCard(
+                  bucket: primary,
+                  featured: true,
+                  onTap: () => _showBucketActions(context, primary),
+                  onEdit: () => _showBucketEditor(context, primary),
+                  onAllocate: () => _showAllocationSheet(context, primary),
                 ),
-              ],
-              const SizedBox(height: 22),
-              AppCard(
-                child: Row(
-                  children: [
-                    IconBubble(
-                      Icons.account_balance_wallet_rounded,
-                      color: primary.color,
-                      background: primary.color.withOpacity(.12),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        '${_layerNameFor(_layerForGoal(state.selectedGoal))} goals use ${primary.accountName} as their source of truth.',
-                        style: const TextStyle(
-                          color: _body,
-                          fontWeight: FontWeight.w700,
-                          height: 1.35,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               const SizedBox(height: 22),
               SectionTitle(title: 'This cycle', action: cycle.rhythm),
               const SizedBox(height: 12),
@@ -996,7 +908,11 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final weeklyCheckInRecorded = state.hasCurrentWeekAnxietyCheckIn;
+    final hasAlerts = data.monthEndAdvice.isNotEmpty &&
+        (DateTime.now().day >= 25 || data.case2Occurred);
+    final billCount = data.events.where((e) => !e.isIncome).length;
+    final incomeCount = data.events.where((e) => e.isIncome).length;
+
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1004,17 +920,17 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
           Row(
             children: [
               IconBubble(
-                Icons.sync_alt_rounded,
+                Icons.water_drop_rounded,
                 color: _brand,
                 background: _brand.withOpacity(.12),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Collection trace',
+                    const Text(
+                      'Basic Needs Collection',
                       style: TextStyle(
                         color: _title,
                         fontSize: 17,
@@ -1022,8 +938,10 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'Event-driven income + ACT6 reactions',
-                      style: TextStyle(
+                      data.hasFloor
+                          ? '$incomeCount income · $billCount bills this month'
+                          : 'Tap Setup to start collecting',
+                      style: const TextStyle(
                         color: _body,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -1032,200 +950,360 @@ class _IrregularIncomeCollectionCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (hasAlerts)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _amber.withOpacity(.15),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    '${data.monthEndAdvice.length} alerts',
+                    style: const TextStyle(
+                      color: _amber,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
-                child: _GoalStatTile(
-                  label: 'Income floor',
-                  value: data.hasFloor ? money(data.floor) : 'Not set',
-                  color: _title,
-                  background: _bg,
+                child: _BucketTile(
+                  emoji: '🛒',
+                  label: 'Basic Needs',
+                  balance: data.needsBalance,
+                  target: data.needsTarget,
+                  percent: data.needsPercent,
+                  color: _brand,
+                  full: data.needsFull,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
-                child: _GoalStatTile(
-                  label: 'Income captured',
-                  value: money(data.incomeTotal),
-                  color: data.isShortfall ? _red : _brand,
-                  background: _bg,
+                child: _BucketTile(
+                  emoji: '🌊',
+                  label: 'Buffer',
+                  balance: data.bufferBalance,
+                  target: data.needsTarget,
+                  percent: data.bufferPercent,
+                  color: _purple,
+                  full: data.bufferFull,
                 ),
               ),
             ],
           ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => _showIncomeFloorSheet(context, state),
-              icon: const Icon(Icons.edit_rounded, size: 16),
-              label: Text(
-                  data.hasFloor ? 'Change income floor' : 'Set income floor'),
-              style: TextButton.styleFrom(foregroundColor: _purple),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: (!data.hasFloor
-                      ? _amber
-                      : data.isShortfall
-                          ? _red
-                          : _brand)
-                  .withOpacity(.09),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              !data.hasFloor
-                  ? 'Set the monthly income floor to start ACT6 comparisons. This value is controlled here and can be changed anytime.'
-                  : data.events.isEmpty
-                      ? 'Waiting for the next Cash In event. Income amount, sender, and timestamp are captured automatically.'
-                      : data.isShortfall
-                          ? '${money(data.difference)} below the floor. ACT6 needs a recorded plan adjustment.'
-                          : '${money(data.difference)} above the floor. ACT6 can route the surplus to the income buffer.',
-              style: TextStyle(
-                color: data.hasFloor && data.isShortfall ? _red : _title,
-                fontWeight: FontWeight.w800,
-                height: 1.35,
+          if (data.activeCase != 'none') ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: (data.activeCase == 'Case 1' ? _amber : _brand)
+                    .withOpacity(.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                data.activeCase == 'Case 1'
+                    ? 'Basic Needs is full — income now flows to Buffer only.'
+                    : 'Buffer filled first — surplus moved into Basic Needs.',
+                style: TextStyle(
+                  color: data.activeCase == 'Case 1' ? _amber : _brand,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
               ),
             ),
+          ],
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: _border),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => _showIrregularIncomeActivitySheet(context, data, state),
+                  icon: const Icon(Icons.history_rounded, size: 16),
+                  label: const Text('Activity'),
+                  style: TextButton.styleFrom(foregroundColor: _brand),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => _showBasicNeedsConfigSheet(context, state),
+                  icon: const Icon(Icons.tune_rounded, size: 16),
+                  label: Text(data.hasFloor ? 'Settings' : 'Setup'),
+                  style: TextButton.styleFrom(foregroundColor: _purple),
+                ),
+              ),
+            ],
           ),
-          if (data.events.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'INCOME EVENTS',
-              style: TextStyle(
+        ],
+      ),
+    );
+  }
+}
+
+class _BucketTile extends StatelessWidget {
+  const _BucketTile({
+    required this.emoji,
+    required this.label,
+    required this.balance,
+    required this.target,
+    required this.percent,
+    required this.color,
+    required this.full,
+  });
+
+  final String emoji;
+  final String label;
+  final double balance;
+  final double target;
+  final double percent;
+  final Color color;
+  final bool full;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = target > 0 ? (balance / target).clamp(0.0, 1.0) : 0.0;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (full)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(.15),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    'FULL',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            money(balance),
+            style: const TextStyle(
+              color: _title,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (target > 0) ...[
+            const SizedBox(height: 2),
+            Text(
+              'of ${money(target)}',
+              style: const TextStyle(
                 color: _body,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.1,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 6),
-            ...data.events.take(5).map((event) {
-              final action =
-                  state.planAdjustmentActions[event.transaction.transactionId];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  padding: const EdgeInsets.all(11),
-                  decoration: BoxDecoration(
-                    color: _bg,
-                    borderRadius: BorderRadius.circular(14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: fill,
+                minHeight: 6,
+                color: color,
+                backgroundColor: color.withOpacity(.14),
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Text(
+            '${(percent * 100).round()}% per income',
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IncomeEventRow extends StatelessWidget {
+  const _IncomeEventRow({required this.event});
+
+  final _BucketEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event.transaction.detail,
+                    style: const TextStyle(
+                      color: _title,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
                   ),
+                  Text(
+                    event.transaction.age,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  money(event.transaction.amount),
+                  style: const TextStyle(
+                    color: _brand,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  '+${money(event.needsAdded)} needs · +${money(event.bufferAdded)} buf',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BillEventRow extends StatelessWidget {
+  const _BillEventRow({required this.event});
+
+  final _BucketEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final covered = event.note?.startsWith('Covered') ?? false;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  event.transaction.detail,
-                                  style: const TextStyle(
-                                    color: _title,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                                Text(
-                                  event.transaction.age,
-                                  style: const TextStyle(
-                                    color: _body,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                money(event.transaction.amount),
-                                style: const TextStyle(
-                                  color: _brand,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              Text(
-                                !event.hasFloor
-                                    ? 'WAITING FOR FLOOR'
-                                    : event.isSurplus
-                                        ? 'SURPLUS'
-                                        : 'SHORTFALL',
-                                style: TextStyle(
-                                  color: !event.hasFloor
-                                      ? _amber
-                                      : event.isSurplus
-                                          ? _brand
-                                          : _red,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      Text(
+                        event.transaction.detail,
+                        style: const TextStyle(
+                          color: _title,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: TextButton.icon(
-                          onPressed: event.hasFloor
-                              ? () => _showPlanAdjustmentSheet(
-                                    context,
-                                    state,
-                                    event,
-                                  )
-                              : null,
-                          icon: Icon(
-                            action == null
-                                ? Icons.edit_note_rounded
-                                : Icons.check_circle_rounded,
-                            size: 17,
-                          ),
-                          label: Text(action ?? 'Record plan adjustment'),
-                          style: TextButton.styleFrom(
-                            foregroundColor: action == null ? _purple : _brand,
-                            alignment: Alignment.centerLeft,
-                            visualDensity: VisualDensity.compact,
-                          ),
+                      Text(
+                        event.transaction.age,
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
                 ),
-              );
-            }),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      money(event.transaction.amount.abs()),
+                      style: const TextStyle(
+                        color: _red,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      covered ? 'COVERED' : 'BUFFER USED',
+                      style: TextStyle(
+                        color: covered ? _brand : _amber,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            if (event.note != null && event.note!.isNotEmpty) ...[
+              const SizedBox(height: 5),
+              Text(
+                event.note!,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ],
-          const SizedBox(height: 10),
-          const Divider(height: 1, color: _border),
-          const SizedBox(height: 12),
-          _CollectionStatusRow(
-            icon: Icons.receipt_long_rounded,
-            title: 'Expense feed',
-            detail:
-                '${data.labeledExpenseCount}/${data.expenseCount} categorized · ${money(data.expenseTotal)} tracked',
-            complete: data.expenseCount > 0 &&
-                data.labeledExpenseCount == data.expenseCount,
-          ),
-          const SizedBox(height: 10),
-          _CollectionStatusRow(
-            icon: Icons.mood_rounded,
-            title: 'Weekly anxiety check-in',
-            detail: weeklyCheckInRecorded
-                ? '${state.anxietyCheckIns[state.currentAnxietyWeekKey]!.round()} / 5 recorded'
-                : 'Not recorded for this cycle',
-            complete: weeklyCheckInRecorded,
-            onTap: () => _showAnxietyCheckInSheet(context, state),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1288,7 +1366,140 @@ class _CollectionStatusRow extends StatelessWidget {
   }
 }
 
-Future<void> _showIncomeFloorSheet(
+Future<void> _showIrregularIncomeActivitySheet(
+  BuildContext context,
+  _IrregularIncomeCycleData data,
+  AppState state,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _IrregularIncomeActivitySheet(data: data, state: state),
+  );
+}
+
+class _IrregularIncomeActivitySheet extends StatelessWidget {
+  const _IrregularIncomeActivitySheet({required this.data, required this.state});
+  final _IrregularIncomeCycleData data;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final incomeEvents = data.events.where((e) => e.isIncome).toList();
+    final billEvents = data.events.where((e) => !e.isIncome).toList();
+    final hasAdvice = data.monthEndAdvice.isNotEmpty &&
+        (DateTime.now().day >= 25 || data.case2Occurred);
+    final weeklyDone = state.hasCurrentWeekAnxietyCheckIn;
+
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Activity & Alerts',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          Text(
+            'Income drops, bills, and month-end notes',
+            style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 20),
+
+          // ── expense + check-in status ───────────────────────────────
+          _CollectionStatusRow(
+            icon: Icons.receipt_long_rounded,
+            title: 'Expense feed',
+            detail: '${data.labeledExpenseCount}/${data.expenseCount} categorized · ${money(data.expenseTotal)} tracked',
+            complete: data.expenseCount > 0 && data.labeledExpenseCount == data.expenseCount,
+          ),
+          const SizedBox(height: 8),
+          _CollectionStatusRow(
+            icon: Icons.mood_rounded,
+            title: 'Weekly check-in',
+            detail: weeklyDone
+                ? '${state.anxietyCheckIns[state.currentAnxietyWeekKey]!.round()} / 5 recorded'
+                : 'Not recorded yet this week',
+            complete: weeklyDone,
+            onTap: () {
+              Navigator.pop(context);
+              _showAnxietyCheckInSheet(context, state);
+            },
+          ),
+
+          if (incomeEvents.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'INCOME',
+              style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
+            ),
+            const SizedBox(height: 8),
+            ...incomeEvents.map((e) => _IncomeEventRow(event: e)),
+          ],
+
+          if (billEvents.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'BILLS PAID',
+              style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
+            ),
+            const SizedBox(height: 8),
+            ...billEvents.map((e) => _BillEventRow(event: e)),
+          ],
+
+          if (hasAdvice) ...[
+            const SizedBox(height: 20),
+            const Text(
+              'MONTH-END NOTES',
+              style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
+            ),
+            const SizedBox(height: 8),
+            ...data.monthEndAdvice.map(
+              (advice) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _amber.withOpacity(.09),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    advice,
+                    style: const TextStyle(
+                      color: _title,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          if (incomeEvents.isEmpty && billEvents.isEmpty && !hasAdvice) ...[
+            const SizedBox(height: 24),
+            const Center(
+              child: Text(
+                'No activity yet this month.\nIncome drops will appear here.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _body, fontWeight: FontWeight.w700, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _showBasicNeedsConfigSheet(
   BuildContext context,
   AppState state,
 ) {
@@ -1296,41 +1507,53 @@ Future<void> _showIncomeFloorSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _IncomeFloorSheet(state: state),
+    builder: (_) => _BasicNeedsConfigSheet(state: state),
   );
 }
 
-class _IncomeFloorSheet extends StatefulWidget {
-  const _IncomeFloorSheet({required this.state});
+class _BasicNeedsConfigSheet extends StatefulWidget {
+  const _BasicNeedsConfigSheet({required this.state});
 
   final AppState state;
 
   @override
-  State<_IncomeFloorSheet> createState() => _IncomeFloorSheetState();
+  State<_BasicNeedsConfigSheet> createState() => _BasicNeedsConfigSheetState();
 }
 
-class _IncomeFloorSheetState extends State<_IncomeFloorSheet> {
-  late final TextEditingController _amount = TextEditingController(
-    text: widget.state.irregularIncomeFloor > 0
-        ? widget.state.irregularIncomeFloor.toStringAsFixed(0)
-        : '',
-  );
+class _BasicNeedsConfigSheetState extends State<_BasicNeedsConfigSheet> {
+  late final TextEditingController _target;
+  late double _needsPercent;
+  late double _bufferPercent;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.state;
+    _target = TextEditingController(
+      text: s.basicNeedsMonthlyTarget > 0
+          ? s.basicNeedsMonthlyTarget.toStringAsFixed(0)
+          : '',
+    );
+    _needsPercent = s.basicNeedsAllocationPercent;
+    _bufferPercent = s.bufferAllocationPercent;
+  }
 
   @override
   void dispose() {
-    _amount.dispose();
+    _target.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final totalPct = _needsPercent + _bufferPercent;
     return _GoalSheetFrame(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Set your income floor',
+            'Basic Needs setup',
             style: GoogleFonts.fredoka(
               color: _title,
               fontSize: 24,
@@ -1339,24 +1562,46 @@ class _IncomeFloorSheetState extends State<_IncomeFloorSheet> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Use the minimum monthly income your fixed plan should safely rely on—not your best or average month.',
-            style: TextStyle(
-              color: _body,
-              fontWeight: FontWeight.w700,
-              height: 1.35,
-            ),
+            'Set your monthly basic needs cost and how much of each income drop goes to each bucket.',
+            style: TextStyle(color: _body, fontWeight: FontWeight.w700, height: 1.35),
           ),
           const SizedBox(height: 14),
           TextFormField(
-            controller: _amount,
+            controller: _target,
             autofocus: true,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: inputDecoration('Monthly income floor'),
+            decoration: inputDecoration('Monthly basic needs amount (food, transport, bills)'),
+          ),
+          const SizedBox(height: 18),
+          _PercentSlider(
+            label: 'Needs allocation',
+            sublabel: '${(_needsPercent * 100).round()}% of each income drop → Basic Needs',
+            value: _needsPercent,
+            color: _brand,
+            onChanged: (v) => setState(() => _needsPercent = v),
+          ),
+          const SizedBox(height: 10),
+          _PercentSlider(
+            label: 'Buffer allocation',
+            sublabel: '${(_bufferPercent * 100).round()}% of each income drop → Buffer',
+            value: _bufferPercent,
+            color: _purple,
+            onChanged: (v) => setState(() => _bufferPercent = v),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Total allocated per income drop: ${(totalPct * 100).round()}%',
+            style: TextStyle(
+              color: totalPct > 1.0 ? _red : _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 18),
           PrimaryButton(
-            label: 'Save income floor',
+            label: 'Save',
             icon: Icons.check_rounded,
+            enabled: totalPct <= 1.0,
             onPressed: _save,
           ),
         ],
@@ -1365,82 +1610,63 @@ class _IncomeFloorSheetState extends State<_IncomeFloorSheet> {
   }
 
   Future<void> _save() async {
-    final amount = _parseMoney(_amount.text);
+    final amount = _parseMoney(_target.text);
     if (amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid income floor.')),
+        const SnackBar(content: Text('Enter a valid monthly basic needs amount.')),
       );
       return;
     }
-    widget.state.setIrregularIncomeFloor(amount);
+    widget.state.setBasicNeedsConfig(
+      monthlyTarget: amount,
+      needsPercent: _needsPercent,
+      bufferPercent: _bufferPercent,
+    );
     await widget.state.saveProfile();
     if (mounted) Navigator.pop(context);
   }
 }
 
-Future<void> _showPlanAdjustmentSheet(
-  BuildContext context,
-  AppState state,
-  _IrregularIncomeEvent event,
-) {
-  final actions = event.isSurplus
-      ? const [
-          'Route surplus to income buffer',
-          'Lower this month’s spending cap',
-          'Keep surplus available in wallet',
-        ]
-      : const [
-          'Use income buffer for the gap',
-          'Reduce variable spending cap',
-          'Make no adjustment yet',
-        ];
-  return showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (sheetContext) => _GoalSheetFrame(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            event.isSurplus ? 'Route this surplus' : 'Respond to the shortfall',
-            style: GoogleFonts.fredoka(
-              color: _title,
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'This records the Plan Adjustment Action used by the next integration stage.',
-            style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 14),
-          ...actions.map(
-            (action) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.adjust_rounded, color: _purple),
-              title: Text(
-                action,
-                style: const TextStyle(
-                  color: _title,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              onTap: () async {
-                state.recordPlanAdjustment(
-                  transactionId: event.transaction.transactionId,
-                  action: action,
-                );
-                await state.saveProfile();
-                if (sheetContext.mounted) Navigator.pop(sheetContext);
-              },
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
+class _PercentSlider extends StatelessWidget {
+  const _PercentSlider({
+    required this.label,
+    required this.sublabel,
+    required this.value,
+    required this.color,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String sublabel;
+  final double value;
+  final Color color;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          sublabel,
+          style: const TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+        Slider(
+          min: 0,
+          max: 1,
+          divisions: 20,
+          value: value,
+          activeColor: color,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
 }
 
 Future<void> _showAnxietyCheckInSheet(
@@ -1590,116 +1816,243 @@ class _GoalCycleStep {
   final String? note;
 }
 
-class _IrregularIncomeEvent {
-  const _IrregularIncomeEvent({
+class _BucketEvent {
+  const _BucketEvent({
     required this.transaction,
-    required this.runningIncome,
-    required this.floor,
+    required this.isIncome,
+    required this.needsAdded,
+    required this.bufferAdded,
+    required this.needsBalance,
+    required this.bufferBalance,
+    this.note,
   });
 
   final FakeMayaTransaction transaction;
-  final double runningIncome;
-  final double floor;
-
-  bool get hasFloor => floor > 0;
-  bool get isSurplus => hasFloor && runningIncome >= floor;
-  double get difference => hasFloor ? (runningIncome - floor).abs() : 0;
+  final bool isIncome;
+  final double needsAdded;
+  final double bufferAdded;
+  final double needsBalance;
+  final double bufferBalance;
+  final String? note;
 }
 
 class _IrregularIncomeCycleData {
   const _IrregularIncomeCycleData({
-    required this.floor,
-    required this.incomeTotal,
+    required this.needsTarget,
+    required this.needsPercent,
+    required this.bufferPercent,
+    required this.needsBalance,
     required this.bufferBalance,
+    required this.case2Occurred,
     required this.events,
     required this.expenseCount,
     required this.labeledExpenseCount,
     required this.expenseTotal,
+    required this.monthEndAdvice,
   });
 
-  final double floor;
-  final double incomeTotal;
+  final double needsTarget;
+  final double needsPercent;
+  final double bufferPercent;
+  final double needsBalance;
   final double bufferBalance;
-  final List<_IrregularIncomeEvent> events;
+  final bool case2Occurred;
+  final List<_BucketEvent> events;
   final int expenseCount;
   final int labeledExpenseCount;
   final double expenseTotal;
+  final List<String> monthEndAdvice;
 
-  bool get hasFloor => floor > 0;
-  bool get isShortfall => hasFloor && incomeTotal < floor;
-  double get difference => hasFloor ? (incomeTotal - floor).abs() : 0;
+  bool get hasFloor => needsTarget > 0;
+  double get floor => needsTarget;
+  bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
+  bool get bufferFull => needsTarget > 0 && bufferBalance >= needsTarget;
+  bool get isShortfall => hasFloor && needsBalance < needsTarget;
+  double get difference => hasFloor ? (needsBalance - needsTarget).abs() : 0;
+  double get incomeTotal => events
+      .where((e) => e.isIncome)
+      .fold(0.0, (s, e) => s + e.transaction.amount);
+
+  String get activeCase {
+    if (case2Occurred) return 'Case 2';
+    if (needsFull) return 'Case 1';
+    return 'none';
+  }
 }
 
 _IrregularIncomeCycleData _irregularIncomeCycleFor(AppState state) {
-  final floor = state.irregularIncomeFloor;
+  final needsTarget = state.basicNeedsMonthlyTarget;
+  final needsPercent = state.basicNeedsAllocationPercent;
+  final bufferPercent = state.bufferAllocationPercent;
+  // ponytail: buffer "full" threshold = one month of basic needs; raise when user sets a separate buffer target
+  final bufferTarget = needsTarget;
+
   final transactions =
       state.fakeMayaLink?.summary.transactions ?? <FakeMayaTransaction>[];
   final now = DateTime.now();
-  final currentMonthIncome = transactions.where((transaction) {
-    final date = transaction.createdAt?.toLocal();
-    return transaction.title.toLowerCase().contains('cash in') &&
-        transaction.amount > 0 &&
-        (date == null || (date.year == now.year && date.month == now.month));
+
+  final monthTxns = transactions.where((t) {
+    final date = t.createdAt?.toLocal();
+    return date == null || (date.year == now.year && date.month == now.month);
   }).toList()
-    ..sort((a, b) => (a.createdAt ?? DateTime(1970))
-        .compareTo(b.createdAt ?? DateTime(1970)));
+    ..sort((a, b) =>
+        (a.createdAt ?? DateTime(1970)).compareTo(b.createdAt ?? DateTime(1970)));
 
-  var runningIncome = 0.0;
-  final events = <_IrregularIncomeEvent>[];
-  for (final transaction in currentMonthIncome) {
-    runningIncome += transaction.amount;
-    events.add(
-      _IrregularIncomeEvent(
-        transaction: transaction,
-        runningIncome: runningIncome,
-        floor: floor,
-      ),
-    );
-  }
-
-  final monthlyIncome = <String, double>{};
-  for (final transaction in transactions) {
-    if (!transaction.title.toLowerCase().contains('cash in') ||
-        transaction.amount <= 0) {
-      continue;
-    }
-    final date = transaction.createdAt?.toLocal() ?? now;
-    final key = '${date.year}-${date.month.toString().padLeft(2, '0')}';
-    monthlyIncome.update(
-      key,
-      (value) => value + transaction.amount,
-      ifAbsent: () => transaction.amount,
-    );
-  }
+  var needsBalance = 0.0;
   var bufferBalance = 0.0;
-  final monthKeys = monthlyIncome.keys.toList()..sort();
-  for (final key in monthKeys) {
-    bufferBalance = math.max(0, bufferBalance + monthlyIncome[key]! - floor);
+  var case2Occurred = false;
+  final events = <_BucketEvent>[];
+
+  for (final t in monthTxns) {
+    final title = t.title.toLowerCase();
+    final isIncome = t.amount > 0 && title.contains('cash in');
+    final isBill = t.amount < 0 &&
+        (title.contains('send money') || title.contains('sent money')) &&
+        _isBasicNeedsCategory(t.category ?? '');
+
+    if (isIncome) {
+      final needsAdd = (needsTarget > 0 && needsBalance < needsTarget)
+          ? math.min(t.amount * needsPercent, needsTarget - needsBalance)
+          : 0.0;
+      final bufferAdd = t.amount * bufferPercent;
+      needsBalance += needsAdd;
+      bufferBalance += bufferAdd;
+
+      // Case 2: buffer overflowed while needs bucket still not full
+      if (needsTarget > 0 &&
+          bufferTarget > 0 &&
+          bufferBalance >= bufferTarget &&
+          needsBalance < needsTarget) {
+        final topUp = math.min(
+          bufferBalance - bufferTarget,
+          needsTarget - needsBalance,
+        );
+        if (topUp > 0) {
+          needsBalance += topUp;
+          bufferBalance -= topUp;
+          case2Occurred = true;
+        }
+      }
+
+      events.add(_BucketEvent(
+        transaction: t,
+        isIncome: true,
+        needsAdded: needsAdd,
+        bufferAdded: bufferAdd,
+        needsBalance: needsBalance,
+        bufferBalance: bufferBalance,
+      ));
+    } else if (isBill) {
+      final billAmount = t.amount.abs();
+      final String note;
+      if (needsBalance >= billAmount) {
+        needsBalance -= billAmount;
+        note = 'Covered by Basic Needs bucket';
+      } else if (needsBalance + bufferBalance >= billAmount) {
+        final fromBuffer = billAmount - needsBalance;
+        needsBalance = 0;
+        bufferBalance -= fromBuffer;
+        note = 'Needs + ₱${fromBuffer.toStringAsFixed(0)} from Buffer. Allocation resumed.';
+      } else {
+        final remaining = billAmount - needsBalance;
+        needsBalance = 0;
+        bufferBalance = math.max(0, bufferBalance - remaining);
+        note = 'Insufficient funds in both buckets for this bill.';
+      }
+      events.add(_BucketEvent(
+        transaction: t,
+        isIncome: false,
+        needsAdded: 0,
+        bufferAdded: 0,
+        needsBalance: needsBalance,
+        bufferBalance: bufferBalance,
+        note: note,
+      ));
+    }
   }
 
-  final expenses = transactions.where((transaction) {
-    final title = transaction.title.toLowerCase();
-    final date = transaction.createdAt?.toLocal();
-    return transaction.amount < 0 &&
-        (title.contains('send money') || title.contains('sent money')) &&
-        (date == null || (date.year == now.year && date.month == now.month));
+  final expenses = monthTxns.where((t) {
+    final title = t.title.toLowerCase();
+    return t.amount < 0 &&
+        (title.contains('send money') || title.contains('sent money'));
   }).toList();
-  final labeledExpenses = expenses.where(
-    (transaction) => transaction.isLabeled && !transaction.excludedFromInsights,
-  );
+  final labeledExpenses =
+      expenses.where((t) => t.isLabeled && !t.excludedFromInsights);
 
   return _IrregularIncomeCycleData(
-    floor: floor,
-    incomeTotal: runningIncome,
+    needsTarget: needsTarget,
+    needsPercent: needsPercent,
+    bufferPercent: bufferPercent,
+    needsBalance: needsBalance,
     bufferBalance: bufferBalance,
+    case2Occurred: case2Occurred,
     events: events.reversed.toList(),
     expenseCount: expenses.length,
     labeledExpenseCount: labeledExpenses.length,
-    expenseTotal: labeledExpenses.fold(
-      0.0,
-      (sum, transaction) => sum + transaction.amount.abs(),
+    expenseTotal: labeledExpenses.fold(0.0, (s, t) => s + t.amount.abs()),
+    monthEndAdvice: _buildMonthEndAdvice(
+      needsTarget,
+      needsBalance,
+      bufferBalance,
+      transactions,
+      now,
     ),
   );
+}
+
+bool _isBasicNeedsCategory(String category) {
+  final cat = category.trim().toLowerCase();
+  return cat == 'food & drink' ||
+      cat == 'food' ||
+      cat == 'transport' ||
+      cat == 'bills' ||
+      cat == 'bills & utilities' ||
+      cat == 'groceries' ||
+      cat == 'housing';
+}
+
+List<String> _buildMonthEndAdvice(
+  double needsTarget,
+  double needsBalance,
+  double bufferBalance,
+  List<FakeMayaTransaction> transactions,
+  DateTime now,
+) {
+  if (needsTarget <= 0) return const [];
+  final advice = <String>[];
+
+  double billsInMonth(int year, int month) =>
+      transactions
+          .where((t) {
+            final date = t.createdAt?.toLocal();
+            return t.amount < 0 &&
+                _isBasicNeedsCategory(t.category ?? '') &&
+                date != null &&
+                date.year == year &&
+                date.month == month;
+          })
+          .fold(0.0, (s, t) => s + t.amount.abs());
+
+  final thisMonthBills = billsInMonth(now.year, now.month);
+  final prev = DateTime(now.year, now.month - 1);
+  final lastMonthBills = billsInMonth(prev.year, prev.month);
+
+  if (lastMonthBills > 0 && thisMonthBills > lastMonthBills * 1.10) {
+    advice.add(
+      'Bills up ${money(thisMonthBills - lastMonthBills)} vs last month — consider raising your needs allocation %.',
+    );
+  }
+  if (needsBalance < needsTarget * 0.5) {
+    advice.add(
+      'Needs bucket is less than half full. Look for additional income streams or raise the allocation %.',
+    );
+  }
+  if (bufferBalance <= 0) {
+    advice.add(
+      'Buffer is empty. Once basic needs are covered, focus on building the buffer for bill surprises.',
+    );
+  }
+  return advice;
 }
 
 _GoalCycle _goalCycleFor(AppState state) {
@@ -1763,10 +2116,10 @@ List<_GoalBucket> _goalBucketsFor(AppState state) {
         : _emojiForGoal(goal),
     name: goal,
     role: irregularIncome != null
-        ? 'Cash-flow equalizer · held within FakeMaya Wallet'
+        ? 'Basic Needs · Buffer: ${money(irregularIncome.bufferBalance)}'
         : '${_layerNameFor(layer)} · $accountName',
-    current: irregularIncome?.bufferBalance ?? current,
-    target: irregularIncome?.floor ?? math.max(accountTarget, current),
+    current: irregularIncome?.needsBalance ?? current,
+    target: irregularIncome?.needsTarget ?? math.max(accountTarget, current),
     monthly: layer == 1 ? 0 : cycle.allocation,
     color: _colorForLayer(layer),
     linked: linked,
@@ -1791,46 +2144,39 @@ List<_GoalCycleStep> _cycleStepsForGoal(AppState state) {
   final rhythm = state.checkInRhythm;
   if (goal == 'Irregular Income Buffer') {
     final data = _irregularIncomeCycleFor(state);
-    final responses = data.events
-        .where((event) => state.planAdjustmentActions
-            .containsKey(event.transaction.transactionId))
-        .length;
+    final incomeCount = data.events.where((e) => e.isIncome).length;
     return [
       _GoalCycleStep(
         icon: Icons.call_received_rounded,
-        title: 'Auto-capture income events',
-        body:
-            '${data.events.length} Cash In ${data.events.length == 1 ? 'event' : 'events'} captured with amount, source, and timestamp.',
+        title: 'Income captured',
+        body: '$incomeCount income ${incomeCount == 1 ? 'event' : 'events'} this month — '
+            'allocating ${(data.needsPercent * 100).round()}% to needs, '
+            '${(data.bufferPercent * 100).round()}% to buffer.',
         color: _brand,
-        note: data.events.isEmpty
-            ? 'No manual income logging is required.'
-            : null,
+        note: data.events.isEmpty ? 'Waiting for a Cash In transaction.' : null,
       ),
       _GoalCycleStep(
-        icon: Icons.tune_rounded,
-        title: 'Run ACT6 after each credit',
-        body: data.hasFloor
-            ? '$responses of ${data.events.length} budget adjustment responses recorded against the ${money(data.floor)} floor.'
-            : 'Set an income floor before ACT6 can classify credits as surplus or shortfall.',
-        color: data.hasFloor &&
-                responses == data.events.length &&
-                data.events.isNotEmpty
-            ? _brand
-            : _amber,
-        note: !data.hasFloor
-            ? 'The income floor is editable from the collection trace.'
-            : data.isShortfall
-                ? 'Current result: ${money(data.difference)} shortfall.'
-                : 'Current result: ${money(data.difference)} surplus.',
+        icon: Icons.water_drop_rounded,
+        title: data.activeCase == 'none'
+            ? 'Both buckets filling'
+            : 'Case detected: ${data.activeCase}',
+        body: data.activeCase == 'Case 1'
+            ? 'Basic Needs is full — pausing needs allocation, income now goes to Buffer.'
+            : data.activeCase == 'Case 2'
+                ? 'Buffer filled first — moved surplus into Basic Needs to top it up.'
+                : !data.hasFloor
+                    ? 'Set up allocation to start the two-bucket system.'
+                    : 'Needs: ${money(data.needsBalance)} / ${money(data.needsTarget)} · '
+                        'Buffer: ${money(data.bufferBalance)}',
+        color: data.activeCase == 'none' ? _purple : _amber,
       ),
       _GoalCycleStep(
         icon: Icons.fact_check_rounded,
-        title: 'Complete the supporting feed',
-        body:
-            '${data.labeledExpenseCount}/${data.expenseCount} expenses categorized. Weekly anxiety check-in ${state.hasCurrentWeekAnxietyCheckIn ? 'recorded' : 'still due'}.',
+        title: 'Complete the expense feed',
+        body: '${data.labeledExpenseCount}/${data.expenseCount} expenses categorized. '
+            'Weekly check-in ${state.hasCurrentWeekAnxietyCheckIn ? 'recorded' : 'still due'}.',
         color: state.hasCurrentWeekAnxietyCheckIn ? _purple : _red,
-        note:
-            'Cash expenses remain a manual fallback when FakeMaya cannot detect them.',
+        note: 'Bills labeled as food, transport, or bills are tracked against your needs bucket.',
       ),
     ];
   }
@@ -5322,7 +5668,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               style: TextStyle(color: _title, fontWeight: FontWeight.w800),
             ),
             subtitle: const Text(
-              'Shellby won’t use this transaction when learning patterns.',
+              "Shellby won't use this transaction when learning patterns.",
               style: TextStyle(color: _body, fontSize: 12),
             ),
             onChanged: (value) => setState(() => _excluded = value),
