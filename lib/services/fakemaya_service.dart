@@ -1,3 +1,5 @@
+// CHANGELOG (two-jar system):
+// - Added withdrawFromSavings (mirrors allocateFromWallet) for emergency shortfall path.
 part of '../main.dart';
 
 enum FakeMayaGoalAccount { savings, timeDeposit, personalGoal }
@@ -154,6 +156,59 @@ class FakeMayaService {
       link: link,
       amount: amount,
       account: FakeMayaGoalAccount.personalGoal,
+    );
+  }
+
+  static Future<FakeMayaSession> withdrawFromSavings({
+    required FakeMayaLink link,
+    required double amount,
+  }) async {
+    if (amount <= 0) {
+      throw const FakeMayaException('Enter a valid withdrawal amount.');
+    }
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    if (amount > summary.savings) {
+      throw const FakeMayaException('Not enough in FakeMaya savings.');
+    }
+    final transaction = FakeMayaTransaction(
+      title: 'Emergency withdrawal',
+      detail: 'From savings',
+      age: 'Just now',
+      amountText: '- ${_formatPeso(amount)}',
+      createdAt: DateTime.now(),
+    );
+    final nextSummary = summary.copyWith(
+      savings: summary.savings - amount,
+      wallet: summary.wallet + amount,
+      transactions: [transaction, ...summary.transactions],
+      updatedAt: DateTime.now(),
+    );
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': nextSummary.wallet,
+        'savings': nextSummary.savings,
+        'time_deposit': nextSummary.timeDeposit,
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
     );
   }
 

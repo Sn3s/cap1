@@ -4121,9 +4121,9 @@ List<({IconData icon, String title, String body})> _planStepsForGoal(
 
 String _targetRuleForGoal(AppState state) {
   if (state.selectedGoal == 'Irregular Income Buffer') {
-    return state.irregularIncomeFloor > 0
-        ? 'Compare each Cash In against the ${money(state.irregularIncomeFloor)} monthly floor'
-        : 'Set a monthly income floor in the Goals collection trace';
+    return state.needsTarget > 0
+        ? 'Fill ${money(state.needsTarget)} Needs first, then ${100 - state.needsPercent}% of each peso builds Buffer'
+        : 'Set your monthly survival amount on the Goals page to activate the two-jar system';
   }
   if (state.monthlySalary > 0) {
     return 'Allocate 10% of monthly salary';
@@ -4695,3 +4695,4 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
     );
   }
 }
+

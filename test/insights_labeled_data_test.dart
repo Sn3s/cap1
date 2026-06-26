@@ -23,11 +23,19 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('₱ 1,000.00'), findsOneWidget);
+    expect(find.text('₱ 1,000.00'), findsWidgets);
+
+    await tester.tap(find.text('Pyramid'));
+    await tester.pump();
+
     expect(find.text('Cash Flow & Basic Needs'), findsOneWidget);
     expect(find.text('Financial Safety'), findsOneWidget);
     expect(find.text('Accumulating Wealth'), findsOneWidget);
     expect(find.text('Financial Freedom'), findsOneWidget);
+
+    await tester.tap(find.text('Spending'));
+    await tester.pump();
+
     expect(find.text('Food & drink'), findsOneWidget);
     expect(find.text('Health'), findsOneWidget);
     expect(find.text('Investment'), findsOneWidget);
@@ -35,9 +43,74 @@ void main() {
     expect(find.text('Transport'), findsNothing);
     expect(find.text('Transfer'), findsNothing);
   });
+
+  testWidgets('insights show every FakeMaya account without duplicates',
+      (tester) async {
+    final now = DateTime.now();
+    final link = _linkWithTransactions(
+      now,
+      wallet: 1000,
+      savings: 2000,
+      timeDeposit: 3000,
+      goalBalance: 4000,
+    );
+    final state = AppState()
+      ..fakeMayaLink = link
+      ..assets.addAll([
+        MoneyItem('FakeMaya Wallet', 'Linked from FakeMaya', 1000),
+        MoneyItem('FakeMaya Savings', 'Linked from FakeMaya', 2000),
+      ]);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('FakeMaya Wallet'), findsOneWidget);
+    expect(find.text('FakeMaya Savings'), findsOneWidget);
+    expect(find.text('FakeMaya Time Deposit'), findsOneWidget);
+    expect(find.text('FakeMaya Goal'), findsOneWidget);
+    expect(find.text('Maya Wallet'), findsNothing);
+    expect(find.text('Maya Savings'), findsNothing);
+    expect(find.text('₱ 10,000.00'), findsWidgets);
+    expect(find.text('₱ 20,000.00'), findsNothing);
+  });
+
+  testWidgets('insights show existing FakeMaya accounts with zero balances',
+      (tester) async {
+    final now = DateTime.now();
+    final state = AppState()
+      ..fakeMayaLink = _linkWithTransactions(now, wallet: 1000);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Accounts'));
+    await tester.pump();
+
+    expect(find.text('FakeMaya Wallet'), findsOneWidget);
+    expect(find.text('FakeMaya Savings'), findsOneWidget);
+    expect(find.text('FakeMaya Time Deposit'), findsOneWidget);
+    expect(find.text('FakeMaya Goal'), findsOneWidget);
+    expect(find.text('₱ 0.00'), findsWidgets);
+  });
 }
 
-FakeMayaLink _linkWithTransactions(DateTime now) {
+FakeMayaLink _linkWithTransactions(
+  DateTime now, {
+  double wallet = 1000,
+  double savings = 0,
+  double timeDeposit = 0,
+  double goalBalance = 0,
+}) {
   FakeMayaTransaction expense(
     String id,
     String category,
@@ -84,12 +157,12 @@ FakeMayaLink _linkWithTransactions(DateTime now) {
     refreshToken: '',
     expiresAt: null,
     summary: FakeMayaAccountSummary(
-      wallet: 1000,
-      savings: 0,
-      timeDeposit: 0,
+      wallet: wallet,
+      savings: savings,
+      timeDeposit: timeDeposit,
       goalName: 'Goal',
       goalEmoji: '🎯',
-      goalBalance: 0,
+      goalBalance: goalBalance,
       goalTarget: 10000,
       creditLimit: 0,
       creditUsed: 0,
