@@ -392,11 +392,37 @@ class GuidedOption {
   String get displayText => detail == null ? text : '$text $detail';
 }
 
+// D1 goals (from D1.csv)
+class D1Goal {
+  const D1Goal({required this.id, required this.title, required this.description});
+  final String id;
+  final String title;
+  final String description;
+}
+
+// D2 action configurable fields
+class ActionField {
+  const ActionField({required this.key, required this.label, required this.hint, this.isPercent = false});
+  final String key;
+  final String label;
+  final String hint;
+  final bool isPercent;
+}
+
+// D2 action (from D2.csv)
+class D2Action {
+  const D2Action({required this.id, required this.text, this.fields = const []});
+  final String id;
+  final String text;
+  final List<ActionField> fields;
+  bool get hasFields => fields.isNotEmpty;
+}
+
 const _goalBranches = [
   GoalBranch(
     layer: 'Cash Flow & Basic Needs',
     layerDescription:
-        'Get clear on income, spending, bills, and what has to be covered each month.',
+        'Feel confident that there is enough money available to cover day-to-day expenses and essential needs.',
     firstQuestion: 'What is your biggest struggle with day-to-day spending?',
     icon: Icons.account_balance_wallet_rounded,
     defaultGoalTitle: 'Cash Flow Stability Plan',
@@ -446,7 +472,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Financial Safety',
     layerDescription:
-        'Build protection against surprise expenses, bill panic, and dipping into emergency money.',
+        'Avoid financial emergencies from disrupting daily life and long-term plans.',
     firstQuestion: 'What stops you from keeping an emergency fund?',
     icon: Icons.shield_rounded,
     defaultGoalTitle: 'Emergency Cushion',
@@ -495,7 +521,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Accumulating Wealth',
     layerDescription:
-        'Move from staying afloat to reducing debt, saving consistently, and starting long-term growth.',
+        'Build wealth steadily and make progress toward long-term financial growth.',
     firstQuestion: 'Where should the app focus to help grow your wealth?',
     icon: Icons.trending_up_rounded,
     defaultGoalTitle: 'Net Worth Growth Plan',
@@ -543,7 +569,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Financial Freedom',
     layerDescription:
-        'Plan future milestones, shared goals, and funded experiences without weakening your foundation.',
+        'Have freedom to afford desired lifestyles, experiences, and future aspirations.',
     firstQuestion: 'How do you want to save for your big life milestones?',
     icon: Icons.flag_rounded,
     defaultGoalTitle: 'Future Lifestyle Fund',
@@ -591,6 +617,66 @@ const _goalBranches = [
   ),
 ];
 
+// D1: goals G1-G8
+const _d1Goals = <D1Goal>[
+  D1Goal(id: 'G1', title: 'Maintain Available Cash', description: 'Have and maintain enough available cash to cover expenses without financial stress.'),
+  D1Goal(id: 'G2', title: 'Stable Cash Flow', description: 'Maintain a stable cash flow even during months with irregular or changing income.'),
+  D1Goal(id: 'G3', title: 'Build Emergency Fund', description: 'Build an emergency fund that can cover unexpected expenses.'),
+  D1Goal(id: 'G4', title: 'Pay Bills on Time', description: 'Keep all bills, payments, and financial obligations paid on time to avoid penalties and disruptions.'),
+  D1Goal(id: 'G5', title: 'Grow Investments', description: 'Have a growing investment portfolio that steadily builds wealth over time.'),
+  D1Goal(id: 'G6', title: 'Reduce Debt', description: 'Have total debt that steadily decreases over time.'),
+  D1Goal(id: 'G7', title: 'Milestone Savings', description: 'Have dedicated savings for specific milestones and experiences, each with a clear target amount and timeline.'),
+  D1Goal(id: 'G8', title: 'Lifestyle Fund', description: 'Consistently have money set aside for personal lifestyle activities, hobbies, and everyday enjoyment.'),
+];
+
+// D1: motivation → goal IDs matrix
+const _motivationGoalIds = <String, List<String>>{
+  'Cash Flow & Basic Needs': ['G1', 'G2', 'G4'],
+  'Financial Safety': ['G1', 'G3', 'G4'],
+  'Accumulating Wealth': ['G1', 'G5', 'G6'],
+  'Financial Freedom': ['G1', 'G7', 'G8'],
+};
+
+D1Goal _d1GoalById(String id) =>
+    _d1Goals.firstWhere((g) => g.id == id, orElse: () => _d1Goals.first);
+
+// D2: actions A1-A18
+const _d2Actions = <String, D2Action>{
+  'A1': D2Action(id: 'A1', text: 'Set aside X% of each income received into an Essential Expenses Fund.', fields: [ActionField(key: 'pct', label: 'Percentage of income', hint: 'e.g. 50', isPercent: true)]),
+  'A2': D2Action(id: 'A2', text: 'Spend no more than ₱X on discretionary purchases each month.', fields: [ActionField(key: 'amt', label: 'Monthly limit (₱)', hint: 'e.g. 5000')]),
+  'A3': D2Action(id: 'A3', text: 'Limit spending in selected categories to a maximum of ₱X per month.', fields: [ActionField(key: 'amt', label: 'Monthly limit per category (₱)', hint: 'e.g. 3000')]),
+  'A4': D2Action(id: 'A4', text: 'Set aside ₱X from each income received for upcoming bill and payment obligations.', fields: [ActionField(key: 'amt', label: 'Amount per income (₱)', hint: 'e.g. 2000')]),
+  'A5': D2Action(id: 'A5', text: 'Pay each scheduled bill or financial obligation at least X days before its due date.', fields: [ActionField(key: 'days', label: 'Days before due date', hint: 'e.g. 3')]),
+  'A6': D2Action(id: 'A6', text: 'Distribute incoming income across separate spending and savings accounts immediately upon receipt.'),
+  'A7': D2Action(id: 'A7', text: 'Allocate X% of unexpected income (bonuses, gifts, side income) toward essential expense reserves.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 20', isPercent: true)]),
+  'A8': D2Action(id: 'A8', text: 'Transfer X% of every income received into an Emergency Fund.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)]),
+  'A9': D2Action(id: 'A9', text: 'Deposit at least ₱X into the Emergency Fund every X days/weeks/months.', fields: [ActionField(key: 'amt', label: 'Minimum deposit (₱)', hint: 'e.g. 1000'), ActionField(key: 'freq', label: 'Frequency', hint: 'e.g. monthly')]),
+  'A10': D2Action(id: 'A10', text: 'Replenish withdrawn Emergency Fund amounts within X days after receiving income.', fields: [ActionField(key: 'days', label: 'Days to replenish', hint: 'e.g. 7')]),
+  'A11': D2Action(id: 'A11', text: 'Pay an additional X% above the minimum required debt payment each payment cycle.', fields: [ActionField(key: 'pct', label: 'Extra payment percentage', hint: 'e.g. 10', isPercent: true)]),
+  'A12': D2Action(id: 'A12', text: 'Invest X% of every income received into selected investment accounts.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)]),
+  'A13': D2Action(id: 'A13', text: 'Apply X% of unexpected income (bonuses, tax refunds, windfalls) toward outstanding debt or investment accounts.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 30', isPercent: true)]),
+  'A14': D2Action(id: 'A14', text: 'Transfer X% of unspent monthly funds toward debt repayment or investments at the end of each month.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 50', isPercent: true)]),
+  'A15': D2Action(id: 'A15', text: 'Increase investment contributions by ₱X upon receiving an income raise or additional income source.', fields: [ActionField(key: 'amt', label: 'Contribution increase (₱)', hint: 'e.g. 500')]),
+  'A16': D2Action(id: 'A16', text: 'Contribute ₱X or X% of income to each goal-based savings fund every payday.', fields: [ActionField(key: 'amt', label: 'Fixed amount (₱)', hint: 'e.g. 2000'), ActionField(key: 'pct', label: 'Or percentage (%)', hint: 'e.g. 10', isPercent: true)]),
+  'A17': D2Action(id: 'A17', text: 'Redirect X% of savings contributions toward the personal lifestyle fund from a lower-priority savings goal.', fields: [ActionField(key: 'pct', label: 'Percentage to redirect', hint: 'e.g. 20', isPercent: true)]),
+  'A18': D2Action(id: 'A18', text: 'Temporarily redirect X% of goal savings contributions toward accelerated debt repayment.', fields: [ActionField(key: 'pct', label: 'Percentage to redirect', hint: 'e.g. 25', isPercent: true)]),
+};
+
+// D2: goal → action IDs matrix
+const _goalActionIds = <String, List<String>>{
+  'G1': ['A1', 'A4', 'A6', 'A8', 'A9'],
+  'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
+  'G3': ['A7', 'A8', 'A9', 'A10'],
+  'G4': ['A1', 'A2', 'A4', 'A5', 'A10'],
+  'G5': ['A11', 'A12', 'A13', 'A14', 'A15'],
+  'G6': ['A11', 'A13', 'A14', 'A18'],
+  'G7': ['A12', 'A15', 'A16', 'A17', 'A18'],
+  'G8': ['A2', 'A3', 'A16', 'A17'],
+};
+
+
+// Each pathway has 3 steps: Surface (0), Situations/Reminders (1), Challenges (2).
+// Goal Focus and Action Selection are handled dynamically using D1/D2 data.
 const _guidedPathways = [
   GuidedPathway(
     layer: 'Cash Flow & Basic Needs',
@@ -617,65 +703,6 @@ const _guidedPathways = [
             text:
                 'I feel thrown off when bills, income, or timing do not line up.',
             keywords: ['bills', 'income', 'timing', 'thrown off'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Select Focus',
-        question: 'What should your first cash-flow goal focus on?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Building a simple expense tracking routine.',
-            goalTitle: 'Expense Tracking Routine',
-            keywords: ['forget', 'track', 'momentum', 'routine', 'logging'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Tracking repeat spending triggers.',
-            goalTitle: 'Spending Trigger Tracker',
-            keywords: ['impulse', 'buy', 'payday', 'weekend', 'store'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Planning around unexpected bills or changing income cycles.',
-            goalTitle: 'Irregular Income Buffer',
-            keywords: ['unexpected', 'bill', 'income', 'cycle', 'disrupt'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Timeframe',
-        question:
-            'How long would you like this tracking cycle to run before we review your budget progress?',
-        options: [
-          GuidedOption(label: 'A', text: '1 Month', detail: '30-day cycle'),
-          GuidedOption(label: 'B', text: '3 Months', detail: '90-day cycle'),
-          GuidedOption(label: 'C', text: '6 Months', detail: '180-day cycle'),
-        ],
-      ),
-      GuidedStep(
-        title: 'Difficulty Level',
-        question:
-            'How strictly do you want to cap your variable spending during this cycle?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Relaxed Pace',
-            detail: 'Keep spending under 90% of net income.',
-            keywords: ['relaxed', 'easy', '90'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Balanced Pace',
-            detail: 'Keep spending under 75% of net income.',
-            keywords: ['balanced', 'medium', '75'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'High Focus Pace',
-            detail: 'Keep spending under 50% of net income.',
-            keywords: ['strict', 'high', '50'],
           ),
         ],
       ),
@@ -753,65 +780,6 @@ const _guidedPathways = [
         ],
       ),
       GuidedStep(
-        title: 'Select Focus',
-        question: 'Where should your first financial-safety goal focus?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Protecting savings from regular expenses.',
-            goalTitle: 'Safety Shield Boundary',
-            keywords: ['dip', 'savings', 'regular', 'withdraw'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Preparing for upcoming bills with a due-date buffer.',
-            goalTitle: 'Bill Due-Date Buffer',
-            keywords: ['unexpected', 'expense', 'due', 'bill', 'buffer'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Setting money aside consistently.',
-            goalTitle: 'Payday Safety Sweep',
-            keywords: ['save', 'consistent', 'aside', 'payday'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Timeframe',
-        question:
-            'How long do you want to give yourself to hit your target emergency fund?',
-        options: [
-          GuidedOption(label: 'A', text: '3 Months'),
-          GuidedOption(label: 'B', text: '6 Months'),
-          GuidedOption(label: 'C', text: '1 Year'),
-        ],
-      ),
-      GuidedStep(
-        title: 'Difficulty Level',
-        question:
-            'How much of your incoming funds are you willing to set aside to build this cushion?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Relaxed Pace',
-            detail: 'Track a 5% savings contribution rule.',
-            keywords: ['relaxed', '5'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Balanced Pace',
-            detail: 'Track a 10% savings contribution rule.',
-            keywords: ['balanced', '10'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'High Focus Pace',
-            detail: 'Track a 20% savings contribution rule.',
-            keywords: ['high', '20'],
-          ),
-        ],
-      ),
-      GuidedStep(
         title: 'Situations',
         question: 'When is it easiest for you to lock money into savings?',
         multiSelect: true,
@@ -876,68 +844,6 @@ const _guidedPathways = [
             text:
                 'When more money comes in, it seems to disappear into more spending.',
             keywords: ['money', 'disappear', 'spending', 'income'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Select Focus',
-        question: 'Where should your first wealth-building goal focus?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Creating a clear debt payoff strategy.',
-            goalTitle: 'Debt Payoff Map',
-            keywords: ['debt', 'pay', 'loan', 'aggressive'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Completing a starter investing habit.',
-            goalTitle: 'Starter Investing Habit',
-            keywords: ['invest', 'setup', 'habit', 'contribution'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Preventing lifestyle creep when income increases.',
-            goalTitle: 'Lifestyle Creep Monitor',
-            keywords: ['income', 'raise', 'spend', 'creep'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Timeframe',
-        question:
-            'What is the timeframe for your first major wealth milestone?',
-        options: [
-          GuidedOption(label: 'A', text: '6 Months'),
-          GuidedOption(label: 'B', text: '1 Year'),
-          GuidedOption(label: 'C', text: '2 Years+'),
-        ],
-      ),
-      GuidedStep(
-        title: 'Difficulty Level',
-        question:
-            'What level of wealth optimization can you tolerate right now?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Conservative Pace',
-            detail:
-                'Pay off debt using minimum required amounts plus fixed extra cash.',
-            keywords: ['conservative', 'minimum', 'fixed'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Balanced Pace',
-            detail:
-                'Split extra cash 50/50 between debt payoff and investment accounts.',
-            keywords: ['balanced', 'split', '50'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Aggressive Pace',
-            detail:
-                'Push leftover monthly cash into growth assets or debt removal.',
-            keywords: ['aggressive', 'leftover', 'growth'],
           ),
         ],
       ),
@@ -1007,67 +913,6 @@ const _guidedPathways = [
             label: 'C',
             text: 'I spend on hobbies or travel without a clear funded bucket.',
             keywords: ['hobby', 'travel', 'bucket', 'spend'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Select Focus',
-        question: 'Where should your first lifestyle goal focus?',
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Balancing multiple future milestones.',
-            goalTitle: 'Milestone Bucket Plan',
-            keywords: ['multiple', 'milestone', 'balance', 'track'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Saving for one major milestone while covering bills.',
-            goalTitle: 'Future Lifestyle Fund',
-            keywords: ['single', 'major', 'milestone', 'bill'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Planning hobby or travel spending from a funded bucket.',
-            goalTitle: 'Planned Experience Fund',
-            keywords: ['hobby', 'travel', 'bucket', 'plan'],
-          ),
-        ],
-      ),
-      GuidedStep(
-        title: 'Timeframe',
-        question:
-            'When do you ideally want to complete or execute your next major lifestyle goal?',
-        options: [
-          GuidedOption(label: 'A', text: '1 to 3 Months'),
-          GuidedOption(label: 'B', text: '6 Months'),
-          GuidedOption(label: 'C', text: '1 Year'),
-        ],
-      ),
-      GuidedStep(
-        title: 'Difficulty Level',
-        question:
-            "How much room do you want to leave for 'fun money' allocations?",
-        options: [
-          GuidedOption(
-            label: 'A',
-            text: 'Safe & Slow',
-            detail: 'Cap lifestyle savings at 5% of monthly income.',
-            keywords: ['safe', 'slow', '5'],
-          ),
-          GuidedOption(
-            label: 'B',
-            text: 'Intentional',
-            detail:
-                'Allocate exactly 10% of monthly income into milestone buckets.',
-            keywords: ['intentional', '10'],
-          ),
-          GuidedOption(
-            label: 'C',
-            text: 'Lifestyle First',
-            detail:
-                'Allocate 20% to milestone buckets by reducing discretionary targets elsewhere.',
-            keywords: ['lifestyle', '20'],
           ),
         ],
       ),
@@ -1626,6 +1471,7 @@ class MotivationSurfaceScreen extends StatefulWidget {
       _MotivationSurfaceScreenState();
 }
 
+// Steps: 0=Surface, 1=Goal Focus (D1), 2=Action Select (D2), 3=Configurables, 4=Situations, 5=Challenges
 class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
@@ -1636,6 +1482,10 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   late GuidedPathway pathway;
   int stepIndex = 0;
   final Map<int, List<GuidedOption>> answers = {};
+  String? _selectedGoalId;
+  Map<String, Map<String, String>> _actionConfigValues = {};
+  List<GuidedOption>? _cachedGoalOptions;
+  List<GuidedOption>? _cachedActionOptions;
 
   @override
   void dispose() {
@@ -1649,33 +1499,86 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     super.didChangeDependencies();
     if (seeded) return;
     pathway = _pathwayForLayer(AppScope.of(context).primaryConcern);
-    messages.add(ChatMessage(false, currentStep.question));
+    messages.add(ChatMessage(false, pathway.steps[0].question));
     seeded = true;
   }
 
-  GuidedStep get currentStep => pathway.steps[stepIndex];
+  // Map step indices 0,4,5 to pathway steps 0,1,2
+  GuidedStep get _pathwayStep {
+    if (stepIndex == 4) return pathway.steps[1];
+    if (stepIndex == 5) return pathway.steps[2];
+    return pathway.steps[0];
+  }
+
+  bool get _isMultiSelectStep => stepIndex == 2 || stepIndex == 4 || stepIndex == 5;
+
+  // Returns step with correct multiSelect flag for GuidedChatControls
+  GuidedStep get _stepForControls {
+    if (stepIndex == 2) {
+      return const GuidedStep(title: 'Actions', question: '', options: [], multiSelect: true);
+    }
+    return _pathwayStep;
+  }
 
   List<GuidedOption> get currentOptions {
-    if (stepIndex != 1) return currentStep.options;
-    final surfaced = answers[0] ?? const <GuidedOption>[];
-    if (surfaced.isEmpty) return currentStep.options;
-    return _tailoredFocusOptions(currentStep.options, surfaced.first);
+    if (stepIndex == 1) return _goalFocusOptions();
+    if (stepIndex == 2) return _actionSelectOptions();
+    return _pathwayStep.options;
   }
 
   bool get isComplete => flowComplete;
 
   bool get canContinueMulti =>
-      currentStep.multiSelect && (answers[stepIndex]?.isNotEmpty ?? false);
+      _isMultiSelectStep && (answers[stepIndex]?.isNotEmpty ?? false);
+
+  List<GuidedOption> _goalFocusOptions() {
+    if (_cachedGoalOptions != null) return _cachedGoalOptions!;
+    final ids = _motivationGoalIds[pathway.layer] ?? ['G1'];
+    _cachedGoalOptions = [
+      for (var i = 0; i < ids.length; i++)
+        GuidedOption(
+          label: String.fromCharCode(65 + i),
+          text: _d1GoalById(ids[i]).description,
+          goalTitle: ids[i],
+          keywords: [ids[i].toLowerCase()],
+        ),
+    ];
+    return _cachedGoalOptions!;
+  }
+
+  List<GuidedOption> _actionSelectOptions() {
+    if (_cachedActionOptions != null) return _cachedActionOptions!;
+    _cachedActionOptions = [
+      for (final id in _goalActionIds[_selectedGoalId] ?? <String>[])
+        GuidedOption(label: id, text: _d2Actions[id]?.text ?? id, goalTitle: id),
+    ];
+    return _cachedActionOptions!;
+  }
+
+  List<D2Action> get _selectedD2Actions {
+    return (answers[2] ?? <GuidedOption>[])
+        .map((o) => _d2Actions[o.goalTitle])
+        .whereType<D2Action>()
+        .toList();
+  }
 
   void chooseOption(GuidedOption option) {
     if (isComplete) return;
     setState(() {
       error = '';
       controller.clear();
-      if (currentStep.multiSelect) {
-        final selected = [...answers[stepIndex] ?? const <GuidedOption>[]];
-        if (selected.contains(option)) {
-          selected.remove(option);
+      if (stepIndex == 1) {
+        _selectedGoalId = option.goalTitle;
+        _cachedActionOptions = null;
+        answers[1] = [option];
+        _commitCurrentStep();
+      } else if (_isMultiSelectStep) {
+        final selected = [...answers[stepIndex] ?? <GuidedOption>[]];
+        final idx = selected.indexWhere(
+          (o) => o.goalTitle == option.goalTitle && o.label == option.label,
+        );
+        if (idx >= 0) {
+          selected.removeAt(idx);
         } else {
           selected.add(option);
         }
@@ -1689,25 +1592,28 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   }
 
   void submitTypedAnswer() {
+    if (stepIndex == 2 || stepIndex == 3 || isComplete) return;
     final typed = controller.text.trim();
-    if (typed.isEmpty || isComplete) return;
+    if (typed.isEmpty) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    final option = _closestOption(typed, currentOptions);
+    final opts = currentOptions;
+    if (opts.isEmpty) return;
+    final option = _closestOption(typed, opts);
     setState(() {
       error = '';
       controller.clear();
-      answers[stepIndex] = currentStep.multiSelect
-          ? [...answers[stepIndex] ?? const <GuidedOption>[], option]
-          : [option];
       messages.add(ChatMessage(true, typed));
-      messages.add(
-        ChatMessage(
-          false,
-          'Closest fit: ${option.displayText}',
-        ),
-      );
-      if (!currentStep.multiSelect) {
-        _advanceAfterCommittedAnswer();
+      messages.add(ChatMessage(false, 'Closest fit: ${_trimPeriod(option.text)}'));
+      if (stepIndex == 1) {
+        _selectedGoalId = option.goalTitle;
+        _cachedActionOptions = null;
+        answers[1] = [option];
+        _advanceFromStep();
+      } else if (_isMultiSelectStep) {
+        answers[stepIndex] = [...answers[stepIndex] ?? <GuidedOption>[], option];
+      } else {
+        answers[stepIndex] = [option];
+        _advanceFromStep();
       }
     });
     _scrollToBottom();
@@ -1715,60 +1621,85 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
 
   void continueMultiSelect() {
     if (!canContinueMulti || isComplete) return;
-    setState(_commitCurrentStep);
+    setState(() {
+      final selected = answers[stepIndex] ?? <GuidedOption>[];
+      messages.add(ChatMessage(true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
+      if (stepIndex == 2) {
+        stepIndex = 3;
+        messages.add(ChatMessage(false, "Let's set the specifics for each action."));
+      } else {
+        _advanceFromStep();
+      }
+    });
     _scrollToBottom();
   }
 
   void _commitCurrentStep() {
-    final selected = answers[stepIndex] ?? const <GuidedOption>[];
+    final selected = answers[stepIndex] ?? <GuidedOption>[];
     if (selected.isEmpty) return;
-    messages.add(
-      ChatMessage(
-        true,
-        selected.map((option) => option.displayText).join(', '),
-      ),
-    );
-    _advanceAfterCommittedAnswer();
+    messages.add(ChatMessage(true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
+    _advanceFromStep();
   }
 
-  void _advanceAfterCommittedAnswer() {
-    if (stepIndex < pathway.steps.length - 1) {
-      stepIndex += 1;
-      messages.add(ChatMessage(false, currentStep.question));
-      return;
+  void _advanceFromStep() {
+    switch (stepIndex) {
+      case 0:
+        stepIndex = 1;
+        messages.add(ChatMessage(false, 'Which goal would you like to focus on first?'));
+      case 1:
+        stepIndex = 2;
+        answers[2] = _actionSelectOptions();
+        messages.add(ChatMessage(false, 'Here are the recommended actions for your goal. Unselect any you want to skip, then confirm.'));
+      case 4:
+        stepIndex = 5;
+        messages.add(ChatMessage(false, pathway.steps[2].question));
+      case 5:
+        _finishGuidedFlow();
     }
-    _finishGuidedFlow();
+  }
+
+  void _onActionsConfigured(Map<String, Map<String, String>> values) {
+    setState(() {
+      _actionConfigValues = values;
+      messages.add(ChatMessage(true, 'Actions configured.'));
+      stepIndex = 4;
+      messages.add(ChatMessage(false, pathway.steps[1].question));
+    });
+    _scrollToBottom();
   }
 
   void _finishGuidedFlow() {
     flowComplete = true;
     final state = AppScope.of(context);
-    final focusAnswers = answers[1] ?? const <GuidedOption>[];
-    final focus = focusAnswers.isEmpty ? null : focusAnswers.first;
-    final branch = _branchForLayer(state.primaryConcern);
-    final concern = _concernForGoal(branch, focus?.goalTitle) ??
-        branch.closestConcern(focus?.text ?? '');
+    final goalId = _selectedGoalId ?? 'G1';
+    final goal = _d1GoalById(goalId);
+    final selectedActionIds = (answers[2] ?? <GuidedOption>[])
+        .map((o) => o.goalTitle ?? o.label)
+        .toList();
+    state.selectedGoalId = goalId;
     state.setRecommendedGoal(
-      title: concern.goalTitle,
-      description: concern.goalDescription,
-      monthlyTarget: _monthlyTargetForConcern(state, concern),
+      title: goal.title,
+      description: goal.description,
+      monthlyTarget: 0,
     );
     state.configureGoalActions(
-      actionIds: concern.actionIds,
-      enableEmotionalLogs: concern.enableEmotionalLogs ||
-          _selectedLabels().contains('Impulse Buying'),
-      enableStressIndicators: concern.enableStressIndicators,
+      actionIds: selectedActionIds,
+      enableEmotionalLogs: false,
+      enableStressIndicators: false,
     );
-    state.setMotivation(_guidedReflection(branch, concern));
+    state.actionFieldValues
+      ..clear()
+      ..addAll(_actionConfigValues);
+    state.setMotivation('${goal.title}. ${goal.description}');
     state.setGuidedChatSummary(
       surface: _summarySentence(_firstAnswer(0), _surfacePhrase),
-      goalFocus: _summarySentence(_firstAnswer(1), _focusPhrase),
-      timeframe: _summarySentence(_firstAnswer(2), _timeframePhrase),
-      difficulty: _summarySentence(_firstAnswer(3), _difficultyPhrase),
-      situations: _summaryList(answers[4] ?? const <GuidedOption>[]),
-      challenges: _summaryList(answers[5] ?? const <GuidedOption>[]),
+      goalFocus: goal.title,
+      timeframe: '',
+      difficulty: '',
+      situations: _summaryList(answers[4] ?? <GuidedOption>[]),
+      challenges: _summaryList(answers[5] ?? <GuidedOption>[]),
     );
-    messages.add(ChatMessage(false, _selectionSummary()));
+    messages.add(ChatMessage(false, "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
   }
 
   void resetGuidedChat() {
@@ -1777,12 +1708,16 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       error = '';
       flowComplete = false;
       stepIndex = 0;
+      _selectedGoalId = null;
+      _actionConfigValues = {};
+      _cachedGoalOptions = null;
+      _cachedActionOptions = null;
       pathway = _pathwayForLayer(state.primaryConcern);
       controller.clear();
       answers.clear();
       messages
         ..clear()
-        ..add(ChatMessage(false, pathway.steps.first.question));
+        ..add(ChatMessage(false, pathway.steps[0].question));
       state.resetGuidedPathDetails();
     });
     _scrollToBottom();
@@ -1807,8 +1742,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     return OnboardingScaffold(
       phase: 5,
       title: 'Shape your path.',
-      subtitle:
-          'Pick an answer or type one. Shelby maps typed replies to the closest choice.',
+      subtitle: stepIndex == 3
+          ? 'Set up the details for each action.'
+          : 'Pick an answer or type one. Shelby maps typed replies to the closest choice.',
       scrollBody: false,
       bottom: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1853,8 +1789,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   if (!hasReflection && index == messages.length) {
+                    if (stepIndex == 3) {
+                      return ActionConfigWidget(
+                        actions: _selectedD2Actions,
+                        onConfirm: _onActionsConfigured,
+                      );
+                    }
                     return GuidedChatControls(
-                      step: currentStep,
+                      step: _stepForControls,
                       options: currentOptions,
                       selected: selected,
                       controller: controller,
@@ -1905,93 +1847,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     return best;
   }
 
-  GoalConcern? _concernForGoal(GoalBranch branch, String? goalTitle) {
-    if (goalTitle == null) return null;
-    for (final concern in branch.concerns) {
-      if (concern.goalTitle == goalTitle) return concern;
-    }
-    return null;
-  }
-
-  List<GuidedOption> _tailoredFocusOptions(
-    List<GuidedOption> options,
-    GuidedOption surfaced,
-  ) {
-    final labels = switch ((pathway.layer, surfaced.label)) {
-      ('Cash Flow & Basic Needs', 'A') => ['A', 'C'],
-      ('Cash Flow & Basic Needs', 'B') => ['B', 'A'],
-      ('Cash Flow & Basic Needs', 'C') => ['C', 'A'],
-      ('Financial Safety', 'A') => ['A', 'C'],
-      ('Financial Safety', 'B') => ['B', 'A'],
-      ('Financial Safety', 'C') => ['C', 'A'],
-      ('Accumulating Wealth', 'A') => ['A', 'C'],
-      ('Accumulating Wealth', 'B') => ['B', 'A'],
-      ('Accumulating Wealth', 'C') => ['C', 'A'],
-      ('Financial Freedom', 'A') => ['A', 'B'],
-      ('Financial Freedom', 'B') => ['B', 'A'],
-      ('Financial Freedom', 'C') => ['C', 'B'],
-      _ => options.map((option) => option.label).toList(),
-    };
-    final tailored = [
-      for (final label in labels)
-        ...options.where((option) => option.label == label),
-    ];
-    return tailored.isEmpty ? options : tailored;
-  }
-
-  Set<String> _selectedLabels() {
-    return answers.values
-        .expand((options) => options)
-        .map((option) => option.label)
-        .toSet();
-  }
-
-  String _guidedReflection(GoalBranch branch, GoalConcern concern) {
-    final lines = <String>[];
-    for (var i = 0; i < pathway.steps.length; i += 1) {
-      final selected = answers[i] ?? const <GuidedOption>[];
-      if (selected.isEmpty) continue;
-      lines.add(
-        '${pathway.steps[i].title}: ${selected.map((option) => option.displayText).join(', ')}',
-      );
-    }
-    return '${concern.goalDescription} Shelby will start with ${concern.goalTitle.toLowerCase()} because it matches your ${branch.layer.toLowerCase()} pathway. ${concern.backgroundEffect} ${lines.join(' ')}';
-  }
-
-  String _selectionSummary() {
-    return "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm.";
-  }
-
   GuidedOption? _firstAnswer(int index) {
     final selected = answers[index] ?? const <GuidedOption>[];
     return selected.isEmpty ? null : selected.first;
-  }
-
-  String _focusPhrase(GuidedOption option) {
-    return switch (option.goalTitle) {
-      'Expense Tracking Routine' =>
-        'remembering to track your spending and keep momentum',
-      'Spending Trigger Tracker' => 'tracking repeat spending triggers',
-      'Irregular Income Buffer' =>
-        'how unexpected bills or changing income cycles disrupt your plans',
-      'Safety Shield Boundary' =>
-        'protecting your savings from regular expenses',
-      'Bill Due-Date Buffer' => 'building a buffer around upcoming bills',
-      'Payday Safety Sweep' => 'setting money aside consistently on your own',
-      'Debt Payoff Map' =>
-        'building a clear strategy to pay down your existing debts',
-      'Starter Investing Habit' =>
-        'completing starter investing setup steps and contributions',
-      'Lifestyle Creep Monitor' =>
-        'keeping spending steady when your income increases',
-      'Milestone Bucket Plan' =>
-        'balancing multiple future milestones at the same time',
-      'Future Lifestyle Fund' =>
-        'saving for one major milestone while keeping regular bills covered',
-      'Planned Experience Fund' =>
-        'planning hobbies and travel from a funded bucket',
-      _ => _trimPeriod(option.text),
-    };
   }
 
   String _surfacePhrase(GuidedOption option) {
@@ -2024,35 +1882,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     };
   }
 
-  String _timeframePhrase(GuidedOption option) {
-    return switch (_trimPeriod(option.text)) {
-      '1 Month' => '1 month',
-      '3 Months' => '3 months',
-      '6 Months' => '6 months',
-      '1 Year' => '1 year',
-      '2 Years+' => '2+ years',
-      '1 to 3 Months' => '1 to 3 months',
-      final value => value.toLowerCase(),
-    };
-  }
-
-  String _difficultyPhrase(GuidedOption option) {
-    return switch (_trimPeriod(option.text)) {
-      'Relaxed Pace' => 'a relaxed pace',
-      'Balanced Pace' => 'a balanced pace',
-      'High Focus Pace' => 'a high-focus pace',
-      'Conservative Pace' => 'a conservative pace',
-      'Aggressive Pace' => 'an aggressive pace',
-      'Safe & Slow' => 'a safe and slow pace',
-      'Intentional' => 'an intentional approach',
-      'Lifestyle First' => 'a lifestyle-first approach',
-      final value => value.toLowerCase(),
-    };
-  }
-
   String _summarySentence(
     GuidedOption? option,
-    String Function(GuidedOption option) phraseFor,
+    String Function(GuidedOption) phraseFor,
   ) {
     if (option == null) return '';
     final phrase = phraseFor(option);
@@ -2061,11 +1893,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   }
 
   String _summaryList(List<GuidedOption> options) {
-    return _joinWithAnd(
-        options.map((option) => _trimPeriod(option.text)).toList());
-  }
-
-  String _joinWithAnd(List<String> values) {
+    final values = options.map((o) => _trimPeriod(o.text)).toList();
     if (values.length <= 1) return values.join();
     if (values.length == 2) return '${values.first} and ${values.last}';
     return '${values.sublist(0, values.length - 1).join(', ')}, and ${values.last}';
@@ -2073,9 +1901,141 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
 
   String _trimPeriod(String value) {
     final trimmed = value.trim();
-    return trimmed.endsWith('.')
-        ? trimmed.substring(0, trimmed.length - 1)
-        : trimmed;
+    return trimmed.endsWith('.') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+  }
+}
+
+class ActionConfigWidget extends StatefulWidget {
+  const ActionConfigWidget({
+    super.key,
+    required this.actions,
+    required this.onConfirm,
+  });
+  final List<D2Action> actions;
+  final void Function(Map<String, Map<String, String>> values) onConfirm;
+
+  @override
+  State<ActionConfigWidget> createState() => _ActionConfigWidgetState();
+}
+
+class _ActionConfigWidgetState extends State<ActionConfigWidget> {
+  late final PageController _pageController;
+  int _page = 0;
+  late final List<Map<String, TextEditingController>> _controllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _controllers = [
+      for (final action in widget.actions)
+        {for (final f in action.fields) f.key: TextEditingController()},
+    ];
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    for (final map in _controllers) {
+      for (final c in map.values) { c.dispose(); }
+    }
+    super.dispose();
+  }
+
+  void _goNext() {
+    if (_page < widget.actions.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _confirm();
+    }
+  }
+
+  void _confirm() {
+    final values = <String, Map<String, String>>{};
+    for (var i = 0; i < widget.actions.length; i++) {
+      values[widget.actions[i].id] = {
+        for (final entry in _controllers[i].entries) entry.key: entry.value.text.trim(),
+      };
+    }
+    widget.onConfirm(values);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = widget.actions.length;
+    if (total == 0) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: PrimaryButton(label: 'Confirm', onPressed: _confirm),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${_page + 1} / $total',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _body),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 220,
+          child: PageView.builder(
+            controller: _pageController,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemCount: total,
+            itemBuilder: (context, i) {
+              final action = widget.actions[i];
+              final ctrlMap = _controllers[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        action.text,
+                        style: const TextStyle(fontSize: 13, height: 1.4),
+                      ),
+                      if (action.hasFields) ...[
+                        const SizedBox(height: 12),
+                        for (final field in action.fields) ...[
+                          Text(
+                            field.label,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _body),
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: ctrlMap[field.key],
+                            keyboardType: field.isPercent
+                                ? const TextInputType.numberWithOptions(decimal: false)
+                                : const TextInputType.numberWithOptions(decimal: true),
+                            decoration: InputDecoration(
+                              hintText: field.hint,
+                              suffixText: field.isPercent ? '%' : null,
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        PrimaryButton(
+          label: _page < total - 1 ? 'Next' : 'Confirm All',
+          icon: _page < total - 1 ? Icons.arrow_forward_rounded : Icons.check_rounded,
+          onPressed: _goNext,
+        ),
+      ],
+    );
   }
 }
 
@@ -3499,14 +3459,10 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     for (final option in options) {
       if (_optionSummaryForStep(stepIndex, option) == summary) return option;
     }
-    if (stepIndex == 1) {
-      for (final option in options) {
-        if (option.goalTitle == state.selectedGoal) return option;
-      }
-    }
     return options.first;
   }
 
+  // stepIndex 1 = Situations (pathway.steps[1]), stepIndex 2 = Challenges (pathway.steps[2])
   List<GuidedOption> _selectedMultiOptions(int stepIndex, String summary) {
     final options = pathway.steps[stepIndex].options;
     final normalized = summary.toLowerCase();
@@ -3517,30 +3473,10 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     return selected.isEmpty ? [options.first] : selected;
   }
 
-  void _updateSingle(int stepIndex, GuidedOption option) {
+  void _updateSurface(GuidedOption option) {
     setState(() {
-      final summary = _optionSummaryForStep(stepIndex, option);
-      switch (stepIndex) {
-        case 0:
-          state.updateGuidedChatSummary(surface: summary);
-        case 1:
-          _applyGoalFocus(option);
-        case 2:
-          state.updateGuidedChatSummary(timeframe: summary);
-        case 3:
-          state.updateGuidedChatSummary(difficulty: summary);
-      }
+      state.updateGuidedChatSummary(surface: _optionSummaryForStep(0, option));
     });
-  }
-
-  void _applyGoalFocus(GuidedOption option) {
-    final branch = _branchForLayer(state.primaryConcern);
-    final concern = _concernForGoalTitle(branch, option.goalTitle) ??
-        branch.closestConcern(option.text);
-    _applyRecommendedConcern(state, concern);
-    state.updateGuidedChatSummary(
-      goalFocus: _optionSummaryForStep(1, option),
-    );
   }
 
   Future<void> _editMulti({
@@ -3624,9 +3560,10 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       result.map((option) => _cleanOptionText(option.text)).toList(),
     );
     setState(() {
-      if (stepIndex == 4) {
+      // stepIndex 1 = Situations, stepIndex 2 = Challenges
+      if (stepIndex == 1) {
         state.updateGuidedChatSummary(situations: summary);
-      } else if (stepIndex == 5) {
+      } else if (stepIndex == 2) {
         state.updateGuidedChatSummary(challenges: summary);
       }
     });
@@ -3635,11 +3572,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
   @override
   Widget build(BuildContext context) {
     final surface = _selectedOption(0, state.chatSurfaceSummary);
-    final focus = _selectedOption(1, state.chatGoalFocusSummary);
-    final timeframe = _selectedOption(2, state.chatTimeframeSummary);
-    final difficulty = _selectedOption(3, state.chatDifficultySummary);
-    final situations = _selectedMultiOptions(4, state.chatSituationsSummary);
-    final challenges = _selectedMultiOptions(5, state.chatChallengesSummary);
+    final situations = _selectedMultiOptions(1, state.chatSituationsSummary);
+    final challenges = _selectedMultiOptions(2, state.chatChallengesSummary);
 
     return AppCard(
       child: Column(
@@ -3667,31 +3601,14 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             label: 'What brought you here',
             value: _cleanOptionText(surface.text),
             options: pathway.steps[0].options,
-            onChanged: (option) => _updateSingle(0, option),
+            onChanged: _updateSurface,
           ),
           const SizedBox(height: 10),
-          GuidedSummaryOptionRow(
+          GuidedSummaryEditRow(
             icon: Icons.flag_rounded,
             label: 'Goal focus',
-            value: _cleanOptionText(focus.text),
-            options: pathway.steps[1].options,
-            onChanged: (option) => _updateSingle(1, option),
-          ),
-          const SizedBox(height: 10),
-          GuidedSummaryOptionRow(
-            icon: Icons.calendar_month_rounded,
-            label: 'Timeframe',
-            value: _cleanOptionText(timeframe.text),
-            options: pathway.steps[2].options,
-            onChanged: (option) => _updateSingle(2, option),
-          ),
-          const SizedBox(height: 10),
-          GuidedSummaryOptionRow(
-            icon: Icons.speed_rounded,
-            label: 'Pace',
-            value: difficulty.displayText,
-            options: pathway.steps[3].options,
-            onChanged: (option) => _updateSingle(3, option),
+            value: state.selectedGoal,
+            onTap: () {},
           ),
           const SizedBox(height: 10),
           GuidedSummaryEditRow(
@@ -3704,7 +3621,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             ),
             onTap: () => _editMulti(
               context: context,
-              stepIndex: 4,
+              stepIndex: 1,
               title: 'Useful reminders',
               selected: situations,
             ),
@@ -3720,7 +3637,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             ),
             onTap: () => _editMulti(
               context: context,
-              stepIndex: 5,
+              stepIndex: 2,
               title: 'Hurdles to watch',
               selected: challenges,
             ),

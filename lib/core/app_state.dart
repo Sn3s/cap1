@@ -31,6 +31,7 @@ class AppState extends ChangeNotifier {
   String chatDifficultySummary = '';
   String chatSituationsSummary = '';
   String chatChallengesSummary = '';
+  String selectedGoalId = '';
   String selectedGoal = 'Cash Flow Stability Plan';
   String selectedGoalDescription =
       'Map income, fixed costs, and spending patterns so your monthly budget has a clear baseline.';
@@ -87,7 +88,25 @@ class AppState extends ChangeNotifier {
   final Map<String, double> anxietyCheckIns = {};
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
-  final Set<String> selectedActionIds = {'ACT1'};
+  final Set<String> selectedActionIds = {};
+  final Map<String, Map<String, String>> actionFieldValues = {};
+
+  // ── D1 goal bucket balances ──────────────────────────────────────
+  double essentialExpensesBalance = 0;
+  double billsObligationsBalance = 0;
+  double emergencyFundBalance = 0;
+  String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
+
+  DateTime? get lastEfWithdrawal =>
+      _lastEfWithdrawalStr == null ? null : DateTime.tryParse(_lastEfWithdrawalStr!);
+
+  double get emergencyMonthsCovered =>
+      expenses <= 0 ? 0 : emergencyFundBalance / expenses;
+
+  double get emergencyFundTarget =>
+      math.max(30000, expenses * 3); // 3 months of expenses
+
+  final List<Map<String, dynamic>> d1Ledger = [];
   final Set<String> trackingVariables = {
     'Income',
     'Expenses',
@@ -764,9 +783,9 @@ class AppState extends ChangeNotifier {
     selectedGoal = branch.defaultGoalTitle;
     selectedGoalDescription = branch.defaultGoalDescription;
     selectedGoalMonthlyTarget = 0;
-    selectedActionIds
-      ..clear()
-      ..add('ACT1');
+    selectedGoalId = '';
+    selectedActionIds.clear();
+    actionFieldValues.clear();
     emotionalLogsEnabled = false;
     stressIndicatorsEnabled = false;
     consentAi = false;
@@ -774,6 +793,60 @@ class AppState extends ChangeNotifier {
     if (socialStructure == 'Collaborative goal') {
       socialStructure = 'Private only';
     }
+    notifyListeners();
+  }
+
+  // ── D1 goal bucket actions ────────────────────────────────────────
+
+  void logD1Income({
+    required double amount,
+    required double essentialPct,
+    required double billsAmt,
+    required double emergencyPct,
+  }) {
+    final essential = amount * essentialPct / 100;
+    final bills = math.min(billsAmt, amount);
+    final emergency = amount * emergencyPct / 100;
+    essentialExpensesBalance += essential;
+    billsObligationsBalance += bills;
+    emergencyFundBalance += emergency;
+    d1Ledger.insert(0, {
+      'type': 'income',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'essential': essential,
+      'bills': bills,
+      'emergency': emergency,
+    });
+    notifyListeners();
+  }
+
+  void useD1BucketFunds(String bucket, double amount) {
+    switch (bucket) {
+      case 'essential':
+        essentialExpensesBalance = math.max(0, essentialExpensesBalance - amount);
+      case 'bills':
+        billsObligationsBalance = math.max(0, billsObligationsBalance - amount);
+      case 'emergency':
+        emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
+        _lastEfWithdrawalStr = DateTime.now().toIso8601String();
+    }
+    d1Ledger.insert(0, {
+      'type': 'use_$bucket',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+    });
+    notifyListeners();
+  }
+
+  void replenishD1EmergencyFund(double amount) {
+    emergencyFundBalance += amount;
+    _lastEfWithdrawalStr = null;
+    d1Ledger.insert(0, {
+      'type': 'ef_replenish',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+    });
     notifyListeners();
   }
 
@@ -820,17 +893,9 @@ class AppState extends ChangeNotifier {
   }) {
     selectedActionIds
       ..clear()
-      ..add('ACT1')
       ..addAll(actionIds);
     emotionalLogsEnabled = enableEmotionalLogs;
     stressIndicatorsEnabled = enableStressIndicators;
-    consentAi = selectedActionIds.contains('ACT5');
-    consentTrustedCircle = selectedActionIds.contains('ACT4');
-    if (selectedActionIds.contains('ACT4')) {
-      socialStructure = 'Collaborative goal';
-    } else if (socialStructure == 'Collaborative goal') {
-      socialStructure = 'Private only';
-    }
     notifyListeners();
   }
 
