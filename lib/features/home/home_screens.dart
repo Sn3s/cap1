@@ -2388,7 +2388,7 @@ class _D1GoalMeta {
     required this.description,
     required this.layerColor,
     required this.layerLabel,
-    required this.actionCount,
+    required this.actions,
   });
   final String id;
   final String emoji;
@@ -2396,7 +2396,29 @@ class _D1GoalMeta {
   final String description;
   final Color layerColor;
   final String layerLabel;
-  final int actionCount;
+  final List<_D1ActionMeta> actions;
+}
+
+class _D1ActionMeta {
+  const _D1ActionMeta({
+    required this.id,
+    required this.text,
+    required this.configLabel,
+    required this.configValue,
+    required this.destBucket,
+    required this.metrics,
+    required this.dataPoints,
+    required this.activityLog,
+  });
+
+  final String id;
+  final String text;
+  final String configLabel;
+  final String configValue;
+  final String destBucket;
+  final List<({String label, String value, IconData icon})> metrics;
+  final List<({String label, String type, String value})> dataPoints;
+  final List<({String date, String event, String amount, bool isIn})> activityLog;
 }
 
 
@@ -2551,22 +2573,894 @@ class GoalsPage extends StatefulWidget {
 }
 
 class _GoalsPageState extends State<GoalsPage> {
-  String? _activeGoalId; // null = list view, 'G1' or 'G3' = detail
-
   @override
   Widget build(BuildContext context) {
-    if (_activeGoalId != null) {
-      final goal = _d1GoalMetas.firstWhere((g) => g.id == _activeGoalId);
-      return _D1GoalDetailScreen(
-        goal: goal,
-        onBack: () => setState(() => _activeGoalId = null),
-      );
-    }
-    return _D1GoalsMenu(onGoal: (id) => setState(() => _activeGoalId = id));
+    return const CollectionGoalsScreen();
   }
 }
 
 // ─── Goals menu ───────────────────────────────────────────────────────────────
+
+enum _CollectionView { jars, shield }
+
+class CollectionGoalsScreen extends StatefulWidget {
+  const CollectionGoalsScreen({super.key});
+
+  @override
+  State<CollectionGoalsScreen> createState() => _CollectionGoalsScreenState();
+}
+
+class _CollectionGoalsScreenState extends State<CollectionGoalsScreen> {
+  _CollectionView _view = _CollectionView.jars;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final isJars = _view == _CollectionView.jars;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
+      children: [
+        _collectionHeader(
+          context,
+          eyebrow: isJars ? 'YOUR JARS' : 'SAFETY SHIELD',
+          settingsIcon: isJars ? Icons.settings_rounded : Icons.tune_rounded,
+          onBack: () {
+            if (isJars) {
+              Navigator.of(context).maybePop();
+            } else {
+              setState(() => _view = _CollectionView.jars);
+            }
+          },
+          onInsights: () => isJars
+              ? setState(() => _view = _CollectionView.shield)
+              : _openSheet(context, const _ShieldSummarySheet()),
+          onSettings: () => isJars
+              ? _openSheet(context, _ConfigureJarsSheet(onSaved: _refresh))
+              : _openSheet(context, _AdjustShieldSheet(onSaved: _refresh)),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            _collectionChip(Icons.sync_alt_rounded, 'Cycle 4 - Weekly'),
+            const SizedBox(width: 10),
+            _collectionChip(null, 'L1', muted: true),
+            const Spacer(),
+            TextButton(
+              onPressed: () => setState(() {
+                _view = isJars ? _CollectionView.shield : _CollectionView.jars;
+              }),
+              child: Text(
+                isJars ? 'Shield' : 'Jars',
+                style: const TextStyle(color: _sage, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        if (isJars)
+          _JarCollectionBody(
+            state: state,
+            onLogIncome: () => _openSheet(context, _LogIncomeSheet(onSaved: _refresh)),
+            onSeedJars: () async {
+              await state.seedDemoTwoJarData();
+              _refresh();
+            },
+            onSeedCombined: () async {
+              await state.seedDemoCombinedGoals();
+              _refresh();
+            },
+          )
+        else
+          _ShieldCollectionBody(
+            state: state,
+            onAdjust: () => _openSheet(context, _AdjustShieldSheet(onSaved: _refresh)),
+            onDeposit: () => _openSheet(context, _DepositShieldSheet(onSaved: _refresh)),
+            onSummary: () => _openSheet(context, const _ShieldSummarySheet()),
+            onSeedCombined: () async {
+              await state.seedDemoCombinedGoals();
+              _refresh();
+            },
+          ),
+      ],
+    );
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openSheet(BuildContext context, Widget child) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .55),
+      builder: (_) => _GoalSheetFrame(child: child),
+    );
+  }
+}
+
+class _JarCollectionBody extends StatelessWidget {
+  const _JarCollectionBody({
+    required this.state,
+    required this.onLogIncome,
+    required this.onSeedJars,
+    required this.onSeedCombined,
+  });
+
+  final AppState state;
+  final VoidCallback onLogIncome;
+  final VoidCallback onSeedJars;
+  final VoidCallback onSeedCombined;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = state.needsTarget <= 0 ? 12000.0 : state.needsTarget;
+    final needs = state.needsTarget <= 0 ? 0.0 : state.needsBalance;
+    final buffer = state.bufferBalance;
+    final needsPercent = state.needsPercent <= 0 ? 70 : state.needsPercent;
+    final progress =
+        target <= 0 ? 0.0 : (needs / target).clamp(0.0, 1.0).toDouble();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _statCard(
+                icon: Icons.water_drop_rounded,
+                iconColor: _sage,
+                label: 'Needs',
+                amount: money(needs),
+                footnote: 'of ${money(target)}',
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _statCard(
+                icon: Icons.waves_rounded,
+                iconColor: _purple,
+                label: 'Buffer',
+                amount: money(buffer),
+                footnote: _bufferWeeks(buffer, target),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: _collectionCardDecoration(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('Needs', style: TextStyle(color: _title, fontSize: 24, fontWeight: FontWeight.w900)),
+                  const Spacer(),
+                  if (progress >= .995) _softPill('Full', _sage),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text('$needsPercent% of each income drop',
+                  style: const TextStyle(color: _body, fontSize: 15, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 24),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(text: money(needs), style: const TextStyle(color: _title, fontSize: 35, fontWeight: FontWeight.w900)),
+                      TextSpan(text: ' of ${money(target)}', style: const TextStyle(color: _body, fontSize: 18, fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(value: progress, minHeight: 12, backgroundColor: _border, color: _brand),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: _collectionCardDecoration(),
+          child: Row(
+            children: [
+              _iconSquare(Icons.waves_rounded, _purple),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Buffer', style: TextStyle(color: _title, fontSize: 22, fontWeight: FontWeight.w900)),
+                    Text('${100 - needsPercent}% of each income drop',
+                        style: const TextStyle(color: _body, fontSize: 14, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    FittedBox(child: Text(money(buffer), style: const TextStyle(color: _purple, fontSize: 25, fontWeight: FontWeight.w900))),
+                    Text(_bufferWeeks(buffer, target), style: const TextStyle(color: _body, fontSize: 13, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        _primaryCollectionButton('Log income', Icons.add_rounded, onLogIncome),
+        const SizedBox(height: 28),
+        _sectionTitle('Recent activity', '${state.jarLedger.length} events'),
+        const SizedBox(height: 14),
+        _activityCard(
+          emptyLabel: 'Load IIB sample scenario',
+          emptyAction: onSeedJars,
+          items: state.jarLedger.take(6).map((event) {
+            final isIncome = event.type == JarEventType.income;
+            return _ActivityItem(
+              isIncome ? Icons.south_west_rounded : Icons.receipt_long_rounded,
+              event.sentence,
+              _collectionDate(event.timestamp),
+              isIncome ? _sage : _red,
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+          decoration: BoxDecoration(color: _bellySoft, borderRadius: BorderRadius.circular(22)),
+          child: const Row(
+            children: [
+              Icon(Icons.sentiment_satisfied_alt_rounded, color: _brand, size: 28),
+              SizedBox(width: 18),
+              Expanded(
+                child: Text('Weekly check-in recorded - 3 / 5',
+                    style: TextStyle(color: _body, fontSize: 16, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        ),
+        Center(
+          child: TextButton(
+            onPressed: onSeedCombined,
+            child: const Text('Load combined IIB + Safety Shield demo',
+                style: TextStyle(color: _amber, fontWeight: FontWeight.w800)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShieldCollectionBody extends StatelessWidget {
+  const _ShieldCollectionBody({
+    required this.state,
+    required this.onAdjust,
+    required this.onDeposit,
+    required this.onSummary,
+    required this.onSeedCombined,
+  });
+
+  final AppState state;
+  final VoidCallback onAdjust;
+  final VoidCallback onDeposit;
+  final VoidCallback onSummary;
+  final VoidCallback onSeedCombined;
+
+  @override
+  Widget build(BuildContext context) {
+    final monthsTarget = state.safetyShieldTargetMonths <= 0 ? 3 : state.safetyShieldTargetMonths;
+    final allocation = state.safetyShieldAllocationPercent <= 0 ? .10 : state.safetyShieldAllocationPercent;
+    final monthly = state.safetyShieldMonthlyBase <= 0 ? 12000.0 : state.safetyShieldMonthlyBase;
+    final balance = state.safetyShieldBalance;
+    final progress =
+        (balance / (monthly * math.max(1, monthsTarget))).clamp(0.0, 1.0).toDouble();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 280,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: _amber.withValues(alpha: .08),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: _amber.withValues(alpha: .22)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('EMERGENCY FUND',
+                  style: TextStyle(color: _amber, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1.6)),
+              const SizedBox(height: 24),
+              FittedBox(child: Text(money(balance), style: const TextStyle(color: _title, fontSize: 42, fontWeight: FontWeight.w900))),
+              const SizedBox(height: 12),
+              Text('${state.safetyShieldMonthsCovered.toStringAsFixed(1)} months covered - target ${monthsTarget}mo',
+                  style: const TextStyle(color: _body, fontSize: 16, fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(value: progress, minHeight: 10, backgroundColor: _amber.withValues(alpha: .10), color: _amber),
+        ),
+        const SizedBox(height: 10),
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            Text('3mo', style: TextStyle(color: _amber, fontWeight: FontWeight.w800)),
+            Text('6mo', style: TextStyle(color: _amber, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        const SizedBox(height: 28),
+        Row(
+          children: [
+            Expanded(
+              child: _statCard(
+                icon: Icons.shield_rounded,
+                iconColor: _amber,
+                label: 'Shield balance',
+                amount: money(balance),
+                footnote: state.hasFakeMayaLink ? 'FakeMaya Savings' : 'Manual savings',
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _statCard(
+                icon: Icons.percent_rounded,
+                iconColor: _purple,
+                label: 'Allocation',
+                amount: '${(allocation * 100).round()}%',
+                footnote: 'approx ${money(monthly * allocation)} / income',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        _primaryCollectionButton('Deposit to Safety Shield', Icons.savings_rounded, onDeposit),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: OutlinedButton.icon(onPressed: onAdjust, icon: const Icon(Icons.tune_rounded), label: const Text('Adjust'))),
+            const SizedBox(width: 12),
+            Expanded(child: OutlinedButton.icon(onPressed: onSummary, icon: const Icon(Icons.lightbulb_outline_rounded), label: const Text('Summary'))),
+          ],
+        ),
+        const SizedBox(height: 26),
+        _sectionTitle('Deposit history', '${state.shieldLedger.length} entries'),
+        const SizedBox(height: 14),
+        _activityCard(
+          emptyLabel: 'Load combined goals demo',
+          emptyAction: onSeedCombined,
+          items: state.shieldLedger.take(5).map((event) {
+            return _ActivityItem(Icons.savings_rounded, event.sentence, _collectionDate(event.timestamp), _amber);
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConfigureJarsSheet extends StatefulWidget {
+  const _ConfigureJarsSheet({required this.onSaved});
+  final VoidCallback onSaved;
+
+  @override
+  State<_ConfigureJarsSheet> createState() => _ConfigureJarsSheetState();
+}
+
+class _ConfigureJarsSheetState extends State<_ConfigureJarsSheet> {
+  final _amount = TextEditingController();
+  double _needsPercent = 70;
+  bool _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    final state = AppScope.of(context);
+    _amount.text = (state.needsTarget <= 0 ? 12000 : state.needsTarget).round().toString();
+    _needsPercent = (state.needsPercent <= 0 ? 70 : state.needsPercent).toDouble();
+    _loaded = true;
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sheetTitle('Configure jars', "Changing these won't reset your current balances."),
+        _moneyInput(_amount),
+        const SizedBox(height: 26),
+        Row(
+          children: [
+            const Text('Needs allocation', style: TextStyle(color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
+            const Spacer(),
+            Text('${_needsPercent.round()}% needs - ${100 - _needsPercent.round()}% buffer',
+                style: const TextStyle(color: _body, fontSize: 16, fontWeight: FontWeight.w900)),
+          ],
+        ),
+        Slider(value: _needsPercent, min: 10, max: 90, divisions: 8, activeColor: _purple, inactiveColor: _border, onChanged: (v) => setState(() => _needsPercent = v)),
+        const SizedBox(height: 24),
+        _primaryCollectionButton('Save changes', null, () async {
+          final amount = double.tryParse(_amount.text.replaceAll(',', '')) ?? 0;
+          await state.updateJarConfig(needsTarget: amount, needsPercent: _needsPercent.round());
+          widget.onSaved();
+          if (context.mounted) Navigator.pop(context);
+        }),
+        const SizedBox(height: 22),
+        Center(child: TextButton(onPressed: () async { await state.seedDemoTwoJarData(); widget.onSaved(); if (context.mounted) Navigator.pop(context); }, child: const Text('Load IIB-only sample scenario', style: TextStyle(color: _body)))),
+        Center(child: TextButton(onPressed: () async { await state.seedDemoCombinedGoals(); widget.onSaved(); if (context.mounted) Navigator.pop(context); }, child: const Text('Load combined IIB + Safety Shield demo', style: TextStyle(color: _amber, fontWeight: FontWeight.w800)))),
+      ],
+    );
+  }
+}
+
+class _LogIncomeSheet extends StatefulWidget {
+  const _LogIncomeSheet({required this.onSaved});
+  final VoidCallback onSaved;
+
+  @override
+  State<_LogIncomeSheet> createState() => _LogIncomeSheetState();
+}
+
+class _LogIncomeSheetState extends State<_LogIncomeSheet> {
+  final _amount = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final percent = state.needsPercent <= 0 ? 70 : state.needsPercent;
+    final amount = double.tryParse(_amount.text.replaceAll(',', '')) ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sheetTitle('Log income', '$percent% goes to Needs, ${100 - percent}% to Buffer.'),
+        _moneyInput(_amount, onChanged: (_) => setState(() {})),
+        const SizedBox(height: 28),
+        _primaryCollectionButton('Confirm', null, amount <= 0 ? null : () {
+          state.onIncomeEvent(amount, sourceLabel: 'manual income');
+          widget.onSaved();
+          Navigator.pop(context);
+        }),
+      ],
+    );
+  }
+}
+
+class _AdjustShieldSheet extends StatefulWidget {
+  const _AdjustShieldSheet({required this.onSaved});
+  final VoidCallback onSaved;
+
+  @override
+  State<_AdjustShieldSheet> createState() => _AdjustShieldSheetState();
+}
+
+class _AdjustShieldSheetState extends State<_AdjustShieldSheet> {
+  double _months = 3;
+  double _allocation = .10;
+  bool _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    final state = AppScope.of(context);
+    _months = (state.safetyShieldTargetMonths <= 0 ? 3 : state.safetyShieldTargetMonths).toDouble();
+    _allocation = state.safetyShieldAllocationPercent <= 0 ? .10 : state.safetyShieldAllocationPercent;
+    _loaded = true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final monthly = state.safetyShieldMonthlyBase <= 0 ? 7500.0 : state.safetyShieldMonthlyBase;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sheetTitle('Adjust Safety Shield', 'Changes take effect immediately. Balances are not reset.'),
+        _sliderRow('Target months', '${_months.round()} months', _months, 1, 12, 11, _amber, (v) => setState(() => _months = v)),
+        _sliderRow('Income allocation', '${(_allocation * 100).round()}% ~= ${money(monthly * _allocation)}', _allocation, .01, .30, 29, _amber, (v) => setState(() => _allocation = v)),
+        const SizedBox(height: 28),
+        _primaryCollectionButton('Save changes', null, () async {
+          await state.updateShieldConfig(allocationPercent: _allocation, targetMonths: _months.round());
+          widget.onSaved();
+          if (context.mounted) Navigator.pop(context);
+        }),
+        const SizedBox(height: 22),
+        Center(child: TextButton(onPressed: () async { await state.seedDemoCombinedGoals(); widget.onSaved(); if (context.mounted) Navigator.pop(context); }, child: const Text('Load combined goals demo (IIB + Shield)', style: TextStyle(color: _body)))),
+      ],
+    );
+  }
+}
+
+class _DepositShieldSheet extends StatefulWidget {
+  const _DepositShieldSheet({required this.onSaved});
+  final VoidCallback onSaved;
+
+  @override
+  State<_DepositShieldSheet> createState() => _DepositShieldSheetState();
+}
+
+class _DepositShieldSheetState extends State<_DepositShieldSheet> {
+  final _amount = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final amount = double.tryParse(_amount.text.replaceAll(',', '')) ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sheetTitle('Deposit to Safety Shield', 'Moves money from your FakeMaya wallet into your savings account. This is separate from your buffer allocation.'),
+        _moneyInput(_amount, onChanged: (_) => setState(() {})),
+        const SizedBox(height: 28),
+        _primaryCollectionButton('Move to savings', null, amount <= 0 ? null : () async {
+          await state.allocateToSafetyShield(amount);
+          widget.onSaved();
+          if (context.mounted) Navigator.pop(context);
+        }),
+      ],
+    );
+  }
+}
+
+class _ShieldSummarySheet extends StatelessWidget {
+  const _ShieldSummarySheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Safety Shield Summary', style: TextStyle(color: _title, fontSize: 24, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 28),
+        const Text('Insights & advice', style: TextStyle(color: _title, fontSize: 28, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 16),
+        Container(
+          decoration: _collectionCardDecoration(),
+          child: const Column(
+            children: [
+              _InsightLine(Icons.info_outline_rounded, _amber, 'You have less than 1 month covered. Focus on reaching 1 month first - that alone puts you ahead of most households.'),
+              Divider(height: 1, color: _border, indent: 82),
+              _InsightLine(Icons.account_balance_rounded, _purple, 'Your Safety Shield is tracked from your FakeMaya Savings account. Every deposit into savings automatically grows your shield.'),
+              Divider(height: 1, color: _border, indent: 82),
+              _InsightLine(Icons.lightbulb_outline_rounded, _body, 'Keep this fund in a separate savings account - never in your daily wallet. Out of sight, out of temptation.'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 28),
+        _sectionTitle('Deposit history', '${state.shieldLedger.length} entries'),
+        const SizedBox(height: 14),
+        _activityCard(
+          emptyLabel: 'No deposits yet',
+          emptyAction: () {},
+          items: state.shieldLedger.take(5).map((e) => _ActivityItem(Icons.savings_rounded, e.sentence, _collectionDate(e.timestamp), _amber)).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _InsightLine extends StatelessWidget {
+  const _InsightLine(this.icon, this.color, this.text);
+  final IconData icon;
+  final Color color;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 22),
+          Expanded(child: Text(text, style: const TextStyle(color: _body, fontSize: 17, fontWeight: FontWeight.w700, height: 1.35))),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivityItem {
+  const _ActivityItem(this.icon, this.title, this.subtitle, this.color);
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+}
+
+Widget _collectionHeader(
+  BuildContext context, {
+  required String eyebrow,
+  required IconData settingsIcon,
+  required VoidCallback onBack,
+  required VoidCallback onInsights,
+  required VoidCallback onSettings,
+}) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded), color: _title, iconSize: 30, padding: EdgeInsets.zero, constraints: const BoxConstraints.tightFor(width: 40, height: 40)),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(eyebrow, style: const TextStyle(color: _body, fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 1.8)),
+            const SizedBox(height: 2),
+            const Text('Goals', style: TextStyle(color: _title, fontSize: 38, fontWeight: FontWeight.w900, height: 1)),
+          ],
+        ),
+      ),
+      _roundIcon(Icons.bar_chart_rounded, onInsights),
+      const SizedBox(width: 8),
+      _roundIcon(settingsIcon, onSettings),
+    ],
+  );
+}
+
+Widget _roundIcon(IconData icon, VoidCallback onTap) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: SizedBox(width: 42, height: 42, child: Icon(icon, color: _body, size: 30)),
+  );
+}
+
+Widget _collectionChip(IconData? icon, String label, {bool muted = false}) {
+  final color = muted ? _sage : _purple;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(color: (muted ? _brand : _bellySoft).withValues(alpha: .45), borderRadius: BorderRadius.circular(18)),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[Icon(icon, size: 16, color: color), const SizedBox(width: 8)],
+        Text(label, style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.w800)),
+      ],
+    ),
+  );
+}
+
+Widget _iconSquare(IconData icon, Color color) {
+  return Container(
+    width: 52,
+    height: 52,
+    decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(16)),
+    child: Icon(icon, color: color, size: 26),
+  );
+}
+
+Widget _statCard({
+  required IconData icon,
+  required Color iconColor,
+  required String label,
+  required String amount,
+  required String footnote,
+}) {
+  return Container(
+    padding: const EdgeInsets.all(20),
+    decoration: _collectionCardDecoration(),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _iconSquare(icon, iconColor),
+        const SizedBox(height: 24),
+        Text(label, style: const TextStyle(color: _body, fontSize: 16, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(amount, style: const TextStyle(color: _title, fontSize: 27, fontWeight: FontWeight.w900))),
+        const SizedBox(height: 8),
+        Text(footnote, style: const TextStyle(color: _sage, fontSize: 13, fontWeight: FontWeight.w800)),
+      ],
+    ),
+  );
+}
+
+Widget _softPill(String label, Color color) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+    decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(18)),
+    child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+  );
+}
+
+Widget _primaryCollectionButton(String label, IconData? icon, VoidCallback? onTap) {
+  final enabled = onTap != null;
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: double.infinity,
+      height: 76,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: enabled ? _brand : _brand.withValues(alpha: .30),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: enabled ? const [BoxShadow(color: _pressGreen, offset: Offset(0, 7))] : null,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900))),
+          if (icon != null) ...[const SizedBox(width: 12), Icon(icon, color: Colors.white, size: 28)],
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _sectionTitle(String title, String trailing) {
+  return Row(
+    children: [
+      Text(title, style: const TextStyle(color: _title, fontSize: 28, fontWeight: FontWeight.w900)),
+      const Spacer(),
+      Text(trailing, style: const TextStyle(color: _brand, fontSize: 16, fontWeight: FontWeight.w900)),
+    ],
+  );
+}
+
+Widget _activityCard({
+  required List<_ActivityItem> items,
+  required VoidCallback emptyAction,
+  required String emptyLabel,
+}) {
+  if (items.isEmpty) {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: _collectionCardDecoration(),
+      child: Column(
+        children: [
+          const Text('No collection events yet.', style: TextStyle(color: _body, fontSize: 16, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          TextButton(onPressed: emptyAction, child: Text(emptyLabel)),
+        ],
+      ),
+    );
+  }
+  return Container(
+    decoration: _collectionCardDecoration(),
+    child: Column(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(color: items[i].color.withValues(alpha: .10), shape: BoxShape.circle),
+                  child: Icon(items[i].icon, color: items[i].color, size: 24),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(items[i].title, style: const TextStyle(color: _title, fontSize: 16, fontWeight: FontWeight.w900, height: 1.25)),
+                      const SizedBox(height: 6),
+                      Text(items[i].subtitle, style: const TextStyle(color: _body, fontSize: 14, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (i != items.length - 1) const Divider(height: 1, color: _border, indent: 82),
+        ],
+      ],
+    ),
+  );
+}
+
+Widget _sheetTitle(String title, String subtitle) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(title, style: const TextStyle(color: _title, fontSize: 30, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 12),
+      Text(subtitle, style: const TextStyle(color: _body, fontSize: 17, fontWeight: FontWeight.w700, height: 1.45)),
+      const SizedBox(height: 28),
+    ],
+  );
+}
+
+Widget _moneyInput(TextEditingController controller, {ValueChanged<String>? onChanged}) {
+  return TextField(
+    controller: controller,
+    onChanged: onChanged,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    style: const TextStyle(color: _title, fontSize: 22, fontWeight: FontWeight.w800),
+    decoration: InputDecoration(
+      prefixIcon: const Icon(Icons.account_balance_wallet_rounded, color: _body, size: 32),
+      filled: true,
+      fillColor: _surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: const BorderSide(color: _border, width: 1.4)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: const BorderSide(color: _brand, width: 1.6)),
+    ),
+  );
+}
+
+Widget _sliderRow(
+  String label,
+  String valueLabel,
+  double value,
+  double min,
+  double max,
+  int divisions,
+  Color color,
+  ValueChanged<double> onChanged,
+) {
+  return Column(
+    children: [
+      Row(
+        children: [
+          Text(label, style: const TextStyle(color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
+          const Spacer(),
+          Flexible(child: Text(valueLabel, textAlign: TextAlign.right, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900))),
+        ],
+      ),
+      Slider(value: value, min: min, max: max, divisions: divisions, activeColor: color, inactiveColor: _border, onChanged: onChanged),
+    ],
+  );
+}
+
+BoxDecoration _collectionCardDecoration() {
+  return BoxDecoration(
+    color: _surface,
+    borderRadius: BorderRadius.circular(28),
+    border: Border.all(color: _border),
+    boxShadow: [
+      BoxShadow(color: Colors.black.withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, 8)),
+    ],
+  );
+}
+
+String _bufferWeeks(double buffer, double target) {
+  if (target <= 0 || buffer <= 0) return 'Start building buffer';
+  final weeks = (buffer / target * 4).round().clamp(1, 52);
+  return 'About $weeks weeks covered';
+}
+
+String _collectionDate(DateTime date) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final hour12 = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  final minute = date.minute.toString().padLeft(2, '0');
+  final suffix = date.hour >= 12 ? 'PM' : 'AM';
+  return '${months[date.month - 1]} ${date.day}, $hour12:$minute $suffix';
+}
 
 class _D1GoalsMenu extends StatelessWidget {
   const _D1GoalsMenu({required this.onGoal});
