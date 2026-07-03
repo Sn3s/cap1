@@ -396,7 +396,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Cash Flow & Basic Needs',
     layerDescription:
-        'Get clear on income, spending, bills, and what has to be covered each month.',
+        'Feel confident that there is enough money available to cover day-to-day expenses and essential needs.',
     firstQuestion: 'What is your biggest struggle with day-to-day spending?',
     icon: Icons.account_balance_wallet_rounded,
     defaultGoalTitle: 'Cash Flow Stability Plan',
@@ -446,7 +446,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Financial Safety',
     layerDescription:
-        'Build protection against surprise expenses, bill panic, and dipping into emergency money.',
+        'Avoid financial emergencies from disrupting daily life and long-term plans.',
     firstQuestion: 'What stops you from keeping an emergency fund?',
     icon: Icons.shield_rounded,
     defaultGoalTitle: 'Emergency Cushion',
@@ -495,7 +495,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Accumulating Wealth',
     layerDescription:
-        'Move from staying afloat to reducing debt, saving consistently, and starting long-term growth.',
+        'Build wealth steadily and make progress toward long-term financial growth.',
     firstQuestion: 'Where should the app focus to help grow your wealth?',
     icon: Icons.trending_up_rounded,
     defaultGoalTitle: 'Net Worth Growth Plan',
@@ -543,7 +543,7 @@ const _goalBranches = [
   GoalBranch(
     layer: 'Financial Freedom',
     layerDescription:
-        'Plan future milestones, shared goals, and funded experiences without weakening your foundation.',
+        'Have freedom to afford desired lifestyles, experiences, and future aspirations.',
     firstQuestion: 'How do you want to save for your big life milestones?',
     icon: Icons.flag_rounded,
     defaultGoalTitle: 'Future Lifestyle Fund',
@@ -4695,4 +4695,3 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
     );
   }
 }
-

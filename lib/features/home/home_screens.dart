@@ -2378,247 +2378,888 @@ class _InsightLayerSection extends StatelessWidget {
   }
 }
 
-class GoalsPage extends StatefulWidget {
+class GoalsPage extends StatelessWidget {
   const GoalsPage({super.key});
 
+  static const _goals = [
+    (
+      id: 'G1',
+      emoji: '💵',
+      title: 'Maintain Available Cash',
+      description: 'Allocate each paycheck into dedicated funds for essentials and bills.',
+      color: _brand,
+      layer: 'Cash Flow',
+    ),
+    (
+      id: 'G3',
+      emoji: '🛡️',
+      title: 'Build Emergency Fund',
+      description: 'Grow a fund that covers unexpected expenses without going into debt.',
+      color: _red,
+      layer: 'Financial Safety',
+    ),
+  ];
+
   @override
-  State<GoalsPage> createState() => _GoalsPageState();
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      children: [
+        const Text(
+          'Your Goals',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: _title),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Tap a goal to manage your buckets.',
+          style: TextStyle(fontSize: 14, color: Color(0xFF8A7EA6)),
+        ),
+        const SizedBox(height: 20),
+        for (final g in _goals) ...[
+          _D1GoalCard(
+            id: g.id,
+            emoji: g.emoji,
+            title: g.title,
+            description: g.description,
+            color: g.color,
+            layer: g.layer,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => _D1GoalDetailScreen(id: g.id, title: g.title, color: g.color),
+            )),
+          ),
+          const SizedBox(height: 14),
+        ],
+      ],
+    );
+  }
 }
 
-class _GoalsPageState extends State<GoalsPage> {
-  bool _showMenu = true;
-  String? _overrideGoal; // null → use state.selectedGoal
-  bool _crossAlertShown = false;
+// ─── D1 Goal cards ────────────────────────────────────────────────────────────
 
-  String _activeGoal(AppState state) => _overrideGoal ?? state.selectedGoal;
+class _D1GoalCard extends StatelessWidget {
+  const _D1GoalCard({
+    required this.id,
+    required this.emoji,
+    required this.title,
+    required this.description,
+    required this.color,
+    required this.layer,
+    required this.onTap,
+  });
 
-  void _enterGoal([String? goal]) => setState(() {
-        _showMenu = false;
-        _crossAlertShown = false;
-        _overrideGoal = goal;
-      });
+  final String id;
+  final String emoji;
+  final String title;
+  final String description;
+  final Color color;
+  final String layer;
+  final VoidCallback onTap;
 
-  void _backToMenu() => setState(() {
-        _showMenu = true;
-        _overrideGoal = null;
-      });
-
-  void _showGoalPicker(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GoalPickerSheet(
-        onSelect: (goal) {
-          Navigator.pop(context);
-          _enterGoal(goal);
-        },
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _title,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          layer,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFF8A7EA6)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              description,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF8A7EA6), height: 1.4),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+// ─── D1 Goal detail screen ────────────────────────────────────────────────────
+
+class _D1GoalDetailScreen extends StatelessWidget {
+  const _D1GoalDetailScreen({required this.id, required this.title, required this.color});
+
+  final String id;
+  final String title;
+  final Color color;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_showMenu && !_crossAlertShown) {
-      final state = AppScope.of(context);
-      final alert = _shieldCrossAlert(state);
-      if (alert != null) {
-        _crossAlertShown = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _showCrossAlertDialog(context, alert);
-        });
-      }
-    }
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: _title),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _title),
+        ),
+      ),
+      body: id == 'G1' ? const _G1GoalBody() : const _G3GoalBody(),
+    );
   }
+}
+
+// ─── G1: Maintain Available Cash ──────────────────────────────────────────────
+
+class _G1GoalBody extends StatelessWidget {
+  const _G1GoalBody();
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-
-    if (_showMenu) {
-      return _GoalsMenu(
-        onGoal: () => _enterGoal(null),
-        onShieldGoal: () => _enterGoal('Safety Shield Boundary'),
-        onAddGoal: () => _showGoalPicker(context),
-      );
-    }
-
-    final activeGoal = _activeGoal(state);
-    final onBack = _backToMenu;
-
-    // First-time setup: show jar configuration before normal Goals content.
-    if (activeGoal == 'Irregular Income Buffer' && state.needsTarget == 0) {
-      return _TwoJarSetupFlow(onBack: onBack);
-    }
-
-    // Two-jar UI (configured): replace full page for this goal only.
-    if (activeGoal == 'Irregular Income Buffer') {
-      return _TwoJarGoalsBody(onBack: onBack);
-    }
-
-    // Safety Shield: setup or goal body.
-    if (activeGoal == 'Safety Shield Boundary' && !state.shieldIsSetup) {
-      return _ShieldSetupFlow(onBack: onBack);
-    }
-    if (activeGoal == 'Safety Shield Boundary') {
-      return _ShieldGoalBody(onBack: onBack);
-    }
-
-    final cycle = _goalCycleFor(state);
-    final buckets = _goalBucketsFor(state);
-    final totalSaved = buckets.fold(0.0, (sum, bucket) => sum + bucket.current);
-    final totalTarget = buckets.fold(0.0, (sum, bucket) => sum + bucket.target);
-    final primary = buckets.first;
-    final cycleSteps = _cycleStepsForGoal(state);
-    final irregularIncome = state.selectedGoal == 'Irregular Income Buffer'
-        ? _irregularIncomeCycleFor(state)
-        : null;
+    final essentialPct = double.tryParse(
+          state.actionFieldValues['A1']?['pct'] ?? '50',
+        ) ??
+        50;
+    final billsAmt = double.tryParse(
+          state.actionFieldValues['A4']?['amt'] ?? '2000',
+        ) ??
+        2000;
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(20),
       children: [
-        _GoalDetailHeader(eyebrow: 'COLLECTION MODE', onBack: onBack),
+        _D1BucketCard(
+          label: 'Essential Expenses Fund',
+          sublabel: 'A1 · ${essentialPct.toStringAsFixed(0)}% of each income',
+          balance: state.essentialExpensesBalance,
+          color: _brand,
+          onUse: () => _showUseFunds(context, 'essential', 'Essential Expenses'),
+        ),
+        const SizedBox(height: 14),
+        _D1BucketCard(
+          label: 'Bills & Obligations Fund',
+          sublabel: 'A4 · ${money(billsAmt)} per income',
+          balance: state.billsObligationsBalance,
+          color: _purple,
+          onUse: () => _showUseFunds(context, 'bills', 'Bills & Obligations'),
+        ),
         const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  _GoalCycleChip(cycle: cycle),
-                  const SizedBox(width: 8),
-                  _GoalLayerChip(goal: state.selectedGoal),
-                ],
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => _showLogIncome(context, essentialPct, billsAmt),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Log Income'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _brand,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _D1LedgerList(ledger: state.d1Ledger, goalId: 'G1'),
+      ],
+    );
+  }
+
+  void _showLogIncome(BuildContext context, double essentialPct, double billsAmt) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _D1LogIncomeSheet(
+        essentialPct: essentialPct,
+        billsAmt: billsAmt,
+        emergencyPct: 0,
+        showEmergency: false,
+      ),
+    );
+  }
+
+  void _showUseFunds(BuildContext context, String bucket, String label) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _D1UseFundsSheet(bucket: bucket, label: label),
+    );
+  }
+}
+
+// ─── G3: Build Emergency Fund ─────────────────────────────────────────────────
+
+class _G3GoalBody extends StatelessWidget {
+  const _G3GoalBody();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final emergencyPct = double.tryParse(
+          state.actionFieldValues['A8']?['pct'] ?? '10',
+        ) ??
+        10;
+    final replenishDays = int.tryParse(
+          state.actionFieldValues['A10']?['days'] ?? '7',
+        ) ??
+        7;
+    final months = state.emergencyMonthsCovered;
+    final target = state.emergencyFundTarget;
+    final needsReplenish = state.lastEfWithdrawal != null;
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        if (needsReplenish)
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _amber.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _amber.withValues(alpha: 0.4)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: _amber, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Replenish within $replenishDays days of withdrawal (A10)',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _title),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        _D1BucketCard(
+          label: 'Emergency Fund',
+          sublabel: 'A8 · ${emergencyPct.toStringAsFixed(0)}% of each income · target ${money(target)}',
+          balance: state.emergencyFundBalance,
+          color: _red,
+          progressTarget: target,
+          extraInfo: '${months.toStringAsFixed(1)} months covered',
+          onUse: () => _showWithdraw(context),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => _showLogIncome(context, emergencyPct),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Log Income'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
               ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE7C76A),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      state.selectedGoal == 'Irregular Income Buffer'
-                          ? 'BASIC NEEDS BUCKET'
-                          : 'TOTAL IN GOAL BUCKETS',
-                      style: const TextStyle(
-                        color: _title,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      money(totalSaved),
-                      style: GoogleFonts.nunito(
-                        color: _title,
-                        fontSize: 36,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      state.selectedGoal == 'Irregular Income Buffer'
-                          ? 'Buffer: ${money(irregularIncome?.bufferBalance ?? 0)} · Target: ${money(totalTarget)}'
-                          : 'of ${money(totalTarget)} across ${buckets.length} active ${buckets.length == 1 ? 'goal' : 'goals'}',
-                      style: const TextStyle(
-                        color: _title,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (irregularIncome != null)
-                _IrregularIncomeCollectionCard(data: irregularIncome)
-              else
-                _GoalBucketCard(
-                  bucket: primary,
-                  featured: true,
-                  onTap: () => _showBucketActions(context, primary),
-                  onEdit: () => _showBucketEditor(context, primary),
-                  onAllocate: () => _showAllocationSheet(context, primary),
-                ),
-              const SizedBox(height: 22),
-              SectionTitle(title: 'This cycle', action: cycle.rhythm),
-              const SizedBox(height: 12),
-              AppCard(
-                padding: EdgeInsets.zero,
-                child: Column(
-                  children: cycleSteps.asMap().entries.map((entry) {
-                    final isLast = entry.key == cycleSteps.length - 1;
-                    return Column(
-                      children: [
-                        _GoalCycleStepRow(
-                          step: entry.value,
-                          index: entry.key + 1,
-                          isLast: isLast,
-                        ),
-                        if (!isLast)
-                          const Divider(
-                            height: 1,
-                            color: _border,
-                            indent: 74,
-                          ),
-                      ],
-                    );
-                  }).toList(),
+            ),
+            if (needsReplenish) ...[
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => _showReplenish(context),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Replenish'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _amber,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                 ),
               ),
             ],
+          ],
+        ),
+        const SizedBox(height: 24),
+        _D1LedgerList(ledger: state.d1Ledger, goalId: 'G3'),
+      ],
+    );
+  }
+
+  void _showLogIncome(BuildContext context, double emergencyPct) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _D1LogIncomeSheet(
+        essentialPct: 0,
+        billsAmt: 0,
+        emergencyPct: emergencyPct,
+        showEmergency: true,
+      ),
+    );
+  }
+
+  void _showWithdraw(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _D1UseFundsSheet(bucket: 'emergency', label: 'Emergency Fund'),
+    );
+  }
+
+  void _showReplenish(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _D1ReplenishSheet(),
+    );
+  }
+}
+
+// ─── D1 shared bucket card ────────────────────────────────────────────────────
+
+class _D1BucketCard extends StatelessWidget {
+  const _D1BucketCard({
+    required this.label,
+    required this.sublabel,
+    required this.balance,
+    required this.color,
+    required this.onUse,
+    this.progressTarget,
+    this.extraInfo,
+  });
+
+  final String label;
+  final String sublabel;
+  final double balance;
+  final Color color;
+  final VoidCallback onUse;
+  final double? progressTarget;
+  final String? extraInfo;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = progressTarget != null && progressTarget! > 0
+        ? (balance / progressTarget!).clamp(0.0, 1.0)
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _title),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(sublabel, style: const TextStyle(fontSize: 12, color: Color(0xFF8A7EA6))),
+          const SizedBox(height: 12),
+          Text(
+            money(balance),
+            style: GoogleFonts.nunito(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              color: _title,
+              letterSpacing: -0.3,
+            ),
+          ),
+          if (extraInfo != null) ...[
+            const SizedBox(height: 2),
+            Text(extraInfo!, style: const TextStyle(fontSize: 12, color: Color(0xFF8A7EA6))),
+          ],
+          if (progress != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 6,
+                backgroundColor: color.withValues(alpha: 0.12),
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onUse,
+              style: TextButton.styleFrom(
+                foregroundColor: color,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: color.withValues(alpha: 0.4)),
+                ),
+              ),
+              child: const Text('Use Funds', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── D1 sheets ────────────────────────────────────────────────────────────────
+
+class _D1LogIncomeSheet extends StatefulWidget {
+  const _D1LogIncomeSheet({
+    required this.essentialPct,
+    required this.billsAmt,
+    required this.emergencyPct,
+    required this.showEmergency,
+  });
+
+  final double essentialPct;
+  final double billsAmt;
+  final double emergencyPct;
+  final bool showEmergency;
+
+  @override
+  State<_D1LogIncomeSheet> createState() => _D1LogIncomeSheetState();
+}
+
+class _D1LogIncomeSheetState extends State<_D1LogIncomeSheet> {
+  final _ctrl = TextEditingController();
+
+  double get _amount => double.tryParse(_ctrl.text.replaceAll(',', '')) ?? 0;
+  double get _essential => _amount * widget.essentialPct / 100;
+  double get _bills => math.min(widget.billsAmt, _amount);
+  double get _emergency => _amount * widget.emergencyPct / 100;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Log Income',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _title),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ctrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              decoration: InputDecoration(
+                prefixText: '₱ ',
+                hintText: '0.00',
+                filled: true,
+                fillColor: _bg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            if (_amount > 0) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _bg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _border),
+                ),
+                child: Column(
+                  children: [
+                    if (!widget.showEmergency) ...[
+                      _D1AllocRow('Essential Expenses Fund (${widget.essentialPct.toStringAsFixed(0)}%)', _essential),
+                      const SizedBox(height: 6),
+                      _D1AllocRow('Bills & Obligations Fund', _bills),
+                    ] else
+                      _D1AllocRow('Emergency Fund (${widget.emergencyPct.toStringAsFixed(0)}%)', _emergency),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _amount > 0
+                    ? () {
+                        AppScope.of(context).logD1Income(
+                          amount: _amount,
+                          essentialPct: widget.essentialPct,
+                          billsAmt: widget.billsAmt,
+                          emergencyPct: widget.emergencyPct,
+                        );
+                        Navigator.pop(context);
+                      }
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _D1AllocRow extends StatelessWidget {
+  const _D1AllocRow(this.label, this.amount);
+  final String label;
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF8A7EA6))),
+        ),
+        Text(
+          money(amount),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _title),
+        ),
+      ],
+    );
+  }
+}
+
+class _D1UseFundsSheet extends StatefulWidget {
+  const _D1UseFundsSheet({required this.bucket, required this.label});
+  final String bucket;
+  final String label;
+
+  @override
+  State<_D1UseFundsSheet> createState() => _D1UseFundsSheetState();
+}
+
+class _D1UseFundsSheetState extends State<_D1UseFundsSheet> {
+  final _ctrl = TextEditingController();
+  double get _amount => double.tryParse(_ctrl.text.replaceAll(',', '')) ?? 0;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Use ${widget.label} Funds',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _title),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ctrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              decoration: InputDecoration(
+                prefixText: '₱ ',
+                hintText: '0.00',
+                filled: true,
+                fillColor: _bg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _amount > 0
+                    ? () {
+                        AppScope.of(context).useD1BucketFunds(widget.bucket, _amount);
+                        Navigator.pop(context);
+                      }
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _D1ReplenishSheet extends StatefulWidget {
+  const _D1ReplenishSheet();
+
+  @override
+  State<_D1ReplenishSheet> createState() => _D1ReplenishSheetState();
+}
+
+class _D1ReplenishSheetState extends State<_D1ReplenishSheet> {
+  final _ctrl = TextEditingController();
+  double get _amount => double.tryParse(_ctrl.text.replaceAll(',', '')) ?? 0;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GoalSheetFrame(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Replenish Emergency Fund',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _title),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ctrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              autofocus: true,
+              decoration: InputDecoration(
+                prefixText: '₱ ',
+                hintText: '0.00',
+                filled: true,
+                fillColor: _bg,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: _border),
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _amount > 0
+                    ? () {
+                        AppScope.of(context).replenishD1EmergencyFund(_amount);
+                        Navigator.pop(context);
+                      }
+                    : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── D1 ledger list ───────────────────────────────────────────────────────────
+
+class _D1LedgerList extends StatelessWidget {
+  const _D1LedgerList({required this.ledger, required this.goalId});
+
+  final List<Map<String, dynamic>> ledger;
+  final String goalId;
+
+  @override
+  Widget build(BuildContext context) {
+    // G1 shows income + essential/bills events; G3 shows income + emergency events
+    final relevant = ledger.where((e) {
+      final t = e['type'] as String;
+      if (goalId == 'G1') return t == 'income' || t == 'use_essential' || t == 'use_bills';
+      return t == 'income' || t == 'use_emergency' || t == 'ef_replenish';
+    }).take(20).toList();
+
+    if (relevant.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Recent Activity',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: _title),
+        ),
+        const SizedBox(height: 10),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: relevant.asMap().entries.map((entry) {
+              final e = entry.value;
+              final isLast = entry.key == relevant.length - 1;
+              final type = e['type'] as String;
+              final date = DateTime.tryParse(e['date'] as String? ?? '') ?? DateTime.now();
+              final amount = (e['amount'] as num?)?.toDouble() ?? 0;
+
+              final (icon, label, amtColor) = switch (type) {
+                'income' => (Icons.arrow_downward_rounded, 'Income logged', _green),
+                'use_essential' => (Icons.shopping_cart_outlined, 'Essential Expenses used', _red),
+                'use_bills' => (Icons.receipt_outlined, 'Bills paid', _red),
+                'use_emergency' => (Icons.warning_amber_rounded, 'Emergency withdrawal', _red),
+                'ef_replenish' => (Icons.refresh_rounded, 'Emergency Fund replenished', _brand),
+                _ => (Icons.circle_outlined, type, _title),
+              };
+
+              return Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(icon, size: 18, color: amtColor),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: _title,
+                                ),
+                              ),
+                              Text(
+                                '${date.day}/${date.month}/${date.year}',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF8A7EA6)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          money(amount),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: amtColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isLast) const Divider(height: 1, color: _border, indent: 44),
+                ],
+              );
+            }).toList(),
           ),
         ),
       ],
     );
   }
-
-  Future<void> _showBucketActions(BuildContext context, _GoalBucket bucket) {
-    return showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GoalBucketActionsSheet(
-        bucket: bucket,
-        onEdit: () {
-          Navigator.pop(context);
-          _showBucketEditor(context, bucket);
-        },
-        onAllocate: () {
-          Navigator.pop(context);
-          _showAllocationSheet(context, bucket);
-        },
-      ),
-    );
-  }
-
-  Future<void> _showBucketEditor(BuildContext context, _GoalBucket bucket) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GoalBucketEditorSheet(bucket: bucket),
-    );
-  }
-
-  Future<void> _showAllocationSheet(BuildContext context, _GoalBucket bucket) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _GoalAllocationSheet(bucket: bucket),
-    );
-  }
 }
 
-// ─── Goals menu ───────────────────────────────────────────────────────────────
+// ─── Goals menu (legacy — kept to avoid dead-ref compile errors) ──────────────
 
 class _GoalsMenu extends StatelessWidget {
   const _GoalsMenu({

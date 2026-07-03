@@ -88,6 +88,14 @@ class AppState extends ChangeNotifier {
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {'ACT1'};
+  // D1 goal buckets
+  double essentialExpensesBalance = 0;
+  double billsObligationsBalance = 0;
+  double emergencyFundBalance = 0;
+  String? _lastEfWithdrawalStr;
+  final List<Map<String, dynamic>> d1Ledger = [];
+  Map<String, Map<String, String>> actionFieldValues = {};
+
   final Set<String> trackingVariables = {
     'Income',
     'Expenses',
@@ -106,6 +114,12 @@ class AppState extends ChangeNotifier {
       "I'm Shellby. If you could achieve one financial milestone in the next 12 months, what would it be?",
     ),
   ];
+
+  DateTime? get lastEfWithdrawal =>
+      _lastEfWithdrawalStr == null ? null : DateTime.tryParse(_lastEfWithdrawalStr!);
+  double get emergencyMonthsCovered =>
+      expenses <= 0 ? 0 : emergencyFundBalance / expenses;
+  double get emergencyFundTarget => math.max(30000, expenses * 3);
 
   bool get isSignedIn => uid != null;
   bool get hasFakeMayaLink => fakeMayaLink != null;
@@ -774,6 +788,58 @@ class AppState extends ChangeNotifier {
     if (socialStructure == 'Collaborative goal') {
       socialStructure = 'Private only';
     }
+    notifyListeners();
+  }
+
+  void logD1Income({
+    required double amount,
+    required double essentialPct,
+    required double billsAmt,
+    required double emergencyPct,
+  }) {
+    final essential = amount * essentialPct / 100;
+    final bills = math.min(billsAmt, amount);
+    final emergency = amount * emergencyPct / 100;
+    essentialExpensesBalance += essential;
+    billsObligationsBalance += bills;
+    emergencyFundBalance += emergency;
+    d1Ledger.insert(0, {
+      'type': 'income',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'essential': essential,
+      'bills': bills,
+      'emergency': emergency,
+    });
+    notifyListeners();
+  }
+
+  void useD1BucketFunds(String bucket, double amount) {
+    switch (bucket) {
+      case 'essential':
+        essentialExpensesBalance = math.max(0, essentialExpensesBalance - amount);
+      case 'bills':
+        billsObligationsBalance = math.max(0, billsObligationsBalance - amount);
+      case 'emergency':
+        emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
+        _lastEfWithdrawalStr = DateTime.now().toIso8601String();
+    }
+    d1Ledger.insert(0, {
+      'type': 'use_$bucket',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+    });
+    notifyListeners();
+  }
+
+  void replenishD1EmergencyFund(double amount) {
+    emergencyFundBalance += amount;
+    _lastEfWithdrawalStr = null;
+    d1Ledger.insert(0, {
+      'type': 'ef_replenish',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+    });
     notifyListeners();
   }
 
