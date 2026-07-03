@@ -347,10 +347,19 @@ class _CashFlowPyramidContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = state.totalCashFlowBudget;
     if (total == 0) {
-      return const Text(
-        'Tap to set up your monthly expense budget',
-        style:
-            TextStyle(color: _body, fontWeight: FontWeight.w600, fontSize: 13),
+      if (state.essentialExpensesBalance <= 0) {
+        return const Text(
+          'Tap to set up your monthly expense budget',
+          style: TextStyle(color: _body, fontWeight: FontWeight.w600, fontSize: 13),
+        );
+      }
+      return Row(
+        children: [
+          const Icon(Icons.home_work_rounded, color: _brand, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Essential Expenses Fund', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700))),
+          Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        ],
       );
     }
     // Compute this-month layer-1 spending from FakeMaya if available
@@ -369,6 +378,17 @@ class _CashFlowPyramidContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (state.essentialExpensesBalance > 0) ...[
+          Row(
+            children: [
+              const Icon(Icons.home_work_rounded, color: _brand, size: 16),
+              const SizedBox(width: 7),
+              const Expanded(child: Text('Allocated to Essential Expenses Fund', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
+              Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w900)),
+            ],
+          ),
+          const SizedBox(height: 9),
+        ],
         Row(
           children: [
             Text(
@@ -412,7 +432,7 @@ class _FinancialSafetyPyramidContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final budget = state.safetyShieldMonthlyBase;
-    final current = state.safetyShieldBalance;
+    final current = state.safetyShieldBalance + state.displayedEmergencyFundBalance;
     final max = budget * 6;
     final fill = max > 0 ? (current / max).clamp(0.0, 1.0) : 0.0;
     final months = budget > 0 ? current / budget : 0.0;
@@ -940,7 +960,39 @@ List<_WealthAccount> _buildWealthAccounts(AppState state) {
 
   for (final asset in fakeMayaItems) {
     final account = _fakeMayaWealthAccount(asset);
-    if (account != null) out.add(account);
+    if (account != null) {
+      out.add(asset.name == 'FakeMaya Wallet'
+          ? _WealthAccount(
+              name: account.name,
+              sub: 'Unallocated e-wallet cash',
+              balance: state.unallocatedFakeMayaWallet,
+              color: account.color,
+              icon: account.icon,
+              layer: account.layer,
+            )
+          : account);
+    }
+  }
+
+  if (state.essentialExpensesBalance > 0) {
+    out.add(_WealthAccount(
+      name: 'Essential Expenses Fund',
+      sub: 'Allocated from income',
+      balance: state.essentialExpensesBalance,
+      color: _brand,
+      icon: Icons.home_work_rounded,
+      layer: 1,
+    ));
+  }
+  if (state.displayedEmergencyFundBalance > 0) {
+    out.add(_WealthAccount(
+      name: 'Emergency Fund',
+      sub: 'Allocated from income',
+      balance: state.displayedEmergencyFundBalance,
+      color: _amber,
+      icon: Icons.shield_rounded,
+      layer: 2,
+    ));
   }
 
   for (final asset in state.assets
@@ -2388,7 +2440,7 @@ class _D1GoalMeta {
     required this.description,
     required this.layerColor,
     required this.layerLabel,
-    required this.actionCount,
+    required this.actions,
   });
   final String id;
   final String emoji;
@@ -2396,7 +2448,29 @@ class _D1GoalMeta {
   final String description;
   final Color layerColor;
   final String layerLabel;
-  final int actionCount;
+  final List<_D1ActionMeta> actions;
+}
+
+class _D1ActionMeta {
+  const _D1ActionMeta({
+    required this.id,
+    required this.text,
+    required this.configLabel,
+    required this.configValue,
+    required this.destBucket,
+    required this.metrics,
+    required this.dataPoints,
+    required this.activityLog,
+  });
+
+  final String id;
+  final String text;
+  final String configLabel;
+  final String configValue;
+  final String destBucket;
+  final List<({String label, String value, IconData icon})> metrics;
+  final List<({String label, String type, String value})> dataPoints;
+  final List<({String date, String event, String amount, bool isIn})> activityLog;
 }
 
 
@@ -2438,11 +2512,11 @@ const _d1GoalMetas = <_D1GoalMeta>[
         ],
       ),
       _D1ActionMeta(
-        id: 'A4',
-        text: 'Set aside ₱2,000 from each income received for upcoming bill and payment obligations.',
-        configLabel: 'Amount per income',
-        configValue: '₱2,000 per income',
-        destBucket: 'Bills & Obligations Fund',
+        id: 'A3',
+        text: 'Limit spending in selected categories to a maximum of ₱X per month.',
+        configLabel: 'Category budgets',
+        configValue: 'Set per category',
+        destBucket: 'Monthly spending limits',
         metrics: [
           (label: 'Budget Adherence', value: '75%', icon: Icons.verified_rounded),
           (label: 'Monthly Cash Flow', value: '+₱3,200', icon: Icons.trending_up_rounded),
@@ -2911,6 +2985,18 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
   Widget build(BuildContext context) {
     final action = widget.action;
     final color = widget.goalColor;
+    if (action.id == 'A1') {
+      return _EssentialExpensesActionPanel(color: color);
+    }
+    if (action.id == 'A3') {
+      return _CategoryBudgetActionPanel(color: color);
+    }
+    if (action.id == 'A8') {
+      return _EmergencyFundIncomeActionPanel(color: color);
+    }
+    if (action.id == 'A10') {
+      return _EmergencyReplenishmentActionPanel(color: color);
+    }
     return Container(
       decoration: BoxDecoration(
         color: _surface,
@@ -3054,6 +3140,559 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
           ],
         ],
       ),
+    );
+  }
+}
+
+FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
+  final transactions = state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
+  final incoming = transactions.where((transaction) {
+    if (transaction.amount <= 0) return false;
+    final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
+    return !text.contains('account opened') &&
+        (text.contains('income') ||
+            text.contains('salary') ||
+            text.contains('payroll') ||
+            text.contains('cash in') ||
+            text.contains('received'));
+  }).toList()
+    ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+  return incoming.isEmpty ? null : incoming.first;
+}
+
+class _EssentialExpensesActionPanel extends StatefulWidget {
+  const _EssentialExpensesActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EssentialExpensesActionPanel> createState() => _EssentialExpensesActionPanelState();
+}
+
+class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionPanel> {
+  bool busy = false;
+
+  Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
+    if (busy || income.createdAt == null) return;
+    setState(() => busy = true);
+    await state.depositIncomeToEssentialFund(
+      transactionId: income.transactionId,
+      incomeAmount: income.amount,
+      incomeDate: income.createdAt!,
+      percentage: 50,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final income = _latestIncomeTransaction(state);
+    final allocation = (income?.amount ?? 0) * .5;
+    final alreadyDeposited = income != null && state.hasEssentialAllocationForIncome(income.transactionId);
+    final hasEnoughCash = allocation <= state.unallocatedFakeMayaWallet;
+    final date = income?.createdAt;
+    final localizations = MaterialLocalizations.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
+                child: Text('A1', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text('Set aside 50% of each income received into an Essential Expenses Fund.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: _brand.withValues(alpha: .08), borderRadius: BorderRadius.circular(16), border: Border.all(color: _brand.withValues(alpha: .18))),
+            child: Row(
+              children: [
+                const Icon(Icons.home_work_rounded, color: _brand),
+                const SizedBox(width: 10),
+                const Expanded(child: Text('Essential Expenses Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900))),
+                Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _brand, fontWeight: FontWeight.w900)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (income == null)
+            const Text('No income transaction found yet. When FakeMaya records salary, cash-in, or received income, it will appear here.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+          else ...[
+            const Text('LATEST INCOME', style: TextStyle(color: _body, fontSize: 10, letterSpacing: 1.1, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 7),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.payments_rounded, color: _sage, size: 20),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(income.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+                      if (date != null)
+                        Text('${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                Text(money(income.amount), style: const TextStyle(color: _sage, fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            PrimaryButton(
+              label: alreadyDeposited
+                  ? '50% deposited to fund'
+                  : busy
+                      ? 'Depositing...'
+                      : 'Deposit 50% (${money(allocation)})',
+              icon: alreadyDeposited ? Icons.check_circle_rounded : Icons.savings_rounded,
+              enabled: !busy && !alreadyDeposited && hasEnoughCash && date != null,
+              onPressed: () => _deposit(state, income),
+            ),
+            if (!alreadyDeposited && !hasEnoughCash) ...[
+              const SizedBox(height: 7),
+              Text('The unallocated FakeMaya wallet balance is too low for this deposit.', style: TextStyle(color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyFundIncomeActionPanel extends StatefulWidget {
+  const _EmergencyFundIncomeActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EmergencyFundIncomeActionPanel> createState() => _EmergencyFundIncomeActionPanelState();
+}
+
+class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeActionPanel> {
+  bool busy = false;
+
+  Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
+    if (busy || income.createdAt == null) return;
+    setState(() => busy = true);
+    await state.depositIncomeToEmergencyFund(
+      transactionId: income.transactionId,
+      incomeAmount: income.amount,
+      incomeDate: income.createdAt!,
+      percentage: 10,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _useFunds(AppState state) async {
+    final controller = TextEditingController();
+    final amount = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Use Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: inputDecoration('Amount used').copyWith(prefixText: '₱ ', helperText: 'Available: ${money(state.displayedEmergencyFundBalance)}'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              final value = double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
+              Navigator.of(dialogContext).pop(value > 0 && value <= state.displayedEmergencyFundBalance ? value : null);
+            },
+            child: const Text('Record withdrawal'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (amount == null) return;
+    await state.useD1BucketFunds('emergency', amount);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final income = _latestIncomeTransaction(state);
+    final allocation = (income?.amount ?? 0) * .10;
+    final deposited = income != null && state.hasEmergencyAllocationForIncome(income.transactionId);
+    final canDeposit = allocation <= state.unallocatedFakeMayaWallet;
+    final date = income?.createdAt;
+    final localizations = MaterialLocalizations.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
+                child: Text('A8', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Transfer 10% of every income received into an Emergency Fund.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: _red.withValues(alpha: .07), borderRadius: BorderRadius.circular(16), border: Border.all(color: _red.withValues(alpha: .16))),
+            child: Row(
+              children: [
+                const Icon(Icons.shield_rounded, color: _red),
+                const SizedBox(width: 9),
+                const Expanded(child: Text('Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900))),
+                Text(money(state.displayedEmergencyFundBalance), style: const TextStyle(color: _red, fontWeight: FontWeight.w900)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (income == null)
+            const Text('No qualifying income transaction found yet.', style: TextStyle(color: _body, fontWeight: FontWeight.w700))
+          else ...[
+            const Text('LATEST INCOME', style: TextStyle(color: _body, fontSize: 10, letterSpacing: 1.1, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                const Icon(Icons.payments_rounded, color: _sage, size: 20),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(income.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+                      if (date != null) Text('${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+                Text(money(income.amount), style: const TextStyle(color: _sage, fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            PrimaryButton(
+              label: deposited ? '10% deposited to fund' : busy ? 'Depositing...' : 'Deposit 10% (${money(allocation)})',
+              icon: deposited ? Icons.check_circle_rounded : Icons.shield_rounded,
+              enabled: !busy && !deposited && canDeposit && date != null,
+              onPressed: () => _deposit(state, income),
+            ),
+          ],
+          if (state.displayedEmergencyFundBalance > 0) ...[
+            const SizedBox(height: 9),
+            TextButton.icon(onPressed: () => _useFunds(state), icon: const Icon(Icons.outbox_rounded), label: const Text('Use emergency funds')),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyReplenishmentActionPanel extends StatefulWidget {
+  const _EmergencyReplenishmentActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EmergencyReplenishmentActionPanel> createState() => _EmergencyReplenishmentActionPanelState();
+}
+
+class _EmergencyReplenishmentActionPanelState extends State<_EmergencyReplenishmentActionPanel> {
+  bool busy = false;
+
+  Future<void> _replenish(AppState state, double amount) async {
+    setState(() => busy = true);
+    await state.replenishD1EmergencyFund(amount);
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final pending = state.pendingEmergencyReplenishment;
+    final withdrawalDate = state.latestEmergencyWithdrawalDate;
+    final latestIncome = _latestIncomeTransaction(state);
+    final incomeDate = latestIncome?.createdAt;
+    final incomeAfterWithdrawal = withdrawalDate != null && incomeDate != null && incomeDate.isAfter(withdrawalDate);
+    final deadline = incomeAfterWithdrawal ? incomeDate.add(const Duration(days: 7)) : null;
+    final hoursLeft = deadline?.difference(DateTime.now()).inHours ?? 0;
+    final daysLeft = math.max(0, (hoursLeft / 24).ceil());
+    final overdue = deadline != null && deadline.isBefore(DateTime.now());
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
+                child: Text('A10', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (pending <= 0)
+            Container(
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(color: _sage.withValues(alpha: .1), borderRadius: BorderRadius.circular(14)),
+              child: const Row(children: [Icon(Icons.check_circle_rounded, color: _sage), SizedBox(width: 9), Expanded(child: Text('Your Emergency Fund has no amount waiting to be replenished.', style: TextStyle(color: _title, fontWeight: FontWeight.w800)))]),
+            )
+          else ...[
+            _ActionMetricTile(icon: Icons.outbox_rounded, label: 'Amount used', value: money(pending), color: _red),
+            const SizedBox(height: 10),
+            if (!incomeAfterWithdrawal)
+              const Text('Waiting for your next income. The 7-day replenishment countdown starts when that income arrives.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+            else ...[
+              _ActionMetricTile(
+                icon: overdue ? Icons.warning_rounded : Icons.timer_rounded,
+                label: overdue ? 'Replenishment overdue' : 'Time remaining',
+                value: overdue ? 'Due now' : '$daysLeft day${daysLeft == 1 ? '' : 's'}',
+                color: overdue ? _red : _amber,
+              ),
+              const SizedBox(height: 10),
+              PrimaryButton(
+                label: busy ? 'Replenishing...' : 'Replenish ${money(pending)}',
+                icon: Icons.restore_rounded,
+                enabled: !busy && pending <= state.unallocatedFakeMayaWallet,
+                onPressed: () => _replenish(state, pending),
+              ),
+              if (pending > state.unallocatedFakeMayaWallet) ...[
+                const SizedBox(height: 7),
+                const Text('The unallocated FakeMaya wallet balance is too low to replenish the full amount.', style: TextStyle(color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryBudgetActionPanel extends StatefulWidget {
+  const _CategoryBudgetActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_CategoryBudgetActionPanel> createState() => _CategoryBudgetActionPanelState();
+}
+
+class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> {
+  double _spentFor(AppState state, String budgetCategory) {
+    final now = DateTime.now();
+    return (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+        .where((transaction) {
+          final category = transaction.category?.trim() ?? '';
+          final normalized = category.toLowerCase();
+          final budgetNormalized = budgetCategory.toLowerCase();
+          final matches = normalized == budgetNormalized ||
+              (normalized.contains('food') && budgetNormalized.contains('food')) ||
+              (normalized.contains('shop') && budgetNormalized.contains('shop'));
+          return transaction.amount < 0 &&
+              transaction.isLabeled &&
+              !transaction.excludedFromInsights &&
+              transaction.createdAt?.year == now.year &&
+              transaction.createdAt?.month == now.month &&
+              matches;
+        })
+        .fold(0.0, (total, transaction) => total + transaction.amount.abs());
+  }
+
+  Future<void> _configure(AppState state) async {
+    final categories = <String>{'Food & Drinks', 'Shopping'};
+    for (final transaction in state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[]) {
+      final category = transaction.category?.trim() ?? '';
+      if (category.isNotEmpty && category.toLowerCase() != 'transfer') categories.add(category);
+    }
+    categories.addAll(state.categorySpendingBudgets.keys);
+    final ordered = categories.toList()..sort();
+    final selected = state.categorySpendingBudgets.isEmpty
+        ? <String>{'Food & Drinks', 'Shopping'}
+        : state.categorySpendingBudgets.keys.toSet();
+    final controllers = {
+      for (final category in ordered)
+        category: TextEditingController(
+          text: state.categorySpendingBudgets[category]?.toStringAsFixed(0) ??
+              (category == 'Food & Drinks' ? '5000' : category == 'Shopping' ? '2500' : ''),
+        ),
+    };
+
+    final result = await showDialog<Map<String, double>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final valid = selected.isNotEmpty && selected.every((category) {
+            final amount = double.tryParse(controllers[category]!.text.replaceAll(',', '')) ?? 0;
+            return amount > 0 && amount <= 1000000;
+          });
+          return AlertDialog(
+            backgroundColor: _surface,
+            title: const Text('Set category budgets', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final category in ordered)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: _brand,
+                        value: selected.contains(category),
+                        title: Text(category, style: const TextStyle(color: _title, fontWeight: FontWeight.w800)),
+                        subtitle: selected.contains(category)
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: TextField(
+                                  controller: controllers[category],
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: inputDecoration('Monthly budget').copyWith(prefixText: '₱ '),
+                                  onChanged: (_) => setDialogState(() {}),
+                                ),
+                              )
+                            : null,
+                        onChanged: (value) => setDialogState(() {
+                          if (value ?? false) {
+                            selected.add(category);
+                          } else {
+                            selected.remove(category);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: valid
+                    ? () => Navigator.of(dialogContext).pop({
+                          for (final category in selected)
+                            category: double.parse(controllers[category]!.text.replaceAll(',', '')),
+                        })
+                    : null,
+                child: const Text('Save budgets'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    for (final controller in controllers.values) {
+      controller.dispose();
+    }
+    if (result == null) return;
+    await state.updateCategorySpendingBudgets(result);
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final budgets = state.categorySpendingBudgets;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
+                child: Text('A3', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Limit spending in selected categories to a monthly maximum.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (budgets.isEmpty)
+            const Text('Choose the categories you want to control and give each one its own monthly budget.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+          else
+            for (final entry in budgets.entries) ...[
+              _CategoryBudgetProgress(
+                category: entry.key,
+                spent: _spentFor(state, entry.key),
+                budget: entry.value,
+              ),
+              const SizedBox(height: 13),
+            ],
+          OutlinedButton.icon(
+            onPressed: () => _configure(state),
+            icon: const Icon(Icons.tune_rounded),
+            label: Text(budgets.isEmpty ? 'Choose category budgets' : 'Edit category budgets'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryBudgetProgress extends StatelessWidget {
+  const _CategoryBudgetProgress({required this.category, required this.spent, required this.budget});
+  final String category;
+  final double spent;
+  final double budget;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = budget <= 0 ? 0.0 : (spent / budget).clamp(0.0, 1.0);
+    final color = progress >= 1 ? _red : progress >= .8 ? _amber : _brand;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text(category, style: const TextStyle(color: _title, fontWeight: FontWeight.w900))),
+            Text('${money(spent)} / ${money(budget)}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(value: progress, minHeight: 8, color: color, backgroundColor: color.withValues(alpha: .12)),
+        ),
+        const SizedBox(height: 4),
+        Text('${(progress * 100).round()}% used · ${money(math.max(0, budget - spent))} remaining', style: const TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+      ],
     );
   }
 }

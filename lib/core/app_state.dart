@@ -90,6 +90,9 @@ class AppState extends ChangeNotifier {
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {};
   final Map<String, Map<String, String>> actionFieldValues = {};
+  final Map<String, double> categorySpendingBudgets = {};
+  final Map<String, String> onboardingBaselines = {};
+  final List<Map<String, dynamic>> onboardingExpenseLedger = [];
 
   // ── D1 goal bucket balances ──────────────────────────────────────
   double essentialExpensesBalance = 0;
@@ -149,6 +152,14 @@ class AppState extends ChangeNotifier {
   double get totalCashFlowBudget =>
       cashFlowExpenses.fold(0, (s, e) => s + e.budget);
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
+  double get unallocatedFakeMayaWallet => math.max(
+        0,
+        (fakeMayaLink?.summary.wallet ?? 0) -
+            essentialExpensesBalance -
+            billsObligationsBalance -
+            emergencyFundBalance -
+            pendingRecordedEmergencyReplenishment,
+      );
 
   double get totalAssets => assets.fold(0, (sum, item) => sum + item.value);
   double get totalLiabilities =>
@@ -402,6 +413,15 @@ class AppState extends ChangeNotifier {
       'goalBucketOverrides':
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
       'selectedActionIds': selectedActionIds.toList()..sort(),
+      'selectedGoalId': selectedGoalId,
+      'actionFieldValues': actionFieldValues,
+      'categorySpendingBudgets': categorySpendingBudgets,
+      'onboardingBaselines': onboardingBaselines,
+      'onboardingExpenseLedger': onboardingExpenseLedger,
+      'essentialExpensesBalance': essentialExpensesBalance,
+      'billsObligationsBalance': billsObligationsBalance,
+      'emergencyFundBalance': emergencyFundBalance,
+      'd1Ledger': d1Ledger,
       'onboardingSelections': _onboardingSelectionsMap(),
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
@@ -443,6 +463,10 @@ class AppState extends ChangeNotifier {
         'basicNeedsAllocationPercent': basicNeedsAllocationPercent,
         'bufferAllocationPercent': bufferAllocationPercent,
         'selectedActionIds': selectedActionIds.toList()..sort(),
+        'selectedGoalId': selectedGoalId,
+        'actionFieldValues': actionFieldValues,
+        'onboardingBaselines': onboardingBaselines,
+        'onboardingExpenseLedger': onboardingExpenseLedger,
         'emotionalLogsEnabled': emotionalLogsEnabled,
         'stressIndicatorsEnabled': stressIndicatorsEnabled,
       },
@@ -532,6 +556,67 @@ class AppState extends ChangeNotifier {
     selectedGoal = data['selectedGoal'] as String? ??
         planSetup['selectedGoal'] as String? ??
         selectedGoal;
+    selectedGoalId = data['selectedGoalId'] as String? ??
+        planSetup['selectedGoalId'] as String? ??
+        selectedGoalId;
+    final savedActionFields = _mapFrom(
+      data['actionFieldValues'] ?? planSetup['actionFieldValues'],
+    );
+    if (savedActionFields != null) {
+      actionFieldValues
+        ..clear()
+        ..addEntries(savedActionFields.entries.map((entry) => MapEntry(
+              entry.key,
+              Map<String, String>.from(_mapFrom(entry.value) ?? const {}),
+            )));
+    }
+    final savedCategoryBudgets = _mapFrom(data['categorySpendingBudgets']);
+    if (savedCategoryBudgets != null) {
+      categorySpendingBudgets
+        ..clear()
+        ..addEntries(savedCategoryBudgets.entries.map(
+          (entry) => MapEntry(entry.key, _doubleFrom(entry.value, 0)),
+        ).where((entry) => entry.value > 0));
+    }
+    final savedBaselines = _mapFrom(
+      data['onboardingBaselines'] ?? planSetup['onboardingBaselines'],
+    );
+    if (savedBaselines != null) {
+      onboardingBaselines
+        ..clear()
+        ..addEntries(savedBaselines.entries.map(
+          (entry) => MapEntry(entry.key, entry.value?.toString() ?? ''),
+        ));
+    }
+    final savedExpenseLedger = data['onboardingExpenseLedger'] ??
+        planSetup['onboardingExpenseLedger'];
+    if (savedExpenseLedger is Iterable) {
+      onboardingExpenseLedger
+        ..clear()
+        ..addAll(savedExpenseLedger.whereType<Map>().map(
+          (entry) => Map<String, dynamic>.from(entry),
+        ));
+    }
+    essentialExpensesBalance = _doubleFrom(
+      data['essentialExpensesBalance'],
+      essentialExpensesBalance,
+    );
+    billsObligationsBalance = _doubleFrom(
+      data['billsObligationsBalance'],
+      billsObligationsBalance,
+    );
+    emergencyFundBalance = _doubleFrom(
+      data['emergencyFundBalance'],
+      emergencyFundBalance,
+    );
+    final savedD1Ledger = data['d1Ledger'];
+    if (savedD1Ledger is Iterable) {
+      d1Ledger
+        ..clear()
+        ..addAll(savedD1Ledger.whereType<Map>().map(
+          (entry) => Map<String, dynamic>.from(entry),
+        ));
+    }
     selectedGoalDescription = data['selectedGoalDescription'] as String? ??
         planSetup['selectedGoalDescription'] as String? ??
         selectedGoalDescription;
@@ -786,6 +871,8 @@ class AppState extends ChangeNotifier {
     selectedGoalId = '';
     selectedActionIds.clear();
     actionFieldValues.clear();
+    onboardingBaselines.clear();
+    onboardingExpenseLedger.clear();
     emotionalLogsEnabled = false;
     stressIndicatorsEnabled = false;
     consentAi = false;
@@ -797,6 +884,146 @@ class AppState extends ChangeNotifier {
   }
 
   // ── D1 goal bucket actions ────────────────────────────────────────
+
+  Future<void> updateCategorySpendingBudgets(
+    Map<String, double> budgets,
+  ) async {
+    categorySpendingBudgets
+      ..clear()
+      ..addEntries(budgets.entries.where((entry) => entry.value > 0));
+    await saveProfile();
+    notifyListeners();
+  }
+
+  bool hasEssentialAllocationForIncome(String transactionId) =>
+      d1Ledger.any((entry) =>
+          entry['type'] == 'essential_deposit' &&
+          entry['sourceTransactionId'] == transactionId);
+
+  bool hasEmergencyAllocationForIncome(String transactionId) =>
+      d1Ledger.any((entry) =>
+          entry['type'] == 'emergency_deposit' &&
+          entry['sourceTransactionId'] == transactionId);
+
+  DateTime? get latestEmergencyReplenishmentDate {
+    for (final entry in d1Ledger) {
+      if (entry['type'] == 'ef_replenish') {
+        return DateTime.tryParse(entry['date']?.toString() ?? '');
+      }
+    }
+    return null;
+  }
+
+  double get pendingRecordedEmergencyReplenishment {
+    var total = 0.0;
+    for (final entry in d1Ledger) {
+      if (entry['type'] == 'ef_replenish') break;
+      if (entry['type'] == 'use_emergency') {
+        total += (entry['amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
+  List<FakeMayaTransaction> get pendingLabeledEmergencyWithdrawals {
+    final replenishedAt = latestEmergencyReplenishmentDate;
+    final recordedIds = d1Ledger
+        .where((entry) => entry['sourceTransactionId'] != null)
+        .map((entry) => entry['sourceTransactionId'].toString())
+        .toSet();
+    return (fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+        .where((transaction) {
+          final date = transaction.createdAt ?? transaction.labeledAt;
+          return transaction.amount < 0 &&
+              transaction.category?.trim().toLowerCase() == 'emergency fund' &&
+              !recordedIds.contains(transaction.transactionId) &&
+              (replenishedAt == null || date == null || date.isAfter(replenishedAt));
+        })
+        .toList();
+  }
+
+  double get pendingLabeledEmergencyReplenishment =>
+      pendingLabeledEmergencyWithdrawals.fold<double>(
+        0,
+        (total, transaction) => total + transaction.amount.abs(),
+      );
+
+  double get pendingEmergencyReplenishment =>
+      pendingRecordedEmergencyReplenishment +
+      pendingLabeledEmergencyReplenishment;
+
+  double get displayedEmergencyFundBalance => math.max(
+        0,
+        emergencyFundBalance - pendingLabeledEmergencyReplenishment,
+      );
+
+  DateTime? get latestEmergencyWithdrawalDate {
+    DateTime? latest;
+    for (final entry in d1Ledger) {
+      if (entry['type'] == 'ef_replenish') break;
+      if (entry['type'] == 'use_emergency') {
+        final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+        if (date != null && (latest == null || date.isAfter(latest))) latest = date;
+      }
+    }
+    for (final transaction in pendingLabeledEmergencyWithdrawals) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      if (date != null && (latest == null || date.isAfter(latest))) latest = date;
+    }
+    return latest;
+  }
+
+  Future<void> depositIncomeToEssentialFund({
+    required String transactionId,
+    required double incomeAmount,
+    required DateTime incomeDate,
+    double percentage = 50,
+  }) async {
+    if (incomeAmount <= 0 || hasEssentialAllocationForIncome(transactionId)) {
+      return;
+    }
+    final amount = incomeAmount * percentage.clamp(0, 100) / 100;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    essentialExpensesBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'essential_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'sourceDate': incomeDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'incomeAmount': incomeAmount,
+      'percentage': percentage,
+      'amount': amount,
+      'destination': 'Essential Expenses Fund',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositIncomeToEmergencyFund({
+    required String transactionId,
+    required double incomeAmount,
+    required DateTime incomeDate,
+    double percentage = 10,
+  }) async {
+    if (incomeAmount <= 0 || hasEmergencyAllocationForIncome(transactionId)) {
+      return;
+    }
+    final amount = incomeAmount * percentage.clamp(0, 100) / 100;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    emergencyFundBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'emergency_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'sourceDate': incomeDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'incomeAmount': incomeAmount,
+      'percentage': percentage,
+      'amount': amount,
+      'destination': 'Emergency Fund',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
 
   void logD1Income({
     required double amount,
@@ -821,7 +1048,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void useD1BucketFunds(String bucket, double amount) {
+  Future<void> useD1BucketFunds(String bucket, double amount) async {
+    if (amount <= 0) return;
     switch (bucket) {
       case 'essential':
         essentialExpensesBalance = math.max(0, essentialExpensesBalance - amount);
@@ -836,17 +1064,23 @@ class AppState extends ChangeNotifier {
       'date': DateTime.now().toIso8601String(),
       'amount': amount,
     });
+    await saveProfile();
     notifyListeners();
   }
 
-  void replenishD1EmergencyFund(double amount) {
-    emergencyFundBalance += amount;
+  Future<void> replenishD1EmergencyFund(double amount) async {
+    if (amount <= 0 || amount > unallocatedFakeMayaWallet) return;
+    emergencyFundBalance += math.min(
+      amount,
+      pendingRecordedEmergencyReplenishment,
+    );
     _lastEfWithdrawalStr = null;
     d1Ledger.insert(0, {
       'type': 'ef_replenish',
       'date': DateTime.now().toIso8601String(),
       'amount': amount,
     });
+    await saveProfile();
     notifyListeners();
   }
 
