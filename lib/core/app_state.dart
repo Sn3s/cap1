@@ -136,8 +136,8 @@ class AppState extends ChangeNotifier {
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
   bool get shieldIsSetup => safetyShieldTargetMonths > 0;
   double get safetyShieldMonthlyBase =>
-      totalCashFlowBudget > 0
-          ? totalCashFlowBudget
+      cashFlowPyramidBaseline > 0
+          ? cashFlowPyramidBaseline
           : needsTarget > 0
               ? needsTarget
               : income > 0
@@ -151,6 +151,23 @@ class AppState extends ChangeNotifier {
       safetyShieldMonthlyBase <= 0 ? 0 : safetyShieldBalance / safetyShieldMonthlyBase;
   double get totalCashFlowBudget =>
       cashFlowExpenses.fold(0, (s, e) => s + e.budget);
+  double get monthlyExpenseLedgerTotal => onboardingExpenseLedger.fold(
+        0,
+        (total, expense) =>
+            total + ((expense['amount'] as num?)?.toDouble() ?? 0),
+      );
+  double get monthlyEssentialExpenseTotal => onboardingExpenseLedger
+      .where((expense) => expense['essential'] as bool? ?? false)
+      .fold(
+        0,
+        (total, expense) =>
+            total + ((expense['amount'] as num?)?.toDouble() ?? 0),
+      );
+  double get monthlyNonEssentialExpenseTotal =>
+      math.max(0, monthlyExpenseLedgerTotal - monthlyEssentialExpenseTotal);
+  double get cashFlowPyramidBaseline => monthlyExpenseLedgerTotal > 0
+      ? monthlyExpenseLedgerTotal
+      : totalCashFlowBudget;
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
   double get unallocatedFakeMayaWallet => math.max(
         0,

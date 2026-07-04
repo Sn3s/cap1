@@ -3435,22 +3435,12 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     if (state.onboardingExpenseLedger.isNotEmpty) {
       expenses.addAll(state.onboardingExpenseLedger.map(_ExpenseLedgerDraft.fromMap));
     } else {
-      final imported = <String, double>{};
-      final importedMonths = <String>{};
-      for (final transaction in state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[]) {
-        if (transaction.amount >= 0) continue;
-        final name = transaction.category?.trim().isNotEmpty ?? false
-            ? transaction.category!.trim()
-            : transaction.counterpartyKey;
-        imported.update(name, (value) => value + transaction.amount.abs(), ifAbsent: () => transaction.amount.abs());
-        final date = transaction.createdAt;
-        if (date != null) importedMonths.add('${date.year}-${date.month}');
-      }
-      final monthCount = importedMonths.isEmpty ? 1 : importedMonths.length;
-      expenses.addAll(imported.entries.take(8).map((entry) => _ExpenseLedgerDraft(
-            name: entry.key,
-            amount: (entry.value / monthCount).toStringAsFixed(2),
-          )));
+      expenses.addAll([
+        _ExpenseLedgerDraft(name: 'Electric Bill', essential: true),
+        _ExpenseLedgerDraft(name: 'Water Bill', essential: true),
+        _ExpenseLedgerDraft(name: 'Food and Drinks', essential: true),
+        _ExpenseLedgerDraft(name: 'Transport', essential: true),
+      ]);
     }
     if (expenses.isEmpty) expenses.add(_ExpenseLedgerDraft());
     seeded = true;
@@ -3488,14 +3478,32 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       phase: 8,
-      title: 'Set your monthly expense ledger.',
-      subtitle: 'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills.',
+      title: 'Monthly expenses.',
+      subtitle: 'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
       bottom: PrimaryButton(label: 'Continue to App Permissions', icon: Icons.arrow_forward_rounded, onPressed: _continue),
       child: Form(
         key: formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Text(
+                '✓ Essential = needed for basic living   •   📅 Scheduled = expected on a regular due day',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             for (var i = 0; i < expenses.length; i++) ...[
               _ExpenseLedgerCard(
                 index: i,
@@ -3568,67 +3576,117 @@ class _ExpenseLedgerCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: Text('Expense ${index + 1}', style: const TextStyle(color: _title, fontSize: 15, fontWeight: FontWeight.w900))),
-              if (canRemove) IconButton(onPressed: onRemove, icon: const Icon(Icons.delete_outline_rounded, color: _red)),
+              Tooltip(
+                message: 'Essential expense',
+                child: Checkbox(
+                  activeColor: _brand,
+                  value: expense.essential,
+                  onChanged: (value) {
+                    expense.essential = value ?? false;
+                    onChanged();
+                  },
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: TextFormField(
+                  controller: expense.nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: inputDecoration('Expense name').copyWith(
+                    labelText: 'Expense',
+                    isDense: true,
+                  ),
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? 'Enter a name.' : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 112,
+                child: TextFormField(
+                  controller: expense.amountController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: inputDecoration('Amount').copyWith(
+                    labelText: 'Monthly',
+                    prefixText: '₱ ',
+                    isDense: true,
+                  ),
+                  validator: (value) {
+                    final amount = double.tryParse(
+                      (value ?? '').replaceAll(',', ''),
+                    );
+                    if (amount == null || amount <= 0) return 'Required';
+                    if (amount > 1000000) return 'Too high';
+                    return null;
+                  },
+                ),
+              ),
+              if (canRemove)
+                IconButton(
+                  tooltip: 'Remove expense',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onRemove,
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: _body,
+                    size: 19,
+                  ),
+                ),
             ],
           ),
-          TextFormField(
-            controller: expense.nameController,
-            textCapitalization: TextCapitalization.words,
-            decoration: inputDecoration('Expense name, e.g. Rent'),
-            validator: (value) => (value ?? '').trim().isEmpty ? 'Enter the expense name.' : null,
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: expense.amountController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: inputDecoration('Average monthly amount').copyWith(prefixText: '₱ '),
-            validator: (value) {
-              final amount = double.tryParse((value ?? '').replaceAll(',', ''));
-              if (amount == null || amount <= 0) return 'Enter an amount greater than zero.';
-              if (amount > 1000000) return 'Use an amount up to ₱1,000,000.';
-              return null;
-            },
-          ),
           const SizedBox(height: 8),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            activeColor: _brand,
-            value: expense.essential,
-            title: const Text('Essential expense', style: TextStyle(color: _title, fontWeight: FontWeight.w800)),
-            subtitle: const Text('Needed for basic living or a required obligation.', style: TextStyle(color: _body, fontSize: 12)),
-            onChanged: (value) {
-              expense.essential = value ?? false;
-              onChanged();
-            },
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilterChip(
+                selected: expense.scheduled,
+                selectedColor: _purple.withValues(alpha: .12),
+                checkmarkColor: _purple,
+                avatar: Icon(
+                  Icons.calendar_month_rounded,
+                  size: 17,
+                  color: expense.scheduled ? _purple : _body,
+                ),
+                label: const Text('Scheduled bill'),
+                onSelected: (value) {
+                  expense.scheduled = value;
+                  if (value) expense.dueDay ??= 1;
+                  onChanged();
+                },
+              ),
+              if (expense.scheduled)
+                SizedBox(
+                  width: 170,
+                  child: DropdownButtonFormField<int>(
+                    value: expense.dueDay,
+                    isExpanded: true,
+                    decoration: inputDecoration('Due day').copyWith(
+                      labelText: 'Expected due day',
+                      isDense: true,
+                    ),
+                    items: [
+                      for (var day = 1; day <= 31; day++)
+                        DropdownMenuItem(
+                          value: day,
+                          child: Text('Day $day monthly'),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      expense.dueDay = value;
+                      onChanged();
+                    },
+                    validator: (value) => expense.scheduled && value == null
+                        ? 'Choose a due day.'
+                        : null,
+                  ),
+                ),
+            ],
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            activeColor: _brand,
-            value: expense.scheduled,
-            title: const Text('Scheduled bill', style: TextStyle(color: _title, fontWeight: FontWeight.w800)),
-            subtitle: const Text('This expense is expected on a regular due day.', style: TextStyle(color: _body, fontSize: 12)),
-            onChanged: (value) {
-              expense.scheduled = value;
-              if (value) expense.dueDay ??= 1;
-              onChanged();
-            },
-          ),
-          if (expense.scheduled)
-            DropdownButtonFormField<int>(
-              value: expense.dueDay,
-              decoration: inputDecoration('Expected due day each month'),
-              items: [
-                for (var day = 1; day <= 31; day++)
-                  DropdownMenuItem(value: day, child: Text('Day $day of each month')),
-              ],
-              onChanged: (value) {
-                expense.dueDay = value;
-                onChanged();
-              },
-              validator: (value) => expense.scheduled && value == null ? 'Choose an expected due day.' : null,
-            ),
         ],
       ),
     );

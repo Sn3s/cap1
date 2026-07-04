@@ -345,11 +345,11 @@ class _CashFlowPyramidContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final total = state.totalCashFlowBudget;
+    final total = state.cashFlowPyramidBaseline;
     if (total == 0) {
       if (state.essentialExpensesBalance <= 0) {
         return const Text(
-          'Tap to set up your monthly expense budget',
+          'Add monthly expenses during setup to build this layer',
           style: TextStyle(color: _body, fontWeight: FontWeight.w600, fontSize: 13),
         );
       }
@@ -388,6 +388,31 @@ class _CashFlowPyramidContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 9),
+        ],
+        if (state.monthlyExpenseLedgerTotal > 0) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Essential ${money(state.monthlyEssentialExpenseTotal)}',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                'Non-essential ${money(state.monthlyNonEssentialExpenseTotal)}',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
         ],
         Row(
           children: [
@@ -741,7 +766,7 @@ class _FinancialSafetyPageState extends State<_FinancialSafetyPage> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final budget = state.totalCashFlowBudget;
+    final budget = state.cashFlowPyramidBaseline;
     final target3 = budget * 3;
     final target6 = budget * 6;
     final fill = target6 > 0 ? (_amount / target6).clamp(0.0, 1.0) : 0.0;
@@ -1660,15 +1685,15 @@ class _LayerContext extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (layerNum == 1 && state.totalCashFlowBudget > 0) {
+    if (layerNum == 1 && state.cashFlowPyramidBaseline > 0) {
       return _ContextChip(
         icon: Icons.receipt_long_rounded,
-        text: 'Monthly budget: ${money(state.totalCashFlowBudget)}',
+        text: 'Monthly expenses: ${money(state.cashFlowPyramidBaseline)}',
         color: _brand,
       );
     }
-    if (layerNum == 2 && state.totalCashFlowBudget > 0) {
-      final months = state.financialSafetyBalance / state.totalCashFlowBudget;
+    if (layerNum == 2 && state.cashFlowPyramidBaseline > 0) {
+      final months = state.financialSafetyBalance / state.cashFlowPyramidBaseline;
       return _ContextChip(
         icon: Icons.shield_rounded,
         text:
@@ -1732,7 +1757,7 @@ class _GoalsOverviewSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasTwoJar = state.needsTarget > 0;
-    final hasSafety = state.totalCashFlowBudget > 0;
+    final hasSafety = state.cashFlowPyramidBaseline > 0;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
@@ -1870,7 +1895,7 @@ class _SafetyGoalTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final budget = state.totalCashFlowBudget;
+    final budget = state.cashFlowPyramidBaseline;
     final current = state.financialSafetyBalance;
     final target6 = budget * 6;
     final fill = target6 > 0 ? (current / target6).clamp(0.0, 1.0) : 0.0;
@@ -2937,6 +2962,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
             ),
           ),
         ),
+        if (goal.id == 'G1') ...[
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _MaintainAvailableCashSummary(),
+          ),
+        ],
         const SizedBox(height: 28),
 
         // Actions section
@@ -2960,6 +2992,333 @@ class _D1GoalDetailScreen extends StatelessWidget {
                 if (i < goal.actions.length - 1) const SizedBox(height: 16),
               ],
             ],
+          ),
+        ),
+        if (goal.id == 'G1') ...[
+          const SizedBox(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _CashFlowTransactionsList(),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MaintainAvailableCashSummary extends StatelessWidget {
+  const _MaintainAvailableCashSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final now = DateTime.now();
+    final spent = (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+        .where((transaction) =>
+            transaction.amount < 0 &&
+            transaction.isLabeled &&
+            !transaction.excludedFromInsights &&
+            transaction.createdAt?.year == now.year &&
+            transaction.createdAt?.month == now.month &&
+            _insightCategoryConfig(transaction.category ?? '').$1 == 1)
+        .fold(0.0, (total, transaction) => total + transaction.amount.abs());
+    final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+    final expected = state.cashFlowPyramidBaseline;
+    final remaining = math.max(0.0, expected - spent);
+    final essentialExpected = state.monthlyEssentialExpenseTotal;
+    final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
+    final coverageScore = expected <= 0
+        ? 0.0
+        : (wallet / math.max(remaining, expected * .1)).clamp(0.0, 1.0);
+    final essentialScore = essentialExpected <= 0
+        ? coverageScore
+        : (state.essentialExpensesBalance / essentialExpected).clamp(0.0, 1.0);
+    final spendingScore = expected <= 0
+        ? 0.0
+        : spent <= expected
+            ? 1.0
+            : (expected / spent).clamp(0.0, 1.0);
+    final incomeScore = expected <= 0
+        ? 0.0
+        : (latestIncome / expected).clamp(0.0, 1.0);
+    final feasibility = expected <= 0
+        ? 0
+        : ((coverageScore * .55 +
+                    essentialScore * .20 +
+                    spendingScore * .15 +
+                    incomeScore * .10) *
+                100)
+            .round();
+    final feasibilityColor = feasibility >= 80
+        ? _sage
+        : feasibility >= 60
+            ? _brand
+            : feasibility >= 40
+                ? _amber
+                : _red;
+    final feasibilityLabel = feasibility >= 80
+        ? 'Strong'
+        : feasibility >= 60
+            ? 'Workable'
+            : feasibility >= 40
+                ? 'Needs attention'
+                : 'At risk';
+    final coveragePercent = remaining <= 0
+        ? 100
+        : ((wallet / remaining).clamp(0.0, 1.0) * 100).round();
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'MONTHLY CASH POSITION',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.receipt_long_rounded,
+                  label: 'Expected spend',
+                  value: money(expected),
+                  color: _purple,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: 'In wallet',
+                  value: money(wallet),
+                  color: _brand,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.payments_rounded,
+                  label: 'Cash flow spent',
+                  value: money(spent),
+                  color: _amber,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: feasibilityColor.withValues(alpha: .07),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: feasibilityColor.withValues(alpha: .18),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Goal feasibility · $feasibilityLabel',
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '$feasibility%',
+                      style: TextStyle(
+                        color: feasibilityColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: feasibility / 100,
+                    minHeight: 9,
+                    color: feasibilityColor,
+                    backgroundColor:
+                        feasibilityColor.withValues(alpha: .14),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  expected <= 0
+                      ? 'Complete the Monthly Expenses baseline to calculate feasibility.'
+                      : 'Your wallet covers $coveragePercent% of the ${money(remaining)} still expected this month. The score also considers essential-fund allocation, spending against plan, and your latest income.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashPositionMetric extends StatelessWidget {
+  const _CashPositionMetric({required this.icon, required this.label, required this.value, required this.color});
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(color: color.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 17),
+          const SizedBox(height: 7),
+          Text(label, maxLines: 2, style: const TextStyle(color: _body, fontSize: 9.5, height: 1.15, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(value, style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashFlowTransactionsList extends StatelessWidget {
+  const _CashFlowTransactionsList();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final transactions = (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+        .where((transaction) =>
+            transaction.isLabeled &&
+            !transaction.excludedFromInsights &&
+            _insightCategoryConfig(transaction.category ?? '').$1 == 1)
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CASH FLOW & BASIC NEEDS TRANSACTIONS',
+          style: TextStyle(
+            color: _body,
+            fontSize: 11,
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (transactions.isEmpty)
+          const AppCard(
+            child: Text(
+              'No labeled Cash Flow & Basic Needs transactions yet.',
+              style: TextStyle(
+                color: _body,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          AppCard(
+            child: Column(
+              children: [
+                for (var i = 0; i < transactions.length; i++) ...[
+                  _CashFlowTransactionRow(transaction: transactions[i]),
+                  if (i < transactions.length - 1)
+                    const Divider(height: 18, color: _border),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CashFlowTransactionRow extends StatelessWidget {
+  const _CashFlowTransactionRow({required this.transaction});
+  final FakeMayaTransaction transaction;
+
+  @override
+  Widget build(BuildContext context) {
+    final incoming = transaction.amount >= 0;
+    final color = incoming ? _sage : _red;
+    final category = _insightCategoryConfig(transaction.category ?? '');
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: category.$4.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(category.$3, color: category.$4, size: 17),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                transaction.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${category.$2} · ${transaction.age}',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${incoming ? '+' : '-'}${money(transaction.amount.abs())}',
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
           ),
         ),
       ],
