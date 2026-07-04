@@ -173,9 +173,11 @@ class AppState extends ChangeNotifier {
         0,
         (fakeMayaLink?.summary.wallet ?? 0) -
             essentialExpensesBalance -
-            billsObligationsBalance -
-            emergencyFundBalance -
-            pendingRecordedEmergencyReplenishment,
+            billsObligationsBalance,
+      );
+  double get unallocatedFakeMayaSavings => math.max(
+        0,
+        (fakeMayaLink?.summary.savings ?? 0) - displayedEmergencyFundBalance,
       );
 
   double get totalAssets => assets.fold(0, (sum, item) => sum + item.value);
@@ -1027,6 +1029,7 @@ class AppState extends ChangeNotifier {
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletToSavings(amount);
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
@@ -1087,6 +1090,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> replenishD1EmergencyFund(double amount) async {
     if (amount <= 0 || amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletToSavings(amount);
     emergencyFundBalance += math.min(
       amount,
       pendingRecordedEmergencyReplenishment,
@@ -1099,6 +1103,38 @@ class AppState extends ChangeNotifier {
     });
     await saveProfile();
     notifyListeners();
+  }
+
+  Future<void> _moveFakeMayaWalletToSavings(double amount) async {
+    final link = fakeMayaLink;
+    if (link == null || amount <= 0) return;
+    final session = await FakeMayaService.allocateFromWallet(
+      link: link,
+      amount: amount,
+      account: FakeMayaGoalAccount.savings,
+    );
+    final savedById = {
+      for (final transaction in link.summary.transactions)
+        transaction.transactionId: transaction,
+    };
+    final transactions = session.summary.transactions.map((transaction) {
+      final saved = savedById[transaction.transactionId];
+      return saved != null && saved.isLabeled
+          ? transaction.withLabelFrom(saved)
+          : transaction;
+    }).toList();
+    fakeMayaLink = FakeMayaLink.fromSession(FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: session.summary.copyWith(transactions: transactions),
+    ));
+    _syncFakeMayaMoneyItems();
   }
 
   void acceptAppPermissions({required bool notificationGranted}) {

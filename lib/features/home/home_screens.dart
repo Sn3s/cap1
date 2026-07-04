@@ -457,7 +457,8 @@ class _FinancialSafetyPyramidContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final budget = state.safetyShieldMonthlyBase;
-    final current = state.safetyShieldBalance + state.displayedEmergencyFundBalance;
+    final current = state.safetyShieldBalance +
+        (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
     final max = budget * 6;
     final fill = max > 0 ? (current / max).clamp(0.0, 1.0) : 0.0;
     final months = budget > 0 ? current / budget : 0.0;
@@ -985,39 +986,7 @@ List<_WealthAccount> _buildWealthAccounts(AppState state) {
 
   for (final asset in fakeMayaItems) {
     final account = _fakeMayaWealthAccount(asset);
-    if (account != null) {
-      out.add(asset.name == 'FakeMaya Wallet'
-          ? _WealthAccount(
-              name: account.name,
-              sub: 'Unallocated e-wallet cash',
-              balance: state.unallocatedFakeMayaWallet,
-              color: account.color,
-              icon: account.icon,
-              layer: account.layer,
-            )
-          : account);
-    }
-  }
-
-  if (state.essentialExpensesBalance > 0) {
-    out.add(_WealthAccount(
-      name: 'Essential Expenses Fund',
-      sub: 'Allocated from income',
-      balance: state.essentialExpensesBalance,
-      color: _brand,
-      icon: Icons.home_work_rounded,
-      layer: 1,
-    ));
-  }
-  if (state.displayedEmergencyFundBalance > 0) {
-    out.add(_WealthAccount(
-      name: 'Emergency Fund',
-      sub: 'Allocated from income',
-      balance: state.displayedEmergencyFundBalance,
-      color: _amber,
-      icon: Icons.shield_rounded,
-      layer: 2,
-    ));
+    if (account != null) out.add(account);
   }
 
   for (final asset in state.assets
@@ -1114,7 +1083,7 @@ class _InsightsPageState extends State<InsightsPage> {
         // Sections
         if (_tab != 4) ...[
           if (show || _tab == 1)
-            _AccountsSection(accounts: accounts, compact: !show),
+            _AccountsSection(accounts: accounts, state: state, compact: !show),
           if (show || _tab == 2)
             _PyramidBreakdownSection(accounts: accounts, state: state),
           if (show || _tab == 3) _GoalsOverviewSection(state: state),
@@ -1305,13 +1274,32 @@ class _InsightsFilterBar extends StatelessWidget {
 
 // ─── Accounts section ─────────────────────────────────────────────────────────
 
-class _AccountsSection extends StatelessWidget {
-  const _AccountsSection({required this.accounts, this.compact = false});
+class _AccountsSection extends StatefulWidget {
+  const _AccountsSection({required this.accounts, required this.state, this.compact = false});
   final List<_WealthAccount> accounts;
+  final AppState state;
   final bool compact;
 
   @override
+  State<_AccountsSection> createState() => _AccountsSectionState();
+}
+
+class _AccountsSectionState extends State<_AccountsSection> {
+  String? expandedAccount;
+
+  void _toggleAccount(_WealthAccount account) {
+    if (account.name != 'FakeMaya Wallet' && account.name != 'FakeMaya Savings') {
+      return;
+    }
+    setState(() {
+      expandedAccount = expandedAccount == account.name ? null : account.name;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final accounts = widget.accounts;
+    final state = widget.state;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Column(
@@ -1329,7 +1317,141 @@ class _AccountsSection extends StatelessWidget {
                   'Link FakeMaya or add assets in Your Profile to see accounts here.',
             )
           else
-            _AccountGrid(accounts: accounts),
+            _AccountGrid(
+              accounts: accounts,
+              expandedAccount: expandedAccount,
+              onAccountTap: _toggleAccount,
+            ),
+          if (state.hasFakeMayaLink && expandedAccount != null) ...[
+            const SizedBox(height: 12),
+            _WalletAllocationsCard(
+              state: state,
+              accountName: expandedAccount!,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _WalletAllocationsCard extends StatelessWidget {
+  const _WalletAllocationsCard({required this.state, required this.accountName});
+  final AppState state;
+  final String accountName;
+
+  @override
+  Widget build(BuildContext context) {
+    final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+    final walletAllocations = <(String, double, Color, IconData)>[
+      if (state.essentialExpensesBalance > 0)
+        ('Essential Expenses Fund', state.essentialExpensesBalance, _brand, Icons.home_work_rounded),
+      if (state.billsObligationsBalance > 0)
+        ('Bills & Obligations', state.billsObligationsBalance, _purple, Icons.event_note_rounded),
+    ];
+    final savings = state.fakeMayaLink?.summary.savings ?? 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (accountName == 'FakeMaya Wallet') ...[
+            const Row(
+              children: [
+                Icon(Icons.account_balance_wallet_rounded, color: _brand, size: 20),
+                SizedBox(width: 8),
+                Expanded(child: Text('Inside FakeMaya Wallet', style: TextStyle(color: _title, fontSize: 15, fontWeight: FontWeight.w900))),
+              ],
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'These funds are earmarked portions of your wallet balance—not separate accounts or additional money.',
+              style: TextStyle(color: _body, fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            if (walletAllocations.isEmpty)
+              const Text(
+                'No wallet money is earmarked yet.',
+                style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+            for (final allocation in walletAllocations) ...[
+              Row(
+                children: [
+                  Icon(allocation.$4, color: allocation.$3, size: 17),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(allocation.$1, style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800))),
+                  Text(money(allocation.$2), style: TextStyle(color: allocation.$3, fontSize: 12, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Divider(height: 8, color: _border),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Unallocated wallet money', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w800))),
+                Text(money(state.unallocatedFakeMayaWallet), style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Expanded(child: Text('Full FakeMaya Wallet balance', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
+                Text(money(wallet), style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ],
+          if (accountName == 'FakeMaya Savings') ...[
+            const Row(
+              children: [
+                Icon(Icons.savings_rounded, color: _amber, size: 20),
+                SizedBox(width: 8),
+                Expanded(child: Text('Inside FakeMaya Savings', style: TextStyle(color: _title, fontSize: 15, fontWeight: FontWeight.w900))),
+              ],
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Emergency Fund is an earmarked portion of FakeMaya Savings—not a separate account or additional money.',
+              style: TextStyle(color: _body, fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            if (state.displayedEmergencyFundBalance <= 0)
+              const Text(
+                'No savings money is earmarked yet.',
+                style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+              )
+            else
+              Row(
+                children: [
+                  const Icon(Icons.shield_rounded, color: _amber, size: 17),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('Emergency Fund', style: TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800))),
+                  Text(money(state.displayedEmergencyFundBalance), style: const TextStyle(color: _amber, fontSize: 12, fontWeight: FontWeight.w900)),
+                ],
+              ),
+            const SizedBox(height: 8),
+            const Divider(height: 8, color: _border),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Expanded(child: Text('Unallocated savings money', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w800))),
+                Text(money(state.unallocatedFakeMayaSavings), style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Expanded(child: Text('Full FakeMaya Savings balance', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
+                Text(money(savings), style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1337,8 +1459,14 @@ class _AccountsSection extends StatelessWidget {
 }
 
 class _AccountGrid extends StatelessWidget {
-  const _AccountGrid({required this.accounts});
+  const _AccountGrid({
+    required this.accounts,
+    required this.expandedAccount,
+    required this.onAccountTap,
+  });
   final List<_WealthAccount> accounts;
+  final String? expandedAccount;
+  final ValueChanged<_WealthAccount> onAccountTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1351,11 +1479,21 @@ class _AccountGrid extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _AccountCard(account: left)),
+            Expanded(
+              child: _AccountCard(
+                account: left,
+                expanded: expandedAccount == left.name,
+                onTap: () => onAccountTap(left),
+              ),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: right != null
-                  ? _AccountCard(account: right)
+                  ? _AccountCard(
+                      account: right,
+                      expanded: expandedAccount == right.name,
+                      onTap: () => onAccountTap(right),
+                    )
                   : const SizedBox(),
             ),
           ],
@@ -1368,20 +1506,30 @@ class _AccountGrid extends StatelessWidget {
 }
 
 class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.account});
+  const _AccountCard({required this.account, required this.expanded, required this.onTap});
   final _WealthAccount account;
+  final bool expanded;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = account.color;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: c.withOpacity(.07),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: c.withOpacity(.22)),
-      ),
-      child: Column(
+    final expandable = account.name == 'FakeMaya Wallet' ||
+        account.name == 'FakeMaya Savings';
+    return InkWell(
+      onTap: expandable ? onTap : null,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: c.withOpacity(.07),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: expanded ? c : c.withOpacity(.22),
+            width: expanded ? 1.6 : 1,
+          ),
+        ),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -1397,7 +1545,16 @@ class _AccountCard extends StatelessWidget {
                 child: Icon(account.icon, color: c, size: 20),
               ),
               const Spacer(),
-              _LayerDot(layer: account.layer),
+              if (expandable)
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: c,
+                  size: 20,
+                )
+              else
+                _LayerDot(layer: account.layer),
             ],
           ),
           const SizedBox(height: 12),
@@ -1428,6 +1585,7 @@ class _AccountCard extends StatelessWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -2969,6 +3127,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
             child: _MaintainAvailableCashSummary(),
           ),
         ],
+        if (goal.id == 'G3') ...[
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _EmergencyFundSummary(),
+          ),
+        ],
         const SizedBox(height: 28),
 
         // Actions section
@@ -2999,6 +3164,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: _CashFlowTransactionsList(),
+          ),
+        ],
+        if (goal.id == 'G3') ...[
+          const SizedBox(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _EmergencyFundTransactionsList(),
           ),
         ],
       ],
@@ -3209,6 +3381,145 @@ class _CashPositionMetric extends StatelessWidget {
   }
 }
 
+class _EmergencyFundSummary extends StatelessWidget {
+  const _EmergencyFundSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+    final current = state.displayedEmergencyFundBalance;
+    final pending = state.pendingEmergencyReplenishment;
+    final target = monthlyEssentials > 0
+        ? monthlyEssentials * 3
+        : math.max(30000.0, state.emergencyFundTarget);
+    final coverageMonths = monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
+    final latestIncome = _latestIncomeTransaction(state);
+    final contributionMade = latestIncome != null &&
+        state.hasEmergencyAllocationForIncome(latestIncome.transactionId);
+    final targetProgress = (current / target).clamp(0.0, 1.0);
+    final recoveryScore = pending <= 0
+        ? 1.0
+        : (state.unallocatedFakeMayaWallet / pending).clamp(0.0, 1.0);
+    final contributionScore = contributionMade ? 1.0 : 0.0;
+    final feasibility = ((targetProgress * .65 +
+                recoveryScore * .20 +
+                contributionScore * .15) *
+            100)
+        .round();
+    final scoreColor = feasibility >= 80
+        ? _sage
+        : feasibility >= 60
+            ? _brand
+            : feasibility >= 40
+                ? _amber
+                : _red;
+    final scoreLabel = feasibility >= 80
+        ? 'Strong'
+        : feasibility >= 60
+            ? 'Workable'
+            : feasibility >= 40
+                ? 'Needs attention'
+                : 'At risk';
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'FINANCIAL SAFETY POSITION',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.shield_rounded,
+                  label: 'Emergency fund',
+                  value: money(current),
+                  color: _amber,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.restore_rounded,
+                  label: 'To replenish',
+                  value: money(pending),
+                  color: pending > 0 ? _red : _sage,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: scoreColor.withValues(alpha: .07),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: scoreColor.withValues(alpha: .18)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Goal feasibility · $scoreLabel',
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '$feasibility%',
+                      style: TextStyle(
+                        color: scoreColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: feasibility / 100,
+                    minHeight: 9,
+                    color: scoreColor,
+                    backgroundColor: scoreColor.withValues(alpha: .14),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  'The fund covers ${coverageMonths.toStringAsFixed(1)} months of essential expenses toward a 3-month target of ${money(target)}. The score also considers pending replenishment and whether the latest income received its 10% contribution.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CashFlowTransactionsList extends StatelessWidget {
   const _CashFlowTransactionsList();
 
@@ -3320,6 +3631,161 @@ class _CashFlowTransactionRow extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w900,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmergencyActivityItem {
+  const _EmergencyActivityItem({required this.title, required this.detail, required this.amount, required this.date, required this.incoming, required this.icon});
+  final String title;
+  final String detail;
+  final double amount;
+  final DateTime? date;
+  final bool incoming;
+  final IconData icon;
+}
+
+class _EmergencyFundTransactionsList extends StatelessWidget {
+  const _EmergencyFundTransactionsList();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final activity = <_EmergencyActivityItem>[];
+    for (final transaction in state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[]) {
+      if (!transaction.isLabeled ||
+          transaction.excludedFromInsights ||
+          _insightCategoryConfig(transaction.category ?? '').$1 != 2) {
+        continue;
+      }
+      final category = _insightCategoryConfig(transaction.category ?? '');
+      activity.add(_EmergencyActivityItem(
+        title: transaction.title,
+        detail: category.$2,
+        amount: transaction.amount.abs(),
+        date: transaction.createdAt ?? transaction.labeledAt,
+        incoming: transaction.amount >= 0,
+        icon: category.$3,
+      ));
+    }
+    for (final entry in state.d1Ledger) {
+      final type = entry['type']?.toString() ?? '';
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      switch (type) {
+        case 'emergency_deposit':
+          activity.add(_EmergencyActivityItem(
+            title: 'Income contribution',
+            detail: '10% deposited to Emergency Fund',
+            amount: amount,
+            date: date,
+            incoming: true,
+            icon: Icons.savings_rounded,
+          ));
+        case 'use_emergency':
+          activity.add(_EmergencyActivityItem(
+            title: 'Emergency Fund used',
+            detail: 'Waiting to be replenished',
+            amount: amount,
+            date: date,
+            incoming: false,
+            icon: Icons.outbox_rounded,
+          ));
+        case 'ef_replenish':
+          activity.add(_EmergencyActivityItem(
+            title: 'Emergency Fund replenished',
+            detail: 'Withdrawn amount restored',
+            amount: amount,
+            date: date,
+            incoming: true,
+            icon: Icons.restore_rounded,
+          ));
+      }
+    }
+    activity.sort((a, b) => (b.date ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(a.date ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'FINANCIAL SAFETY TRANSACTIONS',
+          style: TextStyle(
+            color: _body,
+            fontSize: 11,
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (activity.isEmpty)
+          const AppCard(
+            child: Text(
+              'No Financial Safety or Emergency Fund activity yet.',
+              style: TextStyle(
+                color: _body,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          AppCard(
+            child: Column(
+              children: [
+                for (var i = 0; i < activity.length; i++) ...[
+                  _EmergencyActivityRow(item: activity[i]),
+                  if (i < activity.length - 1)
+                    const Divider(height: 18, color: _border),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EmergencyActivityRow extends StatelessWidget {
+  const _EmergencyActivityRow({required this.item});
+  final _EmergencyActivityItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = item.incoming ? _sage : _red;
+    final localizations = MaterialLocalizations.of(context);
+    final dateText = item.date == null
+        ? 'Date unavailable'
+        : '${localizations.formatShortDate(item.date!)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(item.date!))}';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(item.icon, color: color, size: 17),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(item.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text('${item.detail} · $dateText', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '${item.incoming ? '+' : '-'}${money(item.amount)}',
+          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900),
         ),
       ],
     );
@@ -3586,7 +4052,15 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
               children: [
                 const Icon(Icons.home_work_rounded, color: _brand),
                 const SizedBox(width: 10),
-                const Expanded(child: Text('Essential Expenses Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900))),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Essential Expenses Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+                      Text('Earmarked inside FakeMaya Wallet', style: TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
                 Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _brand, fontWeight: FontWeight.w900)),
               ],
             ),
@@ -3726,7 +4200,15 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
               children: [
                 const Icon(Icons.shield_rounded, color: _red),
                 const SizedBox(width: 9),
-                const Expanded(child: Text('Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900))),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+                      Text('Earmarked inside FakeMaya Savings', style: TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
                 Text(money(state.displayedEmergencyFundBalance), style: const TextStyle(color: _red, fontWeight: FontWeight.w900)),
               ],
             ),
