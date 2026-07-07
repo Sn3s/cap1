@@ -23,6 +23,7 @@ class _MainShellState extends State<MainShell> {
     final pages = [
       const DashboardPage(),
       const InsightsPage(),
+      const AccountsPage(),
       const GoalsPage(),
       const ActivityPage(),
       const ProfilePage(),
@@ -41,6 +42,10 @@ class _MainShellState extends State<MainShell> {
           NavigationDestination(
             icon: Icon(Icons.bar_chart_rounded),
             label: 'Insights',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_wallet_rounded),
+            label: 'Accounts',
           ),
           NavigationDestination(
             icon: Icon(Icons.flag_rounded),
@@ -350,15 +355,23 @@ class _CashFlowPyramidContent extends StatelessWidget {
       if (state.essentialExpensesBalance <= 0) {
         return const Text(
           'Add monthly expenses during setup to build this layer',
-          style: TextStyle(color: _body, fontWeight: FontWeight.w600, fontSize: 13),
+          style: TextStyle(
+              color: _body, fontWeight: FontWeight.w600, fontSize: 13),
         );
       }
       return Row(
         children: [
           const Icon(Icons.home_work_rounded, color: _brand, size: 18),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Essential Expenses Fund', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700))),
-          Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          const Expanded(
+              child: Text('Essential Expenses Fund',
+                  style: TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700))),
+          Text(money(state.essentialExpensesBalance),
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
         ],
       );
     }
@@ -383,8 +396,17 @@ class _CashFlowPyramidContent extends StatelessWidget {
             children: [
               const Icon(Icons.home_work_rounded, color: _brand, size: 16),
               const SizedBox(width: 7),
-              const Expanded(child: Text('Allocated to Essential Expenses Fund', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
-              Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w900)),
+              const Expanded(
+                  child: Text('Allocated to Essential Expenses Fund',
+                      style: TextStyle(
+                          color: _body,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700))),
+              Text(money(state.essentialExpensesBalance),
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
             ],
           ),
           const SizedBox(height: 9),
@@ -1050,9 +1072,42 @@ class InsightsPage extends StatefulWidget {
 }
 
 class _InsightsPageState extends State<InsightsPage> {
+  String? _spendFilter;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final service = IntegrationService.fromState(state);
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 32),
+      children: [
+        const PageHeader(eyebrow: 'REFLECTION', title: 'Cash Patterns'),
+        _ReflectionCoverageBanner(service: service),
+        _JarTimelineSection(service: service),
+        _SpendComparisonSection(
+          service: service,
+          filter: _spendFilter,
+          onFilterChanged: (value) => setState(() => _spendFilter = value),
+        ),
+        _GoalVsActualSection(service: service),
+        _DataTrustSection(service: service),
+      ],
+    );
+  }
+}
+
+class AccountsPage extends StatefulWidget {
+  const AccountsPage({super.key});
+
+  @override
+  State<AccountsPage> createState() => _AccountsPageState();
+}
+
+class _AccountsPageState extends State<AccountsPage> {
   // 0=Overview, 1=Accounts, 2=Pyramid, 3=Goals, 4=Spending
   int _tab = 0;
-  int _spendPeriod = 1; // for spending tab
+  int _spendPeriod = 1;
 
   static const _tabs = ['Overview', 'Accounts', 'Pyramid', 'Goals', 'Spending'];
 
@@ -1062,25 +1117,21 @@ class _InsightsPageState extends State<InsightsPage> {
     final accounts = _buildWealthAccounts(state);
     final totalAssets = accounts.fold<double>(0.0, (s, a) => s + a.balance);
     final totalLiabilities = state.totalLiabilities;
-
     final show = _tab == 0;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
-        const PageHeader(eyebrow: 'WEALTH OVERVIEW', title: 'My Money'),
+        const PageHeader(eyebrow: 'ACCOUNTS', title: 'My Money'),
         const SizedBox(height: 16),
-        // Hero card always visible
         _NetWorthHero(assets: totalAssets, liabilities: totalLiabilities),
         const SizedBox(height: 16),
-        // Filter tabs
         _InsightsFilterBar(
           tabs: _tabs,
           selected: _tab,
           onChanged: (i) => setState(() => _tab = i),
         ),
         const SizedBox(height: 4),
-        // Sections
         if (_tab != 4) ...[
           if (show || _tab == 1)
             _AccountsSection(accounts: accounts, state: state, compact: !show),
@@ -1096,6 +1147,775 @@ class _InsightsPageState extends State<InsightsPage> {
       ],
     );
   }
+}
+
+class _ReflectionCoverageBanner extends StatelessWidget {
+  const _ReflectionCoverageBanner({required this.service});
+  final IntegrationService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final tracked =
+        service.dayRecords.where((day) => day.fullyClassified).length;
+    final total = service.dayRecords.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _bellySoft,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.fact_check_rounded, color: _purple, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$tracked of $total days fully tracked - cash is manual and may be under-counted.',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JarTimelineSection extends StatelessWidget {
+  const _JarTimelineSection({required this.service});
+  final IntegrationService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final weeks = service.weekRecords;
+    final hasRange = weeks.length >= 6;
+    final spendValues = weeks.map((week) => week.avgSpendPerDay).toList();
+    final avg = spendValues.isEmpty
+        ? 0.0
+        : spendValues.reduce((a, b) => a + b) / spendValues.length;
+    final variance = spendValues.isEmpty
+        ? 0.0
+        : spendValues
+                .map((value) => math.pow(value - avg, 2).toDouble())
+                .reduce((a, b) => a + b) /
+            spendValues.length;
+    final usualHigh = avg + math.sqrt(variance);
+
+    return _ReflectionSection(
+      title: 'Jar Timeline',
+      caption:
+          'Look across weeks to see whether your buffer recovers after bill weeks. Grey gaps mean the line is not filled in from synced data.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Reflection question: How do jar balances move across income,
+          // bill, and unusual weeks? Insight types: trend + event/context + anomaly.
+          SizedBox(
+            height: 210,
+            child: weeks.isEmpty
+                ? const _ReflectionEmpty(message: 'No jar weeks tracked yet.')
+                : CustomPaint(
+                    painter: _JarTimelinePainter(
+                      weeks: weeks,
+                      targetNeeds: service.needsTarget,
+                      targetBuffer: service.bufferTarget,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: weeks.map((week) {
+                        return Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () => _showWeekDetail(context, week),
+                            child: const SizedBox.expand(),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+          ),
+          if (hasRange)
+            ...weeks
+                .where((week) => week.avgSpendPerDay > usualHigh)
+                .take(2)
+                .map(
+                  (week) => Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: _NeutralNotice(
+                      label:
+                          'Noticeable change - tap to review ${_shortDate(week.start)}',
+                      onTap: () => _showWeekDetail(context, week),
+                    ),
+                  ),
+                )
+          else
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'At least 6 weeks are needed before showing trend notes.',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpendComparisonSection extends StatelessWidget {
+  const _SpendComparisonSection({
+    required this.service,
+    required this.filter,
+    required this.onFilterChanged,
+  });
+  final IntegrationService service;
+  final String? filter;
+  final ValueChanged<String?> onFilterChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final afterIncome = <DayRecord>[];
+    final beforeNext = <DayRecord>[];
+    for (final week in service.weekRecords) {
+      for (final day in week.days) {
+        if (day.date.difference(week.start).inDays <= 2) {
+          afterIncome.add(day);
+        } else if (day.date.difference(week.start).inDays >= 4) {
+          beforeNext.add(day);
+        }
+      }
+    }
+    double average(List<DayRecord> days) => days.isEmpty
+        ? 0
+        : days.fold(0.0, (sum, day) => sum + day.expenseTotal) / days.length;
+    final afterValue = average(afterIncome);
+    final beforeValue = average(beforeNext);
+    final filtered = (filter == 'after' ? afterIncome : beforeNext)
+        .expand((day) => day.transactions)
+        .where((transaction) => transaction.amount < 0 && transaction.isLabeled)
+        .take(8)
+        .toList();
+
+    return _ReflectionSection(
+      title: 'Spend Comparison',
+      caption:
+          'Compare average pesos per day, not stacked totals, so shorter and longer segments stay readable.',
+      child: Column(
+        children: [
+          // Reflection question: How does average daily spending compare after
+          // income versus before the next income? Insight type: comparison.
+          _ComparisonBars(
+            leftLabel: 'After income',
+            rightLabel: 'Before next income',
+            leftValue: afterValue,
+            rightValue: beforeValue,
+            selected: filter,
+            onSelected: onFilterChanged,
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              filter == null
+                  ? 'Tap a bar to review matching activity.'
+                  : 'Showing ${filter == 'after' ? 'after-income' : 'before-next-income'} activity',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          if (filter != null) ...[
+            const SizedBox(height: 8),
+            for (final transaction in filtered)
+              TransactionRow(
+                transaction.title,
+                transaction.category ?? 'Unclassified',
+                _shortDate(transaction.createdAt ?? DateTime.now()),
+                money(transaction.amount.abs()),
+                transaction.amount > 0,
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalVsActualSection extends StatelessWidget {
+  const _GoalVsActualSection({required this.service});
+  final IntegrationService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest =
+        service.weekRecords.isEmpty ? null : service.weekRecords.last;
+    final needs = latest?.needsBalanceEnd ?? 0;
+    final buffer = latest?.bufferBalanceEnd ?? 0;
+    return _ReflectionSection(
+      title: 'Goal vs Actual per Jar',
+      caption:
+          'Read each jar separately: target and current balance are paired so one jar does not hide the other.',
+      child: Column(
+        children: [
+          // Reflection question: Where is each jar relative to its own target?
+          // Insight type: goal-related.
+          _GoalPairBar(
+            label: 'Needs',
+            target: service.needsTarget,
+            current: needs,
+            color: _brand,
+          ),
+          const SizedBox(height: 14),
+          _GoalPairBar(
+            label: 'Buffer',
+            target: service.bufferTarget,
+            current: buffer,
+            color: _purple,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DataTrustSection extends StatelessWidget {
+  const _DataTrustSection({required this.service});
+  final IntegrationService service;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ReflectionSection(
+      title: 'Data Trust',
+      caption:
+          'Filled days are fully classified, hollow days are inferred from jars, and grey days have no synced activity.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Reflection question: How complete is the data behind the charts?
+          // Insight type: data quality/missingness.
+          _CoverageGrid(days: service.dayRecords),
+          const SizedBox(height: 14),
+          Row(
+            children: const [
+              _CoverageLegend(color: _brand, label: 'Fully tracked'),
+              SizedBox(width: 10),
+              _CoverageLegend(color: _purple, label: 'Inferred'),
+              SizedBox(width: 10),
+              _CoverageLegend(color: _border, label: 'No synced data'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReflectionSection extends StatelessWidget {
+  const _ReflectionSection({
+    required this.title,
+    required this.caption,
+    required this.child,
+  });
+  final String title;
+  final String caption;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              caption,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReflectionEmpty extends StatelessWidget {
+  const _ReflectionEmpty({required this.message});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Text(
+          message,
+          style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+        ),
+      );
+}
+
+class _NeutralNotice extends StatelessWidget {
+  const _NeutralNotice({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: _amber.withOpacity(.1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _amber.withOpacity(.25)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_rounded, color: _amber, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ComparisonBars extends StatelessWidget {
+  const _ComparisonBars({
+    required this.leftLabel,
+    required this.rightLabel,
+    required this.leftValue,
+    required this.rightValue,
+    required this.selected,
+    required this.onSelected,
+  });
+  final String leftLabel;
+  final String rightLabel;
+  final double leftValue;
+  final double rightValue;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue =
+        math.max(leftValue, rightValue).clamp(1.0, double.infinity);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _ComparisonBar(
+          id: 'after',
+          label: leftLabel,
+          value: leftValue,
+          maxValue: maxValue,
+          selected: selected == 'after',
+          color: _brand,
+          onTap: () => onSelected(selected == 'after' ? null : 'after'),
+        ),
+        const SizedBox(width: 14),
+        _ComparisonBar(
+          id: 'before',
+          label: rightLabel,
+          value: rightValue,
+          maxValue: maxValue,
+          selected: selected == 'before',
+          color: _purple,
+          onTap: () => onSelected(selected == 'before' ? null : 'before'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ComparisonBar extends StatelessWidget {
+  const _ComparisonBar({
+    required this.id,
+    required this.label,
+    required this.value,
+    required this.maxValue,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+  final String id;
+  final String label;
+  final double value;
+  final double maxValue;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final height = 32 + 102 * (value / maxValue);
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            Text(
+              money(value),
+              style: TextStyle(
+                color: selected ? color : _title,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                height: height,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(selected ? .95 : .58),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoalPairBar extends StatelessWidget {
+  const _GoalPairBar({
+    required this.label,
+    required this.target,
+    required this.current,
+    required this.color,
+  });
+  final String label;
+  final double target;
+  final double current;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = math.max(target, current).clamp(1.0, double.infinity);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: _title,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              '${money(current)} current',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _ThinBar(value: target / maxValue, color: color.withOpacity(.22)),
+        const SizedBox(height: 5),
+        _ThinBar(value: current / maxValue, color: color),
+        const SizedBox(height: 5),
+        Text(
+          'Target ${money(target)}',
+          style: const TextStyle(
+            color: _body,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThinBar extends StatelessWidget {
+  const _ThinBar({required this.value, required this.color});
+  final double value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: LinearProgressIndicator(
+        value: value.clamp(0.0, 1.0),
+        minHeight: 9,
+        color: color,
+        backgroundColor: _border.withOpacity(.5),
+      ),
+    );
+  }
+}
+
+class _CoverageGrid extends StatelessWidget {
+  const _CoverageGrid({required this.days});
+  final List<DayRecord> days;
+
+  @override
+  Widget build(BuildContext context) {
+    if (days.isEmpty) {
+      return const SizedBox(
+        height: 90,
+        child: _ReflectionEmpty(message: 'No coverage days yet.'),
+      );
+    }
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: days.map((day) {
+        final color = day.fullyClassified
+            ? _brand
+            : day.wasInferred
+                ? _purple
+                : _border;
+        return Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            color: day.fullyClassified ? color : Colors.transparent,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: color, width: day.wasInferred ? 2 : 1),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _CoverageLegend extends StatelessWidget {
+  const _CoverageLegend({required this.color, required this.label});
+  final Color color;
+  final String label;
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JarTimelinePainter extends CustomPainter {
+  _JarTimelinePainter({
+    required this.weeks,
+    required this.targetNeeds,
+    required this.targetBuffer,
+  });
+  final List<WeekRecord> weeks;
+  final double targetNeeds;
+  final double targetBuffer;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (weeks.isEmpty) return;
+    const left = 26.0;
+    const top = 18.0;
+    const bottom = 26.0;
+    final chartWidth = size.width - left - 8;
+    final chartHeight = size.height - top - bottom;
+    final maxValue = [
+      targetNeeds,
+      targetBuffer,
+      ...weeks.map((week) => week.needsBalanceEnd),
+      ...weeks.map((week) => week.bufferBalanceEnd),
+    ].fold(1.0, math.max);
+    final bandPaint = Paint()..color = _brand.withOpacity(.08);
+    final targetY = top + chartHeight * (1 - (targetNeeds / maxValue));
+    canvas.drawRect(
+      Rect.fromLTWH(left, math.max(top, targetY - 8), chartWidth, 16),
+      bandPaint,
+    );
+    final segmentWidth = chartWidth / weeks.length;
+    for (var i = 0; i < weeks.length; i++) {
+      final week = weeks[i];
+      if (week.isBillWeek || week.isSalaryWeek) {
+        final paint = Paint()
+          ..color = (week.isBillWeek ? _amber : _brand).withOpacity(.08);
+        canvas.drawRect(
+          Rect.fromLTWH(
+              left + i * segmentWidth, top, segmentWidth, chartHeight),
+          paint,
+        );
+      }
+    }
+    void drawSeries(double Function(WeekRecord week) valueFor, Color color) {
+      final paint = Paint()
+        ..color = color
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      Path? path;
+      for (var i = 0; i < weeks.length; i++) {
+        final week = weeks[i];
+        final x = left + segmentWidth * i + segmentWidth / 2;
+        final y = top + chartHeight * (1 - (valueFor(week) / maxValue));
+        final hasCoverage = week.propDaysClassified > 0;
+        if (!hasCoverage) {
+          if (path != null) canvas.drawPath(path, paint);
+          path = null;
+          continue;
+        }
+        final activePath = path;
+        if (activePath == null) {
+          path = Path()..moveTo(x, y);
+        } else {
+          activePath.lineTo(x, y);
+        }
+      }
+      if (path != null) canvas.drawPath(path, paint);
+    }
+
+    drawSeries((week) => week.needsBalanceEnd, _brand);
+    drawSeries((week) => week.bufferBalanceEnd, _purple);
+  }
+
+  @override
+  bool shouldRepaint(covariant _JarTimelinePainter oldDelegate) =>
+      oldDelegate.weeks != weeks ||
+      oldDelegate.targetNeeds != targetNeeds ||
+      oldDelegate.targetBuffer != targetBuffer;
+}
+
+void _showWeekDetail(BuildContext context, WeekRecord week) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) {
+      final transactions = week.days.expand((day) => day.transactions).toList();
+      final events = week.days.expand((day) => day.events).toList();
+      return SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          shrinkWrap: true,
+          children: [
+            Text(
+              '${_shortDate(week.start)} - ${_shortDate(week.end)}',
+              style: const TextStyle(
+                color: _title,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (final event in events)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  event.type == JarEventType.income
+                      ? Icons.arrow_downward_rounded
+                      : Icons.receipt_long_rounded,
+                  color: event.type == JarEventType.income ? _brand : _amber,
+                ),
+                title: Text(event.sentence),
+                subtitle: Text(_shortDate(event.timestamp)),
+              ),
+            for (final transaction in transactions.take(12))
+              TransactionRow(
+                transaction.title,
+                transaction.category ?? 'Unclassified',
+                _shortDate(transaction.createdAt ?? week.start),
+                money(transaction.amount.abs()),
+                transaction.amount > 0,
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+String _shortDate(DateTime value) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[value.month - 1]} ${value.day}';
 }
 
 // ─── Net Worth Hero ───────────────────────────────────────────────────────────
@@ -1275,7 +2095,8 @@ class _InsightsFilterBar extends StatelessWidget {
 // ─── Accounts section ─────────────────────────────────────────────────────────
 
 class _AccountsSection extends StatefulWidget {
-  const _AccountsSection({required this.accounts, required this.state, this.compact = false});
+  const _AccountsSection(
+      {required this.accounts, required this.state, this.compact = false});
   final List<_WealthAccount> accounts;
   final AppState state;
   final bool compact;
@@ -1288,7 +2109,8 @@ class _AccountsSectionState extends State<_AccountsSection> {
   String? expandedAccount;
 
   void _toggleAccount(_WealthAccount account) {
-    if (account.name != 'FakeMaya Wallet' && account.name != 'FakeMaya Savings') {
+    if (account.name != 'FakeMaya Wallet' &&
+        account.name != 'FakeMaya Savings') {
       return;
     }
     setState(() {
@@ -1336,7 +2158,8 @@ class _AccountsSectionState extends State<_AccountsSection> {
 }
 
 class _WalletAllocationsCard extends StatelessWidget {
-  const _WalletAllocationsCard({required this.state, required this.accountName});
+  const _WalletAllocationsCard(
+      {required this.state, required this.accountName});
   final AppState state;
   final String accountName;
 
@@ -1345,9 +2168,19 @@ class _WalletAllocationsCard extends StatelessWidget {
     final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
     final walletAllocations = <(String, double, Color, IconData)>[
       if (state.essentialExpensesBalance > 0)
-        ('Essential Expenses Fund', state.essentialExpensesBalance, _brand, Icons.home_work_rounded),
+        (
+          'Essential Expenses Fund',
+          state.essentialExpensesBalance,
+          _brand,
+          Icons.home_work_rounded
+        ),
       if (state.billsObligationsBalance > 0)
-        ('Bills & Obligations', state.billsObligationsBalance, _purple, Icons.event_note_rounded),
+        (
+          'Bills & Obligations',
+          state.billsObligationsBalance,
+          _purple,
+          Icons.event_note_rounded
+        ),
     ];
     final savings = state.fakeMayaLink?.summary.savings ?? 0;
     return Container(
@@ -1364,29 +2197,49 @@ class _WalletAllocationsCard extends StatelessWidget {
           if (accountName == 'FakeMaya Wallet') ...[
             const Row(
               children: [
-                Icon(Icons.account_balance_wallet_rounded, color: _brand, size: 20),
+                Icon(Icons.account_balance_wallet_rounded,
+                    color: _brand, size: 20),
                 SizedBox(width: 8),
-                Expanded(child: Text('Inside FakeMaya Wallet', style: TextStyle(color: _title, fontSize: 15, fontWeight: FontWeight.w900))),
+                Expanded(
+                    child: Text('Inside FakeMaya Wallet',
+                        style: TextStyle(
+                            color: _title,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900))),
               ],
             ),
             const SizedBox(height: 5),
             const Text(
               'These funds are earmarked portions of your wallet balance—not separate accounts or additional money.',
-              style: TextStyle(color: _body, fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             if (walletAllocations.isEmpty)
               const Text(
                 'No wallet money is earmarked yet.',
-                style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    color: _body, fontSize: 12, fontWeight: FontWeight.w700),
               ),
             for (final allocation in walletAllocations) ...[
               Row(
                 children: [
                   Icon(allocation.$4, color: allocation.$3, size: 17),
                   const SizedBox(width: 8),
-                  Expanded(child: Text(allocation.$1, style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800))),
-                  Text(money(allocation.$2), style: TextStyle(color: allocation.$3, fontSize: 12, fontWeight: FontWeight.w900)),
+                  Expanded(
+                      child: Text(allocation.$1,
+                          style: const TextStyle(
+                              color: _title,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800))),
+                  Text(money(allocation.$2),
+                      style: TextStyle(
+                          color: allocation.$3,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900)),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1395,15 +2248,33 @@ class _WalletAllocationsCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Expanded(child: Text('Unallocated wallet money', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w800))),
-                Text(money(state.unallocatedFakeMayaWallet), style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+                const Expanded(
+                    child: Text('Unallocated wallet money',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800))),
+                Text(money(state.unallocatedFakeMayaWallet),
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900)),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               children: [
-                const Expanded(child: Text('Full FakeMaya Wallet balance', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
-                Text(money(wallet), style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w800)),
+                const Expanded(
+                    child: Text('Full FakeMaya Wallet balance',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700))),
+                Text(money(wallet),
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800)),
               ],
             ),
           ],
@@ -1412,27 +2283,46 @@ class _WalletAllocationsCard extends StatelessWidget {
               children: [
                 Icon(Icons.savings_rounded, color: _amber, size: 20),
                 SizedBox(width: 8),
-                Expanded(child: Text('Inside FakeMaya Savings', style: TextStyle(color: _title, fontSize: 15, fontWeight: FontWeight.w900))),
+                Expanded(
+                    child: Text('Inside FakeMaya Savings',
+                        style: TextStyle(
+                            color: _title,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900))),
               ],
             ),
             const SizedBox(height: 5),
             const Text(
               'Emergency Fund is an earmarked portion of FakeMaya Savings—not a separate account or additional money.',
-              style: TextStyle(color: _body, fontSize: 11.5, height: 1.35, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             if (state.displayedEmergencyFundBalance <= 0)
               const Text(
                 'No savings money is earmarked yet.',
-                style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    color: _body, fontSize: 12, fontWeight: FontWeight.w700),
               )
             else
               Row(
                 children: [
                   const Icon(Icons.shield_rounded, color: _amber, size: 17),
                   const SizedBox(width: 8),
-                  const Expanded(child: Text('Emergency Fund', style: TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800))),
-                  Text(money(state.displayedEmergencyFundBalance), style: const TextStyle(color: _amber, fontSize: 12, fontWeight: FontWeight.w900)),
+                  const Expanded(
+                      child: Text('Emergency Fund',
+                          style: TextStyle(
+                              color: _title,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800))),
+                  Text(money(state.displayedEmergencyFundBalance),
+                      style: const TextStyle(
+                          color: _amber,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900)),
                 ],
               ),
             const SizedBox(height: 8),
@@ -1440,15 +2330,33 @@ class _WalletAllocationsCard extends StatelessWidget {
             const SizedBox(height: 8),
             Row(
               children: [
-                const Expanded(child: Text('Unallocated savings money', style: TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w800))),
-                Text(money(state.unallocatedFakeMayaSavings), style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+                const Expanded(
+                    child: Text('Unallocated savings money',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800))),
+                Text(money(state.unallocatedFakeMayaSavings),
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900)),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               children: [
-                const Expanded(child: Text('Full FakeMaya Savings balance', style: TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700))),
-                Text(money(savings), style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w800)),
+                const Expanded(
+                    child: Text('Full FakeMaya Savings balance',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700))),
+                Text(money(savings),
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800)),
               ],
             ),
           ],
@@ -1506,7 +2414,8 @@ class _AccountGrid extends StatelessWidget {
 }
 
 class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.account, required this.expanded, required this.onTap});
+  const _AccountCard(
+      {required this.account, required this.expanded, required this.onTap});
   final _WealthAccount account;
   final bool expanded;
   final VoidCallback onTap;
@@ -1514,8 +2423,8 @@ class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = account.color;
-    final expandable = account.name == 'FakeMaya Wallet' ||
-        account.name == 'FakeMaya Savings';
+    final expandable =
+        account.name == 'FakeMaya Wallet' || account.name == 'FakeMaya Savings';
     return InkWell(
       onTap: expandable ? onTap : null,
       borderRadius: BorderRadius.circular(22),
@@ -1530,61 +2439,61 @@ class _AccountCard extends StatelessWidget {
           ),
         ),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: c.withOpacity(.15),
-                  borderRadius: BorderRadius.circular(14),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: c.withOpacity(.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(account.icon, color: c, size: 20),
                 ),
-                child: Icon(account.icon, color: c, size: 20),
+                const Spacer(),
+                if (expandable)
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: c,
+                    size: 20,
+                  )
+                else
+                  _LayerDot(layer: account.layer),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              account.name,
+              style: const TextStyle(
+                color: _title,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
               ),
-              const Spacer(),
-              if (expandable)
-                Icon(
-                  expanded
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                  color: c,
-                  size: 20,
-                )
-              else
-                _LayerDot(layer: account.layer),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            account.name,
-            style: const TextStyle(
-              color: _title,
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
             ),
-          ),
-          Text(
-            account.sub,
-            style: const TextStyle(
-              color: _body,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+            Text(
+              account.sub,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            money(account.balance),
-            style: GoogleFonts.nunito(
-              color: _title,
-              fontSize: 15,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.3,
+            const SizedBox(height: 10),
+            Text(
+              money(account.balance),
+              style: GoogleFonts.nunito(
+                color: _title,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.3,
+              ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -1851,7 +2760,8 @@ class _LayerContext extends StatelessWidget {
       );
     }
     if (layerNum == 2 && state.cashFlowPyramidBaseline > 0) {
-      final months = state.financialSafetyBalance / state.cashFlowPyramidBaseline;
+      final months =
+          state.financialSafetyBalance / state.cashFlowPyramidBaseline;
       return _ContextChip(
         icon: Icons.shield_rounded,
         text:
@@ -2653,29 +3563,43 @@ class _D1ActionMeta {
   final String destBucket;
   final List<({String label, String value, IconData icon})> metrics;
   final List<({String label, String type, String value})> dataPoints;
-  final List<({String date, String event, String amount, bool isIn})> activityLog;
+  final List<({String date, String event, String amount, bool isIn})>
+      activityLog;
 }
-
 
 const _d1GoalMetas = <_D1GoalMeta>[
   _D1GoalMeta(
     id: 'G1',
     emoji: '💵',
     title: 'Maintain Available Cash',
-    description: 'Have and maintain enough available cash to cover expenses without financial stress.',
+    description:
+        'Have and maintain enough available cash to cover expenses without financial stress.',
     layerColor: _brand,
     layerLabel: 'Cash Flow',
     actions: [
       _D1ActionMeta(
         id: 'A1',
-        text: 'Set aside 50% of each income received into an Essential Expenses Fund.',
+        text:
+            'Set aside 50% of each income received into an Essential Expenses Fund.',
         configLabel: 'Allocation',
         configValue: '50% of income',
         destBucket: 'Essential Expenses Fund',
         metrics: [
-          (label: 'Savings-to-Spending', value: '1.5 : 1', icon: Icons.balance_rounded),
-          (label: 'Monthly Cash Flow', value: '+₱3,200', icon: Icons.trending_up_rounded),
-          (label: 'Cash Balance', value: '₱5,500', icon: Icons.account_balance_wallet_rounded),
+          (
+            label: 'Savings-to-Spending',
+            value: '1.5 : 1',
+            icon: Icons.balance_rounded
+          ),
+          (
+            label: 'Monthly Cash Flow',
+            value: '+₱3,200',
+            icon: Icons.trending_up_rounded
+          ),
+          (
+            label: 'Cash Balance',
+            value: '₱5,500',
+            icon: Icons.account_balance_wallet_rounded
+          ),
           (label: 'Fund Balance', value: '₱7,500', icon: Icons.savings_rounded),
         ],
         dataPoints: [
@@ -2683,45 +3607,105 @@ const _d1GoalMetas = <_D1GoalMeta>[
           (label: 'Income Transaction', type: 'S', value: '₱15,000'),
           (label: 'Transfer Amount', type: 'S', value: '₱7,500'),
           (label: 'Source Bucket', type: 'S', value: 'Main Cash Account'),
-          (label: 'Destination Bucket', type: 'S', value: 'Essential Expenses Fund'),
+          (
+            label: 'Destination Bucket',
+            type: 'S',
+            value: 'Essential Expenses Fund'
+          ),
           (label: 'Available Cash Balance', type: 'S', value: '₱5,500'),
           (label: 'Savings-to-Spending Ratio', type: 'I', value: '1.5 : 1'),
           (label: 'Monthly Cash Flow Balance', type: 'I', value: '+₱3,200'),
         ],
         activityLog: [
-          (date: 'Jun 15', event: 'Income received → Essential Expenses Fund', amount: '₱7,500', isIn: true),
-          (date: 'Jun 1', event: 'Income received → Essential Expenses Fund', amount: '₱6,000', isIn: true),
-          (date: 'May 15', event: 'Income received → Essential Expenses Fund', amount: '₱7,500', isIn: true),
+          (
+            date: 'Jun 15',
+            event: 'Income received → Essential Expenses Fund',
+            amount: '₱7,500',
+            isIn: true
+          ),
+          (
+            date: 'Jun 1',
+            event: 'Income received → Essential Expenses Fund',
+            amount: '₱6,000',
+            isIn: true
+          ),
+          (
+            date: 'May 15',
+            event: 'Income received → Essential Expenses Fund',
+            amount: '₱7,500',
+            isIn: true
+          ),
         ],
       ),
       _D1ActionMeta(
         id: 'A3',
-        text: 'Limit spending in selected categories to a maximum of ₱X per month.',
+        text:
+            'Limit spending in selected categories to a maximum of ₱X per month.',
         configLabel: 'Category budgets',
         configValue: 'Set per category',
         destBucket: 'Monthly spending limits',
         metrics: [
-          (label: 'Budget Adherence', value: '75%', icon: Icons.verified_rounded),
-          (label: 'Monthly Cash Flow', value: '+₱3,200', icon: Icons.trending_up_rounded),
-          (label: 'Next Bill Due', value: 'Jul 5', icon: Icons.calendar_today_rounded),
+          (
+            label: 'Budget Adherence',
+            value: '75%',
+            icon: Icons.verified_rounded
+          ),
+          (
+            label: 'Monthly Cash Flow',
+            value: '+₱3,200',
+            icon: Icons.trending_up_rounded
+          ),
+          (
+            label: 'Next Bill Due',
+            value: 'Jul 5',
+            icon: Icons.calendar_today_rounded
+          ),
           (label: 'Fund Balance', value: '₱2,000', icon: Icons.savings_rounded),
         ],
         dataPoints: [
           (label: 'Financial Activity Date', type: 'T', value: 'Jun 15, 2026'),
-          (label: 'Scheduled Bill Due Date', type: 'T', value: 'Jul 5, 2026 (rent)'),
+          (
+            label: 'Scheduled Bill Due Date',
+            type: 'T',
+            value: 'Jul 5, 2026 (rent)'
+          ),
           (label: 'Income Transaction', type: 'S', value: '₱15,000'),
           (label: 'Transfer Amount', type: 'S', value: '₱2,000'),
           (label: 'Source Bucket', type: 'S', value: 'Main Cash Account'),
-          (label: 'Destination Bucket', type: 'S', value: 'Bills & Obligations Fund'),
+          (
+            label: 'Destination Bucket',
+            type: 'S',
+            value: 'Bills & Obligations Fund'
+          ),
           (label: 'Available Cash Balance', type: 'S', value: '₱5,500'),
           (label: 'Budget Adherence Rate', type: 'I', value: '75%'),
           (label: 'Monthly Cash Flow Balance', type: 'I', value: '+₱3,200'),
         ],
         activityLog: [
-          (date: 'Jun 15', event: 'Income received → Bills & Obligations Fund', amount: '₱2,000', isIn: true),
-          (date: 'Jun 1', event: 'Income received → Bills & Obligations Fund', amount: '₱2,000', isIn: true),
-          (date: 'May 25', event: 'Bill paid — Electricity', amount: '-₱1,800', isIn: false),
-          (date: 'May 15', event: 'Income received → Bills & Obligations Fund', amount: '₱2,000', isIn: true),
+          (
+            date: 'Jun 15',
+            event: 'Income received → Bills & Obligations Fund',
+            amount: '₱2,000',
+            isIn: true
+          ),
+          (
+            date: 'Jun 1',
+            event: 'Income received → Bills & Obligations Fund',
+            amount: '₱2,000',
+            isIn: true
+          ),
+          (
+            date: 'May 25',
+            event: 'Bill paid — Electricity',
+            amount: '-₱1,800',
+            isIn: false
+          ),
+          (
+            date: 'May 15',
+            event: 'Income received → Bills & Obligations Fund',
+            amount: '₱2,000',
+            isIn: true
+          ),
         ],
       ),
     ],
@@ -2741,10 +3725,26 @@ const _d1GoalMetas = <_D1GoalMeta>[
         configValue: '10% of income',
         destBucket: 'Emergency Fund',
         metrics: [
-          (label: 'Fund Coverage', value: '1.8 months', icon: Icons.shield_rounded),
-          (label: 'Fund Balance', value: '₱18,500', icon: Icons.savings_rounded),
-          (label: 'Compliance Rate', value: '85%', icon: Icons.verified_rounded),
-          (label: 'Cash Balance', value: '₱5,500', icon: Icons.account_balance_wallet_rounded),
+          (
+            label: 'Fund Coverage',
+            value: '1.8 months',
+            icon: Icons.shield_rounded
+          ),
+          (
+            label: 'Fund Balance',
+            value: '₱18,500',
+            icon: Icons.savings_rounded
+          ),
+          (
+            label: 'Compliance Rate',
+            value: '85%',
+            icon: Icons.verified_rounded
+          ),
+          (
+            label: 'Cash Balance',
+            value: '₱5,500',
+            icon: Icons.account_balance_wallet_rounded
+          ),
         ],
         dataPoints: [
           (label: 'Financial Activity Date', type: 'T', value: 'Jun 15, 2026'),
@@ -2758,28 +3758,69 @@ const _d1GoalMetas = <_D1GoalMeta>[
           (label: 'Contribution Compliance Rate', type: 'I', value: '85%'),
         ],
         activityLog: [
-          (date: 'Jun 15', event: 'Income received → Emergency Fund', amount: '₱1,500', isIn: true),
-          (date: 'Jun 1', event: 'Income received → Emergency Fund', amount: '₱1,200', isIn: true),
-          (date: 'May 15', event: 'Income received → Emergency Fund', amount: '₱1,500', isIn: true),
-          (date: 'May 1', event: 'Income received → Emergency Fund', amount: '₱1,200', isIn: true),
+          (
+            date: 'Jun 15',
+            event: 'Income received → Emergency Fund',
+            amount: '₱1,500',
+            isIn: true
+          ),
+          (
+            date: 'Jun 1',
+            event: 'Income received → Emergency Fund',
+            amount: '₱1,200',
+            isIn: true
+          ),
+          (
+            date: 'May 15',
+            event: 'Income received → Emergency Fund',
+            amount: '₱1,500',
+            isIn: true
+          ),
+          (
+            date: 'May 1',
+            event: 'Income received → Emergency Fund',
+            amount: '₱1,200',
+            isIn: true
+          ),
         ],
       ),
       _D1ActionMeta(
         id: 'A10',
-        text: 'Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.',
+        text:
+            'Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.',
         configLabel: 'Replenish within',
         configValue: '7 days of income',
         destBucket: 'Emergency Fund',
         metrics: [
-          (label: 'Fund Coverage', value: '1.8 months', icon: Icons.shield_rounded),
-          (label: 'Fund Balance', value: '₱18,500', icon: Icons.savings_rounded),
-          (label: 'Compliance Rate', value: '85%', icon: Icons.verified_rounded),
-          (label: 'Last Replenished', value: 'Jun 16', icon: Icons.check_circle_rounded),
+          (
+            label: 'Fund Coverage',
+            value: '1.8 months',
+            icon: Icons.shield_rounded
+          ),
+          (
+            label: 'Fund Balance',
+            value: '₱18,500',
+            icon: Icons.savings_rounded
+          ),
+          (
+            label: 'Compliance Rate',
+            value: '85%',
+            icon: Icons.verified_rounded
+          ),
+          (
+            label: 'Last Replenished',
+            value: 'Jun 16',
+            icon: Icons.check_circle_rounded
+          ),
         ],
         dataPoints: [
           (label: 'Financial Activity Date', type: 'T', value: 'Jun 16, 2026'),
           (label: 'Income Transaction', type: 'S', value: '₱15,000 on Jun 15'),
-          (label: 'Transfer Amount', type: 'S', value: '₱3,000 (replenishment)'),
+          (
+            label: 'Transfer Amount',
+            type: 'S',
+            value: '₱3,000 (replenishment)'
+          ),
           (label: 'Source Bucket', type: 'S', value: 'Main Cash Account'),
           (label: 'Destination Bucket', type: 'S', value: 'Emergency Fund'),
           (label: 'Available Cash Balance', type: 'S', value: '₱5,500'),
@@ -2788,10 +3829,30 @@ const _d1GoalMetas = <_D1GoalMeta>[
           (label: 'Contribution Compliance Rate', type: 'I', value: '85%'),
         ],
         activityLog: [
-          (date: 'Jun 16', event: 'Replenishment → Emergency Fund (1 day after income)', amount: '₱3,000', isIn: true),
-          (date: 'Jun 15', event: 'Income received', amount: '₱15,000', isIn: true),
-          (date: 'Jun 12', event: 'Emergency withdrawal from fund', amount: '-₱3,000', isIn: false),
-          (date: 'Jun 1', event: 'Replenishment → Emergency Fund (3 days after income)', amount: '₱2,500', isIn: true),
+          (
+            date: 'Jun 16',
+            event: 'Replenishment → Emergency Fund (1 day after income)',
+            amount: '₱3,000',
+            isIn: true
+          ),
+          (
+            date: 'Jun 15',
+            event: 'Income received',
+            amount: '₱15,000',
+            isIn: true
+          ),
+          (
+            date: 'Jun 12',
+            event: 'Emergency withdrawal from fund',
+            amount: '-₱3,000',
+            isIn: false
+          ),
+          (
+            date: 'Jun 1',
+            event: 'Replenishment → Emergency Fund (3 days after income)',
+            amount: '₱2,500',
+            isIn: true
+          ),
         ],
       ),
     ],
@@ -2848,7 +3909,8 @@ class _D1GoalsMenu extends StatelessWidget {
         const SizedBox(height: 6),
         const Text(
           'Track your progress and actions for each financial goal.',
-          style: TextStyle(color: _body, fontSize: 13, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              color: _body, fontSize: 13, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 24),
         for (final goal in _d1GoalMetas) ...[
@@ -2875,7 +3937,10 @@ class _D1GoalCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: _border),
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: .04), blurRadius: 8, offset: const Offset(0, 2)),
+            BoxShadow(
+                color: Colors.black.withValues(alpha: .04),
+                blurRadius: 8,
+                offset: const Offset(0, 2)),
           ],
         ),
         child: Column(
@@ -2887,8 +3952,11 @@ class _D1GoalCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               decoration: BoxDecoration(
                 color: goal.layerColor.withValues(alpha: .08),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                border: Border(bottom: BorderSide(color: goal.layerColor.withValues(alpha: .15))),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(
+                    bottom: BorderSide(
+                        color: goal.layerColor.withValues(alpha: .15))),
               ),
               child: Row(
                 children: [
@@ -2900,7 +3968,8 @@ class _D1GoalCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     alignment: Alignment.center,
-                    child: Text(goal.emoji, style: const TextStyle(fontSize: 20)),
+                    child:
+                        Text(goal.emoji, style: const TextStyle(fontSize: 20)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2915,7 +3984,8 @@ class _D1GoalCard extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: goal.layerColor.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(999),
@@ -2975,7 +4045,8 @@ class _D1GoalCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 2),
-                      Icon(Icons.arrow_forward_rounded, size: 16, color: goal.layerColor),
+                      Icon(Icons.arrow_forward_rounded,
+                          size: 16, color: goal.layerColor),
                     ],
                   ),
                 ],
@@ -2989,7 +4060,8 @@ class _D1GoalCard extends StatelessWidget {
 }
 
 class _GoalPillChip extends StatelessWidget {
-  const _GoalPillChip({required this.icon, required this.label, required this.color});
+  const _GoalPillChip(
+      {required this.icon, required this.label, required this.color});
   final IconData icon;
   final String label;
   final Color color;
@@ -3009,7 +4081,8 @@ class _GoalPillChip extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             label,
-            style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w800),
+            style: TextStyle(
+                color: color, fontSize: 11, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -3055,20 +4128,27 @@ class _D1GoalDetailScreen extends StatelessWidget {
                     const SizedBox(height: 1),
                     const Text(
                       'Goals',
-                      style: TextStyle(color: _title, fontSize: 22, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                          color: _title,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900),
                     ),
                   ],
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: goal.layerColor.withValues(alpha: .1),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   goal.layerLabel,
-                  style: TextStyle(color: goal.layerColor, fontSize: 11, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                      color: goal.layerColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -3153,7 +4233,8 @@ class _D1GoalDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               for (var i = 0; i < goal.actions.length; i++) ...[
-                _D1ActionPanel(action: goal.actions[i], goalColor: goal.layerColor),
+                _D1ActionPanel(
+                    action: goal.actions[i], goalColor: goal.layerColor),
                 if (i < goal.actions.length - 1) const SizedBox(height: 16),
               ],
             ],
@@ -3185,7 +4266,8 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final now = DateTime.now();
-    final spent = (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+    final spent = (state.fakeMayaLink?.summary.transactions ??
+            const <FakeMayaTransaction>[])
         .where((transaction) =>
             transaction.amount < 0 &&
             transaction.isLabeled &&
@@ -3210,9 +4292,8 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
         : spent <= expected
             ? 1.0
             : (expected / spent).clamp(0.0, 1.0);
-    final incomeScore = expected <= 0
-        ? 0.0
-        : (latestIncome / expected).clamp(0.0, 1.0);
+    final incomeScore =
+        expected <= 0 ? 0.0 : (latestIncome / expected).clamp(0.0, 1.0);
     final feasibility = expected <= 0
         ? 0
         : ((coverageScore * .55 +
@@ -3326,8 +4407,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
                     value: feasibility / 100,
                     minHeight: 9,
                     color: feasibilityColor,
-                    backgroundColor:
-                        feasibilityColor.withValues(alpha: .14),
+                    backgroundColor: feasibilityColor.withValues(alpha: .14),
                   ),
                 ),
                 const SizedBox(height: 7),
@@ -3352,7 +4432,11 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
 }
 
 class _CashPositionMetric extends StatelessWidget {
-  const _CashPositionMetric({required this.icon, required this.label, required this.value, required this.color});
+  const _CashPositionMetric(
+      {required this.icon,
+      required this.label,
+      required this.value,
+      required this.color});
   final IconData icon;
   final String label;
   final String value;
@@ -3362,18 +4446,28 @@ class _CashPositionMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-      decoration: BoxDecoration(color: color.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon, color: color, size: 17),
           const SizedBox(height: 7),
-          Text(label, maxLines: 2, style: const TextStyle(color: _body, fontSize: 9.5, height: 1.15, fontWeight: FontWeight.w800)),
+          Text(label,
+              maxLines: 2,
+              style: const TextStyle(
+                  color: _body,
+                  fontSize: 9.5,
+                  height: 1.15,
+                  fontWeight: FontWeight.w800)),
           const SizedBox(height: 3),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(value, style: const TextStyle(color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
+            child: Text(value,
+                style: const TextStyle(
+                    color: _title, fontSize: 13, fontWeight: FontWeight.w900)),
           ),
         ],
       ),
@@ -3393,7 +4487,8 @@ class _EmergencyFundSummary extends StatelessWidget {
     final target = monthlyEssentials > 0
         ? monthlyEssentials * 3
         : math.max(30000.0, state.emergencyFundTarget);
-    final coverageMonths = monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
+    final coverageMonths =
+        monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
     final latestIncome = _latestIncomeTransaction(state);
     final contributionMade = latestIncome != null &&
         state.hasEmergencyAllocationForIncome(latestIncome.transactionId);
@@ -3526,7 +4621,8 @@ class _CashFlowTransactionsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final transactions = (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+    final transactions = (state.fakeMayaLink?.summary.transactions ??
+            const <FakeMayaTransaction>[])
         .where((transaction) =>
             transaction.isLabeled &&
             !transaction.excludedFromInsights &&
@@ -3638,7 +4734,13 @@ class _CashFlowTransactionRow extends StatelessWidget {
 }
 
 class _EmergencyActivityItem {
-  const _EmergencyActivityItem({required this.title, required this.detail, required this.amount, required this.date, required this.incoming, required this.icon});
+  const _EmergencyActivityItem(
+      {required this.title,
+      required this.detail,
+      required this.amount,
+      required this.date,
+      required this.incoming,
+      required this.icon});
   final String title;
   final String detail;
   final double amount;
@@ -3654,7 +4756,8 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final activity = <_EmergencyActivityItem>[];
-    for (final transaction in state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[]) {
+    for (final transaction in state.fakeMayaLink?.summary.transactions ??
+        const <FakeMayaTransaction>[]) {
       if (!transaction.isLabeled ||
           transaction.excludedFromInsights ||
           _insightCategoryConfig(transaction.category ?? '').$1 != 2) {
@@ -3776,16 +4879,21 @@ class _EmergencyActivityRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(item.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+              Text(item.title,
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900)),
               const SizedBox(height: 2),
-              Text('${item.detail} · $dateText', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+              Text('${item.detail} · $dateText',
+                  style: const TextStyle(
+                      color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
         const SizedBox(width: 8),
         Text(
           '${item.incoming ? '+' : '-'}${money(item.amount)}',
-          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900),
+          style: TextStyle(
+              color: color, fontSize: 12, fontWeight: FontWeight.w900),
         ),
       ],
     );
@@ -3828,7 +4936,10 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _border),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 6, offset: const Offset(0, 2)),
+          BoxShadow(
+              color: Colors.black.withValues(alpha: .03),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -3844,14 +4955,19 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: .12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       action.id,
-                      style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: .5),
+                      style: TextStyle(
+                          color: color,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: .5),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -3868,7 +4984,9 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
                   ),
                   const SizedBox(width: 6),
                   Icon(
-                    _expanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
                     color: _body,
                     size: 22,
                   ),
@@ -3957,7 +5075,8 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
                   ),
                   const SizedBox(height: 10),
                   for (final dp in action.dataPoints)
-                    _DataPointRow(label: dp.label, type: dp.type, value: dp.value),
+                    _DataPointRow(
+                        label: dp.label, type: dp.type, value: dp.value),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -3970,7 +5089,8 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
 }
 
 FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
-  final transactions = state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
+  final transactions =
+      state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
   final incoming = transactions.where((transaction) {
     if (transaction.amount <= 0) return false;
     final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
@@ -3991,10 +5111,12 @@ class _EssentialExpensesActionPanel extends StatefulWidget {
   final Color color;
 
   @override
-  State<_EssentialExpensesActionPanel> createState() => _EssentialExpensesActionPanelState();
+  State<_EssentialExpensesActionPanel> createState() =>
+      _EssentialExpensesActionPanelState();
 }
 
-class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionPanel> {
+class _EssentialExpensesActionPanelState
+    extends State<_EssentialExpensesActionPanel> {
   bool busy = false;
 
   Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
@@ -4014,7 +5136,8 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
     final state = AppScope.of(context);
     final income = _latestIncomeTransaction(state);
     final allocation = (income?.amount ?? 0) * .5;
-    final alreadyDeposited = income != null && state.hasEssentialAllocationForIncome(income.transactionId);
+    final alreadyDeposited = income != null &&
+        state.hasEssentialAllocationForIncome(income.transactionId);
     final hasEnoughCash = allocation <= state.unallocatedFakeMayaWallet;
     final date = income?.createdAt;
     final localizations = MaterialLocalizations.of(context);
@@ -4025,7 +5148,12 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
         color: _surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _border),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: .03),
+              blurRadius: 6,
+              offset: const Offset(0, 2))
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4034,12 +5162,24 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
-                child: Text('A1', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+                decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text('A1',
+                    style: TextStyle(
+                        color: widget.color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
               const Expanded(
-                child: Text('Set aside 50% of each income received into an Essential Expenses Fund.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800)),
+                child: Text(
+                    'Set aside 50% of each income received into an Essential Expenses Fund.',
+                    style: TextStyle(
+                        color: _title,
+                        fontSize: 13,
+                        height: 1.4,
+                        fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -4047,7 +5187,10 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: _brand.withValues(alpha: .08), borderRadius: BorderRadius.circular(16), border: Border.all(color: _brand.withValues(alpha: .18))),
+            decoration: BoxDecoration(
+                color: _brand.withValues(alpha: .08),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _brand.withValues(alpha: .18))),
             child: Row(
               children: [
                 const Icon(Icons.home_work_rounded, color: _brand),
@@ -4056,20 +5199,36 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Essential Expenses Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
-                      Text('Earmarked inside FakeMaya Wallet', style: TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                      Text('Essential Expenses Fund',
+                          style: TextStyle(
+                              color: _title, fontWeight: FontWeight.w900)),
+                      Text('Earmarked inside FakeMaya Wallet',
+                          style: TextStyle(
+                              color: _body,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
-                Text(money(state.essentialExpensesBalance), style: const TextStyle(color: _brand, fontWeight: FontWeight.w900)),
+                Text(money(state.essentialExpensesBalance),
+                    style: const TextStyle(
+                        color: _brand, fontWeight: FontWeight.w900)),
               ],
             ),
           ),
           const SizedBox(height: 12),
           if (income == null)
-            const Text('No income transaction found yet. When FakeMaya records salary, cash-in, or received income, it will appear here.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+            const Text(
+                'No income transaction found yet. When FakeMaya records salary, cash-in, or received income, it will appear here.',
+                style: TextStyle(
+                    color: _body, height: 1.35, fontWeight: FontWeight.w700))
           else ...[
-            const Text('LATEST INCOME', style: TextStyle(color: _body, fontSize: 10, letterSpacing: 1.1, fontWeight: FontWeight.w900)),
+            const Text('LATEST INCOME',
+                style: TextStyle(
+                    color: _body,
+                    fontSize: 10,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w900)),
             const SizedBox(height: 7),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -4080,13 +5239,22 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(income.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+                      Text(income.title,
+                          style: const TextStyle(
+                              color: _title, fontWeight: FontWeight.w900)),
                       if (date != null)
-                        Text('${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+                        Text(
+                            '${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}',
+                            style: const TextStyle(
+                                color: _body,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
-                Text(money(income.amount), style: const TextStyle(color: _sage, fontWeight: FontWeight.w900)),
+                Text(money(income.amount),
+                    style: const TextStyle(
+                        color: _sage, fontWeight: FontWeight.w900)),
               ],
             ),
             const SizedBox(height: 12),
@@ -4096,13 +5264,19 @@ class _EssentialExpensesActionPanelState extends State<_EssentialExpensesActionP
                   : busy
                       ? 'Depositing...'
                       : 'Deposit 50% (${money(allocation)})',
-              icon: alreadyDeposited ? Icons.check_circle_rounded : Icons.savings_rounded,
-              enabled: !busy && !alreadyDeposited && hasEnoughCash && date != null,
+              icon: alreadyDeposited
+                  ? Icons.check_circle_rounded
+                  : Icons.savings_rounded,
+              enabled:
+                  !busy && !alreadyDeposited && hasEnoughCash && date != null,
               onPressed: () => _deposit(state, income),
             ),
             if (!alreadyDeposited && !hasEnoughCash) ...[
               const SizedBox(height: 7),
-              Text('The unallocated FakeMaya wallet balance is too low for this deposit.', style: TextStyle(color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
+              Text(
+                  'The unallocated FakeMaya wallet balance is too low for this deposit.',
+                  style: TextStyle(
+                      color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
             ],
           ],
         ],
@@ -4116,10 +5290,12 @@ class _EmergencyFundIncomeActionPanel extends StatefulWidget {
   final Color color;
 
   @override
-  State<_EmergencyFundIncomeActionPanel> createState() => _EmergencyFundIncomeActionPanelState();
+  State<_EmergencyFundIncomeActionPanel> createState() =>
+      _EmergencyFundIncomeActionPanelState();
 }
 
-class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeActionPanel> {
+class _EmergencyFundIncomeActionPanelState
+    extends State<_EmergencyFundIncomeActionPanel> {
   bool busy = false;
 
   Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
@@ -4140,19 +5316,29 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: _surface,
-        title: const Text('Use Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        title: const Text('Use Emergency Fund',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
         content: TextField(
           controller: controller,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: inputDecoration('Amount used').copyWith(prefixText: '₱ ', helperText: 'Available: ${money(state.displayedEmergencyFundBalance)}'),
+          decoration: inputDecoration('Amount used').copyWith(
+              prefixText: '₱ ',
+              helperText:
+                  'Available: ${money(state.displayedEmergencyFundBalance)}'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
-              final value = double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
-              Navigator.of(dialogContext).pop(value > 0 && value <= state.displayedEmergencyFundBalance ? value : null);
+              final value =
+                  double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
+              Navigator.of(dialogContext).pop(
+                  value > 0 && value <= state.displayedEmergencyFundBalance
+                      ? value
+                      : null);
             },
             child: const Text('Record withdrawal'),
           ),
@@ -4170,13 +5356,17 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
     final state = AppScope.of(context);
     final income = _latestIncomeTransaction(state);
     final allocation = (income?.amount ?? 0) * .10;
-    final deposited = income != null && state.hasEmergencyAllocationForIncome(income.transactionId);
+    final deposited = income != null &&
+        state.hasEmergencyAllocationForIncome(income.transactionId);
     final canDeposit = allocation <= state.unallocatedFakeMayaWallet;
     final date = income?.createdAt;
     final localizations = MaterialLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4185,17 +5375,33 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
-                child: Text('A8', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+                decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text('A8',
+                    style: TextStyle(
+                        color: widget.color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(child: Text('Transfer 10% of every income received into an Emergency Fund.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+              const Expanded(
+                  child: Text(
+                      'Transfer 10% of every income received into an Emergency Fund.',
+                      style: TextStyle(
+                          color: _title,
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w800))),
             ],
           ),
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: _red.withValues(alpha: .07), borderRadius: BorderRadius.circular(16), border: Border.all(color: _red.withValues(alpha: .16))),
+            decoration: BoxDecoration(
+                color: _red.withValues(alpha: .07),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _red.withValues(alpha: .16))),
             child: Row(
               children: [
                 const Icon(Icons.shield_rounded, color: _red),
@@ -4204,20 +5410,34 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Emergency Fund', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
-                      Text('Earmarked inside FakeMaya Savings', style: TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                      Text('Emergency Fund',
+                          style: TextStyle(
+                              color: _title, fontWeight: FontWeight.w900)),
+                      Text('Earmarked inside FakeMaya Savings',
+                          style: TextStyle(
+                              color: _body,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
-                Text(money(state.displayedEmergencyFundBalance), style: const TextStyle(color: _red, fontWeight: FontWeight.w900)),
+                Text(money(state.displayedEmergencyFundBalance),
+                    style: const TextStyle(
+                        color: _red, fontWeight: FontWeight.w900)),
               ],
             ),
           ),
           const SizedBox(height: 12),
           if (income == null)
-            const Text('No qualifying income transaction found yet.', style: TextStyle(color: _body, fontWeight: FontWeight.w700))
+            const Text('No qualifying income transaction found yet.',
+                style: TextStyle(color: _body, fontWeight: FontWeight.w700))
           else ...[
-            const Text('LATEST INCOME', style: TextStyle(color: _body, fontSize: 10, letterSpacing: 1.1, fontWeight: FontWeight.w900)),
+            const Text('LATEST INCOME',
+                style: TextStyle(
+                    color: _body,
+                    fontSize: 10,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w900)),
             const SizedBox(height: 7),
             Row(
               children: [
@@ -4227,25 +5447,43 @@ class _EmergencyFundIncomeActionPanelState extends State<_EmergencyFundIncomeAct
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(income.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-                      if (date != null) Text('${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}', style: const TextStyle(color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+                      Text(income.title,
+                          style: const TextStyle(
+                              color: _title, fontWeight: FontWeight.w900)),
+                      if (date != null)
+                        Text(
+                            '${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}',
+                            style: const TextStyle(
+                                color: _body,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700)),
                     ],
                   ),
                 ),
-                Text(money(income.amount), style: const TextStyle(color: _sage, fontWeight: FontWeight.w900)),
+                Text(money(income.amount),
+                    style: const TextStyle(
+                        color: _sage, fontWeight: FontWeight.w900)),
               ],
             ),
             const SizedBox(height: 12),
             PrimaryButton(
-              label: deposited ? '10% deposited to fund' : busy ? 'Depositing...' : 'Deposit 10% (${money(allocation)})',
-              icon: deposited ? Icons.check_circle_rounded : Icons.shield_rounded,
+              label: deposited
+                  ? '10% deposited to fund'
+                  : busy
+                      ? 'Depositing...'
+                      : 'Deposit 10% (${money(allocation)})',
+              icon:
+                  deposited ? Icons.check_circle_rounded : Icons.shield_rounded,
               enabled: !busy && !deposited && canDeposit && date != null,
               onPressed: () => _deposit(state, income),
             ),
           ],
           if (state.displayedEmergencyFundBalance > 0) ...[
             const SizedBox(height: 9),
-            TextButton.icon(onPressed: () => _useFunds(state), icon: const Icon(Icons.outbox_rounded), label: const Text('Use emergency funds')),
+            TextButton.icon(
+                onPressed: () => _useFunds(state),
+                icon: const Icon(Icons.outbox_rounded),
+                label: const Text('Use emergency funds')),
           ],
         ],
       ),
@@ -4258,10 +5496,12 @@ class _EmergencyReplenishmentActionPanel extends StatefulWidget {
   final Color color;
 
   @override
-  State<_EmergencyReplenishmentActionPanel> createState() => _EmergencyReplenishmentActionPanelState();
+  State<_EmergencyReplenishmentActionPanel> createState() =>
+      _EmergencyReplenishmentActionPanelState();
 }
 
-class _EmergencyReplenishmentActionPanelState extends State<_EmergencyReplenishmentActionPanel> {
+class _EmergencyReplenishmentActionPanelState
+    extends State<_EmergencyReplenishmentActionPanel> {
   bool busy = false;
 
   Future<void> _replenish(AppState state, double amount) async {
@@ -4277,15 +5517,21 @@ class _EmergencyReplenishmentActionPanelState extends State<_EmergencyReplenishm
     final withdrawalDate = state.latestEmergencyWithdrawalDate;
     final latestIncome = _latestIncomeTransaction(state);
     final incomeDate = latestIncome?.createdAt;
-    final incomeAfterWithdrawal = withdrawalDate != null && incomeDate != null && incomeDate.isAfter(withdrawalDate);
-    final deadline = incomeAfterWithdrawal ? incomeDate.add(const Duration(days: 7)) : null;
+    final incomeAfterWithdrawal = withdrawalDate != null &&
+        incomeDate != null &&
+        incomeDate.isAfter(withdrawalDate);
+    final deadline =
+        incomeAfterWithdrawal ? incomeDate.add(const Duration(days: 7)) : null;
     final hoursLeft = deadline?.difference(DateTime.now()).inHours ?? 0;
     final daysLeft = math.max(0, (hoursLeft / 24).ceil());
     final overdue = deadline != null && deadline.isBefore(DateTime.now());
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4294,30 +5540,62 @@ class _EmergencyReplenishmentActionPanelState extends State<_EmergencyReplenishm
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
-                child: Text('A10', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+                decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text('A10',
+                    style: TextStyle(
+                        color: widget.color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(child: Text('Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+              const Expanded(
+                  child: Text(
+                      'Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.',
+                      style: TextStyle(
+                          color: _title,
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w800))),
             ],
           ),
           const SizedBox(height: 14),
           if (pending <= 0)
             Container(
               padding: const EdgeInsets.all(13),
-              decoration: BoxDecoration(color: _sage.withValues(alpha: .1), borderRadius: BorderRadius.circular(14)),
-              child: const Row(children: [Icon(Icons.check_circle_rounded, color: _sage), SizedBox(width: 9), Expanded(child: Text('Your Emergency Fund has no amount waiting to be replenished.', style: TextStyle(color: _title, fontWeight: FontWeight.w800)))]),
+              decoration: BoxDecoration(
+                  color: _sage.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(14)),
+              child: const Row(children: [
+                Icon(Icons.check_circle_rounded, color: _sage),
+                SizedBox(width: 9),
+                Expanded(
+                    child: Text(
+                        'Your Emergency Fund has no amount waiting to be replenished.',
+                        style: TextStyle(
+                            color: _title, fontWeight: FontWeight.w800)))
+              ]),
             )
           else ...[
-            _ActionMetricTile(icon: Icons.outbox_rounded, label: 'Amount used', value: money(pending), color: _red),
+            _ActionMetricTile(
+                icon: Icons.outbox_rounded,
+                label: 'Amount used',
+                value: money(pending),
+                color: _red),
             const SizedBox(height: 10),
             if (!incomeAfterWithdrawal)
-              const Text('Waiting for your next income. The 7-day replenishment countdown starts when that income arrives.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+              const Text(
+                  'Waiting for your next income. The 7-day replenishment countdown starts when that income arrives.',
+                  style: TextStyle(
+                      color: _body, height: 1.35, fontWeight: FontWeight.w700))
             else ...[
               _ActionMetricTile(
                 icon: overdue ? Icons.warning_rounded : Icons.timer_rounded,
                 label: overdue ? 'Replenishment overdue' : 'Time remaining',
-                value: overdue ? 'Due now' : '$daysLeft day${daysLeft == 1 ? '' : 's'}',
+                value: overdue
+                    ? 'Due now'
+                    : '$daysLeft day${daysLeft == 1 ? '' : 's'}',
                 color: overdue ? _red : _amber,
               ),
               const SizedBox(height: 10),
@@ -4329,7 +5607,12 @@ class _EmergencyReplenishmentActionPanelState extends State<_EmergencyReplenishm
               ),
               if (pending > state.unallocatedFakeMayaWallet) ...[
                 const SizedBox(height: 7),
-                const Text('The unallocated FakeMaya wallet balance is too low to replenish the full amount.', style: TextStyle(color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
+                const Text(
+                    'The unallocated FakeMaya wallet balance is too low to replenish the full amount.',
+                    style: TextStyle(
+                        color: _red,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800)),
               ],
             ],
           ],
@@ -4344,35 +5627,39 @@ class _CategoryBudgetActionPanel extends StatefulWidget {
   final Color color;
 
   @override
-  State<_CategoryBudgetActionPanel> createState() => _CategoryBudgetActionPanelState();
+  State<_CategoryBudgetActionPanel> createState() =>
+      _CategoryBudgetActionPanelState();
 }
 
-class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> {
+class _CategoryBudgetActionPanelState
+    extends State<_CategoryBudgetActionPanel> {
   double _spentFor(AppState state, String budgetCategory) {
     final now = DateTime.now();
-    return (state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+    return (state.fakeMayaLink?.summary.transactions ??
+            const <FakeMayaTransaction>[])
         .where((transaction) {
-          final category = transaction.category?.trim() ?? '';
-          final normalized = category.toLowerCase();
-          final budgetNormalized = budgetCategory.toLowerCase();
-          final matches = normalized == budgetNormalized ||
-              (normalized.contains('food') && budgetNormalized.contains('food')) ||
-              (normalized.contains('shop') && budgetNormalized.contains('shop'));
-          return transaction.amount < 0 &&
-              transaction.isLabeled &&
-              !transaction.excludedFromInsights &&
-              transaction.createdAt?.year == now.year &&
-              transaction.createdAt?.month == now.month &&
-              matches;
-        })
-        .fold(0.0, (total, transaction) => total + transaction.amount.abs());
+      final category = transaction.category?.trim() ?? '';
+      final normalized = category.toLowerCase();
+      final budgetNormalized = budgetCategory.toLowerCase();
+      final matches = normalized == budgetNormalized ||
+          (normalized.contains('food') && budgetNormalized.contains('food')) ||
+          (normalized.contains('shop') && budgetNormalized.contains('shop'));
+      return transaction.amount < 0 &&
+          transaction.isLabeled &&
+          !transaction.excludedFromInsights &&
+          transaction.createdAt?.year == now.year &&
+          transaction.createdAt?.month == now.month &&
+          matches;
+    }).fold(0.0, (total, transaction) => total + transaction.amount.abs());
   }
 
   Future<void> _configure(AppState state) async {
     final categories = <String>{'Food & Drinks', 'Shopping'};
-    for (final transaction in state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[]) {
+    for (final transaction in state.fakeMayaLink?.summary.transactions ??
+        const <FakeMayaTransaction>[]) {
       final category = transaction.category?.trim() ?? '';
-      if (category.isNotEmpty && category.toLowerCase() != 'transfer') categories.add(category);
+      if (category.isNotEmpty && category.toLowerCase() != 'transfer')
+        categories.add(category);
     }
     categories.addAll(state.categorySpendingBudgets.keys);
     final ordered = categories.toList()..sort();
@@ -4383,7 +5670,11 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
       for (final category in ordered)
         category: TextEditingController(
           text: state.categorySpendingBudgets[category]?.toStringAsFixed(0) ??
-              (category == 'Food & Drinks' ? '5000' : category == 'Shopping' ? '2500' : ''),
+              (category == 'Food & Drinks'
+                  ? '5000'
+                  : category == 'Shopping'
+                      ? '2500'
+                      : ''),
         ),
     };
 
@@ -4391,13 +5682,17 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
-          final valid = selected.isNotEmpty && selected.every((category) {
-            final amount = double.tryParse(controllers[category]!.text.replaceAll(',', '')) ?? 0;
-            return amount > 0 && amount <= 1000000;
-          });
+          final valid = selected.isNotEmpty &&
+              selected.every((category) {
+                final amount = double.tryParse(
+                        controllers[category]!.text.replaceAll(',', '')) ??
+                    0;
+                return amount > 0 && amount <= 1000000;
+              });
           return AlertDialog(
             backgroundColor: _surface,
-            title: const Text('Set category budgets', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+            title: const Text('Set category budgets',
+                style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
             content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
@@ -4409,14 +5704,19 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
                         contentPadding: EdgeInsets.zero,
                         activeColor: _brand,
                         value: selected.contains(category),
-                        title: Text(category, style: const TextStyle(color: _title, fontWeight: FontWeight.w800)),
+                        title: Text(category,
+                            style: const TextStyle(
+                                color: _title, fontWeight: FontWeight.w800)),
                         subtitle: selected.contains(category)
                             ? Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: TextField(
                                   controller: controllers[category],
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  decoration: inputDecoration('Monthly budget').copyWith(prefixText: '₱ '),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  decoration: inputDecoration('Monthly budget')
+                                      .copyWith(prefixText: '₱ '),
                                   onChanged: (_) => setDialogState(() {}),
                                 ),
                               )
@@ -4434,12 +5734,16 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel')),
               FilledButton(
                 onPressed: valid
                     ? () => Navigator.of(dialogContext).pop({
                           for (final category in selected)
-                            category: double.parse(controllers[category]!.text.replaceAll(',', '')),
+                            category: double.parse(controllers[category]!
+                                .text
+                                .replaceAll(',', '')),
                         })
                     : null,
                 child: const Text('Save budgets'),
@@ -4467,7 +5771,12 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
         color: _surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _border),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 6, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withValues(alpha: .03),
+              blurRadius: 6,
+              offset: const Offset(0, 2))
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4477,16 +5786,32 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: widget.color.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
-                child: Text('A3', style: TextStyle(color: widget.color, fontSize: 11, fontWeight: FontWeight.w900)),
+                decoration: BoxDecoration(
+                    color: widget.color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text('A3',
+                    style: TextStyle(
+                        color: widget.color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(child: Text('Limit spending in selected categories to a monthly maximum.', style: TextStyle(color: _title, fontSize: 13, height: 1.4, fontWeight: FontWeight.w800))),
+              const Expanded(
+                  child: Text(
+                      'Limit spending in selected categories to a monthly maximum.',
+                      style: TextStyle(
+                          color: _title,
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w800))),
             ],
           ),
           const SizedBox(height: 14),
           if (budgets.isEmpty)
-            const Text('Choose the categories you want to control and give each one its own monthly budget.', style: TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700))
+            const Text(
+                'Choose the categories you want to control and give each one its own monthly budget.',
+                style: TextStyle(
+                    color: _body, height: 1.35, fontWeight: FontWeight.w700))
           else
             for (final entry in budgets.entries) ...[
               _CategoryBudgetProgress(
@@ -4499,7 +5824,9 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
           OutlinedButton.icon(
             onPressed: () => _configure(state),
             icon: const Icon(Icons.tune_rounded),
-            label: Text(budgets.isEmpty ? 'Choose category budgets' : 'Edit category budgets'),
+            label: Text(budgets.isEmpty
+                ? 'Choose category budgets'
+                : 'Edit category budgets'),
           ),
         ],
       ),
@@ -4508,7 +5835,8 @@ class _CategoryBudgetActionPanelState extends State<_CategoryBudgetActionPanel> 
 }
 
 class _CategoryBudgetProgress extends StatelessWidget {
-  const _CategoryBudgetProgress({required this.category, required this.spent, required this.budget});
+  const _CategoryBudgetProgress(
+      {required this.category, required this.spent, required this.budget});
   final String category;
   final double spent;
   final double budget;
@@ -4516,23 +5844,39 @@ class _CategoryBudgetProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = budget <= 0 ? 0.0 : (spent / budget).clamp(0.0, 1.0);
-    final color = progress >= 1 ? _red : progress >= .8 ? _amber : _brand;
+    final color = progress >= 1
+        ? _red
+        : progress >= .8
+            ? _amber
+            : _brand;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Expanded(child: Text(category, style: const TextStyle(color: _title, fontWeight: FontWeight.w900))),
-            Text('${money(spent)} / ${money(budget)}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w900)),
+            Expanded(
+                child: Text(category,
+                    style: const TextStyle(
+                        color: _title, fontWeight: FontWeight.w900))),
+            Text('${money(spent)} / ${money(budget)}',
+                style: TextStyle(
+                    color: color, fontSize: 12, fontWeight: FontWeight.w900)),
           ],
         ),
         const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(value: progress, minHeight: 8, color: color, backgroundColor: color.withValues(alpha: .12)),
+          child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              color: color,
+              backgroundColor: color.withValues(alpha: .12)),
         ),
         const SizedBox(height: 4),
-        Text('${(progress * 100).round()}% used · ${money(math.max(0, budget - spent))} remaining', style: const TextStyle(color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+        Text(
+            '${(progress * 100).round()}% used · ${money(math.max(0, budget - spent))} remaining',
+            style: const TextStyle(
+                color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
       ],
     );
   }
@@ -4572,14 +5916,16 @@ class _ActionMetricTile extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _body, fontSize: 9.5, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      color: _body, fontSize: 9.5, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 1),
                 Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                      color: _title, fontSize: 12, fontWeight: FontWeight.w900),
                 ),
               ],
             ),
@@ -4614,7 +5960,8 @@ class _ActivityLogRow extends StatelessWidget {
             width: 6,
             height: 6,
             margin: const EdgeInsets.only(top: 5),
-            decoration: BoxDecoration(color: amountColor, shape: BoxShape.circle),
+            decoration:
+                BoxDecoration(color: amountColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -4623,12 +5970,17 @@ class _ActivityLogRow extends StatelessWidget {
               children: [
                 Text(
                   date,
-                  style: const TextStyle(color: _body, fontSize: 10, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      color: _body, fontSize: 10, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 1),
                 Text(
                   event,
-                  style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w700, height: 1.3),
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3),
                 ),
               ],
             ),
@@ -4636,7 +5988,8 @@ class _ActivityLogRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             amount,
-            style: TextStyle(color: amountColor, fontSize: 13, fontWeight: FontWeight.w900),
+            style: TextStyle(
+                color: amountColor, fontSize: 13, fontWeight: FontWeight.w900),
           ),
         ],
       ),
@@ -4645,16 +5998,17 @@ class _ActivityLogRow extends StatelessWidget {
 }
 
 class _DataPointRow extends StatelessWidget {
-  const _DataPointRow({required this.label, required this.type, required this.value});
+  const _DataPointRow(
+      {required this.label, required this.type, required this.value});
   final String label;
   final String type;
   final String value;
 
   Color get _typeColor => switch (type) {
-    'T' => _purple,
-    'I' => _brand,
-    _ => _body,
-  };
+        'T' => _purple,
+        'I' => _brand,
+        _ => _body,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -4673,20 +6027,23 @@ class _DataPointRow extends StatelessWidget {
             alignment: Alignment.center,
             child: Text(
               type,
-              style: TextStyle(color: _typeColor, fontSize: 9, fontWeight: FontWeight.w900),
+              style: TextStyle(
+                  color: _typeColor, fontSize: 9, fontWeight: FontWeight.w900),
             ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: _body, fontSize: 12, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                  color: _body, fontSize: 12, fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             value,
-            style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800),
+            style: const TextStyle(
+                color: _title, fontSize: 12, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -5885,7 +7242,6 @@ String _fallback(String value, String fallback) {
 }
 
 String _yesNo(bool value) => value ? 'Yes' : 'No';
-
 
 // ─── Activity page ────────────────────────────────────────────────────────────
 

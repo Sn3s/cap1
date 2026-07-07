@@ -20,6 +20,7 @@ part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
 part 'services/fakemaya_service.dart';
 part 'services/firebase_profile_service.dart';
+part 'services/integration_service.dart';
 part 'services/shellby_ai_coach.dart';
 part 'shared/widgets/shared_widgets.dart';
 

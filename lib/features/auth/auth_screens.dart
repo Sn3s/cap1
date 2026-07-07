@@ -263,6 +263,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    SecondaryButton(
+                      label: 'Seed Reflection Demo User',
+                      icon: Icons.auto_awesome_rounded,
+                      onPressed: () => _runAuth(
+                        (state) => state.seedReflectionDemoUser(),
+                      ),
+                    ),
                   ],
                 ),
               ),

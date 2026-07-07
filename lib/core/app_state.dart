@@ -100,8 +100,9 @@ class AppState extends ChangeNotifier {
   double emergencyFundBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
 
-  DateTime? get lastEfWithdrawal =>
-      _lastEfWithdrawalStr == null ? null : DateTime.tryParse(_lastEfWithdrawalStr!);
+  DateTime? get lastEfWithdrawal => _lastEfWithdrawalStr == null
+      ? null
+      : DateTime.tryParse(_lastEfWithdrawalStr!);
 
   double get emergencyMonthsCovered =>
       expenses <= 0 ? 0 : emergencyFundBalance / expenses;
@@ -135,20 +136,20 @@ class AppState extends ChangeNotifier {
   double get bufferMonthsCovered =>
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
   bool get shieldIsSetup => safetyShieldTargetMonths > 0;
-  double get safetyShieldMonthlyBase =>
-      cashFlowPyramidBaseline > 0
-          ? cashFlowPyramidBaseline
-          : needsTarget > 0
-              ? needsTarget
-              : income > 0
-                  ? income * 0.7
-                  : 10000;
+  double get safetyShieldMonthlyBase => cashFlowPyramidBaseline > 0
+      ? cashFlowPyramidBaseline
+      : needsTarget > 0
+          ? needsTarget
+          : income > 0
+              ? income * 0.7
+              : 10000;
   double get safetyShieldBalance =>
       hasFakeMayaLink ? (fakeMayaLink!.summary.savings) : shieldTrackedBalance;
   double get safetyShieldTarget =>
       safetyShieldMonthlyBase * math.max(1, safetyShieldTargetMonths);
-  double get safetyShieldMonthsCovered =>
-      safetyShieldMonthlyBase <= 0 ? 0 : safetyShieldBalance / safetyShieldMonthlyBase;
+  double get safetyShieldMonthsCovered => safetyShieldMonthlyBase <= 0
+      ? 0
+      : safetyShieldBalance / safetyShieldMonthlyBase;
   double get totalCashFlowBudget =>
       cashFlowExpenses.fold(0, (s, e) => s + e.budget);
   double get monthlyExpenseLedgerTotal => onboardingExpenseLedger.fold(
@@ -335,6 +336,36 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> seedReflectionDemoUser() async {
+    const demoEmail = 'reflection@test.com';
+    const demoPassword = 'reflection123456';
+    UserCredential credential;
+    try {
+      credential = await FirebaseProfileService.createUserWithEmail(
+        email: demoEmail,
+        password: demoPassword,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (error.code != 'email-already-in-use') rethrow;
+      credential = await FirebaseProfileService.signInWithEmail(
+        email: demoEmail,
+        password: demoPassword,
+      );
+    }
+    final user = credential.user;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'missing-user',
+        message: 'Demo account setup finished without a Firebase user.',
+      );
+    }
+    await user.updateDisplayName('Reflection Demo');
+    _applyFirebaseUser(user);
+    _applyReflectionDemoProfile(user);
+    await saveProfile(markOnboardingComplete: true);
+    notifyListeners();
+  }
+
   Future<void> saveProfile({bool markOnboardingComplete = false}) async {
     final user = FirebaseProfileService.currentUser;
     if (user == null) return;
@@ -367,6 +398,183 @@ class AppState extends ChangeNotifier {
       email = user.email!.trim();
     }
     photoUrl = user.photoURL;
+  }
+
+  void _applyReflectionDemoProfile(User user) {
+    name = 'Reflection Demo';
+    email = user.email ?? 'reflection@test.com';
+    primaryConcern = 'Cash Flow & Basic Needs';
+    selectedGoalId = 'GOAL1C';
+    selectedGoal = 'Irregular Income Buffer';
+    selectedGoalDescription =
+        'Maintain available cash with a two-jar plan for basic needs and buffer money across irregular income weeks.';
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'ACT1', 'ACT6'});
+    onboardingComplete = true;
+    confidence = 5;
+    incomeType = 'Irregular';
+    incomeRhythm = 'Irregular';
+    billsRhythm = 'Clustered bill weeks';
+    needsTarget = 9000;
+    needsPercent = 70;
+    basicNeedsMonthlyTarget = 9000;
+    basicNeedsAllocationPercent = .70;
+    bufferAllocationPercent = .30;
+    monthlySalary = 0;
+    irregularIncomeFloor = 4000;
+    cashFlowExpenses
+      ..clear()
+      ..addAll([
+        CashFlowExpense('Rent share', 4500),
+        CashFlowExpense('Utilities', 2200),
+        CashFlowExpense('Food and transport', 2300),
+      ]);
+    jarLedger.clear();
+
+    final today = DateTime.now();
+    final weekStart = today
+        .subtract(Duration(days: today.weekday - DateTime.monday))
+        .subtract(const Duration(days: 77));
+    var needs = 3600.0;
+    var buffer = 900.0;
+    final transactions = <FakeMayaTransaction>[];
+    final incomePlan = <int, double>{
+      0: 6200,
+      1: 4100,
+      3: 7600,
+      4: 4800,
+      6: 8200,
+      8: 5300,
+      9: 7000,
+      11: 4600,
+    };
+    final billPlan = <int, List<(String, double)>>{
+      1: [('Meralco', 1800), ('Water', 650)],
+      3: [('Internet', 1699), ('Rent share', 4500)],
+      5: [('Meralco', 2050), ('Water', 720)],
+      7: [('Rent share', 4500), ('Internet', 1699)],
+      9: [('Meralco', 1900), ('Water', 680)],
+      10: [('Clinic visit emergency', 1000), ('Internet', 1699)],
+    };
+    const categories = ['Food & drink', 'Transport', 'Load', 'Basic needs'];
+    for (var week = 0; week < 12; week++) {
+      final base = weekStart.add(Duration(days: week * 7));
+      final incomeAmount = incomePlan[week];
+      if (incomeAmount != null) {
+        final toNeeds = math.min<double>(
+            incomeAmount * .70, math.max(0, needsTarget - needs));
+        final toBuffer = incomeAmount - toNeeds;
+        needs += toNeeds;
+        buffer += toBuffer;
+        jarLedger.add(JarEvent(
+          timestamp: base.add(Duration(days: week.isEven ? 0 : 2)),
+          type: JarEventType.income,
+          needsIn: toNeeds,
+          needsOut: 0,
+          bufferIn: toBuffer,
+          bufferOut: 0,
+          sentence:
+              '${money(incomeAmount)} irregular income -> ${money(toNeeds)} Needs, ${money(toBuffer)} Buffer',
+        ));
+        transactions.add(_demoTransaction(
+          id: 'income-$week',
+          title: 'Cash in',
+          detail: 'From: Project client',
+          amount: incomeAmount,
+          date: base.add(Duration(days: week.isEven ? 0 : 2)),
+          category: 'Income',
+        ));
+      }
+      for (final bill in billPlan[week] ?? const <(String, double)>[]) {
+        final amount = bill.$2;
+        final needsOut = math.min<double>(needs, amount);
+        final bufferOut =
+            math.min<double>(buffer, math.max(0, amount - needsOut));
+        needs = math.max(0, needs - needsOut);
+        buffer = math.max(0, buffer - bufferOut);
+        jarLedger.add(JarEvent(
+          timestamp: base.add(const Duration(days: 4)),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: needsOut,
+          bufferIn: 0,
+          bufferOut: bufferOut,
+          sentence:
+              '${bill.$1} ${money(amount)} paid from Needs${bufferOut > 0 ? ' + Buffer shortfall' : ''}',
+        ));
+      }
+      for (var day = 1; day <= 5; day += 2) {
+        final date = base.add(Duration(days: day));
+        final beforeIncome = day >= 5;
+        final amount =
+            (beforeIncome ? 270 : 430) + ((week * 23 + day * 17) % 90);
+        final leaveUnclassified = (week == 2 && day == 3) ||
+            (week == 4 && day == 5) ||
+            (week == 8 && day == 1) ||
+            (week == 10 && day == 3) ||
+            (week == 11 && day == 5);
+        transactions.add(_demoTransaction(
+          id: 'spend-$week-$day',
+          title: day == 5 ? 'Sent money' : 'Paid merchant',
+          detail: day == 3 ? 'To: Jeep and train' : 'To: Daily merchant',
+          amount: -amount.toDouble(),
+          date: date,
+          category: leaveUnclassified
+              ? null
+              : categories[(week + day) % categories.length],
+        ));
+      }
+    }
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    needsBalance = needs;
+    bufferBalance = buffer;
+    fakeMayaLink = FakeMayaLink(
+      userId: 'reflection-demo-fakemaya',
+      email: 'reflection@test.com',
+      name: 'Reflection Demo',
+      phone: '+63 917 000 0000',
+      provider: 'seed',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: needsBalance,
+        savings: bufferBalance,
+        timeDeposit: 0,
+        goalName: 'Available Cash',
+        goalEmoji: '',
+        goalBalance: 0,
+        goalTarget: needsTarget,
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions
+          ..sort(
+              (a, b) => (b.createdAt ?? today).compareTo(a.createdAt ?? today)),
+        updatedAt: today,
+      ),
+    );
+    _syncFakeMayaMoneyItems();
+  }
+
+  FakeMayaTransaction _demoTransaction({
+    required String id,
+    required String title,
+    required String detail,
+    required double amount,
+    required DateTime date,
+    String? category,
+  }) {
+    return FakeMayaTransaction(
+      id: id,
+      title: title,
+      detail: detail,
+      age: 'Seeded',
+      amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
+      createdAt: date,
+      category: category,
+      labeledAt: category == null ? null : date.add(const Duration(hours: 2)),
+    );
   }
 
   Map<String, dynamic> _profileMap(User user) {
@@ -593,9 +801,11 @@ class AppState extends ChangeNotifier {
     if (savedCategoryBudgets != null) {
       categorySpendingBudgets
         ..clear()
-        ..addEntries(savedCategoryBudgets.entries.map(
-          (entry) => MapEntry(entry.key, _doubleFrom(entry.value, 0)),
-        ).where((entry) => entry.value > 0));
+        ..addEntries(savedCategoryBudgets.entries
+            .map(
+              (entry) => MapEntry(entry.key, _doubleFrom(entry.value, 0)),
+            )
+            .where((entry) => entry.value > 0));
     }
     final savedBaselines = _mapFrom(
       data['onboardingBaselines'] ?? planSetup['onboardingBaselines'],
@@ -607,14 +817,14 @@ class AppState extends ChangeNotifier {
           (entry) => MapEntry(entry.key, entry.value?.toString() ?? ''),
         ));
     }
-    final savedExpenseLedger = data['onboardingExpenseLedger'] ??
-        planSetup['onboardingExpenseLedger'];
+    final savedExpenseLedger =
+        data['onboardingExpenseLedger'] ?? planSetup['onboardingExpenseLedger'];
     if (savedExpenseLedger is Iterable) {
       onboardingExpenseLedger
         ..clear()
         ..addAll(savedExpenseLedger.whereType<Map>().map(
-          (entry) => Map<String, dynamic>.from(entry),
-        ));
+              (entry) => Map<String, dynamic>.from(entry),
+            ));
     }
     essentialExpensesBalance = _doubleFrom(
       data['essentialExpensesBalance'],
@@ -633,8 +843,8 @@ class AppState extends ChangeNotifier {
       d1Ledger
         ..clear()
         ..addAll(savedD1Ledger.whereType<Map>().map(
-          (entry) => Map<String, dynamic>.from(entry),
-        ));
+              (entry) => Map<String, dynamic>.from(entry),
+            ));
     }
     selectedGoalDescription = data['selectedGoalDescription'] as String? ??
         planSetup['selectedGoalDescription'] as String? ??
@@ -677,7 +887,8 @@ class AppState extends ChangeNotifier {
       basicNeedsMonthlyTarget,
     );
     basicNeedsAllocationPercent = _doubleFrom(
-      data['basicNeedsAllocationPercent'] ?? planSetup['basicNeedsAllocationPercent'],
+      data['basicNeedsAllocationPercent'] ??
+          planSetup['basicNeedsAllocationPercent'],
       basicNeedsAllocationPercent,
     );
     bufferAllocationPercent = _doubleFrom(
@@ -696,11 +907,9 @@ class AppState extends ChangeNotifier {
       jarLedger
         ..clear()
         ..addAll(
-          jarData
-              .whereType<Map>()
-              .map((item) => JarEvent.fromMap(
-                    Map<String, dynamic>.from(item),
-                  )),
+          jarData.whereType<Map>().map((item) => JarEvent.fromMap(
+                Map<String, dynamic>.from(item),
+              )),
         );
     }
     final expensesData = data['cashFlowExpenses'];
@@ -952,13 +1161,14 @@ class AppState extends ChangeNotifier {
         .toSet();
     return (fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
         .where((transaction) {
-          final date = transaction.createdAt ?? transaction.labeledAt;
-          return transaction.amount < 0 &&
-              transaction.category?.trim().toLowerCase() == 'emergency fund' &&
-              !recordedIds.contains(transaction.transactionId) &&
-              (replenishedAt == null || date == null || date.isAfter(replenishedAt));
-        })
-        .toList();
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return transaction.amount < 0 &&
+          transaction.category?.trim().toLowerCase() == 'emergency fund' &&
+          !recordedIds.contains(transaction.transactionId) &&
+          (replenishedAt == null ||
+              date == null ||
+              date.isAfter(replenishedAt));
+    }).toList();
   }
 
   double get pendingLabeledEmergencyReplenishment =>
@@ -982,12 +1192,14 @@ class AppState extends ChangeNotifier {
       if (entry['type'] == 'ef_replenish') break;
       if (entry['type'] == 'use_emergency') {
         final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-        if (date != null && (latest == null || date.isAfter(latest))) latest = date;
+        if (date != null && (latest == null || date.isAfter(latest)))
+          latest = date;
       }
     }
     for (final transaction in pendingLabeledEmergencyWithdrawals) {
       final date = transaction.createdAt ?? transaction.labeledAt;
-      if (date != null && (latest == null || date.isAfter(latest))) latest = date;
+      if (date != null && (latest == null || date.isAfter(latest)))
+        latest = date;
     }
     return latest;
   }
@@ -1072,7 +1284,8 @@ class AppState extends ChangeNotifier {
     if (amount <= 0) return;
     switch (bucket) {
       case 'essential':
-        essentialExpensesBalance = math.max(0, essentialExpensesBalance - amount);
+        essentialExpensesBalance =
+            math.max(0, essentialExpensesBalance - amount);
       case 'bills':
         billsObligationsBalance = math.max(0, billsObligationsBalance - amount);
       case 'emergency':
@@ -1305,7 +1518,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> updateCashFlowExpenses(List<CashFlowExpense> expenses) async {
-    cashFlowExpenses..clear()..addAll(expenses);
+    cashFlowExpenses
+      ..clear()
+      ..addAll(expenses);
     notifyListeners();
     await saveProfile();
   }
@@ -1413,25 +1628,106 @@ class AppState extends ChangeNotifier {
 
     // IIB jar events — same scenario as seedDemoTwoJarData, keeps buffer dip.
     final jarEvents = [
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 3),  type: JarEventType.income,   needsIn: 7000,  needsOut: 0,     bufferIn: 3000, bufferOut: 0,    sentence: '${money(10000)} in → ${money(7000)} Needs · ${money(3000)} Buffer · ${money(1000)} → Shield'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 10), type: JarEventType.income,   needsIn: 5000,  needsOut: 0,     bufferIn: 4000, bufferOut: 0,    sentence: '${money(9000)} in → ${money(5000)} Needs (full!) · ${money(4000)} Buffer · ${money(900)} → Shield'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 15), type: JarEventType.billPaid, needsIn: 0,     needsOut: 3500,  bufferIn: 0,    bufferOut: 0,    sentence: '${money(3500)} bill paid from Needs'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 22), type: JarEventType.income,   needsIn: 3500,  needsOut: 0,     bufferIn: 4500, bufferOut: 0,    sentence: '${money(8000)} in → ${money(3500)} Needs · ${money(4500)} Buffer · ${money(800)} → Shield'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 28), type: JarEventType.billPaid, needsIn: 0,     needsOut: 12000, bufferIn: 0,    bufferOut: 3000, sentence: '${money(15000)} bill → ${money(12000)} Needs + ${money(3000)} Buffer (tapped!)'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 2),  type: JarEventType.income,   needsIn: 8400,  needsOut: 0,     bufferIn: 3600, bufferOut: 0,    sentence: '${money(12000)} in → ${money(8400)} Needs · ${money(3600)} Buffer · ${money(1200)} → Shield'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 8),  type: JarEventType.income,   needsIn: 3600,  needsOut: 0,     bufferIn: 6400, bufferOut: 0,    sentence: '${money(10000)} in → ${money(3600)} Needs (full!) · ${money(6400)} Buffer · ${money(1000)} → Shield · Case 1'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 12), type: JarEventType.billPaid, needsIn: 0,     needsOut: 4500,  bufferIn: 0,    bufferOut: 0,    sentence: '${money(4500)} bill paid from Needs'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 18), type: JarEventType.billPaid, needsIn: 0,     needsOut: 7500,  bufferIn: 0,    bufferOut: 9000, sentence: '${money(16500)} emergency bill → Needs + Buffer tapped (₱9K from Buffer)'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 22), type: JarEventType.income,   needsIn: 6300,  needsOut: 0,     bufferIn: 2700, bufferOut: 0,    sentence: '${money(9000)} in → ${money(6300)} Needs · ${money(2700)} Buffer · ${money(900)} → Shield'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 3),
+          type: JarEventType.income,
+          needsIn: 7000,
+          needsOut: 0,
+          bufferIn: 3000,
+          bufferOut: 0,
+          sentence:
+              '${money(10000)} in → ${money(7000)} Needs · ${money(3000)} Buffer · ${money(1000)} → Shield'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 10),
+          type: JarEventType.income,
+          needsIn: 5000,
+          needsOut: 0,
+          bufferIn: 4000,
+          bufferOut: 0,
+          sentence:
+              '${money(9000)} in → ${money(5000)} Needs (full!) · ${money(4000)} Buffer · ${money(900)} → Shield'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 15),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 3500,
+          bufferIn: 0,
+          bufferOut: 0,
+          sentence: '${money(3500)} bill paid from Needs'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 22),
+          type: JarEventType.income,
+          needsIn: 3500,
+          needsOut: 0,
+          bufferIn: 4500,
+          bufferOut: 0,
+          sentence:
+              '${money(8000)} in → ${money(3500)} Needs · ${money(4500)} Buffer · ${money(800)} → Shield'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 28),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 12000,
+          bufferIn: 0,
+          bufferOut: 3000,
+          sentence:
+              '${money(15000)} bill → ${money(12000)} Needs + ${money(3000)} Buffer (tapped!)'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 2),
+          type: JarEventType.income,
+          needsIn: 8400,
+          needsOut: 0,
+          bufferIn: 3600,
+          bufferOut: 0,
+          sentence:
+              '${money(12000)} in → ${money(8400)} Needs · ${money(3600)} Buffer · ${money(1200)} → Shield'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 8),
+          type: JarEventType.income,
+          needsIn: 3600,
+          needsOut: 0,
+          bufferIn: 6400,
+          bufferOut: 0,
+          sentence:
+              '${money(10000)} in → ${money(3600)} Needs (full!) · ${money(6400)} Buffer · ${money(1000)} → Shield · Case 1'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 12),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 4500,
+          bufferIn: 0,
+          bufferOut: 0,
+          sentence: '${money(4500)} bill paid from Needs'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 18),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 7500,
+          bufferIn: 0,
+          bufferOut: 9000,
+          sentence:
+              '${money(16500)} emergency bill → Needs + Buffer tapped (₱9K from Buffer)'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 22),
+          type: JarEventType.income,
+          needsIn: 6300,
+          needsOut: 0,
+          bufferIn: 2700,
+          bufferOut: 0,
+          sentence:
+              '${money(9000)} in → ${money(6300)} Needs · ${money(2700)} Buffer · ${money(900)} → Shield'),
     ];
 
     needsBalance = 0;
     bufferBalance = 0;
     for (final e in jarEvents) {
-      needsBalance = math.min(math.max(0, needsBalance + e.needsIn - e.needsOut), needsTarget);
+      needsBalance = math.min(
+          math.max(0, needsBalance + e.needsIn - e.needsOut), needsTarget);
       bufferBalance = math.max(0, bufferBalance + e.bufferIn - e.bufferOut);
     }
-    jarLedger..clear()..addAll(jarEvents.reversed);
+    jarLedger
+      ..clear()
+      ..addAll(jarEvents.reversed);
 
     // Shield — partially funded at ~4,700 (< 1 month of 12K target).
     // Shows cross-alert: buffer was tapped AND shield is low.
@@ -1439,11 +1735,26 @@ class AppState extends ChangeNotifier {
     shieldLedger
       ..clear()
       ..addAll([
-        ShieldEvent(timestamp: DateTime(lm.year, lm.month, 5),  amount: 1000, sentence: '+${money(1000)} deposited to Safety Shield'),
-        ShieldEvent(timestamp: DateTime(lm.year, lm.month, 12), amount: 900,  sentence: '+${money(900)} deposited to Safety Shield'),
-        ShieldEvent(timestamp: DateTime(lm.year, lm.month, 25), amount: 800,  sentence: '+${money(800)} deposited to Safety Shield'),
-        ShieldEvent(timestamp: DateTime(cm.year, cm.month, 4),  amount: 1200, sentence: '+${money(1200)} deposited to Safety Shield'),
-        ShieldEvent(timestamp: DateTime(cm.year, cm.month, 10), amount: 800,  sentence: '+${money(800)} deposited to Safety Shield'),
+        ShieldEvent(
+            timestamp: DateTime(lm.year, lm.month, 5),
+            amount: 1000,
+            sentence: '+${money(1000)} deposited to Safety Shield'),
+        ShieldEvent(
+            timestamp: DateTime(lm.year, lm.month, 12),
+            amount: 900,
+            sentence: '+${money(900)} deposited to Safety Shield'),
+        ShieldEvent(
+            timestamp: DateTime(lm.year, lm.month, 25),
+            amount: 800,
+            sentence: '+${money(800)} deposited to Safety Shield'),
+        ShieldEvent(
+            timestamp: DateTime(cm.year, cm.month, 4),
+            amount: 1200,
+            sentence: '+${money(1200)} deposited to Safety Shield'),
+        ShieldEvent(
+            timestamp: DateTime(cm.year, cm.month, 10),
+            amount: 800,
+            sentence: '+${money(800)} deposited to Safety Shield'),
       ]);
 
     await saveProfile();
@@ -1505,22 +1816,100 @@ class AppState extends ChangeNotifier {
 
     final now = DateTime.now();
     final lm = DateTime(now.year, now.month - 1); // last month
-    final cm = DateTime(now.year, now.month);     // current month
+    final cm = DateTime(now.year, now.month); // current month
 
     // Events in chronological order (oldest first). Replayed to compute balances.
     final events = [
       // ── Last month ──────────────────────────────────────────────────────
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 3),  type: JarEventType.income,   needsIn: 7000,  needsOut: 0,     bufferIn: 3000, bufferOut: 0,    sentence: '${money(10000)} in → ${money(7000)} Needs, ${money(3000)} Buffer'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 10), type: JarEventType.income,   needsIn: 5000,  needsOut: 0,     bufferIn: 4000, bufferOut: 0,    sentence: '${money(9000)} in → ${money(5000)} Needs, ${money(4000)} Buffer · Needs full! 🎉'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 15), type: JarEventType.billPaid, needsIn: 0,     needsOut: 3500,  bufferIn: 0,    bufferOut: 0,    sentence: '${money(3500)} bill paid from Needs'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 22), type: JarEventType.income,   needsIn: 3500,  needsOut: 0,     bufferIn: 4500, bufferOut: 0,    sentence: '${money(8000)} in → ${money(3500)} Needs (filled!), ${money(4500)} Buffer'),
-      JarEvent(timestamp: DateTime(lm.year, lm.month, 28), type: JarEventType.billPaid, needsIn: 0,     needsOut: 12000, bufferIn: 0,    bufferOut: 3000, sentence: '${money(15000)} bill → ${money(12000)} Needs + ${money(3000)} Buffer'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 3),
+          type: JarEventType.income,
+          needsIn: 7000,
+          needsOut: 0,
+          bufferIn: 3000,
+          bufferOut: 0,
+          sentence:
+              '${money(10000)} in → ${money(7000)} Needs, ${money(3000)} Buffer'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 10),
+          type: JarEventType.income,
+          needsIn: 5000,
+          needsOut: 0,
+          bufferIn: 4000,
+          bufferOut: 0,
+          sentence:
+              '${money(9000)} in → ${money(5000)} Needs, ${money(4000)} Buffer · Needs full! 🎉'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 15),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 3500,
+          bufferIn: 0,
+          bufferOut: 0,
+          sentence: '${money(3500)} bill paid from Needs'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 22),
+          type: JarEventType.income,
+          needsIn: 3500,
+          needsOut: 0,
+          bufferIn: 4500,
+          bufferOut: 0,
+          sentence:
+              '${money(8000)} in → ${money(3500)} Needs (filled!), ${money(4500)} Buffer'),
+      JarEvent(
+          timestamp: DateTime(lm.year, lm.month, 28),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 12000,
+          bufferIn: 0,
+          bufferOut: 3000,
+          sentence:
+              '${money(15000)} bill → ${money(12000)} Needs + ${money(3000)} Buffer'),
       // ── Current month ───────────────────────────────────────────────────
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 2),  type: JarEventType.income,   needsIn: 8400,  needsOut: 0,     bufferIn: 3600, bufferOut: 0,    sentence: '${money(12000)} in → ${money(8400)} Needs, ${money(3600)} Buffer'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 8),  type: JarEventType.income,   needsIn: 3600,  needsOut: 0,     bufferIn: 6400, bufferOut: 0,    sentence: '${money(10000)} in → ${money(3600)} Needs (filled!), ${money(6400)} Buffer · Case 1'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 12), type: JarEventType.billPaid, needsIn: 0,     needsOut: 4500,  bufferIn: 0,    bufferOut: 0,    sentence: '${money(4500)} bill paid from Needs'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 18), type: JarEventType.billPaid, needsIn: 0,     needsOut: 7500,  bufferIn: 0,    bufferOut: 9000, sentence: '${money(16500)} bill → ${money(7500)} Needs + ${money(9000)} Buffer · shortfall'),
-      JarEvent(timestamp: DateTime(cm.year, cm.month, 22), type: JarEventType.income,   needsIn: 6300,  needsOut: 0,     bufferIn: 2700, bufferOut: 0,    sentence: '${money(9000)} in → ${money(6300)} Needs, ${money(2700)} Buffer'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 2),
+          type: JarEventType.income,
+          needsIn: 8400,
+          needsOut: 0,
+          bufferIn: 3600,
+          bufferOut: 0,
+          sentence:
+              '${money(12000)} in → ${money(8400)} Needs, ${money(3600)} Buffer'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 8),
+          type: JarEventType.income,
+          needsIn: 3600,
+          needsOut: 0,
+          bufferIn: 6400,
+          bufferOut: 0,
+          sentence:
+              '${money(10000)} in → ${money(3600)} Needs (filled!), ${money(6400)} Buffer · Case 1'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 12),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 4500,
+          bufferIn: 0,
+          bufferOut: 0,
+          sentence: '${money(4500)} bill paid from Needs'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 18),
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: 7500,
+          bufferIn: 0,
+          bufferOut: 9000,
+          sentence:
+              '${money(16500)} bill → ${money(7500)} Needs + ${money(9000)} Buffer · shortfall'),
+      JarEvent(
+          timestamp: DateTime(cm.year, cm.month, 22),
+          type: JarEventType.income,
+          needsIn: 6300,
+          needsOut: 0,
+          bufferIn: 2700,
+          bufferOut: 0,
+          sentence:
+              '${money(9000)} in → ${money(6300)} Needs, ${money(2700)} Buffer'),
     ];
 
     // Replay to get final balances.
@@ -1629,8 +2018,7 @@ class AppState extends ChangeNotifier {
   }
 
   void undoLastIncomeSplit() {
-    final idx =
-        jarLedger.indexWhere((e) => e.type == JarEventType.income);
+    final idx = jarLedger.indexWhere((e) => e.type == JarEventType.income);
     if (idx < 0) return;
     final event = jarLedger[idx];
     needsBalance = math.max(0, needsBalance - event.needsIn);
@@ -2048,8 +2436,8 @@ class CashFlowExpense {
 
   Map<String, dynamic> toMap() => {'name': name, 'budget': budget};
 
-  static CashFlowExpense fromMap(Map<String, dynamic> m) =>
-      CashFlowExpense(m['name'] as String? ?? '', (m['budget'] as num?)?.toDouble() ?? 0);
+  static CashFlowExpense fromMap(Map<String, dynamic> m) => CashFlowExpense(
+      m['name'] as String? ?? '', (m['budget'] as num?)?.toDouble() ?? 0);
 }
 
 class ShieldEvent {
@@ -2070,8 +2458,8 @@ class ShieldEvent {
       };
 
   factory ShieldEvent.fromMap(Map<String, dynamic> data) => ShieldEvent(
-        timestamp:
-            DateTime.tryParse(data['timestamp'] as String? ?? '') ?? DateTime.now(),
+        timestamp: DateTime.tryParse(data['timestamp'] as String? ?? '') ??
+            DateTime.now(),
         amount: _num(data['amount']),
         sentence: data['sentence'] as String? ?? '',
       );

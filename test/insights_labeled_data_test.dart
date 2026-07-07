@@ -10,10 +10,9 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  testWidgets('insights use labeled spending grouped by financial layer',
+  testWidgets('insights render the reflection sections from integration data',
       (tester) async {
-    final now = DateTime.now();
-    final state = AppState()..fakeMayaLink = _linkWithTransactions(now);
+    final state = _reflectionState();
 
     await tester.pumpWidget(
       AppScope(
@@ -23,151 +22,149 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('₱ 1,000.00'), findsWidgets);
+    expect(find.text('Cash Patterns'), findsOneWidget);
+    expect(find.textContaining('days fully tracked'), findsOneWidget);
+    expect(find.text('Jar Timeline'), findsOneWidget);
+    expect(find.text('Spend Comparison'), findsOneWidget);
 
-    await tester.tap(find.text('Pyramid'));
+    await tester.scrollUntilVisible(
+      find.text('Goal vs Actual per Jar'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Goal vs Actual per Jar'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Data Trust'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Data Trust'), findsOneWidget);
+  });
+
+  testWidgets('spend comparison filters activity after tapping a bar',
+      (tester) async {
+    final state = _reflectionState();
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
     await tester.pump();
 
-    expect(find.text('Cash Flow & Basic Needs'), findsOneWidget);
-    expect(find.text('Financial Safety'), findsOneWidget);
-    expect(find.text('Accumulating Wealth'), findsOneWidget);
-    expect(find.text('Financial Freedom'), findsOneWidget);
-
-    await tester.tap(find.text('Spending'));
+    await tester.ensureVisible(find.text('After income'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('After income'));
     await tester.pump();
 
-    expect(find.text('Food & drink'), findsOneWidget);
-    expect(find.text('Health'), findsOneWidget);
-    expect(find.text('Investment'), findsOneWidget);
-    expect(find.text('Travel'), findsOneWidget);
-    expect(find.text('Transport'), findsNothing);
+    expect(
+        find.textContaining('Showing after-income activity'), findsOneWidget);
+    expect(find.textContaining('Food & drink'), findsWidgets);
     expect(find.text('Transfer'), findsNothing);
-  });
-
-  testWidgets('insights show every FakeMaya account without duplicates',
-      (tester) async {
-    final now = DateTime.now();
-    final link = _linkWithTransactions(
-      now,
-      wallet: 1000,
-      savings: 2000,
-      timeDeposit: 3000,
-      goalBalance: 4000,
-    );
-    final state = AppState()
-      ..fakeMayaLink = link
-      ..assets.addAll([
-        MoneyItem('FakeMaya Wallet', 'Linked from FakeMaya', 1000),
-        MoneyItem('FakeMaya Savings', 'Linked from FakeMaya', 2000),
-      ]);
-
-    await tester.pumpWidget(
-      AppScope(
-        state: state,
-        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('FakeMaya Wallet'), findsOneWidget);
-    expect(find.text('FakeMaya Savings'), findsOneWidget);
-    expect(find.text('FakeMaya Time Deposit'), findsOneWidget);
-    expect(find.text('FakeMaya Goal'), findsOneWidget);
-    expect(find.text('Maya Wallet'), findsNothing);
-    expect(find.text('Maya Savings'), findsNothing);
-    expect(find.text('₱ 10,000.00'), findsWidgets);
-    expect(find.text('₱ 20,000.00'), findsNothing);
-  });
-
-  testWidgets('insights show existing FakeMaya accounts with zero balances',
-      (tester) async {
-    final now = DateTime.now();
-    final state = AppState()
-      ..fakeMayaLink = _linkWithTransactions(now, wallet: 1000);
-
-    await tester.pumpWidget(
-      AppScope(
-        state: state,
-        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(find.text('Accounts'));
-    await tester.pump();
-
-    expect(find.text('FakeMaya Wallet'), findsOneWidget);
-    expect(find.text('FakeMaya Savings'), findsOneWidget);
-    expect(find.text('FakeMaya Time Deposit'), findsOneWidget);
-    expect(find.text('FakeMaya Goal'), findsOneWidget);
-    expect(find.text('₱ 0.00'), findsWidgets);
   });
 }
 
-FakeMayaLink _linkWithTransactions(
-  DateTime now, {
-  double wallet = 1000,
-  double savings = 0,
-  double timeDeposit = 0,
-  double goalBalance = 0,
-}) {
-  FakeMayaTransaction expense(
-    String id,
-    String category,
-    double amount, {
-    bool excluded = false,
-  }) {
-    return FakeMayaTransaction(
-      id: id,
-      title: 'Sent money (simulated)',
-      detail: 'To: Merchant',
-      age: 'Just now',
-      amountText: '- ₱${amount.toStringAsFixed(2)}',
-      createdAt: now,
-      category: category,
-      excludedFromInsights: excluded,
-    );
+AppState _reflectionState() {
+  final start = DateTime(2026, 1, 5);
+  final state = AppState()
+    ..selectedGoal = 'Irregular Income Buffer'
+    ..selectedGoalId = 'GOAL1C'
+    ..needsTarget = 9000
+    ..needsPercent = 70
+    ..needsBalance = 7800
+    ..bufferBalance = 2400;
+  var needs = 3200.0;
+  var buffer = 900.0;
+  final transactions = <FakeMayaTransaction>[];
+  for (var week = 0; week < 7; week++) {
+    final base = start.add(Duration(days: week * 7));
+    final income = week.isEven ? 6000.0 : 4200.0;
+    final toNeeds = (income * .70).clamp(0.0, state.needsTarget - needs);
+    final toBuffer = income - toNeeds;
+    needs += toNeeds;
+    buffer += toBuffer;
+    state.jarLedger.add(JarEvent(
+      timestamp: base,
+      type: JarEventType.income,
+      needsIn: toNeeds,
+      needsOut: 0,
+      bufferIn: toBuffer,
+      bufferOut: 0,
+      sentence: 'Income split',
+    ));
+    final bill = week == 4 ? 5200.0 : 1800.0;
+    final needsOut = bill.clamp(0.0, needs);
+    final bufferOut = (bill - needsOut).clamp(0.0, buffer);
+    needs -= needsOut;
+    buffer -= bufferOut;
+    state.jarLedger.add(JarEvent(
+      timestamp: base.add(const Duration(days: 4)),
+      type: JarEventType.billPaid,
+      needsIn: 0,
+      needsOut: needsOut,
+      bufferIn: 0,
+      bufferOut: bufferOut,
+      sentence: week == 4 ? 'Emergency shortfall bill' : 'Bill paid',
+    ));
+    transactions.addAll([
+      _tx('food-$week', 'Paid merchant', 'Food & drink', -420,
+          base.add(const Duration(days: 1))),
+      _tx('ride-$week', 'Sent money', 'Transport', -260,
+          base.add(const Duration(days: 5))),
+    ]);
   }
+  transactions.add(_tx(
+    'unclassified',
+    'Paid merchant',
+    null,
+    -350,
+    start.add(const Duration(days: 17)),
+  ));
+  state
+    ..needsBalance = needs
+    ..bufferBalance = buffer
+    ..fakeMayaLink = FakeMayaLink(
+      userId: 'user',
+      email: 'user@example.com',
+      name: 'User',
+      phone: '',
+      provider: 'email',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: needs,
+        savings: buffer,
+        timeDeposit: 0,
+        goalName: 'Available Cash',
+        goalEmoji: '',
+        goalBalance: 0,
+        goalTarget: 10000,
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions,
+        updatedAt: start,
+      ),
+    );
+  return state;
+}
 
-  final transactions = [
-    expense('food', 'Food & drink', 100),
-    expense('health', 'Health', 200),
-    expense('investment', 'Investment', 300),
-    expense('travel', 'Travel', 400),
-    expense('excluded', 'Transport', 500, excluded: true),
-    expense('transfer', 'Transfer', 600),
-    FakeMayaTransaction(
-      id: 'income',
-      title: 'Cash in',
-      detail: 'From: Employer',
-      age: 'Just now',
-      amountText: '+ ₱700.00',
-      createdAt: now,
-      category: 'Food & drink',
-    ),
-  ];
-
-  return FakeMayaLink(
-    userId: 'user',
-    email: 'user@example.com',
-    name: 'User',
-    phone: '',
-    provider: 'email',
-    accessToken: '',
-    refreshToken: '',
-    expiresAt: null,
-    summary: FakeMayaAccountSummary(
-      wallet: wallet,
-      savings: savings,
-      timeDeposit: timeDeposit,
-      goalName: 'Goal',
-      goalEmoji: '🎯',
-      goalBalance: goalBalance,
-      goalTarget: 10000,
-      creditLimit: 0,
-      creditUsed: 0,
-      transactions: transactions,
-      updatedAt: now,
-    ),
+FakeMayaTransaction _tx(
+  String id,
+  String title,
+  String? category,
+  double amount,
+  DateTime date,
+) {
+  return FakeMayaTransaction(
+    id: id,
+    title: title,
+    detail: 'To: Merchant',
+    age: 'Seeded',
+    amountText: '${amount < 0 ? '-' : '+'} ₱${amount.abs().toStringAsFixed(2)}',
+    createdAt: date,
+    category: category,
   );
 }
