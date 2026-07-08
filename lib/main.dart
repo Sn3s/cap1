@@ -1,13 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:llamadart/llamadart.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'firebase_options.dart';
@@ -47,15 +52,15 @@ const _amber = Color(0xFFE89A12); // warning
 const _pressGreen = Color(0xFF2F8A5E); // button ledge (green-600)
 const _aiProvider = String.fromEnvironment(
   'AI_PROVIDER',
-  defaultValue: 'ollama',
+  defaultValue: 'local',
 );
-const _ollamaUrl = String.fromEnvironment(
-  'OLLAMA_URL',
-  defaultValue: 'http://10.0.2.2:11434',
+const _localModelAsset = String.fromEnvironment(
+  'LOCAL_MODEL_ASSET',
+  defaultValue: 'assets/models/qwen3-1.7b-instruct-q4_k_m.gguf',
 );
-const _ollamaModel = String.fromEnvironment(
-  'OLLAMA_MODEL',
-  defaultValue: 'qwen3.6:latest',
+const _localModelContextSize = int.fromEnvironment(
+  'LOCAL_MODEL_CONTEXT_SIZE',
+  defaultValue: 2048,
 );
 const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 const _geminiModel = String.fromEnvironment(
@@ -126,7 +131,7 @@ class _ShellbyAppState extends State<ShellbyApp> {
             activeTrackColor: _brand,
             inactiveTrackColor: _bellySoft,
             thumbColor: _brand,
-            overlayColor: _brand.withOpacity(.12),
+            overlayColor: _brand.withValues(alpha: .12),
           ),
           switchTheme: SwitchThemeData(
             thumbColor: WidgetStateProperty.resolveWith(
@@ -134,7 +139,7 @@ class _ShellbyAppState extends State<ShellbyApp> {
             ),
             trackColor: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.selected)
-                  ? _brand.withOpacity(.4)
+                  ? _brand.withValues(alpha: .4)
                   : null,
             ),
           ),
@@ -151,7 +156,7 @@ class _ShellbyAppState extends State<ShellbyApp> {
           ),
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: _surface,
-            indicatorColor: _brand.withOpacity(.12),
+            indicatorColor: _brand.withValues(alpha: .12),
             labelTextStyle: WidgetStateProperty.all(
               GoogleFonts.nunito(
                 fontSize: 12,

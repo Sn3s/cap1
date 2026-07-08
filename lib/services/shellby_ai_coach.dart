@@ -4,8 +4,8 @@ class ShellbyAiCoach {
   const ShellbyAiCoach();
 
   bool get usesGemini => _aiProvider.toLowerCase() == 'gemini';
-  bool get usesOllama => _aiProvider.toLowerCase() == 'ollama';
-  bool get isConfigured => usesOllama || _geminiApiKey.isNotEmpty;
+  bool get usesLocalModel => !usesGemini;
+  bool get isConfigured => usesLocalModel || _geminiApiKey.isNotEmpty;
 
   Future<MotivationCoachResult> send({
     required String concern,
@@ -81,13 +81,6 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
   }) async {
-    if (usesOllama) {
-      return _sendOllamaJson(
-        instructions: instructions,
-        input: input,
-        maxOutputTokens: maxOutputTokens,
-      );
-    }
     if (usesGemini) {
       return _sendGeminiJson(
         instructions: instructions,
@@ -95,54 +88,14 @@ class ShellbyAiCoach {
         maxOutputTokens: maxOutputTokens,
       );
     }
-    throw UnsupportedError('Unknown AI_PROVIDER: $_aiProvider');
-  }
-
-  Future<Map<String, dynamic>> _sendOllamaJson({
-    required String instructions,
-    required String input,
-    required int maxOutputTokens,
-  }) async {
-    final client = HttpClient();
-    try {
-      final request = await client.postUrl(Uri.parse('$_ollamaUrl/api/chat'));
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode({
-          'model': _ollamaModel,
-          'stream': false,
-          'think': false,
-          'format': 'json',
-          'messages': [
-            {'role': 'system', 'content': instructions},
-            {'role': 'user', 'content': input},
-          ],
-          'options': {'num_predict': maxOutputTokens, 'temperature': 0.4},
-        }),
-      );
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('Ollama request failed: ${response.statusCode} $body');
-      }
-
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      final promptTokens = decoded['prompt_eval_count'] as int? ?? 0;
-      final completionTokens = decoded['eval_count'] as int? ?? 0;
-      debugPrint(
-        'Ollama tokens: prompt=$promptTokens, completion=$completionTokens, total=${promptTokens + completionTokens}',
-      );
-      final message = decoded['message'];
-      final text =
-          message is Map<String, dynamic> && message['content'] is String
-              ? (message['content'] as String).trim()
-              : '';
-      final jsonText = _extractJsonObject(text);
-      return jsonDecode(jsonText) as Map<String, dynamic>;
-    } finally {
-      client.close(force: true);
-    }
+    final runtime = await _LocalLlamaRuntime.instance();
+    final text = await runtime.generateJson(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+    );
+    final jsonText = _extractJsonObject(text);
+    return jsonDecode(jsonText) as Map<String, dynamic>;
   }
 
   Future<Map<String, dynamic>> _sendGeminiJson({
@@ -351,7 +304,235 @@ Return only JSON with keys reply, title, description, monthly_target.
 }
 
 class AiSetupException implements Exception {
-  const AiSetupException();
+  const AiSetupException([this.message = 'AI model is not configured.']);
+
+  final String message;
+
+  @override
+  String toString() => 'AiSetupException: $message';
+}
+
+class _LocalLlamaRuntime {
+  _LocalLlamaRuntime._(this._commandPort);
+
+  static _LocalLlamaRuntime? _instance;
+  static Future<_LocalLlamaRuntime>? _creatingInstance;
+  final SendPort _commandPort;
+
+  static Future<_LocalLlamaRuntime> instance() async {
+    final existing = _instance;
+    if (existing != null) {
+      return existing;
+    }
+
+    final pending = _creatingInstance;
+    if (pending != null) {
+      return pending;
+    }
+
+    final completer = Completer<_LocalLlamaRuntime>();
+    _creatingInstance = completer.future;
+    try {
+      final runtime = await _create();
+      _instance = runtime;
+      completer.complete(runtime);
+      return runtime;
+    } catch (error, stackTrace) {
+      completer.completeError(error, stackTrace);
+      rethrow;
+    } finally {
+      _creatingInstance = null;
+    }
+  }
+
+  static Future<_LocalLlamaRuntime> _create() async {
+    final modelPath = await _resolveModelPath();
+    final readyPort = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _localLlamaWorkerMain,
+      <Object?>[
+        readyPort.sendPort,
+        modelPath,
+        _localModelContextSize,
+        Platform.isIOS || Platform.isMacOS ? 'metal' : 'auto',
+      ],
+      debugName: 'shellby-llamadart-worker',
+    );
+
+    final initialMessage = await readyPort.first;
+    readyPort.close();
+    if (initialMessage is! SendPort) {
+      isolate.kill(priority: Isolate.immediate);
+      throw StateError(
+        initialMessage is Map<String, dynamic> &&
+                initialMessage['error'] is String
+            ? initialMessage['error'] as String
+            : 'Failed to initialize the local model runtime.',
+      );
+    }
+
+    return _LocalLlamaRuntime._(initialMessage);
+  }
+
+  static Future<String> _resolveModelPath() async {
+    if (_localModelAsset.trim().isEmpty) {
+      throw const AiSetupException(
+        'Set LOCAL_MODEL_ASSET to a bundled GGUF file.',
+      );
+    }
+
+    final supportDirectory = await getApplicationSupportDirectory();
+    final modelDirectory = Directory('${supportDirectory.path}/shellby-models');
+    if (!await modelDirectory.exists()) {
+      await modelDirectory.create(recursive: true);
+    }
+
+    final modelFile = File(
+      '${modelDirectory.path}/${_assetFileName(_localModelAsset)}',
+    );
+    if (await modelFile.exists() && await modelFile.length() > 0) {
+      return modelFile.path;
+    }
+
+    final assetBytes = await rootBundle.load(_localModelAsset);
+    await modelFile.writeAsBytes(
+      assetBytes.buffer.asUint8List(
+        assetBytes.offsetInBytes,
+        assetBytes.lengthInBytes,
+      ),
+      flush: true,
+    );
+    return modelFile.path;
+  }
+
+  Future<String> generateJson({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
+    final responsePort = ReceivePort();
+    _commandPort.send(
+      <String, Object?>{
+        'command': 'generate-json',
+        'instructions': instructions,
+        'input': input,
+        'maxOutputTokens': maxOutputTokens,
+        'replyTo': responsePort.sendPort,
+      },
+    );
+
+    final response = await responsePort.first;
+    responsePort.close();
+    if (response is Map<String, dynamic>) {
+      final error = response['error'];
+      if (error is String && error.isNotEmpty) {
+        throw StateError(error);
+      }
+
+      final text = response['text'];
+      if (text is String) {
+        return text;
+      }
+    }
+
+    throw StateError('The local model runtime returned an unexpected result.');
+  }
+
+  static String _assetFileName(String assetPath) {
+    final normalized = assetPath.replaceAll('\\', '/');
+    final segments = normalized.split('/').where((part) => part.isNotEmpty);
+    return segments.isEmpty ? assetPath : segments.last;
+  }
+}
+
+Future<void> _localLlamaWorkerMain(List<Object?> arguments) async {
+  final SendPort readyPort = arguments[0] as SendPort;
+  final String modelPath = arguments[1] as String;
+  final int contextSize = arguments[2] as int;
+  final String backendName = arguments[3] as String;
+
+  final commandPort = ReceivePort();
+  final engine = LlamaEngine(LlamaBackend());
+
+  try {
+    await engine.loadModel(
+      modelPath,
+      modelParams: ModelParams(
+        contextSize: contextSize,
+        gpuLayers: Platform.isIOS || Platform.isMacOS
+            ? ModelParams.maxGpuLayers
+            : 0,
+        preferredBackend:
+            backendName == 'metal' ? GpuBackend.metal : GpuBackend.auto,
+      ),
+    );
+
+    readyPort.send(commandPort.sendPort);
+
+    await for (final message in commandPort) {
+      if (message is! Map) continue;
+      final replyTo = message['replyTo'];
+      if (replyTo is! SendPort) continue;
+
+      final command = message['command'] as String? ?? '';
+      if (command == 'generate-json') {
+        try {
+          final text = await _generateJsonInWorker(
+            engine: engine,
+            instructions: message['instructions'] as String? ?? '',
+            input: message['input'] as String? ?? '',
+            maxOutputTokens: message['maxOutputTokens'] as int? ?? 256,
+          );
+          replyTo.send(<String, Object?>{'text': text});
+        } catch (error) {
+          replyTo.send(<String, Object?>{'error': error.toString()});
+        }
+      } else if (command == 'dispose') {
+        await engine.dispose();
+        replyTo.send(<String, Object?>{'text': 'disposed'});
+        commandPort.close();
+        return;
+      }
+    }
+  } catch (error) {
+    readyPort.send(<String, Object?>{'error': error.toString()});
+    commandPort.close();
+  }
+}
+
+Future<String> _generateJsonInWorker({
+  required LlamaEngine engine,
+  required String instructions,
+  required String input,
+  required int maxOutputTokens,
+}) async {
+  final buffer = StringBuffer();
+  final messages = [
+    LlamaChatMessage.fromText(
+      role: LlamaChatRole.system,
+      text: instructions,
+    ),
+    LlamaChatMessage.fromText(
+      role: LlamaChatRole.user,
+      text: input,
+    ),
+  ];
+
+  await for (final chunk in engine.create(
+    messages,
+    params: GenerationParams(maxTokens: maxOutputTokens, temp: 0.4),
+  )) {
+    final content = chunk.choices.first.delta.content;
+    if (content != null) {
+      buffer.write(content);
+    }
+  }
+
+  final text = buffer.toString().trim();
+  if (text.isEmpty) {
+    throw StateError('The local model returned no content.');
+  }
+  return text;
 }
 
 const _motivationCoachInstructions = '''

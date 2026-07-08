@@ -2,25 +2,32 @@
 
 Shellby Flutter prototype.
 
-## Local AI with Ollama
+## Local AI with llamadart
 
-The app defaults to Ollama for its AI coach.
+The app now uses `llamadart` locally by default, so the AI coach runs on the
+device instead of relying on an Ollama instance on your computer.
 
-On an Android emulator, the app reaches Ollama on your PC through
-`http://10.0.2.2:11434`.
+Add a small GGUF model to `assets/models/` and keep the default asset path in
+sync with the bundled file:
 
-Start Ollama, then run:
-
-```powershell
-ollama serve
-flutter run -d emulator-5554 --dart-define=AI_PROVIDER=ollama --dart-define=OLLAMA_MODEL=qwen3.6:latest
+```text
+assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
 ```
 
-If you run on a physical Android device, replace `OLLAMA_URL` with your PC's LAN
-address:
+On first launch, the app copies that asset into the app support directory and
+loads it from there. For iPhone, keep the model small and quantized so it fits
+device memory comfortably.
+
+Run it on your phone with:
 
 ```powershell
-flutter run -d <device-id> --dart-define=AI_PROVIDER=ollama --dart-define=OLLAMA_URL=http://<your-pc-ip>:11434 --dart-define=OLLAMA_MODEL=qwen3.6:latest
+flutter run -d <iphone-device-id>
+```
+
+To use a different bundled model, override the asset path:
+
+```powershell
+flutter run -d <iphone-device-id> --dart-define=LOCAL_MODEL_ASSET=assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
 ```
 
 The app can still use Gemini:
