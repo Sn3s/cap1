@@ -98,6 +98,7 @@ class DashboardPage extends StatelessWidget {
         PageHeader(
           eyebrow: 'GOOD MORNING',
           title: name.isEmpty ? 'Hi!' : 'Hi $name',
+          onShellbyTap: () => _push(context, const ShellbyChatPage()),
         ),
         const SizedBox(height: 20),
         Padding(
@@ -278,6 +279,241 @@ class DashboardPage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class ShellbyChatPage extends StatefulWidget {
+  const ShellbyChatPage({super.key});
+
+  @override
+  State<ShellbyChatPage> createState() => _ShellbyChatPageState();
+}
+
+class _ShellbyChatPageState extends State<ShellbyChatPage> {
+  final _coach = const ShellbyAiCoach();
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+  final List<ChatMessage> _messages = [
+    const ChatMessage(
+      false,
+      'Hi, I am Shellby. Ask me about your goals, balances, transactions, or anything in the app.',
+    ),
+  ];
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+
+    final state = AppScope.of(context);
+    setState(() {
+      _messages.add(ChatMessage(true, text));
+      _sending = true;
+    });
+    _controller.clear();
+    _scrollToBottom();
+
+    try {
+      final reply = await _coach.chat(state: state, messages: _messages);
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            false,
+            reply.isEmpty
+                ? 'I could not form a reply from the current app context yet.'
+                : reply,
+          ),
+        );
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            false,
+            _chatErrorMessage(error),
+          ),
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+        _scrollToBottom();
+      }
+    }
+  }
+
+  String _chatErrorMessage(Object error) {
+    final text = error.toString();
+    if (text.contains('Unable to load asset') ||
+        text.contains('Set LOCAL_MODEL_ASSET')) {
+      return 'I need the bundled GGUF model before I can chat locally. Add the Qwen model under assets/models/ or run with the Gemini provider.';
+    }
+    return 'I hit a setup issue while starting the AI model. $text';
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: const BoxDecoration(
+                      color: _bellySoft,
+                      shape: BoxShape.circle,
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(
+                      'assets/images/shellby_wave.webp',
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shellby',
+                          style: GoogleFonts.fredoka(
+                            color: _title,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Text(
+                          'App and money context',
+                          style: TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                controller: _scrollController,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                itemBuilder: (context, index) {
+                  if (index == _messages.length) {
+                    return const ChatBubble(
+                      fromUser: false,
+                      text: 'Thinking...',
+                      loading: true,
+                    );
+                  }
+                  final message = _messages[index];
+                  return ChatBubble(
+                    fromUser: message.fromUser,
+                    text: message.text,
+                  );
+                },
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemCount: _messages.length + (_sending ? 1 : 0),
+              ),
+            ),
+            AnimatedPadding(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              padding: EdgeInsets.only(bottom: bottomInset),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                decoration: const BoxDecoration(
+                  color: _surface,
+                  border: Border(top: BorderSide(color: _border)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        enabled: !_sending,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                        decoration: InputDecoration(
+                          hintText: 'Ask about your app data...',
+                          filled: true,
+                          fillColor: _bg,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(color: _border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(color: _border),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide:
+                                const BorderSide(color: _brand, width: 2),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton.filled(
+                      onPressed: _sending ? null : _send,
+                      icon: const Icon(Icons.send_rounded),
+                      tooltip: 'Send',
+                      style: IconButton.styleFrom(
+                        backgroundColor: _brand,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: _border,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

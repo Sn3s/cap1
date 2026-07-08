@@ -76,6 +76,41 @@ class ShellbyAiCoach {
     );
   }
 
+  Future<String> chat({
+    required AppState state,
+    required List<ChatMessage> messages,
+  }) async {
+    if (!isConfigured) {
+      throw const AiSetupException();
+    }
+
+    return _sendText(
+      instructions: _shellbyChatInstructions,
+      input: _shellbyChatInput(state, messages),
+      maxOutputTokens: 520,
+    );
+  }
+
+  Future<String> _sendText({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
+    if (usesGemini) {
+      return _sendGeminiText(
+        instructions: instructions,
+        input: input,
+        maxOutputTokens: maxOutputTokens,
+      );
+    }
+    final runtime = await _LocalLlamaRuntime.instance();
+    return runtime.generateText(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
   Future<Map<String, dynamic>> _sendJson({
     required String instructions,
     required String input,
@@ -143,6 +178,53 @@ class ShellbyAiCoach {
       final text = _extractGeminiText(decoded).trim();
       final jsonText = _extractJsonObject(text);
       return jsonDecode(jsonText) as Map<String, dynamic>;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _sendGeminiText({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(
+        Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModel:generateContent?key=$_geminiApiKey',
+        ),
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'systemInstruction': {
+            'parts': [
+              {'text': instructions},
+            ],
+          },
+          'contents': [
+            {
+              'role': 'user',
+              'parts': [
+                {'text': input},
+              ],
+            },
+          ],
+          'generationConfig': {
+            'maxOutputTokens': maxOutputTokens,
+          },
+        }),
+      );
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Gemini request failed: ${response.statusCode} $body');
+      }
+
+      return _extractGeminiText(jsonDecode(body) as Map<String, dynamic>)
+          .trim();
     } finally {
       client.close(force: true);
     }
@@ -254,6 +336,94 @@ $transcript
 Recommend or revise one first goal. The goal must clearly come from the user's focus and reason.
 If the user asks to modify it, apply the requested modification.
 Return only JSON with keys reply, title, description, monthly_target.
+''';
+  }
+
+  String _shellbyChatInput(AppState state, List<ChatMessage> messages) {
+    final transcript = messages
+        .map(
+          (message) =>
+              '${message.fromUser ? 'User' : 'Shellby'}: ${message.text}',
+        )
+        .join('\n');
+    final summary = state.fakeMayaLink?.summary;
+    final transactions = summary?.transactions
+            .take(10)
+            .map(
+              (transaction) =>
+                  '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; category: ${transaction.category ?? 'unlabeled'}',
+            )
+            .join('\n') ??
+        'No linked transactions available.';
+    final assets = state.assets
+        .take(8)
+        .map((item) => '- ${item.name}: ${money(item.value)}')
+        .join('\n');
+    final liabilities = state.liabilities
+        .take(8)
+        .map((item) => '- ${item.name}: ${money(item.value)}')
+        .join('\n');
+    final expenses = state.onboardingExpenseLedger.take(10).map((expense) {
+      final name = expense['name'] ?? expense['label'] ?? 'Expense';
+      final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
+      final essential = expense['essential'] == true ? 'essential' : 'flex';
+      return '- $name: ${money(amount)} ($essential)';
+    }).join('\n');
+
+    return '''
+Shellby app context:
+- User name: ${state.name.trim().isEmpty ? 'unknown' : state.name.trim()}
+- Email: ${state.email.trim().isEmpty ? 'unknown' : state.email.trim()}
+- Life stage: ${state.age}
+- Occupation: ${state.occupation}
+- Industry: ${state.industry}
+- Employment: ${state.employmentStatus}
+- Income rhythm: ${state.incomeRhythm}; income type: ${state.incomeType}
+- Primary concern: ${state.primaryConcern}
+- Motivation: ${state.motivation.isEmpty ? state.reflectedMotivation : state.motivation}
+- Selected goal: ${state.selectedGoal}
+- Goal description: ${state.selectedGoalDescription}
+- Goal monthly target: ${money(state.selectedGoalMonthlyTarget)}
+- Required monthly contribution: ${money(state.requiredMonthlyContribution)}
+- Monthly income: ${money(state.income)}
+- Monthly salary: ${money(state.monthlySalary)}
+- Expenses: ${money(state.expenses)}
+- Variable expenses: ${money(state.variableExpenses)}
+- Current monthly savings: ${money(state.savings)}
+- Debt payments: ${money(state.debtPayments)}
+- Investments: ${money(state.investments)}
+- Net worth: ${money(state.netWorth)}
+- Confidence: ${state.confidence.round()}/10
+- Financial pressure: ${state.anxiety.round()}/10
+- Avoidance: ${state.avoidance.round()}/10
+- Peer pressure: ${state.peerPressure.round()}/10
+- Chat summaries: surface="${state.chatSurfaceSummary}", goal="${state.chatGoalFocusSummary}", timeframe="${state.chatTimeframeSummary}", difficulty="${state.chatDifficultySummary}", situations="${state.chatSituationsSummary}", challenges="${state.chatChallengesSummary}"
+- FakeMaya linked: ${state.hasFakeMayaLink ? 'yes' : 'no'}
+- Wallet: ${money(summary?.wallet ?? 0)}
+- Savings: ${money(summary?.savings ?? 0)}
+- Time deposit: ${money(summary?.timeDeposit ?? 0)}
+- Goal balance: ${money(summary?.goalBalance ?? 0)} of ${money(summary?.goalTarget ?? 0)}
+- Credit used: ${money(summary?.creditUsed ?? 0)} of ${money(summary?.creditLimit ?? 0)}
+- Two-jar needs target: ${money(state.needsTarget)}
+- Needs balance: ${money(state.needsBalance)}
+- Buffer balance: ${money(state.bufferBalance)}
+- Safety shield balance: ${money(state.safetyShieldBalance)}
+- Safety shield target: ${money(state.safetyShieldTarget)}
+
+Assets:
+${assets.isEmpty ? 'No manually tracked assets.' : assets}
+
+Liabilities:
+${liabilities.isEmpty ? 'No manually tracked liabilities.' : liabilities}
+
+Known expenses:
+${expenses.isEmpty ? 'No detailed expenses entered.' : expenses}
+
+Recent linked transactions:
+$transactions
+
+Conversation:
+$transcript
 ''';
   }
 
@@ -410,10 +580,22 @@ class _LocalLlamaRuntime {
     required String input,
     required int maxOutputTokens,
   }) async {
+    return generateText(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
+  Future<String> generateText({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
     final responsePort = ReceivePort();
     _commandPort.send(
       <String, Object?>{
-        'command': 'generate-json',
+        'command': 'generate-text',
         'instructions': instructions,
         'input': input,
         'maxOutputTokens': maxOutputTokens,
@@ -452,16 +634,14 @@ Future<void> _localLlamaWorkerMain(List<Object?> arguments) async {
   final String backendName = arguments[3] as String;
 
   final commandPort = ReceivePort();
-  final engine = LlamaEngine(LlamaBackend());
+  final service = LlamaService();
 
   try {
-    await engine.loadModel(
+    await service.init(
       modelPath,
       modelParams: ModelParams(
         contextSize: contextSize,
-        gpuLayers: Platform.isIOS || Platform.isMacOS
-            ? ModelParams.maxGpuLayers
-            : 0,
+        gpuLayers: Platform.isIOS || Platform.isMacOS ? 99 : 0,
         preferredBackend:
             backendName == 'metal' ? GpuBackend.metal : GpuBackend.auto,
       ),
@@ -475,10 +655,10 @@ Future<void> _localLlamaWorkerMain(List<Object?> arguments) async {
       if (replyTo is! SendPort) continue;
 
       final command = message['command'] as String? ?? '';
-      if (command == 'generate-json') {
+      if (command == 'generate-json' || command == 'generate-text') {
         try {
-          final text = await _generateJsonInWorker(
-            engine: engine,
+          final text = await _generateTextInWorker(
+            service: service,
             instructions: message['instructions'] as String? ?? '',
             input: message['input'] as String? ?? '',
             maxOutputTokens: message['maxOutputTokens'] as int? ?? 256,
@@ -488,7 +668,7 @@ Future<void> _localLlamaWorkerMain(List<Object?> arguments) async {
           replyTo.send(<String, Object?>{'error': error.toString()});
         }
       } else if (command == 'dispose') {
-        await engine.dispose();
+        service.dispose();
         replyTo.send(<String, Object?>{'text': 'disposed'});
         commandPort.close();
         return;
@@ -500,32 +680,30 @@ Future<void> _localLlamaWorkerMain(List<Object?> arguments) async {
   }
 }
 
-Future<String> _generateJsonInWorker({
-  required LlamaEngine engine,
+Future<String> _generateTextInWorker({
+  required LlamaService service,
   required String instructions,
   required String input,
   required int maxOutputTokens,
 }) async {
   final buffer = StringBuffer();
   final messages = [
-    LlamaChatMessage.fromText(
-      role: LlamaChatRole.system,
-      text: instructions,
+    LlamaChatMessage(
+      role: 'system',
+      content: instructions,
     ),
-    LlamaChatMessage.fromText(
-      role: LlamaChatRole.user,
-      text: input,
+    LlamaChatMessage(
+      role: 'user',
+      content: input,
     ),
   ];
+  final prompt = await service.applyChatTemplate(messages);
 
-  await for (final chunk in engine.create(
-    messages,
+  await for (final token in service.generate(
+    prompt,
     params: GenerationParams(maxTokens: maxOutputTokens, temp: 0.4),
   )) {
-    final content = chunk.choices.first.delta.content;
-    if (content != null) {
-      buffer.write(content);
-    }
+    buffer.write(token);
   }
 
   final text = buffer.toString().trim();
@@ -581,4 +759,20 @@ Return only valid JSON:
   "description": "specific goal sentence with target and timeframe",
   "monthly_target": number
 }
+''';
+
+const _shellbyChatInstructions = '''
+You are Shellby, the in-app AI assistant for Shellby, a Philippine personal finance app.
+Answer the user's questions about the app and the personal data shown in the provided context.
+
+Rules:
+- Be warm, concise, practical, and specific.
+- Use PHP/peso amounts when discussing money.
+- Use only the data in the context. If something is missing, say Shellby does not have that data yet.
+- You may explain what a screen, goal, balance, transaction, or pattern means based on the context.
+- Do not claim to move money, change settings, contact providers, or perform actions you cannot perform.
+- Do not provide regulated financial advice, investment picks, or guarantees.
+- For personal finance suggestions, keep them general and frame them as options to review.
+- If the user asks about sensitive data, answer only from the context and avoid exposing access tokens or hidden implementation details.
+- Keep most replies under 120 words unless the user asks for a breakdown.
 ''';

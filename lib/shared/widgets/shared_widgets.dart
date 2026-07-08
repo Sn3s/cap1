@@ -1,9 +1,16 @@
 part of '../../main.dart';
 
 class PageHeader extends StatelessWidget {
-  const PageHeader({super.key, required this.eyebrow, required this.title});
+  const PageHeader({
+    super.key,
+    required this.eyebrow,
+    required this.title,
+    this.onShellbyTap,
+  });
+
   final String eyebrow;
   final String title;
+  final VoidCallback? onShellbyTap;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +43,7 @@ class PageHeader extends StatelessWidget {
           const SizedBox(width: 12),
           const _StreakBadge(streak: 7),
           const SizedBox(width: 8),
-          const _ShellbyAvatar(),
+          _ShellbyAvatar(onTap: onShellbyTap),
         ],
       ),
     );
@@ -75,21 +82,31 @@ class _StreakBadge extends StatelessWidget {
 }
 
 class _ShellbyAvatar extends StatelessWidget {
-  const _ShellbyAvatar();
+  const _ShellbyAvatar({this.onTap});
+
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: const BoxDecoration(
-        color: _bellySoft,
-        shape: BoxShape.circle,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.asset(
-        'assets/images/shellby_wave.webp',
-        fit: BoxFit.cover,
+    return Tooltip(
+      message: 'Ask Shellby',
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _bellySoft,
+            shape: BoxShape.circle,
+            border: onTap == null ? null : Border.all(color: _brand, width: 2),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.asset(
+            'assets/images/shellby_wave.webp',
+            fit: BoxFit.cover,
+          ),
+        ),
       ),
     );
   }
