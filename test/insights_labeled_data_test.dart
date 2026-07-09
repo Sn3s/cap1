@@ -10,6 +10,26 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
+  test('emergency payments stay out of basic-needs cash flow', () {
+    final state = _reflectionState();
+    final emergency = state.allTransactions.singleWhere(
+      (transaction) => transaction.transactionId == 'clinic-emergency',
+    );
+    final integratedSpend = IntegrationService.fromState(state)
+        .weekRecords
+        .fold(0.0, (sum, week) => sum + week.weekExpense);
+    final expectedBasicNeedsSpend = state.allTransactions
+        .where((transaction) =>
+            transaction.amount < 0 &&
+            transaction.isLabeled &&
+            transaction.source == 'Basic Needs Fund')
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+
+    expect(emergency.category, 'Health');
+    expect(emergency.source, 'Emergency Fund');
+    expect(integratedSpend, expectedBasicNeedsSpend);
+  });
+
   testWidgets('overview summarizes flow, categories, funds, and activity',
       (tester) async {
     final state = _reflectionState();
@@ -160,7 +180,7 @@ AppState _reflectionState() {
       needsOut: needsOut,
       bufferIn: 0,
       bufferOut: bufferOut,
-      sentence: week == 4 ? 'Emergency shortfall bill' : 'Bill paid',
+      sentence: week == 4 ? 'Higher utility bill' : 'Bill paid',
     ));
     transactions.addAll([
       _tx('food-$week', 'Paid merchant', 'Food & drink', -420,
@@ -176,6 +196,32 @@ AppState _reflectionState() {
     -350,
     start.add(const Duration(days: 17)),
   ));
+  final emergencyDate = start.add(const Duration(days: 32));
+  transactions.add(_tx(
+    'clinic-emergency',
+    'Emergency payment',
+    'Health',
+    -1000,
+    emergencyDate,
+    source: 'Emergency Fund',
+  ));
+  state
+    ..emergencyFundBalance = 11000
+    ..d1Ledger.addAll([
+      {
+        'type': 'use_emergency',
+        'date': emergencyDate.toIso8601String(),
+        'amount': 1000,
+        'label': 'Clinic visit',
+        'sourceTransactionId': 'clinic-emergency',
+      },
+      {
+        'type': 'emergency_deposit',
+        'date': start.subtract(const Duration(days: 14)).toIso8601String(),
+        'amount': 12000,
+        'label': 'Opening emergency balance',
+      },
+    ]);
   state
     ..needsBalance = needs
     ..bufferBalance = buffer
@@ -210,8 +256,9 @@ FakeMayaTransaction _tx(
   String title,
   String? category,
   double amount,
-  DateTime date,
-) {
+  DateTime date, {
+  String source = 'Basic Needs Fund',
+}) {
   return FakeMayaTransaction(
     id: id,
     title: title,
@@ -220,6 +267,6 @@ FakeMayaTransaction _tx(
     amountText: '${amount < 0 ? '-' : '+'} ₱${amount.abs().toStringAsFixed(2)}',
     createdAt: date,
     category: category,
-    source: category == null ? null : 'Basic Needs Fund',
+    source: category == null ? null : source,
   );
 }

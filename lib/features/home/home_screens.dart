@@ -2058,6 +2058,7 @@ class _EmergencyReflectionItem {
 
 List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
   final activity = <_EmergencyReflectionItem>[];
+  final recordedTransactionIds = <String>{};
   for (final entry in state.d1Ledger) {
     final type = entry['type']?.toString();
     if (!const {
@@ -2069,6 +2070,8 @@ List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
     }
     final date = DateTime.tryParse(entry['date']?.toString() ?? '');
     if (date == null) continue;
+    final transactionId = entry['sourceTransactionId']?.toString();
+    if (transactionId != null) recordedTransactionIds.add(transactionId);
     activity.add(_EmergencyReflectionItem(
       title: switch (type) {
         'emergency_deposit' => 'Income contribution',
@@ -2091,6 +2094,7 @@ List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
         transaction.source?.toLowerCase() != 'emergency fund') {
       continue;
     }
+    if (recordedTransactionIds.contains(transaction.transactionId)) continue;
     final date = transaction.createdAt ?? transaction.labeledAt;
     if (date == null) continue;
     activity.add(_EmergencyReflectionItem(

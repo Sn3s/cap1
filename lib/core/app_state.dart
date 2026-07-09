@@ -440,6 +440,8 @@ class AppState extends ChangeNotifier {
         CashFlowExpense('Food and transport', 2300),
       ]);
     jarLedger.clear();
+    d1Ledger.clear();
+    emergencyFundBalance = 12000;
 
     final today = DateTime.now();
     final weekStart = today
@@ -503,13 +505,35 @@ class AppState extends ChangeNotifier {
       }
       for (final bill in billPlan[week] ?? const <(String, double)>[]) {
         final amount = bill.$2;
+        final isEmergency = bill.$1.toLowerCase().contains('emergency');
+        final paidAt = base.add(const Duration(days: 4));
+        if (isEmergency) {
+          emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
+          d1Ledger.insert(0, {
+            'type': 'use_emergency',
+            'date': paidAt.toIso8601String(),
+            'amount': amount,
+            'label': bill.$1,
+            'sourceTransactionId': 'emergency-$week-${bill.$1}',
+          });
+          transactions.add(_demoTransaction(
+            id: 'emergency-$week-${bill.$1}',
+            title: 'Emergency payment',
+            detail: 'To: ${bill.$1}',
+            amount: -amount,
+            date: paidAt,
+            category: 'Health',
+            source: 'Emergency Fund',
+          ));
+          continue;
+        }
         final needsOut = math.min<double>(needs, amount);
         final bufferOut =
             math.min<double>(buffer, math.max(0, amount - needsOut));
         needs = math.max(0, needs - needsOut);
         buffer = math.max(0, buffer - bufferOut);
         jarLedger.add(JarEvent(
-          timestamp: base.add(const Duration(days: 4)),
+          timestamp: paidAt,
           type: JarEventType.billPaid,
           needsIn: 0,
           needsOut: needsOut,
@@ -517,6 +541,17 @@ class AppState extends ChangeNotifier {
           bufferOut: bufferOut,
           sentence:
               '${bill.$1} ${money(amount)} paid from Needs${bufferOut > 0 ? ' + Buffer shortfall' : ''}',
+        ));
+        transactions.add(_demoTransaction(
+          id: 'bill-$week-${bill.$1}',
+          title: 'Bill payment',
+          detail: 'To: ${bill.$1}',
+          amount: -amount,
+          date: paidAt,
+          category: bill.$1.toLowerCase().contains('rent')
+              ? 'Housing'
+              : 'Bills & utilities',
+          source: 'Basic Needs Fund',
         ));
       }
       for (var day = 1; day <= 5; day += 2) {
@@ -543,6 +578,13 @@ class AppState extends ChangeNotifier {
       }
     }
     jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    d1Ledger.add({
+      'type': 'emergency_deposit',
+      'date': weekStart.subtract(const Duration(days: 14)).toIso8601String(),
+      'amount': 12000,
+      'destination': 'Emergency Fund',
+      'label': 'Opening emergency balance',
+    });
     needsBalance = needs;
     bufferBalance = buffer;
     fakeMayaLink = FakeMayaLink(
