@@ -73,7 +73,7 @@ const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
   defaultValue: 'gemini-2.5-flash',
 );
-const _onboardingPhaseTotal = 12;
+const _onboardingPhaseTotal = 15;
 
 class ShellbyApp extends StatefulWidget {
   const ShellbyApp({super.key});

@@ -62,8 +62,9 @@ void main() {
     await tester.tap(find.text('Transaction'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Log cash transaction'), findsOneWidget);
-    expect(find.text('Account: Cash on Hand'), findsOneWidget);
+    expect(find.text('Log transaction'), findsOneWidget);
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.text('Cash on Hand'), findsOneWidget);
     expect(find.text('Money out'), findsWidgets);
     expect(find.text('Money in'), findsWidgets);
     expect(find.text('Save transaction'), findsOneWidget);

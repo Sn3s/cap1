@@ -571,10 +571,10 @@ class FakeMayaAccountSummary {
 
   List<MoneyItem> toMoneyItems() {
     return [
-      MoneyItem('FakeMaya Wallet', 'Linked from FakeMaya', wallet),
-      MoneyItem('FakeMaya Savings', 'Linked from FakeMaya', savings),
-      MoneyItem('FakeMaya Time Deposit', 'Linked from FakeMaya', timeDeposit),
-      MoneyItem('FakeMaya $goalName', 'Linked from FakeMaya', goalBalance),
+      MoneyItem('Wallet', 'Synced with FakeMaya', wallet),
+      MoneyItem('Savings', 'Synced with FakeMaya', savings),
+      MoneyItem('Time Deposit', 'Synced with FakeMaya', timeDeposit),
+      MoneyItem('Goal Savings', 'Synced with FakeMaya', goalBalance),
     ];
   }
 
@@ -805,7 +805,12 @@ class FakeMayaTransaction {
           (savedCategory?.trim().isNotEmpty ?? false
               ? 'Basic Needs Fund'
               : null),
-      account: data['account'] as String?,
+      account: switch (data['account'] as String?) {
+        'FakeMaya Wallet' => 'Wallet',
+        'FakeMaya Savings' => 'Savings',
+        'FakeMaya Time Deposit' => 'Time Deposit',
+        final value => value,
+      },
       subcategory: data['subcategory'] as String?,
       tag: data['tag'] as String?,
       note: data['note'] as String?,

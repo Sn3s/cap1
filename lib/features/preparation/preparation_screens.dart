@@ -1460,6 +1460,8 @@ void _pushFinancialConcernWithFullHistory(BuildContext context) {
     PreparationCredentialsScreen(),
     LifeContextScreen(),
     LifeRhythmScreen(),
+    MonthlyIncomeScreen(),
+    InitialBaselineScreen(),
     PreparationOrientScreen(),
     FinancialConcernScreen(),
   ]) {
@@ -1730,9 +1732,9 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
       subtitle:
           'Paydays, bills, shared responsibilities, and check-in habits all shape what Shelby should pay attention to.',
       bottom: PrimaryButton(
-        label: 'See How Shelby Helps',
+        label: 'Add Monthly Income',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const PreparationOrientScreen()),
+        onPressed: () => _push(context, const MonthlyIncomeScreen()),
       ),
       child: Column(
         children: [
@@ -1874,7 +1876,7 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 4,
+      phase: 6,
       title: 'What invited you here today?',
       subtitle:
           'Choose the layer that best matches what you want Shelby to help with first.',
@@ -2207,7 +2209,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     final hasReflection = state.reflectedMotivation.isNotEmpty;
     final selected = answers[stepIndex] ?? const <GuidedOption>[];
     return OnboardingScaffold(
-      phase: 5,
+      phase: 7,
       title: 'Shape your path.',
       subtitle: stepIndex == 3
           ? 'Set up the details for each action.'
@@ -3250,7 +3252,7 @@ class GoalQuestionnaireScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 6,
+      phase: 8,
       title: 'Conversation summary.',
       subtitle: 'Here is the clearest version of what you told Shellby.',
       bottom: Column(
@@ -3328,7 +3330,7 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
         .where((point) => dataIds.contains(point.id))
         .toList();
     return OnboardingScaffold(
-      phase: 7,
+      phase: 9,
       title: 'Recommended plan.',
       subtitle:
           'Built directly from the motivation, goal, actions, and specifics you selected.',
@@ -3970,7 +3972,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      phase: 8,
+      phase: 4,
       title: 'Monthly income.',
       subtitle:
           'List each expected monthly income source, mark whether it is stable, and add an expected pay day for scheduled income. This becomes Shellby’s starting income baseline.',
@@ -4266,18 +4268,18 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     state.onboardingBaselines['monthly_expenses'] = total.toStringAsFixed(2);
     state.onboardingBaselines['essential_expenses'] =
         essentialTotal.toStringAsFixed(2);
-    _push(context, const AppPermissionScreen());
+    _push(context, const PreparationOrientScreen());
   }
 
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      phase: 8,
+      phase: 5,
       title: 'Monthly expenses.',
       subtitle:
           'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
       bottom: PrimaryButton(
-          label: 'Continue to App Permissions',
+          label: 'See How Shelby Helps',
           icon: Icons.arrow_forward_rounded,
           onPressed: _continue),
       child: Form(
@@ -4543,7 +4545,7 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
     final state = AppScope.of(context);
     final linked = state.fakeMayaLink;
     return OnboardingScaffold(
-      phase: 9,
+      phase: 10,
       title: 'Link FakeMaya.',
       subtitle:
           'Linking imports hard starting balances and future transactions. You can continue manually if you prefer.',
@@ -4551,7 +4553,7 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
         label:
             linked == null ? 'Continue Without Linking' : 'Use Linked Balances',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const MonthlyIncomeScreen()),
+        onPressed: () => _push(context, const AppPermissionScreen()),
       ),
       child: AppCard(
         child: Column(
@@ -4591,7 +4593,7 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Linked accounts',
+                  'Synced accounts',
                   style: TextStyle(
                     color: _title,
                     fontSize: 15,
@@ -4648,7 +4650,7 @@ class _AppPermissionScreenState extends State<AppPermissionScreen> {
   @override
   Widget build(BuildContext context) {
     return OnboardingScaffold(
-      phase: 8,
+      phase: 11,
       title: 'App permissions.',
       subtitle:
           'Shellby will ask before using phone features or connecting outside data sources.',
@@ -4693,7 +4695,7 @@ class PersonalDataConsentScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 9,
+      phase: 12,
       title: 'Personal data consent.',
       subtitle:
           'Shellby collects only the specific data needed to build and track your plan.',
@@ -4756,7 +4758,7 @@ class DataRetentionConsentScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 10,
+      phase: 13,
       title: 'Data retention.',
       subtitle:
           'Your data stays available only while it is needed for your Shellby account and financial plan.',
@@ -6314,7 +6316,7 @@ class PreparationCommitmentScreen extends StatelessWidget {
       );
     }).toList();
     return OnboardingScaffold(
-      phase: 11,
+      phase: 14,
       title: 'Final Review.',
       subtitle:
           'Here is the record of the choices you made before Shellby starts your plan.',
@@ -6575,7 +6577,7 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return OnboardingScaffold(
-      phase: 12,
+      phase: 15,
       title: 'Get ready to start your journey with Shelby!',
       subtitle: 'Your onboarding choices are ready.',
       centerTitle: true,

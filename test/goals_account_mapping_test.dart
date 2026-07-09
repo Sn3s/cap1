@@ -11,17 +11,20 @@ void main() {
   });
 
   const cases = [
-    ('Cash Flow Stability Plan', 'FakeMaya Wallet', false),
-    ('Emergency Cushion', 'FakeMaya Savings', true),
-    ('Net Worth Growth Plan', 'FakeMaya Time Deposit', true),
-    ('Future Lifestyle Fund', 'FakeMaya Personal Goal', true),
+    ('Cash Flow Stability Plan', 'Wallet', false),
+    ('Emergency Cushion', 'Savings', true),
+    ('Net Worth Growth Plan', 'Time Deposit', true),
+    ('Future Lifestyle Fund', 'Goal Savings', true),
   ];
 
   for (final item in cases) {
     testWidgets('${item.$1} uses ${item.$2}', (tester) async {
       final state = AppState()
         ..selectedGoal = item.$1
-        ..fakeMayaLink = _fakeMayaLink();
+        ..fakeMayaLink = _fakeMayaLink()
+        ..fakeMayaSyncedAccounts.addAll(
+          const {'Wallet', 'Savings', 'Time Deposit', 'Goal Savings'},
+        );
 
       await tester.pumpWidget(
         AppScope(
@@ -70,6 +73,9 @@ void main() {
             category: 'Bills & utilities',
           ),
         ],
+      )
+      ..fakeMayaSyncedAccounts.addAll(
+        const {'Wallet', 'Savings', 'Time Deposit', 'Goal Savings'},
       );
 
     await tester.pumpWidget(

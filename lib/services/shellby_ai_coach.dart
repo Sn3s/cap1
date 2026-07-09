@@ -360,7 +360,7 @@ Return only JSON with keys reply, title, description, monthly_target.
         .take(10)
         .map(
           (transaction) =>
-              '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; account: ${transaction.account ?? 'FakeMaya Wallet'}; category: ${transaction.category ?? 'unlabeled'}; source: ${transaction.source ?? 'unlabeled'}',
+              '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; account: ${transaction.account ?? 'Wallet'}; category: ${transaction.category ?? 'unlabeled'}; source: ${transaction.source ?? 'unlabeled'}',
         )
         .join('\n');
     final assets = state.assets

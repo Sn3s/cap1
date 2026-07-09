@@ -82,15 +82,17 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final name = state.name.trim();
-    final balance = state.hasFakeMayaLink ? state.linkedFakeMayaBalance : 0.0;
+    final balance = state.accountBalance('Cash on Hand') +
+        state.accountBalance('Wallet') +
+        state.accountBalance('Savings') +
+        state.accountBalance('Time Deposit') +
+        state.accountBalance('Goal Savings');
     final balanceParts = balance.toStringAsFixed(2).split('.');
     final spendable =
-        state.hasFakeMayaLink ? state.fakeMayaLink!.summary.wallet : 0.0;
-    final saved = state.hasFakeMayaLink
-        ? state.fakeMayaLink!.summary.savings +
-            state.fakeMayaLink!.summary.timeDeposit +
-            state.fakeMayaLink!.summary.goalBalance
-        : 0.0;
+        state.accountBalance('Cash on Hand') + state.accountBalance('Wallet');
+    final saved = state.accountBalance('Savings') +
+        state.accountBalance('Time Deposit') +
+        state.accountBalance('Goal Savings');
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
@@ -184,9 +186,9 @@ class DashboardPage extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        state.hasFakeMayaLink
-                            ? 'Shellby is watching your spending — insights will appear here as patterns build up.'
-                            : 'Link your FakeMaya account to unlock spending insights from Shellby.',
+                        state.allTransactions.isNotEmpty
+                            ? 'Shellby is building insights from your logged and synced transactions.'
+                            : 'Log transactions manually or sync an account to start building insights.',
                         style: GoogleFonts.nunito(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -208,9 +210,9 @@ class DashboardPage extends StatelessWidget {
                       iconColor: _brand,
                       label: 'Spendable',
                       value: money(spendable),
-                      delta: state.hasFakeMayaLink
-                          ? 'FakeMaya wallet'
-                          : 'Link FakeMaya to track',
+                      delta: state.isAccountSynced('Wallet')
+                          ? 'Wallet · synced'
+                          : 'Cash and wallet · manual',
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -220,9 +222,12 @@ class DashboardPage extends StatelessWidget {
                       iconColor: _purple,
                       label: 'Saved',
                       value: money(saved),
-                      delta: state.hasFakeMayaLink
-                          ? 'FakeMaya savings'
-                          : 'Link FakeMaya to track',
+                      delta: state.fakeMayaSyncedAccounts.any(
+                        const {'Savings', 'Time Deposit', 'Goal Savings'}
+                            .contains,
+                      )
+                          ? 'Savings · mixed sources'
+                          : 'Savings · manual',
                     ),
                   ),
                 ],
@@ -1265,27 +1270,50 @@ const _layerNames = [
 ];
 
 List<_WealthAccount> _buildWealthAccounts(AppState state) {
-  final out = <_WealthAccount>[];
-  out.add(_WealthAccount(
-    name: 'Cash on Hand',
-    sub: 'Manual cash account',
-    balance: state.cashOnHandBalance,
-    color: _sage,
-    icon: Icons.payments_rounded,
-    layer: 1,
-  ));
-  final linkedAssets =
-      state.assets.where((item) => item.description == 'Linked from FakeMaya');
-  final fakeMayaItems =
-      state.fakeMayaLink?.summary.toMoneyItems() ?? linkedAssets;
-
-  for (final asset in fakeMayaItems) {
-    final account = _fakeMayaWealthAccount(asset);
-    if (account != null) out.add(account);
-  }
-
-  for (final asset in state.assets
-      .where((item) => item.description != 'Linked from FakeMaya')) {
+  final out = <_WealthAccount>[
+    _WealthAccount(
+      name: 'Cash on Hand',
+      sub: 'Manual',
+      balance: state.accountBalance('Cash on Hand'),
+      color: _sage,
+      icon: Icons.payments_rounded,
+      layer: 1,
+    ),
+    _WealthAccount(
+      name: 'Wallet',
+      sub: state.isAccountSynced('Wallet') ? 'Synced' : 'Manual',
+      balance: state.accountBalance('Wallet'),
+      color: _brand,
+      icon: Icons.account_balance_wallet_rounded,
+      layer: 1,
+    ),
+    _WealthAccount(
+      name: 'Savings',
+      sub: state.isAccountSynced('Savings') ? 'Synced' : 'Manual',
+      balance: state.accountBalance('Savings'),
+      color: _amber,
+      icon: Icons.savings_rounded,
+      layer: 2,
+    ),
+    _WealthAccount(
+      name: 'Time Deposit',
+      sub: state.isAccountSynced('Time Deposit') ? 'Synced' : 'Manual',
+      balance: state.accountBalance('Time Deposit'),
+      color: _purple,
+      icon: Icons.lock_clock_rounded,
+      layer: 3,
+    ),
+    _WealthAccount(
+      name: 'Goal Savings',
+      sub: state.isAccountSynced('Goal Savings') ? 'Synced' : 'Manual',
+      balance: state.accountBalance('Goal Savings'),
+      color: const Color(0xFF6AA8F0),
+      icon: Icons.flag_rounded,
+      layer: 4,
+    ),
+  ];
+  for (final asset
+      in state.assets.where((item) => !item.description.contains('FakeMaya'))) {
     out.add(_WealthAccount(
       name: asset.name,
       sub: asset.description,
@@ -1296,44 +1324,6 @@ List<_WealthAccount> _buildWealthAccounts(AppState state) {
     ));
   }
   return out;
-}
-
-_WealthAccount? _fakeMayaWealthAccount(MoneyItem item) {
-  return switch (item.name) {
-    'FakeMaya Wallet' => _WealthAccount(
-        name: item.name,
-        sub: 'E-wallet',
-        balance: item.value,
-        color: _brand,
-        icon: Icons.account_balance_wallet_rounded,
-        layer: 1,
-      ),
-    'FakeMaya Savings' => _WealthAccount(
-        name: item.name,
-        sub: 'Savings account',
-        balance: item.value,
-        color: _amber,
-        icon: Icons.savings_rounded,
-        layer: 2,
-      ),
-    'FakeMaya Time Deposit' => _WealthAccount(
-        name: item.name,
-        sub: 'Time deposit',
-        balance: item.value,
-        color: _purple,
-        icon: Icons.lock_clock_rounded,
-        layer: 3,
-      ),
-    final name when name.startsWith('FakeMaya ') => _WealthAccount(
-        name: item.name,
-        sub: 'Goal savings',
-        balance: item.value,
-        color: const Color(0xFF6AA8F0),
-        icon: Icons.flag_rounded,
-        layer: 4,
-      ),
-    _ => null,
-  };
 }
 
 // ─── Insights / Wealth Overview page ─────────────────────────────────────────
@@ -4178,8 +4168,7 @@ class _AccountsSectionState extends State<_AccountsSection> {
   String? expandedAccount;
 
   void _toggleAccount(_WealthAccount account) {
-    if (account.name != 'FakeMaya Wallet' &&
-        account.name != 'FakeMaya Savings') {
+    if (account.name != 'Wallet' && account.name != 'Savings') {
       return;
     }
     setState(() {
@@ -4205,7 +4194,7 @@ class _AccountsSectionState extends State<_AccountsSection> {
             _EmptyWealthCard(
               icon: Icons.account_balance_rounded,
               message:
-                  'Link FakeMaya or add assets in Your Profile to see accounts here.',
+                  'Log account balances manually or sync selected accounts in Settings.',
             )
           else
             _AccountGrid(
@@ -4213,7 +4202,7 @@ class _AccountsSectionState extends State<_AccountsSection> {
               expandedAccount: expandedAccount,
               onAccountTap: _toggleAccount,
             ),
-          if (state.hasFakeMayaLink && expandedAccount != null) ...[
+          if (expandedAccount != null) ...[
             const SizedBox(height: 12),
             _WalletAllocationsCard(
               state: state,
@@ -4234,7 +4223,7 @@ class _WalletAllocationsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+    final wallet = state.accountBalance('Wallet');
     final walletAllocations = <(String, double, Color, IconData)>[
       if (state.essentialExpensesBalance > 0)
         (
@@ -4251,7 +4240,7 @@ class _WalletAllocationsCard extends StatelessWidget {
           Icons.event_note_rounded
         ),
     ];
-    final savings = state.fakeMayaLink?.summary.savings ?? 0;
+    final savings = state.accountBalance('Savings');
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(15),
@@ -4263,14 +4252,14 @@ class _WalletAllocationsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (accountName == 'FakeMaya Wallet') ...[
+          if (accountName == 'Wallet') ...[
             const Row(
               children: [
                 Icon(Icons.account_balance_wallet_rounded,
                     color: _brand, size: 20),
                 SizedBox(width: 8),
                 Expanded(
-                    child: Text('Inside FakeMaya Wallet',
+                    child: Text('Inside Wallet',
                         style: TextStyle(
                             color: _title,
                             fontSize: 15,
@@ -4334,7 +4323,7 @@ class _WalletAllocationsCard extends StatelessWidget {
             Row(
               children: [
                 const Expanded(
-                    child: Text('Full FakeMaya Wallet balance',
+                    child: Text('Full Wallet balance',
                         style: TextStyle(
                             color: _body,
                             fontSize: 11,
@@ -4347,13 +4336,13 @@ class _WalletAllocationsCard extends StatelessWidget {
               ],
             ),
           ],
-          if (accountName == 'FakeMaya Savings') ...[
+          if (accountName == 'Savings') ...[
             const Row(
               children: [
                 Icon(Icons.savings_rounded, color: _amber, size: 20),
                 SizedBox(width: 8),
                 Expanded(
-                    child: Text('Inside FakeMaya Savings',
+                    child: Text('Inside Savings',
                         style: TextStyle(
                             color: _title,
                             fontSize: 15,
@@ -4362,7 +4351,7 @@ class _WalletAllocationsCard extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Emergency Fund is an earmarked portion of FakeMaya Savings—not a separate account or additional money.',
+              'Emergency Fund is an earmarked portion of Savings—not a separate account or additional money.',
               style: TextStyle(
                   color: _body,
                   fontSize: 11.5,
@@ -4416,7 +4405,7 @@ class _WalletAllocationsCard extends StatelessWidget {
             Row(
               children: [
                 const Expanded(
-                    child: Text('Full FakeMaya Savings balance',
+                    child: Text('Full Savings balance',
                         style: TextStyle(
                             color: _body,
                             fontSize: 11,
@@ -4492,8 +4481,7 @@ class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = account.color;
-    final expandable =
-        account.name == 'FakeMaya Wallet' || account.name == 'FakeMaya Savings';
+    final expandable = account.name == 'Wallet' || account.name == 'Savings';
     return InkWell(
       onTap: expandable ? onTap : null,
       borderRadius: BorderRadius.circular(22),
@@ -7271,7 +7259,7 @@ class _EssentialExpensesActionPanelState
                       Text('Essential Expenses Fund',
                           style: TextStyle(
                               color: _title, fontWeight: FontWeight.w900)),
-                      Text('Earmarked inside FakeMaya Wallet',
+                      Text('Earmarked inside Wallet',
                           style: TextStyle(
                               color: _body,
                               fontSize: 10.5,
@@ -7482,7 +7470,7 @@ class _EmergencyFundIncomeActionPanelState
                       Text('Emergency Fund',
                           style: TextStyle(
                               color: _title, fontWeight: FontWeight.w900)),
-                      Text('Earmarked inside FakeMaya Savings',
+                      Text('Earmarked inside Savings',
                           style: TextStyle(
                               color: _body,
                               fontSize: 10.5,
@@ -8180,9 +8168,11 @@ class ProfilePage extends StatelessWidget {
       ),
       const _SettingData('Privacy & security', Icons.shield_outlined, ''),
       _SettingData(
-        'Linked accounts',
+        'Accounts',
         Icons.credit_card_outlined,
-        state.hasFakeMayaLink ? '1' : 'None',
+        state.fakeMayaSyncedAccounts.isEmpty
+            ? 'Manual'
+            : '${state.fakeMayaSyncedAccounts.length} synced',
         () => _push(context, const LinkedAccountsScreen()),
       ),
       const _SettingData('Appearance', Icons.palette_outlined, 'Light'),
@@ -8641,7 +8631,23 @@ class LinkedAccountsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final link = state.fakeMayaLink;
+    const accounts = [
+      (
+        'Cash on Hand',
+        Icons.payments_rounded,
+        _sage,
+        'Cash you enter manually'
+      ),
+      (
+        'Wallet',
+        Icons.account_balance_wallet_rounded,
+        _brand,
+        'Daily spending'
+      ),
+      ('Savings', Icons.savings_rounded, _amber, 'Savings balance'),
+      ('Time Deposit', Icons.lock_clock_rounded, _purple, 'Locked savings'),
+      ('Goal Savings', Icons.flag_rounded, Color(0xFF6AA8F0), 'Goal balance'),
+    ];
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -8649,9 +8655,9 @@ class LinkedAccountsScreen extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 24),
           children: [
             _SelectionsHeader(
-              title: 'Linked accounts',
+              title: 'Accounts',
               subtitle:
-                  'Connect wallets so Shellby can read balances for your plan.',
+                  'Keep accounts manual or sync selected balances with FakeMaya.',
               onBack: () => Navigator.maybePop(context),
             ),
             const SizedBox(height: 18),
@@ -8660,97 +8666,58 @@ class LinkedAccountsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  AppCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE6F8EE),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Icon(
-                                Icons.account_balance_wallet_rounded,
-                                color: Color(0xFF00A650),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'FakeMaya',
-                                    style: GoogleFonts.fredoka(
-                                      color: _title,
-                                      fontSize: 21,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Text(
-                                    link == null
-                                        ? 'Not linked'
-                                        : 'Linked as ${link.email}',
-                                    style: const TextStyle(
-                                      color: _body,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            _LinkStatusPill(linked: link != null),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        if (link == null) ...[
-                          const Text(
-                            'Log in to FakeMaya inside Shellby to connect your wallet, savings, time deposit, and goal balances.',
-                            style: TextStyle(
-                              color: _body,
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          PrimaryButton(
-                            label: 'Link account to FakeMaya',
-                            icon: Icons.link_rounded,
-                            onPressed: () => _showFakeMayaLogin(context),
-                          ),
-                        ] else ...[
-                          _FakeMayaBalanceGrid(summary: link.summary),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SecondaryButton(
-                                  label: 'Refresh',
-                                  icon: Icons.sync_rounded,
-                                  onPressed: () => _refreshFakeMaya(context),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: SecondaryButton(
-                                  label: 'Unlink',
-                                  icon: Icons.link_off_rounded,
-                                  onPressed: () => _unlinkFakeMaya(context),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: _bellySoft,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Manual mode always works. Log transactions from Activity to update a manual account. Sync only the accounts you want automated.',
+                      style: TextStyle(
+                        color: _body,
+                        height: 1.4,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                  if (link != null) ...[
-                    const SizedBox(height: 16),
-                    _FakeMayaAccountList(summary: link.summary),
+                  const SizedBox(height: 16),
+                  for (final account in accounts) ...[
+                    _AccountSourceCard(
+                      name: account.$1,
+                      icon: account.$2,
+                      color: account.$3,
+                      description: account.$4,
+                      balance: state.accountBalance(account.$1),
+                      synced: state.isAccountSynced(account.$1),
+                      canSync: account.$1 != 'Cash on Hand',
+                      onManual: () =>
+                          state.setAccountFakeMayaSync(account.$1, false),
+                      onSync: () => _syncAccount(context, account.$1),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (state.fakeMayaLink != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SecondaryButton(
+                            label: 'Refresh synced',
+                            icon: Icons.sync_rounded,
+                            onPressed: () => _refreshFakeMaya(context),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SecondaryButton(
+                            label: 'Disconnect',
+                            icon: Icons.link_off_rounded,
+                            onPressed: () => _unlinkFakeMaya(context),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ],
               ),
@@ -8761,13 +8728,17 @@ class LinkedAccountsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _showFakeMayaLogin(BuildContext context) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _FakeMayaLoginSheet(),
-    );
+  Future<void> _syncAccount(BuildContext context, String account) async {
+    final state = AppScope.of(context);
+    if (state.fakeMayaLink != null) {
+      await state.setAccountFakeMayaSync(account, true);
+      return;
+    }
+    await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _FakeMayaLoginSheet(syncOnlyAccount: account));
   }
 
   Future<void> _refreshFakeMaya(BuildContext context) async {
@@ -8805,8 +8776,105 @@ class LinkedAccountsScreen extends StatelessWidget {
   }
 }
 
+class _AccountSourceCard extends StatelessWidget {
+  const _AccountSourceCard({
+    required this.name,
+    required this.icon,
+    required this.color,
+    required this.description,
+    required this.balance,
+    required this.synced,
+    required this.canSync,
+    required this.onManual,
+    required this.onSync,
+  });
+
+  final String name;
+  final IconData icon;
+  final Color color;
+  final String description;
+  final double balance;
+  final bool synced;
+  final bool canSync;
+  final VoidCallback onManual;
+  final VoidCallback onSync;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              IconBubble(icon,
+                  color: color, background: color.withValues(alpha: .1)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w900)),
+                    Text(description,
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              Text(money(balance),
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ChoiceChip(
+                  selected: !synced,
+                  label: const Text('Manual'),
+                  avatar: const Icon(Icons.edit_rounded, size: 16),
+                  onSelected: (_) => onManual(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ChoiceChip(
+                  selected: synced,
+                  label: Text(canSync ? 'Sync' : 'Manual only'),
+                  avatar: Icon(
+                    canSync ? Icons.sync_rounded : Icons.lock_outline_rounded,
+                    size: 16,
+                  ),
+                  onSelected: canSync ? (_) => onSync() : null,
+                ),
+              ),
+            ],
+          ),
+          if (synced) ...[
+            const SizedBox(height: 8),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Automatically updated from FakeMaya',
+                style: TextStyle(
+                    color: _sage, fontSize: 10, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _FakeMayaLoginSheet extends StatefulWidget {
-  const _FakeMayaLoginSheet();
+  const _FakeMayaLoginSheet({this.syncOnlyAccount});
+
+  final String? syncOnlyAccount;
 
   @override
   State<_FakeMayaLoginSheet> createState() => _FakeMayaLoginSheetState();
@@ -8936,6 +9004,8 @@ class _FakeMayaLoginSheetState extends State<_FakeMayaLoginSheet> {
       await AppScope.of(context).linkFakeMayaAccount(
         email: _email.text,
         password: _password.text,
+        syncedAccounts:
+            widget.syncOnlyAccount == null ? null : [widget.syncOnlyAccount!],
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -10012,7 +10082,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.arrow_downward_rounded,
         _brand,
         age: tx.age,
-        source: tx.account ?? 'FakeMaya Wallet',
+        source: tx.account ?? 'Wallet',
         transaction: tx,
       );
     }
@@ -10024,7 +10094,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.arrow_upward_rounded,
         _red,
         age: tx.age,
-        source: tx.account ?? 'FakeMaya Wallet',
+        source: tx.account ?? 'Wallet',
         transaction: tx,
       );
     }
@@ -10038,7 +10108,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.savings_rounded,
         _purple,
         age: tx.age,
-        source: tx.account ?? 'FakeMaya Wallet',
+        source: tx.account ?? 'Wallet',
         transaction: tx,
       );
     }
@@ -10049,7 +10119,7 @@ class _ActivityPageState extends State<ActivityPage> {
       amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
       amount >= 0 ? _brand : _red,
       age: tx.age,
-      source: tx.account ?? 'FakeMaya Wallet',
+      source: tx.account ?? 'Wallet',
       transaction: tx,
     );
   }
@@ -10708,6 +10778,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   final _amount = TextEditingController();
   final _note = TextEditingController();
   bool _moneyIn = false;
+  String _account = 'Cash on Hand';
   String? _category;
   String? _source;
   DateTime _occurredAt = DateTime.now();
@@ -10724,24 +10795,43 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     final categories = _moneyIn ? _incomeCategories : _expenseCategories;
+    final accounts = [
+      'Cash on Hand',
+      for (final account in const [
+        'Wallet',
+        'Savings',
+        'Time Deposit',
+        'Goal Savings',
+      ])
+        if (!state.isAccountSynced(account)) account,
+    ];
+    if (!accounts.contains(_account)) _account = accounts.first;
     return _GoalSheetFrame(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Log cash transaction',
+            'Log transaction',
             style: GoogleFonts.fredoka(
               color: _title,
               fontSize: 24,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Account: Cash on Hand',
-            style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _account,
+            decoration: inputDecoration('Choose an account').copyWith(
+              labelText: 'Account',
+            ),
+            items: accounts
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (value) => setState(() => _account = value ?? _account),
           ),
           const SizedBox(height: 16),
           SegmentedButton<bool>(
@@ -10892,6 +10982,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         category: category,
         source: source,
         note: _optionalManualText(_note.text),
+        account: _account,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -11053,7 +11144,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
           ),
           _TransactionDetailLine(
             label: 'Account',
-            value: transaction.account ?? 'FakeMaya Wallet',
+            value: transaction.account ?? 'Wallet',
           ),
           _TransactionDetailLine(
             label: transaction.title.toLowerCase().contains('cash in')

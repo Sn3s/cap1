@@ -85,6 +85,13 @@ class AppState extends ChangeNotifier {
   bool stressIndicatorsEnabled = false;
   FakeMayaLink? fakeMayaLink;
   double cashOnHandBalance = 0;
+  final Map<String, double> manualAccountBalances = {
+    'Wallet': 0,
+    'Savings': 0,
+    'Time Deposit': 0,
+    'Goal Savings': 0,
+  };
+  final Set<String> fakeMayaSyncedAccounts = {};
   final List<FakeMayaTransaction> manualTransactions = [];
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
   final Map<String, String> planAdjustmentActions = {};
@@ -108,11 +115,13 @@ class AppState extends ChangeNotifier {
       ? null
       : DateTime.tryParse(_lastEfWithdrawalStr!);
 
-  double get emergencyMonthsCovered =>
-      expenses <= 0 ? 0 : emergencyFundBalance / expenses;
+  double get emergencyMonthsCovered => monthlyEssentialExpenseTotal <= 0
+      ? 0
+      : emergencyFundBalance / monthlyEssentialExpenseTotal;
 
-  double get emergencyFundTarget =>
-      math.max(30000, expenses * 3); // 3 months of expenses
+  double get emergencyFundTarget => monthlyEssentialExpenseTotal > 0
+      ? monthlyEssentialExpenseTotal * 3
+      : math.max(30000, expenses * 3);
 
   final List<Map<String, dynamic>> d1Ledger = [];
   final Set<String> trackingVariables = {
@@ -138,8 +147,27 @@ class AppState extends ChangeNotifier {
   bool get hasFakeMayaLink => fakeMayaLink != null;
   List<FakeMayaTransaction> get allTransactions => [
         ...manualTransactions,
-        ...?fakeMayaLink?.summary.transactions,
+        if (fakeMayaSyncedAccounts.contains('Wallet'))
+          ...?fakeMayaLink?.summary.transactions,
       ];
+
+  double accountBalance(String account) {
+    final summary = fakeMayaLink?.summary;
+    if (fakeMayaSyncedAccounts.contains(account) && summary != null) {
+      return switch (account) {
+        'Wallet' => summary.wallet,
+        'Savings' => summary.savings,
+        'Time Deposit' => summary.timeDeposit,
+        'Goal Savings' => summary.goalBalance,
+        _ => 0,
+      };
+    }
+    if (account == 'Cash on Hand') return cashOnHandBalance;
+    return manualAccountBalances[account] ?? 0;
+  }
+
+  bool isAccountSynced(String account) =>
+      fakeMayaLink != null && fakeMayaSyncedAccounts.contains(account);
   bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
   double get bufferMonthsCovered =>
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
@@ -151,8 +179,7 @@ class AppState extends ChangeNotifier {
           : income > 0
               ? income * 0.7
               : 10000;
-  double get safetyShieldBalance =>
-      hasFakeMayaLink ? (fakeMayaLink!.summary.savings) : shieldTrackedBalance;
+  double get safetyShieldBalance => accountBalance('Savings');
   double get safetyShieldTarget =>
       safetyShieldMonthlyBase * math.max(1, safetyShieldTargetMonths);
   double get safetyShieldMonthsCovered => safetyShieldMonthlyBase <= 0
@@ -180,17 +207,24 @@ class AppState extends ChangeNotifier {
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
   double get unallocatedFakeMayaWallet => math.max(
         0,
-        (fakeMayaLink?.summary.wallet ?? 0) -
+        accountBalance('Wallet') -
             essentialExpensesBalance -
             billsObligationsBalance,
       );
   double get unallocatedFakeMayaSavings => math.max(
         0,
-        (fakeMayaLink?.summary.savings ?? 0) - displayedEmergencyFundBalance,
+        accountBalance('Savings') - displayedEmergencyFundBalance,
       );
 
   double get totalAssets =>
-      cashOnHandBalance + assets.fold(0, (sum, item) => sum + item.value);
+      accountBalance('Cash on Hand') +
+      accountBalance('Wallet') +
+      accountBalance('Savings') +
+      accountBalance('Time Deposit') +
+      accountBalance('Goal Savings') +
+      assets
+          .where((item) => !item.description.contains('FakeMaya'))
+          .fold(0, (sum, item) => sum + item.value);
   double get totalLiabilities =>
       liabilities.fold(0, (sum, item) => sum + item.value);
   double get netWorth => totalAssets - totalLiabilities;
@@ -409,20 +443,26 @@ class AppState extends ChangeNotifier {
     photoUrl = user.photoURL;
   }
 
-  void _applyReflectionDemoProfile(User user) {
+  void seedReflectionDemoDataForTesting() {
+    _applyReflectionDemoProfile(null);
+  }
+
+  void _applyReflectionDemoProfile(User? user) {
     name = 'Reflection Demo';
-    email = user.email ?? 'reflection@test.com';
+    email = user?.email ?? 'reflection@test.com';
     primaryConcern = 'Cash Flow & Basic Needs';
     selectedGoalId = 'GOAL1C';
     selectedGoal = 'Irregular Income Buffer';
     selectedGoalDescription =
         'Maintain available cash with a two-jar plan for basic needs and buffer money across irregular income weeks.';
+    selectedGoalMonthlyTarget = 1350;
     selectedActionIds
       ..clear()
       ..addAll(const {'ACT1', 'ACT6'});
     onboardingComplete = true;
     confidence = 5;
-    incomeType = 'Irregular';
+    employmentStatus = 'Freelance';
+    incomeType = 'Variable';
     incomeRhythm = 'Irregular';
     billsRhythm = 'Clustered bill weeks';
     needsTarget = 9000;
@@ -430,8 +470,62 @@ class AppState extends ChangeNotifier {
     basicNeedsMonthlyTarget = 9000;
     basicNeedsAllocationPercent = .70;
     bufferAllocationPercent = .30;
+    income = 15800;
+    expenses = 6700;
+    variableExpenses = 2300;
+    savings = 1500;
     monthlySalary = 0;
-    irregularIncomeFloor = 4000;
+    irregularIncomeFloor = 15800;
+    onboardingIncomeLedger
+      ..clear()
+      ..add({
+        'name': 'Project client work',
+        'amount': 15800.0,
+        'stable': false,
+        'scheduled': false,
+        'payDay': null,
+      });
+    onboardingExpenseLedger
+      ..clear()
+      ..addAll([
+        {
+          'name': 'Rent share',
+          'amount': 4500.0,
+          'essential': true,
+          'scheduled': true,
+          'dueDay': 5,
+        },
+        {
+          'name': 'Utilities',
+          'amount': 2200.0,
+          'essential': true,
+          'scheduled': true,
+          'dueDay': 15,
+        },
+        {
+          'name': 'Food and drinks',
+          'amount': 1500.0,
+          'essential': true,
+          'scheduled': false,
+          'dueDay': null,
+        },
+        {
+          'name': 'Transport',
+          'amount': 800.0,
+          'essential': true,
+          'scheduled': false,
+          'dueDay': null,
+        },
+      ]);
+    onboardingBaselines
+      ..clear()
+      ..addAll({
+        'income_baseline': '15800.00',
+        'stable_income': '0.00',
+        'variable_income': '15800.00',
+        'monthly_expenses': '9000.00',
+        'essential_expenses': '9000.00',
+      });
     cashFlowExpenses
       ..clear()
       ..addAll([
@@ -587,6 +681,8 @@ class AppState extends ChangeNotifier {
     });
     needsBalance = needs;
     bufferBalance = buffer;
+    emergencyMonths =
+        emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
     fakeMayaLink = FakeMayaLink(
       userId: 'reflection-demo-fakemaya',
       email: 'reflection@test.com',
@@ -612,6 +708,9 @@ class AppState extends ChangeNotifier {
         updatedAt: today,
       ),
     );
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(manualAccountBalances.keys);
     _syncFakeMayaMoneyItems();
   }
 
@@ -693,6 +792,8 @@ class AppState extends ChangeNotifier {
       'shieldLedger': shieldLedger.map((e) => e.toMap()).toList(),
       'fakeMayaLink': fakeMayaLink?.toMap(),
       'cashOnHandBalance': cashOnHandBalance,
+      'manualAccountBalances': manualAccountBalances,
+      'fakeMayaSyncedAccounts': fakeMayaSyncedAccounts.toList()..sort(),
       'manualTransactions':
           manualTransactions.map((transaction) => transaction.toMap()).toList(),
       'transactionLabelRules': transactionLabelRules.map(
@@ -1035,6 +1136,23 @@ class AppState extends ChangeNotifier {
         fakeMayaData == null ? null : FakeMayaLink.fromMap(fakeMayaData);
     cashOnHandBalance =
         _doubleFrom(data['cashOnHandBalance'], cashOnHandBalance);
+    final savedManualBalances = _mapFrom(data['manualAccountBalances']);
+    if (savedManualBalances != null) {
+      for (final account in manualAccountBalances.keys) {
+        manualAccountBalances[account] =
+            _doubleFrom(savedManualBalances[account], 0);
+      }
+    }
+    final savedSyncedAccounts = data['fakeMayaSyncedAccounts'];
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(
+        savedSyncedAccounts is Iterable
+            ? savedSyncedAccounts.map((value) => value.toString())
+            : fakeMayaLink == null
+                ? const <String>[]
+                : manualAccountBalances.keys,
+      );
     final manualData = data['manualTransactions'];
     manualTransactions
       ..clear()
@@ -2204,12 +2322,16 @@ class AppState extends ChangeNotifier {
   Future<void> linkFakeMayaAccount({
     required String email,
     required String password,
+    Iterable<String>? syncedAccounts,
   }) async {
     final session = await FakeMayaService.signInWithEmail(
       email: email,
       password: password,
     );
     fakeMayaLink = FakeMayaLink.fromSession(session);
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(syncedAccounts ?? manualAccountBalances.keys);
     thirdPartyDataLinkingAllowed = true;
     automaticDataGatheringAllowed = true;
     _syncFakeMayaMoneyItems();
@@ -2341,10 +2463,12 @@ class AppState extends ChangeNotifier {
     String? subcategory,
     String? tag,
     String? note,
+    String account = 'Cash on Hand',
   }) async {
     if (amount == 0) return;
-    if (amount < 0 && amount.abs() > cashOnHandBalance) {
-      throw StateError('Not enough Cash on Hand for this transaction.');
+    final balance = accountBalance(account);
+    if (amount < 0 && amount.abs() > balance) {
+      throw StateError('Not enough money in $account for this transaction.');
     }
     final id = 'manual-${occurredAt.microsecondsSinceEpoch}';
     manualTransactions.add(
@@ -2357,22 +2481,40 @@ class AppState extends ChangeNotifier {
         createdAt: occurredAt,
         category: category,
         source: source,
-        account: 'Cash on Hand',
+        account: account,
         subcategory: subcategory,
         tag: tag,
         note: note,
         labeledAt: DateTime.now(),
       ),
     );
-    cashOnHandBalance += amount;
+    if (account == 'Cash on Hand') {
+      cashOnHandBalance += amount;
+    } else {
+      manualAccountBalances[account] =
+          (manualAccountBalances[account] ?? 0) + amount;
+    }
     if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 
   Future<void> unlinkFakeMayaAccount() async {
     fakeMayaLink = null;
+    fakeMayaSyncedAccounts.clear();
     _removeFakeMayaMoneyItems();
     await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> setAccountFakeMayaSync(String account, bool synced) async {
+    if (synced && fakeMayaLink == null) return;
+    if (synced) {
+      fakeMayaSyncedAccounts.add(account);
+    } else {
+      fakeMayaSyncedAccounts.remove(account);
+    }
+    _syncFakeMayaMoneyItems();
+    if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 
@@ -2380,14 +2522,18 @@ class AppState extends ChangeNotifier {
     _removeFakeMayaMoneyItems();
     final link = fakeMayaLink;
     if (link == null) return;
-    assets.addAll(link.summary.toMoneyItems());
-    savings = link.summary.savings +
-        link.summary.timeDeposit +
-        link.summary.goalBalance;
+    assets.addAll(
+      link.summary
+          .toMoneyItems()
+          .where((item) => fakeMayaSyncedAccounts.contains(item.name)),
+    );
+    savings = accountBalance('Savings') +
+        accountBalance('Time Deposit') +
+        accountBalance('Goal Savings');
   }
 
   void _removeFakeMayaMoneyItems() {
-    assets.removeWhere((item) => item.description == 'Linked from FakeMaya');
+    assets.removeWhere((item) => item.description.contains('FakeMaya'));
   }
 }
 
