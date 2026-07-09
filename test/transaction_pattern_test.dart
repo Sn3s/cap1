@@ -39,6 +39,7 @@ void main() {
     );
     final labeled = source.copyWithLabel(
       category: 'Salary',
+      source: 'Basic Needs Fund',
       subcategory: 'Main job',
       tag: 'Work',
       note: 'June payroll',
@@ -48,8 +49,33 @@ void main() {
 
     expect(source.patternKey, matching.patternKey);
     expect(recognized.category, 'Salary');
+    expect(recognized.source, 'Basic Needs Fund');
     expect(recognized.subcategory, 'Main job');
     expect(recognized.tag, 'Work');
     expect(recognized.note, isNull);
+  });
+
+  test('legacy labels gain a source when loaded', () {
+    final ordinary = FakeMayaTransaction.fromMap({
+      'title': 'Paid merchant',
+      'detail': 'To: Store',
+      'age': 'Seeded',
+      'amount': '- ₱500.00',
+      'category': 'Groceries',
+    });
+    final oldFundCategory = FakeMayaTransaction.fromMap({
+      'title': 'Paid merchant',
+      'detail': 'To: Clinic',
+      'age': 'Seeded',
+      'amount': '- ₱500.00',
+      'category': 'Emergency fund',
+    });
+
+    expect(ordinary.category, 'Groceries');
+    expect(ordinary.source, 'Basic Needs Fund');
+    expect(ordinary.isLabeled, isTrue);
+    expect(oldFundCategory.category, 'Other expense');
+    expect(oldFundCategory.source, 'Emergency Fund');
+    expect(oldFundCategory.isLabeled, isTrue);
   });
 }

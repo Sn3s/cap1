@@ -76,6 +76,7 @@ class AppState extends ChangeNotifier {
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
   bool notificationsAllowed = false;
+  final List<int> notificationReminderMinutes = [20 * 60];
   bool thirdPartyDataLinkingAllowed = false;
   bool automaticDataGatheringAllowed = false;
   bool personalDataConsent = false;
@@ -83,6 +84,8 @@ class AppState extends ChangeNotifier {
   bool emotionalLogsEnabled = false;
   bool stressIndicatorsEnabled = false;
   FakeMayaLink? fakeMayaLink;
+  double cashOnHandBalance = 0;
+  final List<FakeMayaTransaction> manualTransactions = [];
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
   final Map<String, String> planAdjustmentActions = {};
   final Map<String, double> anxietyCheckIns = {};
@@ -92,6 +95,7 @@ class AppState extends ChangeNotifier {
   final Map<String, Map<String, String>> actionFieldValues = {};
   final Map<String, double> categorySpendingBudgets = {};
   final Map<String, String> onboardingBaselines = {};
+  final List<Map<String, dynamic>> onboardingIncomeLedger = [];
   final List<Map<String, dynamic>> onboardingExpenseLedger = [];
 
   // ── D1 goal bucket balances ──────────────────────────────────────
@@ -132,6 +136,10 @@ class AppState extends ChangeNotifier {
 
   bool get isSignedIn => uid != null;
   bool get hasFakeMayaLink => fakeMayaLink != null;
+  List<FakeMayaTransaction> get allTransactions => [
+        ...manualTransactions,
+        ...?fakeMayaLink?.summary.transactions,
+      ];
   bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
   double get bufferMonthsCovered =>
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
@@ -181,7 +189,8 @@ class AppState extends ChangeNotifier {
         (fakeMayaLink?.summary.savings ?? 0) - displayedEmergencyFundBalance,
       );
 
-  double get totalAssets => assets.fold(0, (sum, item) => sum + item.value);
+  double get totalAssets =>
+      cashOnHandBalance + assets.fold(0, (sum, item) => sum + item.value);
   double get totalLiabilities =>
       liabilities.fold(0, (sum, item) => sum + item.value);
   double get netWorth => totalAssets - totalLiabilities;
@@ -457,7 +466,12 @@ class AppState extends ChangeNotifier {
       9: [('Meralco', 1900), ('Water', 680)],
       10: [('Clinic visit emergency', 1000), ('Internet', 1699)],
     };
-    const categories = ['Food & drink', 'Transport', 'Load', 'Basic needs'];
+    const categories = [
+      'Food & drink',
+      'Transport',
+      'Bills & utilities',
+      'Groceries',
+    ];
     for (var week = 0; week < 12; week++) {
       final base = weekStart.add(Duration(days: week * 7));
       final incomeAmount = incomePlan[week];
@@ -483,7 +497,8 @@ class AppState extends ChangeNotifier {
           detail: 'From: Project client',
           amount: incomeAmount,
           date: base.add(Duration(days: week.isEven ? 0 : 2)),
-          category: 'Income',
+          category: 'Business income',
+          source: 'Basic Needs Fund',
         ));
       }
       for (final bill in billPlan[week] ?? const <(String, double)>[]) {
@@ -523,6 +538,7 @@ class AppState extends ChangeNotifier {
           category: leaveUnclassified
               ? null
               : categories[(week + day) % categories.length],
+          source: leaveUnclassified ? null : 'Basic Needs Fund',
         ));
       }
     }
@@ -564,6 +580,7 @@ class AppState extends ChangeNotifier {
     required double amount,
     required DateTime date,
     String? category,
+    String? source,
   }) {
     return FakeMayaTransaction(
       id: id,
@@ -573,6 +590,7 @@ class AppState extends ChangeNotifier {
       amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
       createdAt: date,
       category: category,
+      source: source,
       labeledAt: category == null ? null : date.add(const Duration(hours: 2)),
     );
   }
@@ -606,6 +624,7 @@ class AppState extends ChangeNotifier {
       'selectedGoalDescription': selectedGoalDescription,
       'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
       'notificationsAllowed': notificationsAllowed,
+      'notificationReminderMinutes': notificationReminderMinutes,
       'thirdPartyDataLinkingAllowed': thirdPartyDataLinkingAllowed,
       'automaticDataGatheringAllowed': automaticDataGatheringAllowed,
       'personalDataConsent': personalDataConsent,
@@ -631,6 +650,9 @@ class AppState extends ChangeNotifier {
       'shieldTrackedBalance': shieldTrackedBalance,
       'shieldLedger': shieldLedger.map((e) => e.toMap()).toList(),
       'fakeMayaLink': fakeMayaLink?.toMap(),
+      'cashOnHandBalance': cashOnHandBalance,
+      'manualTransactions':
+          manualTransactions.map((transaction) => transaction.toMap()).toList(),
       'transactionLabelRules': transactionLabelRules.map(
         (key, value) => MapEntry(key, value.toMap()),
       ),
@@ -644,6 +666,7 @@ class AppState extends ChangeNotifier {
       'actionFieldValues': actionFieldValues,
       'categorySpendingBudgets': categorySpendingBudgets,
       'onboardingBaselines': onboardingBaselines,
+      'onboardingIncomeLedger': onboardingIncomeLedger,
       'onboardingExpenseLedger': onboardingExpenseLedger,
       'essentialExpensesBalance': essentialExpensesBalance,
       'billsObligationsBalance': billsObligationsBalance,
@@ -693,6 +716,7 @@ class AppState extends ChangeNotifier {
         'selectedGoalId': selectedGoalId,
         'actionFieldValues': actionFieldValues,
         'onboardingBaselines': onboardingBaselines,
+        'onboardingIncomeLedger': onboardingIncomeLedger,
         'onboardingExpenseLedger': onboardingExpenseLedger,
         'emotionalLogsEnabled': emotionalLogsEnabled,
         'stressIndicatorsEnabled': stressIndicatorsEnabled,
@@ -817,6 +841,15 @@ class AppState extends ChangeNotifier {
           (entry) => MapEntry(entry.key, entry.value?.toString() ?? ''),
         ));
     }
+    final savedIncomeLedger =
+        data['onboardingIncomeLedger'] ?? planSetup['onboardingIncomeLedger'];
+    if (savedIncomeLedger is Iterable) {
+      onboardingIncomeLedger
+        ..clear()
+        ..addAll(savedIncomeLedger.whereType<Map>().map(
+              (entry) => Map<String, dynamic>.from(entry),
+            ));
+    }
     final savedExpenseLedger =
         data['onboardingExpenseLedger'] ?? planSetup['onboardingExpenseLedger'];
     if (savedExpenseLedger is Iterable) {
@@ -857,6 +890,24 @@ class AppState extends ChangeNotifier {
     notificationsAllowed = data['notificationsAllowed'] as bool? ??
         permissionsAndConsent['notificationsAllowed'] as bool? ??
         notificationsAllowed;
+    final reminderData = data['notificationReminderMinutes'];
+    if (reminderData is List) {
+      notificationReminderMinutes
+        ..clear()
+        ..addAll(
+          reminderData
+              .whereType<num>()
+              .map((value) => value.toInt().clamp(0, 1439))
+              .toSet(),
+        )
+        ..sort();
+    }
+    unawaited(
+      notificationsAllowed
+          ? ShellbyNotificationService.instance
+              .scheduleDailyReminders(notificationReminderMinutes)
+          : ShellbyNotificationService.instance.cancelReminders(),
+    );
     thirdPartyDataLinkingAllowed =
         data['thirdPartyDataLinkingAllowed'] as bool? ??
             permissionsAndConsent['thirdPartyDataLinkingAllowed'] as bool? ??
@@ -940,6 +991,20 @@ class AppState extends ChangeNotifier {
     final fakeMayaData = _mapFrom(data['fakeMayaLink']);
     fakeMayaLink =
         fakeMayaData == null ? null : FakeMayaLink.fromMap(fakeMayaData);
+    cashOnHandBalance =
+        _doubleFrom(data['cashOnHandBalance'], cashOnHandBalance);
+    final manualData = data['manualTransactions'];
+    manualTransactions
+      ..clear()
+      ..addAll(
+        manualData is List
+            ? manualData
+                .whereType<Map>()
+                .map((item) => FakeMayaTransaction.fromMap(
+                      Map<String, dynamic>.from(item),
+                    ))
+            : const <FakeMayaTransaction>[],
+      );
     final labelRuleData = _mapFrom(data['transactionLabelRules']);
     transactionLabelRules.clear();
     if (labelRuleData != null) {
@@ -969,8 +1034,7 @@ class AppState extends ChangeNotifier {
             ) ??
             const {},
       );
-    for (final transaction
-        in fakeMayaLink?.summary.transactions ?? <FakeMayaTransaction>[]) {
+    for (final transaction in allTransactions) {
       if (transaction.isLabeled && !transaction.excludedFromInsights) {
         transactionLabelRules.putIfAbsent(
           transaction.patternKey,
@@ -1100,6 +1164,7 @@ class AppState extends ChangeNotifier {
     selectedActionIds.clear();
     actionFieldValues.clear();
     onboardingBaselines.clear();
+    onboardingIncomeLedger.clear();
     onboardingExpenseLedger.clear();
     emotionalLogsEnabled = false;
     stressIndicatorsEnabled = false;
@@ -1163,7 +1228,7 @@ class AppState extends ChangeNotifier {
         .where((transaction) {
       final date = transaction.createdAt ?? transaction.labeledAt;
       return transaction.amount < 0 &&
-          transaction.category?.trim().toLowerCase() == 'emergency fund' &&
+          transaction.source?.trim().toLowerCase() == 'emergency fund' &&
           !recordedIds.contains(transaction.transactionId) &&
           (replenishedAt == null ||
               date == null ||
@@ -1354,6 +1419,43 @@ class AppState extends ChangeNotifier {
     notificationsAllowed = notificationGranted;
     thirdPartyDataLinkingAllowed = true;
     automaticDataGatheringAllowed = true;
+    notifyListeners();
+  }
+
+  Future<bool> enableTransactionReminders() async {
+    final granted =
+        await ShellbyNotificationService.instance.requestPermission();
+    notificationsAllowed = granted;
+    if (granted) {
+      await ShellbyNotificationService.instance
+          .scheduleDailyReminders(notificationReminderMinutes);
+    }
+    if (isSignedIn) await saveProfile();
+    notifyListeners();
+    return granted;
+  }
+
+  Future<void> setTransactionRemindersEnabled(bool enabled) async {
+    if (enabled) {
+      await enableTransactionReminders();
+      return;
+    }
+    notificationsAllowed = false;
+    await ShellbyNotificationService.instance.cancelReminders();
+    if (isSignedIn) await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> setNotificationReminderTimes(List<int> minutes) async {
+    notificationReminderMinutes
+      ..clear()
+      ..addAll(minutes.map((value) => value.clamp(0, 1439)).toSet())
+      ..sort();
+    if (notificationsAllowed) {
+      await ShellbyNotificationService.instance
+          .scheduleDailyReminders(notificationReminderMinutes);
+    }
+    if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 
@@ -2107,11 +2209,35 @@ class AppState extends ChangeNotifier {
   Future<void> labelFakeMayaTransaction({
     required String transactionId,
     required String category,
+    required String source,
     String? subcategory,
     String? tag,
     String? note,
     bool excludedFromInsights = false,
   }) async {
+    final manualIndex = manualTransactions.indexWhere(
+      (transaction) => transaction.transactionId == transactionId,
+    );
+    if (manualIndex >= 0) {
+      final labeled = manualTransactions[manualIndex].copyWithLabel(
+        category: category,
+        source: source,
+        subcategory: subcategory,
+        tag: tag,
+        note: note,
+        excludedFromInsights: excludedFromInsights,
+      );
+      manualTransactions[manualIndex] = labeled;
+      if (excludedFromInsights) {
+        transactionLabelRules.remove(labeled.patternKey);
+      } else {
+        transactionLabelRules[labeled.patternKey] =
+            TransactionLabelRule.fromTransaction(labeled);
+      }
+      if (isSignedIn) await saveProfile();
+      notifyListeners();
+      return;
+    }
     final link = fakeMayaLink;
     if (link == null) return;
     final target = link.summary.transactions
@@ -2120,6 +2246,7 @@ class AppState extends ChangeNotifier {
     if (target == null) return;
     final labeledTarget = target.copyWithLabel(
       category: category,
+      source: source,
       subcategory: subcategory,
       tag: tag,
       note: note,
@@ -2146,8 +2273,8 @@ class AppState extends ChangeNotifier {
       expiresAt: link.expiresAt,
       summary: link.summary.copyWith(transactions: transactions),
     );
-    // Auto-record bill when labeled "Basic Needs" in the two-jar goal.
-    if (category.trim().toLowerCase() == 'basic needs' &&
+    // Auto-record bills funded from Basic Needs in the two-jar goal.
+    if (source.trim().toLowerCase() == 'basic needs fund' &&
         selectedGoal == 'Irregular Income Buffer' &&
         needsTarget > 0 &&
         target.amount < 0) {
@@ -2159,6 +2286,44 @@ class AppState extends ChangeNotifier {
       return; // onBillEvent already calls saveProfile + notifyListeners
     }
     await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> addManualCashTransaction({
+    required String title,
+    required String detail,
+    required double amount,
+    required DateTime occurredAt,
+    required String category,
+    required String source,
+    String? subcategory,
+    String? tag,
+    String? note,
+  }) async {
+    if (amount == 0) return;
+    if (amount < 0 && amount.abs() > cashOnHandBalance) {
+      throw StateError('Not enough Cash on Hand for this transaction.');
+    }
+    final id = 'manual-${occurredAt.microsecondsSinceEpoch}';
+    manualTransactions.add(
+      FakeMayaTransaction(
+        id: id,
+        title: title.trim(),
+        detail: detail.trim().isEmpty ? 'Manual entry' : detail.trim(),
+        age: 'Just now',
+        amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
+        createdAt: occurredAt,
+        category: category,
+        source: source,
+        account: 'Cash on Hand',
+        subcategory: subcategory,
+        tag: tag,
+        note: note,
+        labeledAt: DateTime.now(),
+      ),
+    );
+    cashOnHandBalance += amount;
+    if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 
@@ -2187,12 +2352,14 @@ class AppState extends ChangeNotifier {
 class TransactionLabelRule {
   const TransactionLabelRule({
     required this.category,
+    required this.source,
     this.subcategory,
     this.tag,
     this.note,
   });
 
   final String category;
+  final String source;
   final String? subcategory;
   final String? tag;
   final String? note;
@@ -2202,6 +2369,7 @@ class TransactionLabelRule {
   ) {
     return TransactionLabelRule(
       category: transaction.category!,
+      source: transaction.source ?? 'Basic Needs Fund',
       subcategory: transaction.subcategory,
       tag: transaction.tag,
     );
@@ -2210,6 +2378,7 @@ class TransactionLabelRule {
   FakeMayaTransaction applyTo(FakeMayaTransaction transaction) {
     return transaction.copyWithLabel(
       category: category,
+      source: source,
       subcategory: subcategory,
       tag: tag,
     );
@@ -2217,6 +2386,7 @@ class TransactionLabelRule {
 
   Map<String, dynamic> toMap() => {
         'category': category,
+        'source': source,
         'subcategory': subcategory,
         'tag': tag,
         'note': note,
@@ -2225,6 +2395,7 @@ class TransactionLabelRule {
   factory TransactionLabelRule.fromMap(Map<String, dynamic> data) {
     return TransactionLabelRule(
       category: data['category'] as String? ?? 'Other expense',
+      source: data['source'] as String? ?? 'Basic Needs Fund',
       subcategory: data['subcategory'] as String?,
       tag: data['tag'] as String?,
       note: data['note'] as String?,

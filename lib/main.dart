@@ -8,12 +8,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
 import 'firebase_options.dart';
 
@@ -26,12 +30,14 @@ part 'features/preparation/preparation_screens.dart';
 part 'services/fakemaya_service.dart';
 part 'services/firebase_profile_service.dart';
 part 'services/integration_service.dart';
+part 'services/notification_service.dart';
 part 'services/shellby_ai_coach.dart';
 part 'shared/widgets/shared_widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await ShellbyNotificationService.instance.initialize();
   runApp(const ShellbyApp());
 }
 

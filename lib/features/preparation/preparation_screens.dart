@@ -394,7 +394,8 @@ class GuidedOption {
 
 // D1 goals (from D1.csv)
 class D1Goal {
-  const D1Goal({required this.id, required this.title, required this.description});
+  const D1Goal(
+      {required this.id, required this.title, required this.description});
   final String id;
   final String title;
   final String description;
@@ -402,7 +403,11 @@ class D1Goal {
 
 // D2 action configurable fields
 class ActionField {
-  const ActionField({required this.key, required this.label, required this.hint, this.isPercent = false});
+  const ActionField(
+      {required this.key,
+      required this.label,
+      required this.hint,
+      this.isPercent = false});
   final String key;
   final String label;
   final String hint;
@@ -425,16 +430,22 @@ List<String> _recommendationsForField(ActionField field) {
         .toSet()
         .toList();
   }
-  return [example, example * 2, example * 3].map((value) => value.toString()).toList();
+  return [example, example * 2, example * 3]
+      .map((value) => value.toString())
+      .toList();
 }
 
 String? _actionFieldError(ActionField field, String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) return 'Choose or enter a value.';
   if (field.key == 'freq') {
-    if (RegExp(r'^(weekly|monthly)$', caseSensitive: false).hasMatch(trimmed)) return null;
-    final match = RegExp(r'^every\s+(\d+)\s+(days?|weeks?|months?)$', caseSensitive: false).firstMatch(trimmed);
-    if (match == null) return 'Use Weekly, Monthly, or “Every N days/weeks/months.”';
+    if (RegExp(r'^(weekly|monthly)$', caseSensitive: false).hasMatch(trimmed))
+      return null;
+    final match = RegExp(r'^every\s+(\d+)\s+(days?|weeks?|months?)$',
+            caseSensitive: false)
+        .firstMatch(trimmed);
+    if (match == null)
+      return 'Use Weekly, Monthly, or “Every N days/weeks/months.”';
     final count = int.parse(match.group(1)!);
     final unit = match.group(2)!.toLowerCase();
     final maximum = unit.startsWith('day') ? 30 : 12;
@@ -444,11 +455,15 @@ String? _actionFieldError(ActionField field, String value) {
   }
   final number = double.tryParse(trimmed.replaceAll(',', ''));
   if (number == null) return 'Enter a number.';
-  if (field.isPercent && (number < 1 || number > 100)) return 'Use a percentage from 1 to 100.';
-  if (field.key == 'days' && (number < 1 || number > 30 || number != number.roundToDouble())) {
+  if (field.isPercent && (number < 1 || number > 100))
+    return 'Use a percentage from 1 to 100.';
+  if (field.key == 'days' &&
+      (number < 1 || number > 30 || number != number.roundToDouble())) {
     return 'Use a whole number from 1 to 30 days.';
   }
-  if (!field.isPercent && field.key != 'days' && (number < 100 || number > 1000000)) {
+  if (!field.isPercent &&
+      field.key != 'days' &&
+      (number < 100 || number > 1000000)) {
     return 'Use an amount from ₱100 to ₱1,000,000.';
   }
   return null;
@@ -463,7 +478,8 @@ String _fieldValueLabel(ActionField field, String value) {
 
 // D2 action (from D2.csv)
 class D2Action {
-  const D2Action({required this.id, required this.text, this.fields = const []});
+  const D2Action(
+      {required this.id, required this.text, this.fields = const []});
   final String id;
   final String text;
   final List<ActionField> fields;
@@ -671,14 +687,45 @@ const _goalBranches = [
 
 // D1: goals G1-G8
 const _d1Goals = <D1Goal>[
-  D1Goal(id: 'G1', title: 'Maintain Available Cash', description: 'Have and maintain enough available cash to cover expenses without financial stress.'),
-  D1Goal(id: 'G2', title: 'Stable Cash Flow', description: 'Maintain a stable cash flow even during months with irregular or changing income.'),
-  D1Goal(id: 'G3', title: 'Build Emergency Fund', description: 'Build an emergency fund that can cover unexpected expenses.'),
-  D1Goal(id: 'G4', title: 'Pay Bills on Time', description: 'Keep all bills, payments, and financial obligations paid on time to avoid penalties and disruptions.'),
-  D1Goal(id: 'G5', title: 'Grow Investments', description: 'Have a growing investment portfolio that steadily builds wealth over time.'),
-  D1Goal(id: 'G6', title: 'Reduce Debt', description: 'Have total debt that steadily decreases over time.'),
-  D1Goal(id: 'G7', title: 'Milestone Savings', description: 'Have dedicated savings for specific milestones and experiences, each with a clear target amount and timeline.'),
-  D1Goal(id: 'G8', title: 'Lifestyle Fund', description: 'Consistently have money set aside for personal lifestyle activities, hobbies, and everyday enjoyment.'),
+  D1Goal(
+      id: 'G1',
+      title: 'Maintain Available Cash',
+      description:
+          'Have and maintain enough available cash to cover expenses without financial stress.'),
+  D1Goal(
+      id: 'G2',
+      title: 'Stable Cash Flow',
+      description:
+          'Maintain a stable cash flow even during months with irregular or changing income.'),
+  D1Goal(
+      id: 'G3',
+      title: 'Build Emergency Fund',
+      description:
+          'Build an emergency fund that can cover unexpected expenses.'),
+  D1Goal(
+      id: 'G4',
+      title: 'Pay Bills on Time',
+      description:
+          'Keep all bills, payments, and financial obligations paid on time to avoid penalties and disruptions.'),
+  D1Goal(
+      id: 'G5',
+      title: 'Grow Investments',
+      description:
+          'Have a growing investment portfolio that steadily builds wealth over time.'),
+  D1Goal(
+      id: 'G6',
+      title: 'Reduce Debt',
+      description: 'Have total debt that steadily decreases over time.'),
+  D1Goal(
+      id: 'G7',
+      title: 'Milestone Savings',
+      description:
+          'Have dedicated savings for specific milestones and experiences, each with a clear target amount and timeline.'),
+  D1Goal(
+      id: 'G8',
+      title: 'Lifestyle Fund',
+      description:
+          'Consistently have money set aside for personal lifestyle activities, hobbies, and everyday enjoyment.'),
 ];
 
 // D1: motivation → goal IDs matrix
@@ -694,24 +741,167 @@ D1Goal _d1GoalById(String id) =>
 
 // D2: actions A1-A18
 const _d2Actions = <String, D2Action>{
-  'A1': D2Action(id: 'A1', text: 'Set aside X% of each income received into an Essential Expenses Fund.', fields: [ActionField(key: 'pct', label: 'Percentage of income', hint: 'e.g. 50', isPercent: true)]),
-  'A2': D2Action(id: 'A2', text: 'Spend no more than ₱X on discretionary purchases each month.', fields: [ActionField(key: 'amt', label: 'Monthly limit (₱)', hint: 'e.g. 5000')]),
-  'A3': D2Action(id: 'A3', text: 'Limit spending in selected categories to a maximum of ₱X per month.', fields: [ActionField(key: 'amt', label: 'Monthly limit per category (₱)', hint: 'e.g. 3000')]),
-  'A4': D2Action(id: 'A4', text: 'Set aside ₱X from each income received for upcoming bill and payment obligations.', fields: [ActionField(key: 'amt', label: 'Amount per income (₱)', hint: 'e.g. 2000')]),
-  'A5': D2Action(id: 'A5', text: 'Pay each scheduled bill or financial obligation at least X days before its due date.', fields: [ActionField(key: 'days', label: 'Days before due date', hint: 'e.g. 3')]),
-  'A6': D2Action(id: 'A6', text: 'Distribute X% of incoming income across separate spending and savings accounts immediately upon receipt.', fields: [ActionField(key: 'pct', label: 'Percentage of income', hint: 'e.g. 50', isPercent: true)]),
-  'A7': D2Action(id: 'A7', text: 'Allocate X% of unexpected income (bonuses, gifts, side income) toward essential expense reserves.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 20', isPercent: true)]),
-  'A8': D2Action(id: 'A8', text: 'Transfer X% of every income received into an Emergency Fund.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)]),
-  'A9': D2Action(id: 'A9', text: 'Deposit at least ₱X into the Emergency Fund every X days/weeks/months.', fields: [ActionField(key: 'amt', label: 'Minimum deposit (₱)', hint: 'e.g. 1000'), ActionField(key: 'freq', label: 'Frequency', hint: 'e.g. monthly')]),
-  'A10': D2Action(id: 'A10', text: 'Replenish withdrawn Emergency Fund amounts within X days after receiving income.', fields: [ActionField(key: 'days', label: 'Days to replenish', hint: 'e.g. 7')]),
-  'A11': D2Action(id: 'A11', text: 'Pay an additional X% above the minimum required debt payment each payment cycle.', fields: [ActionField(key: 'pct', label: 'Extra payment percentage', hint: 'e.g. 10', isPercent: true)]),
-  'A12': D2Action(id: 'A12', text: 'Invest X% of every income received into selected investment accounts.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)]),
-  'A13': D2Action(id: 'A13', text: 'Apply X% of unexpected income (bonuses, tax refunds, windfalls) toward outstanding debt or investment accounts.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 30', isPercent: true)]),
-  'A14': D2Action(id: 'A14', text: 'Transfer X% of unspent monthly funds toward debt repayment or investments at the end of each month.', fields: [ActionField(key: 'pct', label: 'Percentage', hint: 'e.g. 50', isPercent: true)]),
-  'A15': D2Action(id: 'A15', text: 'Increase investment contributions by ₱X upon receiving an income raise or additional income source.', fields: [ActionField(key: 'amt', label: 'Contribution increase (₱)', hint: 'e.g. 500')]),
-  'A16': D2Action(id: 'A16', text: 'Contribute ₱X or X% of income to each goal-based savings fund every payday.', fields: [ActionField(key: 'amt', label: 'Fixed amount (₱)', hint: 'e.g. 2000'), ActionField(key: 'pct', label: 'Or percentage (%)', hint: 'e.g. 10', isPercent: true)]),
-  'A17': D2Action(id: 'A17', text: 'Redirect X% of savings contributions toward the personal lifestyle fund from a lower-priority savings goal.', fields: [ActionField(key: 'pct', label: 'Percentage to redirect', hint: 'e.g. 20', isPercent: true)]),
-  'A18': D2Action(id: 'A18', text: 'Temporarily redirect X% of goal savings contributions toward accelerated debt repayment.', fields: [ActionField(key: 'pct', label: 'Percentage to redirect', hint: 'e.g. 25', isPercent: true)]),
+  'A1': D2Action(
+      id: 'A1',
+      text:
+          'Set aside X% of each income received into an Essential Expenses Fund.',
+      fields: [
+        ActionField(
+            key: 'pct',
+            label: 'Percentage of income',
+            hint: 'e.g. 50',
+            isPercent: true)
+      ]),
+  'A2': D2Action(
+      id: 'A2',
+      text: 'Spend no more than ₱X on discretionary purchases each month.',
+      fields: [
+        ActionField(key: 'amt', label: 'Monthly limit (₱)', hint: 'e.g. 5000')
+      ]),
+  'A3': D2Action(
+      id: 'A3',
+      text:
+          'Limit spending in selected categories to a maximum of ₱X per month.',
+      fields: [
+        ActionField(
+            key: 'amt',
+            label: 'Monthly limit per category (₱)',
+            hint: 'e.g. 3000')
+      ]),
+  'A4': D2Action(
+      id: 'A4',
+      text:
+          'Set aside ₱X from each income received for upcoming bill and payment obligations.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Amount per income (₱)', hint: 'e.g. 2000')
+      ]),
+  'A5': D2Action(
+      id: 'A5',
+      text:
+          'Pay each scheduled bill or financial obligation at least X days before its due date.',
+      fields: [
+        ActionField(key: 'days', label: 'Days before due date', hint: 'e.g. 3')
+      ]),
+  'A6': D2Action(
+      id: 'A6',
+      text:
+          'Distribute X% of incoming income across separate spending and savings accounts immediately upon receipt.',
+      fields: [
+        ActionField(
+            key: 'pct',
+            label: 'Percentage of income',
+            hint: 'e.g. 50',
+            isPercent: true)
+      ]),
+  'A7': D2Action(
+      id: 'A7',
+      text:
+          'Allocate X% of unexpected income (bonuses, gifts, side income) toward essential expense reserves.',
+      fields: [
+        ActionField(
+            key: 'pct', label: 'Percentage', hint: 'e.g. 20', isPercent: true)
+      ]),
+  'A8': D2Action(
+      id: 'A8',
+      text: 'Transfer X% of every income received into an Emergency Fund.',
+      fields: [
+        ActionField(
+            key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)
+      ]),
+  'A9': D2Action(
+      id: 'A9',
+      text:
+          'Deposit at least ₱X into the Emergency Fund every X days/weeks/months.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Minimum deposit (₱)', hint: 'e.g. 1000'),
+        ActionField(key: 'freq', label: 'Frequency', hint: 'e.g. monthly')
+      ]),
+  'A10': D2Action(
+      id: 'A10',
+      text:
+          'Replenish withdrawn Emergency Fund amounts within X days after receiving income.',
+      fields: [
+        ActionField(key: 'days', label: 'Days to replenish', hint: 'e.g. 7')
+      ]),
+  'A11': D2Action(
+      id: 'A11',
+      text:
+          'Pay an additional X% above the minimum required debt payment each payment cycle.',
+      fields: [
+        ActionField(
+            key: 'pct',
+            label: 'Extra payment percentage',
+            hint: 'e.g. 10',
+            isPercent: true)
+      ]),
+  'A12': D2Action(
+      id: 'A12',
+      text:
+          'Invest X% of every income received into selected investment accounts.',
+      fields: [
+        ActionField(
+            key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)
+      ]),
+  'A13': D2Action(
+      id: 'A13',
+      text:
+          'Apply X% of unexpected income (bonuses, tax refunds, windfalls) toward outstanding debt or investment accounts.',
+      fields: [
+        ActionField(
+            key: 'pct', label: 'Percentage', hint: 'e.g. 30', isPercent: true)
+      ]),
+  'A14': D2Action(
+      id: 'A14',
+      text:
+          'Transfer X% of unspent monthly funds toward debt repayment or investments at the end of each month.',
+      fields: [
+        ActionField(
+            key: 'pct', label: 'Percentage', hint: 'e.g. 50', isPercent: true)
+      ]),
+  'A15': D2Action(
+      id: 'A15',
+      text:
+          'Increase investment contributions by ₱X upon receiving an income raise or additional income source.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Contribution increase (₱)', hint: 'e.g. 500')
+      ]),
+  'A16': D2Action(
+      id: 'A16',
+      text:
+          'Contribute ₱X or X% of income to each goal-based savings fund every payday.',
+      fields: [
+        ActionField(key: 'amt', label: 'Fixed amount (₱)', hint: 'e.g. 2000'),
+        ActionField(
+            key: 'pct',
+            label: 'Or percentage (%)',
+            hint: 'e.g. 10',
+            isPercent: true)
+      ]),
+  'A17': D2Action(
+      id: 'A17',
+      text:
+          'Redirect X% of savings contributions toward the personal lifestyle fund from a lower-priority savings goal.',
+      fields: [
+        ActionField(
+            key: 'pct',
+            label: 'Percentage to redirect',
+            hint: 'e.g. 20',
+            isPercent: true)
+      ]),
+  'A18': D2Action(
+      id: 'A18',
+      text:
+          'Temporarily redirect X% of goal savings contributions toward accelerated debt repayment.',
+      fields: [
+        ActionField(
+            key: 'pct',
+            label: 'Percentage to redirect',
+            hint: 'e.g. 25',
+            isPercent: true)
+      ]),
 };
 
 // D2: goal → action IDs matrix
@@ -773,12 +963,65 @@ const _actionDataMatrix = <String, List<String>>{
   'A10': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D11', 'D19'],
   'A11': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D13', 'D15', 'D22'],
   'A12': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20', 'D22'],
-  'A13': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D13', 'D14', 'D15', 'D16', 'D17', 'D20', 'D24'],
-  'A14': ['D1', 'D4', 'D5', 'D7', 'D8', 'D9', 'D10', 'D13', 'D14', 'D15', 'D16', 'D20', 'D24'],
+  'A13': [
+    'D1',
+    'D4',
+    'D7',
+    'D8',
+    'D9',
+    'D10',
+    'D13',
+    'D14',
+    'D15',
+    'D16',
+    'D17',
+    'D20',
+    'D24'
+  ],
+  'A14': [
+    'D1',
+    'D4',
+    'D5',
+    'D7',
+    'D8',
+    'D9',
+    'D10',
+    'D13',
+    'D14',
+    'D15',
+    'D16',
+    'D20',
+    'D24'
+  ],
   'A15': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20', 'D22'],
-  'A16': ['D1', 'D3', 'D4', 'D7', 'D8', 'D9', 'D10', 'D12', 'D21', 'D23', 'D24'],
+  'A16': [
+    'D1',
+    'D3',
+    'D4',
+    'D7',
+    'D8',
+    'D9',
+    'D10',
+    'D12',
+    'D21',
+    'D23',
+    'D24'
+  ],
   'A17': ['D1', 'D3', 'D4', 'D7', 'D8', 'D9', 'D10', 'D12', 'D21'],
-  'A18': ['D1', 'D3', 'D4', 'D7', 'D8', 'D9', 'D10', 'D12', 'D13', 'D15', 'D21', 'D22'],
+  'A18': [
+    'D1',
+    'D3',
+    'D4',
+    'D7',
+    'D8',
+    'D9',
+    'D10',
+    'D12',
+    'D13',
+    'D15',
+    'D21',
+    'D22'
+  ],
 };
 
 class BaselineField {
@@ -790,23 +1033,67 @@ class BaselineField {
 }
 
 const _baselineFields = <String, BaselineField>{
-  'cash_balance': BaselineField('cash_balance', 'Initial available cash balance', 'Cash currently available across your wallet and spending accounts.'),
-  'monthly_expenses': BaselineField('monthly_expenses', 'Average monthly expenses', 'Your best current estimate; Shellby will refine it from later transactions.'),
-  'essential_expenses': BaselineField('essential_expenses', 'Average monthly essential expenses', 'Housing, food, utilities, transport, and other necessary costs.'),
-  'essential_balance': BaselineField('essential_balance', 'Essential Expenses Fund starting balance', 'What is already reserved for essentials.'),
-  'savings_balance': BaselineField('savings_balance', 'General savings starting balance', 'Savings outside your emergency and goal funds.'),
-  'discretionary_spend': BaselineField('discretionary_spend', 'Average monthly discretionary spending', 'Your usual monthly spending on wants and non-essential purchases.'),
-  'income_baseline': BaselineField('income_baseline', 'Typical income per payday', 'The normal amount that defines a regular payday versus unexpected income.'),
-  'categories': BaselineField('categories', 'Capped categories', 'Enter categories separated by commas, such as Dining, Shopping, Transport.', format: 'categories'),
-  'category_averages': BaselineField('category_averages', 'Average monthly spend per category', 'One per line using Category: amount, for example Dining: 3000.', format: 'category_amounts'),
-  'bills': BaselineField('bills', 'Bills and obligations', 'One per line using Bill | amount | YYYY-MM-DD.', format: 'bills'),
-  'emergency_balance': BaselineField('emergency_balance', 'Emergency Fund starting balance', 'The amount currently available for emergencies.'),
-  'emergency_target': BaselineField('emergency_target', 'Emergency Fund target', 'The full amount you want the fund to reach or return to.'),
-  'debt_balance': BaselineField('debt_balance', 'Total outstanding debt balance', 'The current unpaid balance across debts used by the selected actions.'),
-  'minimum_debt_payment': BaselineField('minimum_debt_payment', 'Minimum debt payment', 'The required payment each cycle.'),
-  'debt_cycle': BaselineField('debt_cycle', 'Debt payment cycle', 'Enter Weekly, Every 2 weeks, or Monthly.', format: 'cycle'),
-  'investment_balance': BaselineField('investment_balance', 'Investment starting balance', 'The current value of the investment accounts in this plan.'),
-  'goals': BaselineField('goals', 'Goal fund inventory', 'One per line: Goal | starting balance | target | YYYY-MM-DD | priority number.', format: 'goals'),
+  'cash_balance': BaselineField(
+      'cash_balance',
+      'Initial available cash balance',
+      'Cash currently available across your wallet and spending accounts.'),
+  'monthly_expenses': BaselineField(
+      'monthly_expenses',
+      'Average monthly expenses',
+      'Your best current estimate; Shellby will refine it from later transactions.'),
+  'essential_expenses': BaselineField(
+      'essential_expenses',
+      'Average monthly essential expenses',
+      'Housing, food, utilities, transport, and other necessary costs.'),
+  'essential_balance': BaselineField(
+      'essential_balance',
+      'Essential Expenses Fund starting balance',
+      'What is already reserved for essentials.'),
+  'savings_balance': BaselineField(
+      'savings_balance',
+      'General savings starting balance',
+      'Savings outside your emergency and goal funds.'),
+  'discretionary_spend': BaselineField(
+      'discretionary_spend',
+      'Average monthly discretionary spending',
+      'Your usual monthly spending on wants and non-essential purchases.'),
+  'income_baseline': BaselineField(
+      'income_baseline',
+      'Typical income per payday',
+      'The normal amount that defines a regular payday versus unexpected income.'),
+  'categories': BaselineField('categories', 'Capped categories',
+      'Enter categories separated by commas, such as Dining, Shopping, Transport.',
+      format: 'categories'),
+  'category_averages': BaselineField(
+      'category_averages',
+      'Average monthly spend per category',
+      'One per line using Category: amount, for example Dining: 3000.',
+      format: 'category_amounts'),
+  'bills': BaselineField('bills', 'Bills and obligations',
+      'One per line using Bill | amount | YYYY-MM-DD.',
+      format: 'bills'),
+  'emergency_balance': BaselineField(
+      'emergency_balance',
+      'Emergency Fund starting balance',
+      'The amount currently available for emergencies.'),
+  'emergency_target': BaselineField('emergency_target', 'Emergency Fund target',
+      'The full amount you want the fund to reach or return to.'),
+  'debt_balance': BaselineField(
+      'debt_balance',
+      'Total outstanding debt balance',
+      'The current unpaid balance across debts used by the selected actions.'),
+  'minimum_debt_payment': BaselineField('minimum_debt_payment',
+      'Minimum debt payment', 'The required payment each cycle.'),
+  'debt_cycle': BaselineField('debt_cycle', 'Debt payment cycle',
+      'Enter Weekly, Every 2 weeks, or Monthly.',
+      format: 'cycle'),
+  'investment_balance': BaselineField(
+      'investment_balance',
+      'Investment starting balance',
+      'The current value of the investment accounts in this plan.'),
+  'goals': BaselineField('goals', 'Goal fund inventory',
+      'One per line: Goal | starting balance | target | YYYY-MM-DD | priority number.',
+      format: 'goals'),
 };
 
 // Retained as documentation of the action-to-standing-variable model.
@@ -817,7 +1104,12 @@ const _actionBaselineMatrix = <String, List<String>>{
   'A3': ['categories', 'category_averages'],
   'A4': ['bills', 'cash_balance'],
   'A5': ['bills'],
-  'A6': ['cash_balance', 'essential_balance', 'savings_balance', 'income_baseline'],
+  'A6': [
+    'cash_balance',
+    'essential_balance',
+    'savings_balance',
+    'income_baseline'
+  ],
   'A7': ['income_baseline', 'essential_expenses'],
   'A8': ['emergency_balance', 'emergency_target', 'essential_expenses'],
   'A9': ['emergency_balance', 'emergency_target'],
@@ -825,13 +1117,17 @@ const _actionBaselineMatrix = <String, List<String>>{
   'A11': ['debt_balance', 'minimum_debt_payment', 'debt_cycle'],
   'A12': ['investment_balance', 'income_baseline'],
   'A13': ['debt_balance', 'investment_balance', 'income_baseline'],
-  'A14': ['monthly_expenses', 'cash_balance', 'debt_balance', 'investment_balance'],
+  'A14': [
+    'monthly_expenses',
+    'cash_balance',
+    'debt_balance',
+    'investment_balance'
+  ],
   'A15': ['income_baseline', 'investment_balance'],
   'A16': ['goals', 'income_baseline'],
   'A17': ['goals'],
   'A18': ['goals', 'debt_balance'],
 };
-
 
 // Each pathway has 3 steps: Surface (0), Situations/Reminders (1), Challenges (2).
 // Goal Focus and Action Selection are handled dynamically using D1/D2 data.
@@ -1668,12 +1964,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     return pathway.steps[0];
   }
 
-  bool get _isMultiSelectStep => stepIndex == 2 || stepIndex == 4 || stepIndex == 5;
+  bool get _isMultiSelectStep =>
+      stepIndex == 2 || stepIndex == 4 || stepIndex == 5;
 
   // Returns step with correct multiSelect flag for GuidedChatControls
   GuidedStep get _stepForControls {
     if (stepIndex == 2) {
-      return const GuidedStep(title: 'Actions', question: '', options: [], multiSelect: true);
+      return const GuidedStep(
+          title: 'Actions', question: '', options: [], multiSelect: true);
     }
     return _pathwayStep;
   }
@@ -1708,7 +2006,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     if (_cachedActionOptions != null) return _cachedActionOptions!;
     _cachedActionOptions = [
       for (final id in _goalActionIds[_selectedGoalId] ?? <String>[])
-        GuidedOption(label: id, text: _d2Actions[id]?.text ?? id, goalTitle: id),
+        GuidedOption(
+            label: id, text: _d2Actions[id]?.text ?? id, goalTitle: id),
     ];
     return _cachedActionOptions!;
   }
@@ -1761,14 +2060,18 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       error = '';
       controller.clear();
       messages.add(ChatMessage(true, typed));
-      messages.add(ChatMessage(false, 'Closest fit: ${_trimPeriod(option.text)}'));
+      messages
+          .add(ChatMessage(false, 'Closest fit: ${_trimPeriod(option.text)}'));
       if (stepIndex == 1) {
         _selectedGoalId = option.goalTitle;
         _cachedActionOptions = null;
         answers[1] = [option];
         _advanceFromStep();
       } else if (_isMultiSelectStep) {
-        answers[stepIndex] = [...answers[stepIndex] ?? <GuidedOption>[], option];
+        answers[stepIndex] = [
+          ...answers[stepIndex] ?? <GuidedOption>[],
+          option
+        ];
       } else {
         answers[stepIndex] = [option];
         _advanceFromStep();
@@ -1781,10 +2084,12 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     if (!canContinueMulti || isComplete) return;
     setState(() {
       final selected = answers[stepIndex] ?? <GuidedOption>[];
-      messages.add(ChatMessage(true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
+      messages.add(ChatMessage(
+          true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
       if (stepIndex == 2) {
         stepIndex = 3;
-        messages.add(ChatMessage(false, "Let's set the specifics for each action."));
+        messages.add(
+            ChatMessage(false, "Let's set the specifics for each action."));
       } else {
         _advanceFromStep();
       }
@@ -1795,7 +2100,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   void _commitCurrentStep() {
     final selected = answers[stepIndex] ?? <GuidedOption>[];
     if (selected.isEmpty) return;
-    messages.add(ChatMessage(true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
+    messages.add(
+        ChatMessage(true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
     _advanceFromStep();
   }
 
@@ -1803,11 +2109,13 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     switch (stepIndex) {
       case 0:
         stepIndex = 1;
-        messages.add(ChatMessage(false, 'Specify: Which goal would you like to focus on first?'));
+        messages.add(ChatMessage(
+            false, 'Specify: Which goal would you like to focus on first?'));
       case 1:
         stepIndex = 2;
         answers[2] = _actionSelectOptions();
-        messages.add(ChatMessage(false, 'Here are the recommended actions for your goal. Unselect any you want to skip, then confirm.'));
+        messages.add(ChatMessage(false,
+            'Here are the recommended actions for your goal. Unselect any you want to skip, then confirm.'));
       case 4:
         stepIndex = 5;
         messages.add(ChatMessage(false, pathway.steps[2].question));
@@ -1857,7 +2165,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       situations: _summaryList(answers[4] ?? <GuidedOption>[]),
       challenges: _summaryList(answers[5] ?? <GuidedOption>[]),
     );
-    messages.add(ChatMessage(false, "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
+    messages.add(ChatMessage(false,
+        "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
   }
 
   void resetGuidedChat() {
@@ -2059,7 +2368,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
 
   String _trimPeriod(String value) {
     final trimmed = value.trim();
-    return trimmed.endsWith('.') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+    return trimmed.endsWith('.')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
   }
 }
 
@@ -2089,10 +2400,14 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
     super.initState();
     recommendations = _recommendationsForField(widget.field);
     final recommendedIndex = recommendations.indexOf(widget.initialValue);
-    selectedIndex = recommendedIndex >= 0 ? recommendedIndex : (widget.initialValue.isEmpty ? 0 : 3);
-    customController = TextEditingController(text: selectedIndex == 3 ? widget.initialValue : '');
+    selectedIndex = recommendedIndex >= 0
+        ? recommendedIndex
+        : (widget.initialValue.isEmpty ? 0 : 3);
+    customController = TextEditingController(
+        text: selectedIndex == 3 ? widget.initialValue : '');
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.initialValue.isEmpty) widget.onChanged(recommendations.first);
+      if (mounted && widget.initialValue.isEmpty)
+        widget.onChanged(recommendations.first);
     });
   }
 
@@ -2104,17 +2419,22 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
 
   void _select(int index) {
     setState(() => selectedIndex = index);
-    widget.onChanged(index < 3 ? recommendations[index] : customController.text.trim());
+    widget.onChanged(
+        index < 3 ? recommendations[index] : customController.text.trim());
   }
 
   @override
   Widget build(BuildContext context) {
     final customValue = customController.text.trim();
-    final error = selectedIndex == 3 ? _actionFieldError(widget.field, customValue) : null;
+    final error = selectedIndex == 3
+        ? _actionFieldError(widget.field, customValue)
+        : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.field.label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: _body)),
+        Text(widget.field.label,
+            style: const TextStyle(
+                fontSize: 11, fontWeight: FontWeight.w800, color: _body)),
         const SizedBox(height: 6),
         for (var i = 0; i < recommendations.length; i++)
           RadioListTile<int>(
@@ -2126,7 +2446,8 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
             groupValue: selectedIndex,
             title: Text(
               '${_fieldValueLabel(widget.field, recommendations[i])}${i == 0 ? '  Recommended' : ''}',
-              style: const TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                  color: _title, fontSize: 12, fontWeight: FontWeight.w800),
             ),
             onChanged: (_) => _select(i),
           ),
@@ -2137,7 +2458,9 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
           activeColor: _brand,
           value: 3,
           groupValue: selectedIndex,
-          title: const Text('Enter my own', style: TextStyle(color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
+          title: const Text('Enter my own',
+              style: TextStyle(
+                  color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
           onChanged: (_) => _select(3),
         ),
         if (selectedIndex == 3)
@@ -2186,7 +2509,10 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
     _pageController = PageController();
     _values = [
       for (final action in widget.actions)
-        {for (final field in action.fields) field.key: _recommendationsForField(field).first},
+        {
+          for (final field in action.fields)
+            field.key: _recommendationsForField(field).first
+        },
     ];
   }
 
@@ -2210,7 +2536,8 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   void _confirm() {
     for (var i = 0; i < widget.actions.length; i++) {
       for (final field in widget.actions[i].fields) {
-        if (_actionFieldError(field, _values[i][field.key] ?? '') != null) return;
+        if (_actionFieldError(field, _values[i][field.key] ?? '') != null)
+          return;
       }
     }
     final values = <String, Map<String, String>>{};
@@ -2234,7 +2561,8 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
       children: [
         Text(
           '${_page + 1} / $total',
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _body),
+          style: const TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w700, color: _body),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -2260,13 +2588,15 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
                         Expanded(
                           child: ListView.separated(
                             itemCount: action.fields.length,
-                            separatorBuilder: (_, __) => const Divider(height: 20),
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 20),
                             itemBuilder: (context, fieldIndex) {
                               final field = action.fields[fieldIndex];
                               return ActionFieldSelector(
                                 field: field,
                                 initialValue: _values[i][field.key] ?? '',
-                                onChanged: (value) => _values[i][field.key] = value,
+                                onChanged: (value) =>
+                                    _values[i][field.key] = value,
                               );
                             },
                           ),
@@ -2282,7 +2612,9 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
         const SizedBox(height: 12),
         PrimaryButton(
           label: _page < total - 1 ? 'Next' : 'Confirm All',
-          icon: _page < total - 1 ? Icons.arrow_forward_rounded : Icons.check_rounded,
+          icon: _page < total - 1
+              ? Icons.arrow_forward_rounded
+              : Icons.check_rounded,
           onPressed: _goNext,
         ),
       ],
@@ -2992,7 +3324,9 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
     final dataIds = <String>{
       for (final action in actions) ...?_actionDataMatrix[action.id],
     };
-    final dataPoints = _planDataPoints.values.where((point) => dataIds.contains(point.id)).toList();
+    final dataPoints = _planDataPoints.values
+        .where((point) => dataIds.contains(point.id))
+        .toList();
     return OnboardingScaffold(
       phase: 7,
       title: 'Recommended plan.',
@@ -3013,12 +3347,24 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(state.primaryConcern, style: const TextStyle(color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
+                Text(state.primaryConcern,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900)),
                 const SizedBox(height: 5),
-                Text(branch.layerDescription, style: const TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700)),
+                Text(branch.layerDescription,
+                    style: const TextStyle(
+                        color: _body,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700)),
                 if (state.chatSurfaceSummary.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text('You shared: ${state.chatSurfaceSummary}', style: const TextStyle(color: _purple, height: 1.3, fontWeight: FontWeight.w800)),
+                  Text('You shared: ${state.chatSurfaceSummary}',
+                      style: const TextStyle(
+                          color: _purple,
+                          height: 1.3,
+                          fontWeight: FontWeight.w800)),
                 ],
               ],
             ),
@@ -3031,9 +3377,17 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${goal.id}: ${goal.title}', style: const TextStyle(color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
+                Text('${goal.id}: ${goal.title}',
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900)),
                 const SizedBox(height: 5),
-                Text(goal.description, style: const TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700)),
+                Text(goal.description,
+                    style: const TextStyle(
+                        color: _body,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -3045,8 +3399,12 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
             child: Column(
               children: [
                 for (var i = 0; i < actions.length; i++) ...[
-                  _PlanActionRow(action: actions[i], values: state.actionFieldValues[actions[i].id] ?? const {}),
-                  if (i < actions.length - 1) const Divider(height: 20, color: _border),
+                  _PlanActionRow(
+                      action: actions[i],
+                      values:
+                          state.actionFieldValues[actions[i].id] ?? const {}),
+                  if (i < actions.length - 1)
+                    const Divider(height: 20, color: _border),
                 ],
               ],
             ),
@@ -3059,20 +3417,30 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
             child: Wrap(
               spacing: 7,
               runSpacing: 7,
-              children: [for (final point in dataPoints) _PlanDataChip(point: point)],
+              children: [
+                for (final point in dataPoints) _PlanDataChip(point: point)
+              ],
             ),
           ),
           const SizedBox(height: 18),
-          const Text('How the plan will work', style: TextStyle(color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
+          const Text('How the plan will work',
+              style: TextStyle(
+                  color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 5),
-          const Text('For each selected action, here is what you do and what Shellby handles.', style: TextStyle(color: _body, height: 1.3, fontWeight: FontWeight.w700)),
+          const Text(
+              'For each selected action, here is what you do and what Shellby handles.',
+              style: TextStyle(
+                  color: _body, height: 1.3, fontWeight: FontWeight.w700)),
           const SizedBox(height: 10),
           for (var i = 0; i < actions.length; i++) ...[
             _ActionCollectionProcessCard(
               index: i + 1,
               action: actions[i],
               values: state.actionFieldValues[actions[i].id] ?? const {},
-              data: (_actionDataMatrix[actions[i].id] ?? const []).map((id) => _planDataPoints[id]).whereType<PlanDataPoint>().toList(),
+              data: (_actionDataMatrix[actions[i].id] ?? const [])
+                  .map((id) => _planDataPoints[id])
+                  .whereType<PlanDataPoint>()
+                  .toList(),
             ),
             const SizedBox(height: 10),
           ],
@@ -3104,8 +3472,10 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
 
 String _configuredActionText(D2Action action, Map<String, String> values) {
   if (action.id == 'A9') {
-    final amount = values['amt'] ?? _recommendationsForField(action.fields[0]).first;
-    final frequency = values['freq'] ?? _recommendationsForField(action.fields[1]).first;
+    final amount =
+        values['amt'] ?? _recommendationsForField(action.fields[0]).first;
+    final frequency =
+        values['freq'] ?? _recommendationsForField(action.fields[1]).first;
     final timing = frequency.toLowerCase().startsWith('every')
         ? frequency.toLowerCase()
         : frequency.toLowerCase() == 'weekly'
@@ -3123,7 +3493,11 @@ String _configuredActionText(D2Action action, Map<String, String> values) {
 }
 
 class _RecommendedPlanSection extends StatelessWidget {
-  const _RecommendedPlanSection({required this.number, required this.title, required this.icon, required this.child});
+  const _RecommendedPlanSection(
+      {required this.number,
+      required this.title,
+      required this.icon,
+      required this.child});
   final int number;
   final String title;
   final IconData icon;
@@ -3139,7 +3513,11 @@ class _RecommendedPlanSection extends StatelessWidget {
             children: [
               IconBubble(icon),
               const SizedBox(width: 10),
-              Text('$number. $title', style: const TextStyle(color: _title, fontSize: 17, fontWeight: FontWeight.w900)),
+              Text('$number. $title',
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900)),
             ],
           ),
           const SizedBox(height: 12),
@@ -3162,11 +3540,18 @@ class _PlanActionRow extends StatelessWidget {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: _brand.withValues(alpha: .12), borderRadius: BorderRadius.circular(8)),
-          child: Text(action.id, style: const TextStyle(color: _brand, fontSize: 11, fontWeight: FontWeight.w900)),
+          decoration: BoxDecoration(
+              color: _brand.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(8)),
+          child: Text(action.id,
+              style: const TextStyle(
+                  color: _brand, fontSize: 11, fontWeight: FontWeight.w900)),
         ),
         const SizedBox(width: 9),
-        Expanded(child: Text(_configuredActionText(action, values), style: const TextStyle(color: _title, height: 1.35, fontWeight: FontWeight.w800))),
+        Expanded(
+            child: Text(_configuredActionText(action, values),
+                style: const TextStyle(
+                    color: _title, height: 1.35, fontWeight: FontWeight.w800))),
       ],
     );
   }
@@ -3185,42 +3570,91 @@ class _PlanDataChip extends StatelessWidget {
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(color: color.withValues(alpha: .09), borderRadius: BorderRadius.circular(10), border: Border.all(color: color.withValues(alpha: .2))),
-      child: Text('${point.id} · ${point.label}', style: TextStyle(color: color, fontSize: 10.5, fontWeight: FontWeight.w800)),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: .2))),
+      child: Text('${point.id} · ${point.label}',
+          style: TextStyle(
+              color: color, fontSize: 10.5, fontWeight: FontWeight.w800)),
     );
   }
 }
 
 String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
-  final sourceLabels = data.where((point) => point.kind == 'Source').map((point) => point.label.toLowerCase()).take(3).join(', ');
+  final sourceLabels = data
+      .where((point) => point.kind == 'Source')
+      .map((point) => point.label.toLowerCase())
+      .take(3)
+      .join(', ');
   return switch (action.id) {
-    'A2' || 'A3' => 'Connect a financial account or log purchases, including the amount and category. Shellby only needs you to correct a category when it is wrong.',
-    'A5' => 'Add each bill, its due date, and payment amount. Mark it paid if Shellby cannot detect the payment automatically.',
-    'A9' => 'Choose the Emergency Fund account or bucket. Confirm a deposit when it is made outside a connected account.',
-    'A10' => 'Mark Emergency Fund withdrawals and confirm the income deposit that starts the replenishment window.',
-    'A11' || 'A13' || 'A18' => 'Connect or enter the relevant debt balances and payments, then confirm any extra payment Shellby cannot detect.',
-    'A12' || 'A14' || 'A15' => 'Connect or enter the investment account and confirm contributions that are not imported automatically.',
-    'A16' || 'A17' => 'Choose the goal fund, target date, and destination bucket, then confirm transfers that are not imported.',
-    _ => 'Connect an account or enter the activity needed for this rule: $sourceLabels. Confirm anything Shellby cannot import automatically.',
+    'A2' ||
+    'A3' =>
+      'Connect a financial account or log purchases, including the amount and category. Shellby only needs you to correct a category when it is wrong.',
+    'A5' =>
+      'Add each bill, its due date, and payment amount. Mark it paid if Shellby cannot detect the payment automatically.',
+    'A9' =>
+      'Choose the Emergency Fund account or bucket. Confirm a deposit when it is made outside a connected account.',
+    'A10' =>
+      'Mark Emergency Fund withdrawals and confirm the income deposit that starts the replenishment window.',
+    'A11' ||
+    'A13' ||
+    'A18' =>
+      'Connect or enter the relevant debt balances and payments, then confirm any extra payment Shellby cannot detect.',
+    'A12' ||
+    'A14' ||
+    'A15' =>
+      'Connect or enter the investment account and confirm contributions that are not imported automatically.',
+    'A16' ||
+    'A17' =>
+      'Choose the goal fund, target date, and destination bucket, then confirm transfers that are not imported.',
+    _ =>
+      'Connect an account or enter the activity needed for this rule: $sourceLabels. Confirm anything Shellby cannot import automatically.',
   };
 }
 
 String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
-  final indicators = data.where((point) => point.kind == 'Indicator').map((point) => point.label.toLowerCase()).join(' and ');
-  final indicatorText = indicators.isEmpty ? 'progress against the rule' : indicators;
+  final indicators = data
+      .where((point) => point.kind == 'Indicator')
+      .map((point) => point.label.toLowerCase())
+      .join(' and ');
+  final indicatorText =
+      indicators.isEmpty ? 'progress against the rule' : indicators;
   return switch (action.id) {
-    'A1' || 'A4' || 'A6' || 'A7' || 'A8' || 'A9' || 'A12' || 'A13' || 'A14' || 'A15' || 'A16' || 'A17' || 'A18' =>
+    'A1' ||
+    'A4' ||
+    'A6' ||
+    'A7' ||
+    'A8' ||
+    'A9' ||
+    'A12' ||
+    'A13' ||
+    'A14' ||
+    'A15' ||
+    'A16' ||
+    'A17' ||
+    'A18' =>
       'When matching money arrives, Shellby calculates the configured amount, suggests the transfer, records its source and destination, and updates $indicatorText.',
-    'A2' || 'A3' => 'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',
-    'A5' => 'Shellby counts backward from each due date, reminds you when payment should happen, detects or asks for confirmation, and updates $indicatorText.',
-    'A10' => 'Shellby starts the configured day counter after income arrives, tracks the replenishment transfer, and reminds you before the window closes.',
-    'A11' => 'Shellby compares each debt payment with the required minimum, calculates the extra percentage, and updates the outstanding balance and $indicatorText.',
-    _ => 'Shellby records the linked activity, checks it against the configured rule, reminds you when action is needed, and updates $indicatorText.',
+    'A2' ||
+    'A3' =>
+      'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',
+    'A5' =>
+      'Shellby counts backward from each due date, reminds you when payment should happen, detects or asks for confirmation, and updates $indicatorText.',
+    'A10' =>
+      'Shellby starts the configured day counter after income arrives, tracks the replenishment transfer, and reminds you before the window closes.',
+    'A11' =>
+      'Shellby compares each debt payment with the required minimum, calculates the extra percentage, and updates the outstanding balance and $indicatorText.',
+    _ =>
+      'Shellby records the linked activity, checks it against the configured rule, reminds you when action is needed, and updates $indicatorText.',
   };
 }
 
 class _ActionCollectionProcessCard extends StatelessWidget {
-  const _ActionCollectionProcessCard({required this.index, required this.action, required this.values, required this.data});
+  const _ActionCollectionProcessCard(
+      {required this.index,
+      required this.action,
+      required this.values,
+      required this.data});
   final int index;
   final D2Action action;
   final Map<String, String> values;
@@ -3232,13 +3666,23 @@ class _ActionCollectionProcessCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$index. ${action.id}', style: const TextStyle(color: _brand, fontSize: 12, fontWeight: FontWeight.w900)),
+          Text('$index. ${action.id}',
+              style: const TextStyle(
+                  color: _brand, fontSize: 12, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
-          Text(_configuredActionText(action, values), style: const TextStyle(color: _title, height: 1.35, fontWeight: FontWeight.w900)),
+          Text(_configuredActionText(action, values),
+              style: const TextStyle(
+                  color: _title, height: 1.35, fontWeight: FontWeight.w900)),
           const SizedBox(height: 12),
-          _CollectionRoleRow(icon: Icons.person_rounded, label: 'You', text: _userCollectionStep(action, data)),
+          _CollectionRoleRow(
+              icon: Icons.person_rounded,
+              label: 'You',
+              text: _userCollectionStep(action, data)),
           const SizedBox(height: 10),
-          _CollectionRoleRow(icon: Icons.auto_awesome_rounded, label: 'Shellby', text: _appCollectionStep(action, data)),
+          _CollectionRoleRow(
+              icon: Icons.auto_awesome_rounded,
+              label: 'Shellby',
+              text: _appCollectionStep(action, data)),
         ],
       ),
     );
@@ -3246,7 +3690,8 @@ class _ActionCollectionProcessCard extends StatelessWidget {
 }
 
 class _CollectionRoleRow extends StatelessWidget {
-  const _CollectionRoleRow({required this.icon, required this.label, required this.text});
+  const _CollectionRoleRow(
+      {required this.icon, required this.label, required this.text});
   final IconData icon;
   final String label;
   final String text;
@@ -3261,8 +3706,15 @@ class _CollectionRoleRow extends StatelessWidget {
         Expanded(
           child: RichText(
             text: TextSpan(
-              style: const TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700),
-              children: [TextSpan(text: '$label: ', style: const TextStyle(color: _title, fontWeight: FontWeight.w900)), TextSpan(text: text)],
+              style: const TextStyle(
+                  color: _body, height: 1.35, fontWeight: FontWeight.w700),
+              children: [
+                TextSpan(
+                    text: '$label: ',
+                    style: const TextStyle(
+                        color: _title, fontWeight: FontWeight.w900)),
+                TextSpan(text: text)
+              ],
             ),
           ),
         ),
@@ -3378,41 +3830,379 @@ String? _baselineError(BaselineField field, String value) {
   if (field.format == 'money') {
     final amount = double.tryParse(trimmed.replaceAll(',', ''));
     if (amount == null) return 'Enter a valid amount.';
-    if (amount < 0 || amount > 1000000000) return 'Use an amount from ₱0 to ₱1,000,000,000.';
-    const positiveKeys = {'monthly_expenses', 'essential_expenses', 'discretionary_spend', 'income_baseline', 'emergency_target', 'minimum_debt_payment'};
-    if (positiveKeys.contains(field.key) && amount <= 0) return 'Enter an amount greater than zero.';
+    if (amount < 0 || amount > 1000000000)
+      return 'Use an amount from ₱0 to ₱1,000,000,000.';
+    const positiveKeys = {
+      'monthly_expenses',
+      'essential_expenses',
+      'discretionary_spend',
+      'income_baseline',
+      'emergency_target',
+      'minimum_debt_payment'
+    };
+    if (positiveKeys.contains(field.key) && amount <= 0)
+      return 'Enter an amount greater than zero.';
     return null;
   }
   if (field.format == 'categories') {
-    return trimmed.split(',').any((item) => item.trim().isNotEmpty) ? null : 'Enter at least one category.';
+    return trimmed.split(',').any((item) => item.trim().isNotEmpty)
+        ? null
+        : 'Enter at least one category.';
   }
   if (field.format == 'category_amounts') {
     final valid = trimmed.split('\n').every((line) {
       final parts = line.split(':');
-      return parts.length == 2 && parts.first.trim().isNotEmpty && (double.tryParse(parts.last.trim().replaceAll(',', '')) ?? -1) >= 0;
+      return parts.length == 2 &&
+          parts.first.trim().isNotEmpty &&
+          (double.tryParse(parts.last.trim().replaceAll(',', '')) ?? -1) >= 0;
     });
     return valid ? null : 'Use one line per category: Category: amount.';
   }
   if (field.format == 'bills') {
     final valid = trimmed.split('\n').every((line) {
       final parts = line.split('|').map((part) => part.trim()).toList();
-      return parts.length == 3 && parts[0].isNotEmpty && (double.tryParse(parts[1].replaceAll(',', '')) ?? -1) >= 0 && DateTime.tryParse(parts[2]) != null;
+      return parts.length == 3 &&
+          parts[0].isNotEmpty &&
+          (double.tryParse(parts[1].replaceAll(',', '')) ?? -1) >= 0 &&
+          DateTime.tryParse(parts[2]) != null;
     });
     return valid ? null : 'Use Bill | amount | YYYY-MM-DD on each line.';
   }
   if (field.format == 'goals') {
     final valid = trimmed.split('\n').every((line) {
       final parts = line.split('|').map((part) => part.trim()).toList();
-      return parts.length == 5 && parts[0].isNotEmpty && (double.tryParse(parts[1].replaceAll(',', '')) ?? -1) >= 0 && (double.tryParse(parts[2].replaceAll(',', '')) ?? 0) > 0 && DateTime.tryParse(parts[3]) != null && (int.tryParse(parts[4]) ?? 0) > 0;
+      return parts.length == 5 &&
+          parts[0].isNotEmpty &&
+          (double.tryParse(parts[1].replaceAll(',', '')) ?? -1) >= 0 &&
+          (double.tryParse(parts[2].replaceAll(',', '')) ?? 0) > 0 &&
+          DateTime.tryParse(parts[3]) != null &&
+          (int.tryParse(parts[4]) ?? 0) > 0;
     });
-    return valid ? null : 'Use Goal | balance | target | YYYY-MM-DD | priority.';
+    return valid
+        ? null
+        : 'Use Goal | balance | target | YYYY-MM-DD | priority.';
   }
   if (field.format == 'cycle') {
-    return RegExp(r'^(weekly|monthly|every\s+([1-9]|1[0-2])\s+weeks?)$', caseSensitive: false).hasMatch(trimmed)
+    return RegExp(r'^(weekly|monthly|every\s+([1-9]|1[0-2])\s+weeks?)$',
+                caseSensitive: false)
+            .hasMatch(trimmed)
         ? null
         : 'Use Weekly, Every 1–12 weeks, or Monthly.';
   }
   return null;
+}
+
+class MonthlyIncomeScreen extends StatefulWidget {
+  const MonthlyIncomeScreen({super.key});
+
+  @override
+  State<MonthlyIncomeScreen> createState() => _MonthlyIncomeScreenState();
+}
+
+class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
+  final formKey = GlobalKey<FormState>();
+  final incomes = <_IncomeLedgerDraft>[];
+  bool seeded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (seeded) return;
+    final state = AppScope.of(context);
+    if (state.onboardingIncomeLedger.isNotEmpty) {
+      incomes
+          .addAll(state.onboardingIncomeLedger.map(_IncomeLedgerDraft.fromMap));
+    } else {
+      final salary =
+          state.monthlySalary > 0 ? state.monthlySalary : state.income;
+      incomes.add(
+        _IncomeLedgerDraft(
+          name: 'Salary or main income',
+          amount: salary > 0 ? salary.toStringAsFixed(0) : '',
+          stable: state.incomeType.toLowerCase().contains('fixed'),
+          scheduled: state.incomeRhythm.toLowerCase().contains('monthly'),
+          payDay:
+              state.incomeRhythm.toLowerCase().contains('monthly') ? 15 : null,
+        ),
+      );
+    }
+    if (incomes.isEmpty) incomes.add(_IncomeLedgerDraft());
+    seeded = true;
+  }
+
+  @override
+  void dispose() {
+    for (final income in incomes) {
+      income.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addIncome() => setState(() => incomes.add(_IncomeLedgerDraft()));
+
+  void _removeIncome(int index) {
+    if (incomes.length == 1) return;
+    setState(() => incomes.removeAt(index).dispose());
+  }
+
+  void _continue() {
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    final state = AppScope.of(context);
+    state.onboardingIncomeLedger
+      ..clear()
+      ..addAll(incomes.map((income) => income.toMap()));
+    final total =
+        incomes.fold<double>(0, (total, income) => total + income.amountValue);
+    final stableTotal = incomes
+        .where((income) => income.stable)
+        .fold<double>(0, (total, income) => total + income.amountValue);
+    final variableTotal = math.max(0.0, total - stableTotal);
+    state.income = total;
+    state.monthlySalary = stableTotal;
+    state.irregularIncomeFloor = variableTotal;
+    state.onboardingBaselines['income_baseline'] = total.toStringAsFixed(2);
+    state.onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
+    state.onboardingBaselines['variable_income'] =
+        variableTotal.toStringAsFixed(2);
+    _push(context, const InitialBaselineScreen());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingScaffold(
+      phase: 8,
+      title: 'Monthly income.',
+      subtitle:
+          'List each expected monthly income source, mark whether it is stable, and add an expected pay day for scheduled income. This becomes Shellby’s starting income baseline.',
+      bottom: PrimaryButton(
+        label: 'Continue to Expenses',
+        icon: Icons.arrow_forward_rounded,
+        onPressed: _continue,
+      ),
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Text(
+                '✓ Stable = predictable income   •   📅 Scheduled = expected on a regular pay day',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (var i = 0; i < incomes.length; i++) ...[
+              _IncomeLedgerCard(
+                index: i,
+                income: incomes[i],
+                canRemove: incomes.length > 1,
+                onChanged: () => setState(() {}),
+                onRemove: () => _removeIncome(i),
+              ),
+              const SizedBox(height: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: _addIncome,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add another income'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IncomeLedgerDraft {
+  _IncomeLedgerDraft({
+    String name = '',
+    String amount = '',
+    this.stable = false,
+    this.scheduled = false,
+    this.payDay,
+  })  : nameController = TextEditingController(text: name),
+        amountController = TextEditingController(text: amount);
+
+  factory _IncomeLedgerDraft.fromMap(Map<String, dynamic> value) =>
+      _IncomeLedgerDraft(
+        name: value['name']?.toString() ?? '',
+        amount: value['amount']?.toString() ?? '',
+        stable: value['stable'] as bool? ?? false,
+        scheduled: value['scheduled'] as bool? ?? false,
+        payDay: (value['payDay'] as num?)?.toInt(),
+      );
+
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+  bool stable;
+  bool scheduled;
+  int? payDay;
+
+  double get amountValue =>
+      double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
+
+  Map<String, dynamic> toMap() => {
+        'name': nameController.text.trim(),
+        'amount': amountValue,
+        'stable': stable,
+        'scheduled': scheduled,
+        'payDay': scheduled ? payDay : null,
+      };
+
+  void dispose() {
+    nameController.dispose();
+    amountController.dispose();
+  }
+}
+
+class _IncomeLedgerCard extends StatelessWidget {
+  const _IncomeLedgerCard({
+    required this.index,
+    required this.income,
+    required this.canRemove,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final int index;
+  final _IncomeLedgerDraft income;
+  final bool canRemove;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Tooltip(
+                message: 'Stable income',
+                child: Checkbox(
+                  activeColor: _brand,
+                  value: income.stable,
+                  onChanged: (value) {
+                    income.stable = value ?? false;
+                    onChanged();
+                  },
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: TextFormField(
+                  controller: income.nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: inputDecoration('Income source').copyWith(
+                    labelText: 'Income',
+                    isDense: true,
+                  ),
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? 'Enter a source.' : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 112,
+                child: TextFormField(
+                  controller: income.amountController,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: inputDecoration('Amount').copyWith(
+                    labelText: 'Monthly',
+                    prefixText: '₱ ',
+                    isDense: true,
+                  ),
+                  validator: (value) {
+                    final amount = double.tryParse(
+                      (value ?? '').replaceAll(',', ''),
+                    );
+                    if (amount == null || amount <= 0) return 'Required';
+                    if (amount > 100000000) return 'Too high';
+                    return null;
+                  },
+                ),
+              ),
+              if (canRemove)
+                IconButton(
+                  tooltip: 'Remove income',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onRemove,
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: _body,
+                    size: 19,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilterChip(
+                selected: income.scheduled,
+                selectedColor: _purple.withValues(alpha: .12),
+                checkmarkColor: _purple,
+                avatar: Icon(
+                  Icons.event_available_rounded,
+                  size: 17,
+                  color: income.scheduled ? _purple : _body,
+                ),
+                label: const Text('Scheduled income'),
+                onSelected: (value) {
+                  income.scheduled = value;
+                  if (value) income.payDay ??= 15;
+                  onChanged();
+                },
+              ),
+              if (income.scheduled)
+                SizedBox(
+                  width: 170,
+                  child: DropdownButtonFormField<int>(
+                    value: income.payDay,
+                    isExpanded: true,
+                    decoration: inputDecoration('Pay day').copyWith(
+                      labelText: 'Expected pay day',
+                      isDense: true,
+                    ),
+                    items: [
+                      for (var day = 1; day <= 31; day++)
+                        DropdownMenuItem(
+                          value: day,
+                          child: Text('Day $day monthly'),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      income.payDay = value;
+                      onChanged();
+                    },
+                    validator: (value) => income.scheduled && value == null
+                        ? 'Choose a pay day.'
+                        : null,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class InitialBaselineScreen extends StatefulWidget {
@@ -3433,7 +4223,8 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     if (seeded) return;
     final state = AppScope.of(context);
     if (state.onboardingExpenseLedger.isNotEmpty) {
-      expenses.addAll(state.onboardingExpenseLedger.map(_ExpenseLedgerDraft.fromMap));
+      expenses.addAll(
+          state.onboardingExpenseLedger.map(_ExpenseLedgerDraft.fromMap));
     } else {
       expenses.addAll([
         _ExpenseLedgerDraft(name: 'Electric Bill', essential: true),
@@ -3467,10 +4258,14 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     state.onboardingExpenseLedger
       ..clear()
       ..addAll(expenses.map((expense) => expense.toMap()));
-    final total = expenses.fold<double>(0, (total, expense) => total + expense.amountValue);
-    final essentialTotal = expenses.where((expense) => expense.essential).fold<double>(0, (total, expense) => total + expense.amountValue);
+    final total = expenses.fold<double>(
+        0, (total, expense) => total + expense.amountValue);
+    final essentialTotal = expenses
+        .where((expense) => expense.essential)
+        .fold<double>(0, (total, expense) => total + expense.amountValue);
     state.onboardingBaselines['monthly_expenses'] = total.toStringAsFixed(2);
-    state.onboardingBaselines['essential_expenses'] = essentialTotal.toStringAsFixed(2);
+    state.onboardingBaselines['essential_expenses'] =
+        essentialTotal.toStringAsFixed(2);
     _push(context, const AppPermissionScreen());
   }
 
@@ -3479,8 +4274,12 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     return OnboardingScaffold(
       phase: 8,
       title: 'Monthly expenses.',
-      subtitle: 'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
-      bottom: PrimaryButton(label: 'Continue to App Permissions', icon: Icons.arrow_forward_rounded, onPressed: _continue),
+      subtitle:
+          'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
+      bottom: PrimaryButton(
+          label: 'Continue to App Permissions',
+          icon: Icons.arrow_forward_rounded,
+          onPressed: _continue),
       child: Form(
         key: formKey,
         child: Column(
@@ -3527,11 +4326,17 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
 }
 
 class _ExpenseLedgerDraft {
-  _ExpenseLedgerDraft({String name = '', String amount = '', this.essential = false, this.scheduled = false, this.dueDay})
+  _ExpenseLedgerDraft(
+      {String name = '',
+      String amount = '',
+      this.essential = false,
+      this.scheduled = false,
+      this.dueDay})
       : nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
 
-  factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) => _ExpenseLedgerDraft(
+  factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) =>
+      _ExpenseLedgerDraft(
         name: value['name']?.toString() ?? '',
         amount: value['amount']?.toString() ?? '',
         essential: value['essential'] as bool? ?? false,
@@ -3545,7 +4350,8 @@ class _ExpenseLedgerDraft {
   bool scheduled;
   int? dueDay;
 
-  double get amountValue => double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
+  double get amountValue =>
+      double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
@@ -3562,7 +4368,12 @@ class _ExpenseLedgerDraft {
 }
 
 class _ExpenseLedgerCard extends StatelessWidget {
-  const _ExpenseLedgerCard({required this.index, required this.expense, required this.canRemove, required this.onChanged, required this.onRemove});
+  const _ExpenseLedgerCard(
+      {required this.index,
+      required this.expense,
+      required this.canRemove,
+      required this.onChanged,
+      required this.onRemove});
   final int index;
   final _ExpenseLedgerDraft expense;
   final bool canRemove;
@@ -3697,7 +4508,8 @@ class FakeMayaOnboardingScreen extends StatefulWidget {
   const FakeMayaOnboardingScreen({super.key});
 
   @override
-  State<FakeMayaOnboardingScreen> createState() => _FakeMayaOnboardingScreenState();
+  State<FakeMayaOnboardingScreen> createState() =>
+      _FakeMayaOnboardingScreenState();
 }
 
 class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
@@ -3714,10 +4526,12 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
     if (summary != null) {
       state.onboardingBaselines.addAll({
         'cash_balance': summary.wallet.toStringAsFixed(2),
-        'savings_balance': (summary.savings + summary.timeDeposit).toStringAsFixed(2),
+        'savings_balance':
+            (summary.savings + summary.timeDeposit).toStringAsFixed(2),
         'emergency_balance': summary.savings.toStringAsFixed(2),
         'investment_balance': summary.timeDeposit.toStringAsFixed(2),
-        'goals': '${summary.goalName} | ${summary.goalBalance.toStringAsFixed(2)} | ${summary.goalTarget.toStringAsFixed(2)} | ${DateTime.now().add(const Duration(days: 180)).toIso8601String().split('T').first} | 1',
+        'goals':
+            '${summary.goalName} | ${summary.goalBalance.toStringAsFixed(2)} | ${summary.goalTarget.toStringAsFixed(2)} | ${DateTime.now().add(const Duration(days: 180)).toIso8601String().split('T').first} | 1',
       });
       await state.saveProfile();
     }
@@ -3731,11 +4545,13 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
     return OnboardingScaffold(
       phase: 9,
       title: 'Link FakeMaya.',
-      subtitle: 'Linking imports hard starting balances and future transactions. You can continue manually if you prefer.',
+      subtitle:
+          'Linking imports hard starting balances and future transactions. You can continue manually if you prefer.',
       bottom: PrimaryButton(
-        label: linked == null ? 'Continue Without Linking' : 'Use Linked Balances',
+        label:
+            linked == null ? 'Continue Without Linking' : 'Use Linked Balances',
         icon: Icons.arrow_forward_rounded,
-        onPressed: () => _push(context, const InitialBaselineScreen()),
+        onPressed: () => _push(context, const MonthlyIncomeScreen()),
       ),
       child: AppCard(
         child: Column(
@@ -3743,19 +4559,30 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
             Container(
               width: 58,
               height: 58,
-              decoration: const BoxDecoration(color: Color(0xFF00B14F), shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                  color: Color(0xFF00B14F), shape: BoxShape.circle),
               alignment: Alignment.center,
-              child: const Text('m', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+              child: const Text('m',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 30,
+                      fontWeight: FontWeight.w900)),
             ),
             const SizedBox(height: 12),
-            Text(linked == null ? 'No FakeMaya account linked' : 'Linked as ${linked.name}', style: const TextStyle(color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
+            Text(
+                linked == null
+                    ? 'No FakeMaya account linked'
+                    : 'Linked as ${linked.name}',
+                style: const TextStyle(
+                    color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
             Text(
               linked == null
                   ? 'Shellby can sync wallet, savings, time deposit, goal balances, and transactions.'
                   : 'Starting balances were updated from FakeMaya. You can revise estimates later.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: _body, height: 1.35, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                  color: _body, height: 1.35, fontWeight: FontWeight.w700),
             ),
             if (linked != null) ...[
               const SizedBox(height: 16),
@@ -3777,7 +4604,9 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
             ],
             const SizedBox(height: 16),
             PrimaryButton(
-              label: linked == null ? 'Link FakeMaya Account' : 'Relink FakeMaya Account',
+              label: linked == null
+                  ? 'Link FakeMaya Account'
+                  : 'Relink FakeMaya Account',
               icon: Icons.account_balance_rounded,
               onPressed: _link,
             ),
@@ -4274,7 +5103,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       .toList();
 
   String _actionDetails(D2Action action) {
-    final values = state.actionFieldValues[action.id] ?? const <String, String>{};
+    final values =
+        state.actionFieldValues[action.id] ?? const <String, String>{};
     final details = <String>[];
     for (final field in action.fields) {
       final value = values[field.key]?.trim() ?? '';
@@ -4282,7 +5112,9 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       details.add('${field.label}: $value${field.isPercent ? '%' : ''}');
     }
     if (details.isNotEmpty) return details.join(' • ');
-    return action.hasFields ? 'No details entered' : 'No additional details required';
+    return action.hasFields
+        ? 'No details entered'
+        : 'No additional details required';
   }
 
   GuidedOption _selectedOption(int stepIndex, String summary) {
@@ -4322,13 +5154,19 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
           children: [
-            const Text('Specify', style: TextStyle(color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
+            const Text('Specify',
+                style: TextStyle(
+                    color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
             for (final goal in goals)
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                title: Text(goal.title, style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-                subtitle: Text(goal.description, style: const TextStyle(color: _body, fontWeight: FontWeight.w700)),
+                title: Text(goal.title,
+                    style: const TextStyle(
+                        color: _title, fontWeight: FontWeight.w900)),
+                subtitle: Text(goal.description,
+                    style: const TextStyle(
+                        color: _body, fontWeight: FontWeight.w700)),
                 trailing: goal.id == state.selectedGoalId
                     ? const Icon(Icons.check_circle_rounded, color: _brand)
                     : null,
@@ -4342,7 +5180,10 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     final actionIds = _goalActionIds[selected.id] ?? const <String>[];
     setState(() {
       state.selectedGoalId = selected.id;
-      state.setRecommendedGoal(title: selected.title, description: selected.description, monthlyTarget: 0);
+      state.setRecommendedGoal(
+          title: selected.title,
+          description: selected.description,
+          monthlyTarget: 0);
       state.configureGoalActions(actionIds: actionIds);
       state.actionFieldValues.clear();
       state.updateGuidedChatSummary(goalFocus: selected.title);
@@ -4351,14 +5192,16 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
 
   Future<void> _editActions(BuildContext context) async {
     final actionIds = _goalActionIds[state.selectedGoalId] ?? const <String>[];
-    final options = actionIds.map((id) => _d2Actions[id]).whereType<D2Action>().toList();
+    final options =
+        actionIds.map((id) => _d2Actions[id]).whereType<D2Action>().toList();
     final chosen = state.selectedActionIds.toSet();
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: _surface,
-          title: const Text('Selected actions', style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          title: const Text('Selected actions',
+              style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -4368,7 +5211,9 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
                     contentPadding: EdgeInsets.zero,
                     activeColor: _brand,
                     value: chosen.contains(action.id),
-                    title: Text('${action.id}: ${action.text}', style: const TextStyle(color: _title, fontWeight: FontWeight.w800)),
+                    title: Text('${action.id}: ${action.text}',
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w800)),
                     onChanged: (value) => setDialogState(() {
                       if (value ?? false) {
                         chosen.add(action.id);
@@ -4381,9 +5226,13 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel')),
             FilledButton(
-              onPressed: chosen.isEmpty ? null : () => Navigator.of(dialogContext).pop(chosen),
+              onPressed: chosen.isEmpty
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(chosen),
               child: const Text('Save'),
             ),
           ],
@@ -4399,7 +5248,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
 
   Future<void> _editActionDetails(BuildContext context, D2Action action) async {
     if (!action.hasFields) return;
-    final existing = state.actionFieldValues[action.id] ?? const <String, String>{};
+    final existing =
+        state.actionFieldValues[action.id] ?? const <String, String>{};
     final values = {
       for (final field in action.fields)
         field.key: existing[field.key] ?? _recommendationsForField(field).first,
@@ -4409,7 +5259,9 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: _surface,
-          title: Text('${action.id} details', style: const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          title: Text('${action.id} details',
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
           content: SizedBox(
             width: double.maxFinite,
             child: SingleChildScrollView(
@@ -4420,7 +5272,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
                     ActionFieldSelector(
                       field: field,
                       initialValue: values[field.key] ?? '',
-                      onChanged: (value) => setDialogState(() => values[field.key] = value),
+                      onChanged: (value) =>
+                          setDialogState(() => values[field.key] = value),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -4429,10 +5282,14 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel')),
             FilledButton(
-              onPressed: action.fields.every((field) => _actionFieldError(field, values[field.key] ?? '') == null)
-                  ? () => Navigator.of(dialogContext).pop(Map<String, String>.from(values))
+              onPressed: action.fields.every((field) =>
+                      _actionFieldError(field, values[field.key] ?? '') == null)
+                  ? () => Navigator.of(dialogContext)
+                      .pop(Map<String, String>.from(values))
                   : null,
               child: const Text('Save'),
             ),
@@ -4581,10 +5438,13 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
             GuidedSummaryEditRow(
               icon: Icons.checklist_rounded,
               label: 'Selected actions',
-              value: actions.map((action) => '${action.id}: ${action.text}').join('\n'),
+              value: actions
+                  .map((action) => '${action.id}: ${action.text}')
+                  .join('\n'),
               onTap: () => _editActions(context),
             ),
-            for (final action in actions.where((action) => action.hasFields)) ...[
+            for (final action
+                in actions.where((action) => action.hasFields)) ...[
               const SizedBox(height: 10),
               GuidedSummaryEditRow(
                 icon: Icons.tune_rounded,
@@ -5414,24 +6274,44 @@ class PreparationCommitmentScreen extends StatelessWidget {
       if (matching.isEmpty) return 'None required';
       return matching.map((point) => '${point.id} ${point.label}').join('\n');
     }
+
     String allowed(bool value) => value ? 'Allowed' : 'Not allowed';
     final baselineRows = state.onboardingBaselines.entries
         .where((entry) => _baselineFields.containsKey(entry.key))
         .map((entry) {
-          final field = _baselineFields[entry.key]!;
-          final value = field.format == 'money' ? '₱${entry.value}' : entry.value;
-          return (field.label, value);
-        })
-        .toList();
+      final field = _baselineFields[entry.key]!;
+      final value = field.format == 'money' ? '₱${entry.value}' : entry.value;
+      return (field.label, value);
+    }).toList();
+    final incomeRows = state.onboardingIncomeLedger.map((income) {
+      final scheduled = income['scheduled'] as bool? ?? false;
+      final payDay = (income['payDay'] as num?)?.toInt();
+      final details = <String>[
+        (income['stable'] as bool? ?? false) ? 'Stable' : 'Variable',
+        if (scheduled)
+          'Scheduled monthly${payDay == null ? '' : ' on day $payDay'}',
+      ];
+      final amount = (income['amount'] as num?)?.toDouble() ?? 0;
+      return (
+        income['name']?.toString() ?? 'Income',
+        '₱${amount.toStringAsFixed(2)} · ${details.join(' · ')}'
+      );
+    }).toList();
     final expenseRows = state.onboardingExpenseLedger.map((expense) {
       final scheduled = expense['scheduled'] as bool? ?? false;
       final dueDay = (expense['dueDay'] as num?)?.toInt();
       final details = <String>[
-        (expense['essential'] as bool? ?? false) ? 'Essential' : 'Non-essential',
-        if (scheduled) 'Scheduled monthly${dueDay == null ? '' : ' on day $dueDay'}',
+        (expense['essential'] as bool? ?? false)
+            ? 'Essential'
+            : 'Non-essential',
+        if (scheduled)
+          'Scheduled monthly${dueDay == null ? '' : ' on day $dueDay'}',
       ];
       final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
-      return (expense['name']?.toString() ?? 'Expense', '₱${amount.toStringAsFixed(2)} · ${details.join(' · ')}');
+      return (
+        expense['name']?.toString() ?? 'Expense',
+        '₱${amount.toStringAsFixed(2)} · ${details.join(' · ')}'
+      );
     }).toList();
     return OnboardingScaffold(
       phase: 11,
@@ -5452,7 +6332,10 @@ class PreparationCommitmentScreen extends StatelessWidget {
             rows: [
               ('Name', _summaryFallback(state.name, 'Not provided')),
               ('Life stage', _summaryFallback(state.age, 'Not selected')),
-              ('Occupation', _summaryFallback(state.occupation, 'Not provided')),
+              (
+                'Occupation',
+                _summaryFallback(state.occupation, 'Not provided')
+              ),
               ('Industry', state.industry),
             ],
           ),
@@ -5506,18 +6389,30 @@ class PreparationCommitmentScreen extends StatelessWidget {
               ('Goal outcome', goal.description),
               if (actions.isEmpty) ('Selected actions', 'No actions selected'),
               for (final action in actions)
-                (action.id, _configuredActionText(action, state.actionFieldValues[action.id] ?? const {})),
+                (
+                  action.id,
+                  _configuredActionText(
+                      action, state.actionFieldValues[action.id] ?? const {})
+                ),
             ],
           ),
           const SizedBox(height: 12),
           ReviewSection(
             icon: Icons.storage_rounded,
-            title: 'Monthly expense ledger',
+            title: 'Monthly money ledgers',
             rows: [
-              if (expenseRows.isEmpty) ('Expenses', 'No monthly expenses recorded'),
+              if (incomeRows.isEmpty) ('Income', 'No monthly income recorded'),
+              ...incomeRows,
+              if (expenseRows.isEmpty)
+                ('Expenses', 'No monthly expenses recorded'),
               ...expenseRows,
               if (baselineRows.isNotEmpty) ...baselineRows,
-              ('FakeMaya', state.hasFakeMayaLink ? 'Linked as ${state.fakeMayaLink!.name}' : 'Not linked'),
+              (
+                'FakeMaya',
+                state.hasFakeMayaLink
+                    ? 'Linked as ${state.fakeMayaLink!.name}'
+                    : 'Not linked'
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -5535,7 +6430,8 @@ class PreparationCommitmentScreen extends StatelessWidget {
             icon: Icons.sync_alt_rounded,
             title: 'Collection workflow',
             rows: [
-              if (actions.isEmpty) ('Workflow', 'No action workflow configured'),
+              if (actions.isEmpty)
+                ('Workflow', 'No action workflow configured'),
               for (final action in actions)
                 (
                   action.id,
@@ -5549,10 +6445,22 @@ class PreparationCommitmentScreen extends StatelessWidget {
             title: 'Permissions and consent',
             rows: [
               ('Notifications', allowed(state.notificationsAllowed)),
-              ('Third-party data linking', allowed(state.thirdPartyDataLinkingAllowed)),
-              ('Automatic data gathering', allowed(state.automaticDataGatheringAllowed)),
-              ('Personal data consent', state.personalDataConsent ? 'Agreed' : 'Not agreed'),
-              ('Data retention consent', state.dataRetentionConsent ? 'Agreed' : 'Not agreed'),
+              (
+                'Third-party data linking',
+                allowed(state.thirdPartyDataLinkingAllowed)
+              ),
+              (
+                'Automatic data gathering',
+                allowed(state.automaticDataGatheringAllowed)
+              ),
+              (
+                'Personal data consent',
+                state.personalDataConsent ? 'Agreed' : 'Not agreed'
+              ),
+              (
+                'Data retention consent',
+                state.dataRetentionConsent ? 'Agreed' : 'Not agreed'
+              ),
               ('AI analysis', allowed(state.consentAi)),
             ],
           ),
@@ -5561,8 +6469,18 @@ class PreparationCommitmentScreen extends StatelessWidget {
             icon: Icons.tune_rounded,
             title: 'Tracking and sharing',
             rows: [
-              ('Goal-related tracking', state.trackingVariables.isEmpty ? 'None selected' : state.trackingVariables.join(', ')),
-              ('Interfering factors', state.interferingVariables.isEmpty ? 'None selected' : state.interferingVariables.join(', ')),
+              (
+                'Goal-related tracking',
+                state.trackingVariables.isEmpty
+                    ? 'None selected'
+                    : state.trackingVariables.join(', ')
+              ),
+              (
+                'Interfering factors',
+                state.interferingVariables.isEmpty
+                    ? 'None selected'
+                    : state.interferingVariables.join(', ')
+              ),
               ('Sharing structure', state.socialStructure),
               ('Anonymous benchmarks', allowed(state.consentBenchmarking)),
               ('Community feedback', allowed(state.consentCommunity)),

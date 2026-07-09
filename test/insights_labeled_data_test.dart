@@ -10,7 +10,7 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  testWidgets('insights render the reflection sections from integration data',
+  testWidgets('overview summarizes flow, categories, funds, and activity',
       (tester) async {
     final state = _reflectionState();
 
@@ -22,27 +22,19 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Cash Patterns'), findsOneWidget);
-    expect(find.textContaining('days fully tracked'), findsOneWidget);
-    expect(find.text('Jar Timeline'), findsOneWidget);
-    expect(find.text('Spend Comparison'), findsOneWidget);
-
+    expect(find.text('Money summary'), findsOneWidget);
+    expect(find.text('Where money was spent'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('Goal vs Actual per Jar'),
+      find.text('Which funds handled the most money'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('Goal vs Actual per Jar'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.text('Data Trust'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Data Trust'), findsOneWidget);
+    expect(find.text('Which funds handled the most money'), findsOneWidget);
+    expect(find.text('Basic Needs Fund'), findsWidgets);
+    expect(find.text('AI Analyze'), findsOneWidget);
   });
 
-  testWidgets('spend comparison filters activity after tapping a bar',
+  testWidgets('available cash pairs weekly overview with selected-week detail',
       (tester) async {
     final state = _reflectionState();
 
@@ -54,15 +46,77 @@ void main() {
     );
     await tester.pump();
 
-    await tester.ensureVisible(find.text('After income'));
+    expect(find.text('Goal Insights'), findsOneWidget);
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('Available cash'), findsOneWidget);
+    expect(find.text('Emergency fund'), findsOneWidget);
+    await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('After income'));
-    await tester.pump();
+    expect(find.text('Basic-needs spending'), findsOneWidget);
+    expect(find.text('AI Analyze'), findsOneWidget);
+    expect(find.text('OVERVIEW · WEEKLY'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('DETAIL · SELECTED WEEK'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('DETAIL · SELECTED WEEK'), findsOneWidget);
+    expect(find.textContaining('days complete'), findsOneWidget);
+  });
 
-    expect(
-        find.textContaining('Showing after-income activity'), findsOneWidget);
+  testWidgets('emergency fund pairs movement overview with weekly detail',
+      (tester) async {
+    final state = _reflectionState()
+      ..emergencyFundBalance = 12000
+      ..expenses = 6000;
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Emergency fund'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Emergency fund movement'), findsOneWidget);
+    expect(find.text('OVERVIEW · WEEKLY'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('DETAIL · SELECTED WEEK'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('DETAIL · SELECTED WEEK'), findsOneWidget);
+    expect(find.textContaining('data coverage'), findsOneWidget);
+  });
+
+  testWidgets('tapping an overview week filters the detail panel',
+      (tester) async {
+    final state = _reflectionState();
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Available cash'));
+    await tester.pumpAndSettle();
+
+    final firstWeek = find.bySemanticsLabel(RegExp(r'Week of Jan 5,'));
+    expect(firstWeek, findsOneWidget);
+    await tester.tap(firstWeek);
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('Jan 5–Jan 11'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Jan 5–Jan 11'), findsOneWidget);
     expect(find.textContaining('Food & drink'), findsWidgets);
-    expect(find.text('Transfer'), findsNothing);
   });
 }
 
@@ -166,5 +220,6 @@ FakeMayaTransaction _tx(
     amountText: '${amount < 0 ? '-' : '+'} ₱${amount.abs().toStringAsFixed(2)}',
     createdAt: date,
     category: category,
+    source: category == null ? null : 'Basic Needs Fund',
   );
 }

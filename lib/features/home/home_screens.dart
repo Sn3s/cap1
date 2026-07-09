@@ -284,7 +284,14 @@ class DashboardPage extends StatelessWidget {
 }
 
 class ShellbyChatPage extends StatefulWidget {
-  const ShellbyChatPage({super.key});
+  const ShellbyChatPage({
+    super.key,
+    this.analysisTitle,
+    this.analysisContext,
+  });
+
+  final String? analysisTitle;
+  final String? analysisContext;
 
   @override
   State<ShellbyChatPage> createState() => _ShellbyChatPageState();
@@ -294,13 +301,29 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   final _coach = const ShellbyAiCoach();
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
-  final List<ChatMessage> _messages = [
-    const ChatMessage(
-      false,
-      'Hi, I am Shellby. Ask me about your goals, balances, transactions, or anything in the app.',
-    ),
-  ];
+  late final List<ChatMessage> _messages;
   bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _messages = [
+      ChatMessage(
+        false,
+        widget.analysisTitle == null
+            ? 'Hi, I am Shellby. Ask me about your goals, balances, transactions, or anything in the app.'
+            : 'I can help you explore the ${widget.analysisTitle} data. I will begin with a summary, then you can ask about any detail.',
+      ),
+    ];
+    if (widget.analysisContext?.trim().isNotEmpty == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _controller.text =
+            'Analyze this screen and explain the most important patterns.';
+        _send();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -322,7 +345,11 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
     _scrollToBottom();
 
     try {
-      final reply = await _coach.chat(state: state, messages: _messages);
+      final reply = await _coach.chat(
+        state: state,
+        messages: _messages,
+        screenContext: widget.analysisContext,
+      );
       if (!mounted) return;
       setState(() {
         _messages.add(
@@ -415,9 +442,11 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        const Text(
-                          'App and money context',
-                          style: TextStyle(
+                        Text(
+                          widget.analysisTitle == null
+                              ? 'App and money context'
+                              : '${widget.analysisTitle} analysis',
+                          style: const TextStyle(
                             color: _body,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -1237,6 +1266,14 @@ const _layerNames = [
 
 List<_WealthAccount> _buildWealthAccounts(AppState state) {
   final out = <_WealthAccount>[];
+  out.add(_WealthAccount(
+    name: 'Cash on Hand',
+    sub: 'Manual cash account',
+    balance: state.cashOnHandBalance,
+    color: _sage,
+    icon: Icons.payments_rounded,
+    layer: 1,
+  ));
   final linkedAssets =
       state.assets.where((item) => item.description == 'Linked from FakeMaya');
   final fakeMayaItems =
@@ -1308,7 +1345,8 @@ class InsightsPage extends StatefulWidget {
 }
 
 class _InsightsPageState extends State<InsightsPage> {
-  String? _spendFilter;
+  int _goal = 0;
+  DateTime? _selectedWeek;
 
   @override
   Widget build(BuildContext context) {
@@ -1318,17 +1356,1276 @@ class _InsightsPageState extends State<InsightsPage> {
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
-        const PageHeader(eyebrow: 'REFLECTION', title: 'Cash Patterns'),
-        _ReflectionCoverageBanner(service: service),
-        _JarTimelineSection(service: service),
-        _SpendComparisonSection(
-          service: service,
-          filter: _spendFilter,
-          onFilterChanged: (value) => setState(() => _spendFilter = value),
+        const PageHeader(eyebrow: 'REFLECTION', title: 'Goal Insights'),
+        _InsightsFilterBar(
+          tabs: const ['Overview', 'Available cash', 'Emergency fund'],
+          selected: _goal,
+          onChanged: (value) => setState(() {
+            _goal = value;
+            _selectedWeek = null;
+          }),
         ),
-        _GoalVsActualSection(service: service),
-        _DataTrustSection(service: service),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: () {
+                final analysis = switch (_goal) {
+                  1 => (
+                      'Available cash',
+                      _availableCashAnalysisContext(state, service)
+                    ),
+                  2 => (
+                      'Emergency fund',
+                      _emergencyAnalysisContext(state, service)
+                    ),
+                  _ => (
+                      'Insights overview',
+                      _overviewAnalysisContext(state, service)
+                    ),
+                };
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ShellbyChatPage(
+                      analysisTitle: analysis.$1,
+                      analysisContext: analysis.$2,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: const Text('AI Analyze'),
+              style: FilledButton.styleFrom(backgroundColor: _purple),
+            ),
+          ),
+        ),
+        if (_goal == 0)
+          _InsightsOverview(state: state, service: service)
+        else if (_goal == 1) ...[
+          _CashReflectionExplorer(
+            service: service,
+            selectedWeek: _selectedWeek,
+            onWeekSelected: (week) => setState(() => _selectedWeek = week),
+          ),
+        ] else ...[
+          _EmergencyReflectionExplorer(
+            state: state,
+            service: service,
+            selectedWeek: _selectedWeek,
+            onWeekSelected: (week) => setState(() => _selectedWeek = week),
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _ReflectionQuestion extends StatelessWidget {
+  const _ReflectionQuestion({required this.question, required this.detail});
+  final String question;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _purple.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _purple.withValues(alpha: .18)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'REFLECTION QUESTION',
+              style: TextStyle(
+                color: _purple,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              question,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 16,
+                height: 1.3,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              detail,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightsOverview extends StatelessWidget {
+  const _InsightsOverview({required this.state, required this.service});
+  final AppState state;
+  final IntegrationService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final all = state.allTransactions;
+    final transactions = all
+        .where((transaction) =>
+            transaction.isLabeled && !transaction.excludedFromInsights)
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(1970))
+          .compareTo(a.createdAt ?? DateTime(1970)));
+    final inflow = transactions
+        .where((transaction) => transaction.amount > 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final outflow = transactions
+        .where((transaction) => transaction.amount < 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final categories = _transactionTotals(
+      transactions.where((transaction) => transaction.amount < 0),
+      (transaction) => transaction.category ?? 'Unclassified',
+    );
+    final sources = _transactionTotals(
+      transactions,
+      (transaction) => transaction.source ?? 'Unclassified',
+    );
+    final complete = all.where((transaction) => transaction.isLabeled).length;
+
+    return Column(
+      children: [
+        const _ReflectionQuestion(
+          question: 'Where is my money moving, and what stands out?',
+          detail:
+              'Review the overall flow first, then inspect spending categories, funding sources, and recent transactions.',
+        ),
+        _ExplorerSection(
+          eyebrow: 'OVERVIEW · ALL CLASSIFIED ACTIVITY',
+          title: 'Money summary',
+          subtitle:
+              '$complete of ${all.length} transactions have both a category and fund source.',
+          child: Row(
+            children: [
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Money in',
+                  value: money(inflow),
+                  color: _sage,
+                  icon: Icons.south_west_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Money out',
+                  value: money(outflow),
+                  color: _red,
+                  icon: Icons.north_east_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Net flow',
+                  value: money(inflow - outflow),
+                  color: inflow >= outflow ? _brand : _amber,
+                  icon: Icons.swap_vert_rounded,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _BreakdownSection(
+          eyebrow: 'SPENDING BREAKDOWN',
+          title: 'Where money was spent',
+          subtitle: 'Expense categories ranked by total outgoing amount.',
+          totals: categories,
+          emptyMessage: 'No classified outgoing transactions yet.',
+          color: _brand,
+        ),
+        _BreakdownSection(
+          eyebrow: 'FUND USAGE',
+          title: 'Which funds handled the most money',
+          subtitle:
+              'Total transaction volume by source, including money in and money out.',
+          totals: sources,
+          emptyMessage: 'No classified fund sources yet.',
+          color: _purple,
+        ),
+        _ExplorerSection(
+          eyebrow: 'DETAIL · RECENT TRANSACTIONS',
+          title: 'Recent activity',
+          subtitle:
+              'Category describes the transaction; source shows the fund that handled it.',
+          child: transactions.isEmpty
+              ? const _ReflectionEmpty(
+                  message: 'No classified transactions yet.')
+              : Column(
+                  children: [
+                    for (final transaction in transactions.take(12))
+                      _ReflectionDetailRow(
+                        icon: transaction.amount >= 0
+                            ? Icons.south_west_rounded
+                            : Icons.north_east_rounded,
+                        color: transaction.amount >= 0 ? _sage : _red,
+                        title: transaction.title,
+                        detail:
+                            '${transaction.category} · ${transaction.source} · ${_shortDate(transaction.createdAt ?? DateTime.now())}',
+                        amount:
+                            '${transaction.amount >= 0 ? '+' : '-'}${money(transaction.amount.abs())}',
+                      ),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+Map<String, double> _transactionTotals(
+  Iterable<FakeMayaTransaction> transactions,
+  String Function(FakeMayaTransaction transaction) labelFor,
+) {
+  final totals = <String, double>{};
+  for (final transaction in transactions) {
+    totals.update(
+      labelFor(transaction),
+      (value) => value + transaction.amount.abs(),
+      ifAbsent: () => transaction.amount.abs(),
+    );
+  }
+  return Map.fromEntries(
+    totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value)),
+  );
+}
+
+String _overviewAnalysisContext(
+  AppState state,
+  IntegrationService service,
+) {
+  final all = state.allTransactions;
+  final labeled = all
+      .where((transaction) =>
+          transaction.isLabeled && !transaction.excludedFromInsights)
+      .toList();
+  final inflow = labeled
+      .where((transaction) => transaction.amount > 0)
+      .fold(0.0, (sum, transaction) => sum + transaction.amount);
+  final outflow = labeled
+      .where((transaction) => transaction.amount < 0)
+      .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+  final categories = _transactionTotals(
+    labeled.where((transaction) => transaction.amount < 0),
+    (transaction) => transaction.category ?? 'Unclassified',
+  );
+  final sources = _transactionTotals(
+    labeled,
+    (transaction) => transaction.source ?? 'Unclassified',
+  );
+  return '''
+Screen: Insights Overview
+Question: Where is my money moving, and what stands out?
+Classified transactions: ${labeled.length} of ${all.length}
+Money in: ${money(inflow)}
+Money out: ${money(outflow)}
+Net flow: ${money(inflow - outflow)}
+Expense categories:
+${categories.entries.map((entry) => '- ${entry.key}: ${money(entry.value)}').join('\n')}
+Fund transaction volume:
+${sources.entries.map((entry) => '- ${entry.key}: ${money(entry.value)}').join('\n')}
+Weekly records available: ${service.weekRecords.length}
+''';
+}
+
+String _availableCashAnalysisContext(
+  AppState state,
+  IntegrationService service,
+) {
+  final weeklyTarget =
+      service.needsTarget <= 0 ? 0.0 : service.needsTarget / 4.33;
+  return '''
+Screen: Available Cash goal
+Question: Which weeks changed my available cash, and what happened inside them?
+Monthly needs target: ${money(service.needsTarget)}
+Estimated weekly target: ${money(weeklyTarget)}
+Current needs balance: ${money(state.needsBalance)}
+Current buffer balance: ${money(state.bufferBalance)}
+Weekly data:
+${service.weekRecords.map((week) => '- ${_shortDate(week.start)}: spent ${money(week.weekExpense)}, income ${money(week.weekIncome)}, ending needs ${money(week.needsBalanceEnd)}, ending buffer ${money(week.bufferBalanceEnd)}, coverage ${(week.propDaysClassified * 100).round()}%, incomeWeek=${week.isSalaryWeek}, billWeek=${week.isBillWeek}, noticeableEvent=${week.hadEmergency}').join('\n')}
+''';
+}
+
+String _emergencyAnalysisContext(
+  AppState state,
+  IntegrationService service,
+) {
+  final activity = _emergencyReflectionActivity(state);
+  final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+  final target = monthlyEssentials > 0
+      ? monthlyEssentials * 3
+      : math.max(30000.0, state.emergencyFundTarget);
+  return '''
+Screen: Emergency Fund goal
+Question: When did my emergency fund change, and which events explain the change?
+Current fund balance: ${money(state.displayedEmergencyFundBalance)}
+Three-month target: ${money(target)}
+Monthly essential expenses: ${money(monthlyEssentials)}
+Pending replenishment: ${money(state.pendingEmergencyReplenishment)}
+Tracked weekly periods: ${service.weekRecords.length}
+Emergency activity:
+${activity.isEmpty ? 'No emergency activity recorded.' : activity.map((item) => '- ${_shortDate(item.date)}: ${item.title}, ${item.add ? 'added' : 'used'} ${money(item.amount)}, ${item.detail}').join('\n')}
+''';
+}
+
+class _BreakdownSection extends StatelessWidget {
+  const _BreakdownSection({
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+    required this.totals,
+    required this.emptyMessage,
+    required this.color,
+  });
+  final String eyebrow;
+  final String title;
+  final String subtitle;
+  final Map<String, double> totals;
+  final String emptyMessage;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = totals.isEmpty ? 1.0 : totals.values.reduce(math.max);
+    final total = totals.values.fold(0.0, (sum, value) => sum + value);
+    return _ExplorerSection(
+      eyebrow: eyebrow,
+      title: title,
+      subtitle: subtitle,
+      child: totals.isEmpty
+          ? _ReflectionEmpty(message: emptyMessage)
+          : Column(
+              children: [
+                for (final entry in totals.entries.take(8))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 13),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                entry.key,
+                                style: const TextStyle(
+                                  color: _title,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${money(entry.value)} · ${(entry.value / total * 100).round()}%',
+                              style: const TextStyle(
+                                color: _body,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: entry.value / maxValue,
+                            minHeight: 9,
+                            color: color,
+                            backgroundColor: _border.withValues(alpha: .45),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _OverviewMetric extends StatelessWidget {
+  const _OverviewMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 88),
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 17),
+          const SizedBox(height: 7),
+          Text(label,
+              style: const TextStyle(
+                  color: _body, fontSize: 9, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                  color: color, fontSize: 14, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashReflectionExplorer extends StatelessWidget {
+  const _CashReflectionExplorer({
+    required this.service,
+    required this.selectedWeek,
+    required this.onWeekSelected,
+  });
+  final IntegrationService service;
+  final DateTime? selectedWeek;
+  final ValueChanged<DateTime> onWeekSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final weeks = service.weekRecords;
+    final selected =
+        weeks.where((week) => week.start == selectedWeek).firstOrNull ??
+            (weeks.isEmpty ? null : weeks.last);
+    final weeklyTarget =
+        service.needsTarget <= 0 ? 0.0 : service.needsTarget / 4.33;
+
+    return Column(
+      children: [
+        const _ReflectionQuestion(
+          question:
+              'Which weeks changed my available cash, and what happened inside them?',
+          detail:
+              'Select a week in the overview to inspect its daily transactions and money events below.',
+        ),
+        _ExplorerSection(
+          eyebrow: 'OVERVIEW · WEEKLY',
+          title: 'Basic-needs spending',
+          subtitle: weeklyTarget > 0
+              ? 'Weekly spending compared with an estimated ${money(weeklyTarget)} share of your monthly target.'
+              : 'Weekly spending from transactions funded by Basic Needs Fund.',
+          child: _SelectableWeeklyChart(
+            weeks: weeks
+                .map((week) => _WeeklyChartItem(
+                      start: week.start,
+                      value: week.weekExpense,
+                      comparisonValue: weeklyTarget,
+                      coverage: week.propDaysClassified,
+                      isIncomeWeek: week.isSalaryWeek,
+                      isBillWeek: week.isBillWeek,
+                      hadInterference: week.hadEmergency,
+                    ))
+                .toList(),
+            selected: selected?.start,
+            primaryLabel: 'Spent',
+            comparisonLabel: 'Weekly target',
+            primaryColor: _brand,
+            onSelected: onWeekSelected,
+          ),
+        ),
+        if (selected != null)
+          _CashWeekDetail(week: selected)
+        else
+          const _ExplorerEmpty(),
+      ],
+    );
+  }
+}
+
+class _CashWeekDetail extends StatelessWidget {
+  const _CashWeekDetail({required this.week});
+  final WeekRecord week;
+
+  @override
+  Widget build(BuildContext context) {
+    final transactions = week.days
+        .expand((day) => day.transactions)
+        .where((transaction) =>
+            transaction.isLabeled &&
+            !transaction.excludedFromInsights &&
+            transaction.source?.toLowerCase() == 'basic needs fund')
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(1970))
+          .compareTo(a.createdAt ?? DateTime(1970)));
+    final events = week.days.expand((day) => day.events).toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final complete = week.days.where((day) => day.fullyClassified).length;
+
+    return _ExplorerSection(
+      eyebrow: 'DETAIL · SELECTED WEEK',
+      title: '${_shortDate(week.start)}–${_shortDate(week.end)}',
+      subtitle:
+          '${money(week.weekExpense)} spent · $complete of ${week.days.length} days complete',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _WeekContextRow(
+            income: week.isSalaryWeek,
+            bills: week.isBillWeek,
+            interference: week.hadEmergency,
+          ),
+          const SizedBox(height: 12),
+          if (events.isEmpty && transactions.isEmpty)
+            const _ReflectionEmpty(
+                message: 'No activity was recorded for this week.')
+          else ...[
+            for (final event in events)
+              _ReflectionDetailRow(
+                icon: event.type == JarEventType.income
+                    ? Icons.south_west_rounded
+                    : Icons.receipt_long_rounded,
+                color: event.type == JarEventType.income ? _sage : _amber,
+                title: event.sentence,
+                detail: '${_shortDate(event.timestamp)} · Money event',
+                amount: null,
+              ),
+            for (final transaction in transactions)
+              _ReflectionDetailRow(
+                icon: transaction.amount >= 0
+                    ? Icons.south_west_rounded
+                    : Icons.north_east_rounded,
+                color: transaction.amount >= 0 ? _sage : _brand,
+                title: transaction.title,
+                detail:
+                    '${transaction.category} · ${_shortDate(transaction.createdAt ?? week.start)}',
+                amount:
+                    '${transaction.amount >= 0 ? '+' : '-'}${money(transaction.amount.abs())}',
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyReflectionExplorer extends StatelessWidget {
+  const _EmergencyReflectionExplorer({
+    required this.state,
+    required this.service,
+    required this.selectedWeek,
+    required this.onWeekSelected,
+  });
+  final AppState state;
+  final IntegrationService service;
+  final DateTime? selectedWeek;
+  final ValueChanged<DateTime> onWeekSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final activity = _emergencyReflectionActivity(state);
+    final starts = <DateTime>{
+      ...service.weekRecords.map((week) => week.start),
+      ...activity.map((item) => _mondayOf(item.date)),
+    }.toList()
+      ..sort();
+    final weeks = starts.map((start) {
+      final items =
+          activity.where((item) => _mondayOf(item.date) == start).toList();
+      return _EmergencyReflectionWeek(
+        start: start,
+        added: items
+            .where((item) => item.add)
+            .fold(0.0, (sum, item) => sum + item.amount),
+        used: items
+            .where((item) => !item.add)
+            .fold(0.0, (sum, item) => sum + item.amount),
+        activity: items,
+        coverage: service.weekRecords
+                .where((week) => week.start == start)
+                .firstOrNull
+                ?.propDaysClassified ??
+            0,
+      );
+    }).toList();
+    final selected =
+        weeks.where((week) => week.start == selectedWeek).firstOrNull ??
+            (weeks.isEmpty ? null : weeks.last);
+    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+    final target = monthlyEssentials > 0
+        ? monthlyEssentials * 3
+        : math.max(30000.0, state.emergencyFundTarget);
+
+    return Column(
+      children: [
+        const _ReflectionQuestion(
+          question:
+              'When did my emergency fund change, and which events explain the change?',
+          detail:
+              'Select a week to connect contributions and withdrawals with their underlying activity.',
+        ),
+        _ExplorerSection(
+          eyebrow: 'OVERVIEW · WEEKLY',
+          title: 'Emergency fund movement',
+          subtitle:
+              '${money(state.displayedEmergencyFundBalance)} saved toward ${money(target)} · additions and use are shown separately.',
+          child: _SelectableWeeklyChart(
+            weeks: weeks
+                .map((week) => _WeeklyChartItem(
+                      start: week.start,
+                      value: week.added,
+                      comparisonValue: week.used,
+                      coverage: week.coverage,
+                    ))
+                .toList(),
+            selected: selected?.start,
+            primaryLabel: 'Added',
+            comparisonLabel: 'Used',
+            primaryColor: _sage,
+            comparisonColor: _red,
+            onSelected: onWeekSelected,
+          ),
+        ),
+        if (selected != null)
+          _EmergencyWeekDetail(week: selected)
+        else
+          const _ExplorerEmpty(),
+      ],
+    );
+  }
+}
+
+class _EmergencyReflectionWeek {
+  const _EmergencyReflectionWeek({
+    required this.start,
+    required this.added,
+    required this.used,
+    required this.activity,
+    required this.coverage,
+  });
+  final DateTime start;
+  final double added;
+  final double used;
+  final List<_EmergencyReflectionItem> activity;
+  final double coverage;
+}
+
+class _EmergencyReflectionItem {
+  const _EmergencyReflectionItem({
+    required this.title,
+    required this.detail,
+    required this.amount,
+    required this.date,
+    required this.add,
+  });
+  final String title;
+  final String detail;
+  final double amount;
+  final DateTime date;
+  final bool add;
+}
+
+List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
+  final activity = <_EmergencyReflectionItem>[];
+  for (final entry in state.d1Ledger) {
+    final type = entry['type']?.toString();
+    if (!const {
+      'emergency_deposit',
+      'use_emergency',
+      'ef_replenish',
+    }.contains(type)) {
+      continue;
+    }
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null) continue;
+    activity.add(_EmergencyReflectionItem(
+      title: switch (type) {
+        'emergency_deposit' => 'Income contribution',
+        'ef_replenish' => 'Fund replenished',
+        _ => 'Emergency fund used',
+      },
+      detail: switch (type) {
+        'emergency_deposit' => 'Scheduled contribution',
+        'ef_replenish' => 'Previous withdrawal restored',
+        _ => 'Withdrawal',
+      },
+      amount: (entry['amount'] as num?)?.toDouble() ?? 0,
+      date: date,
+      add: type != 'use_emergency',
+    ));
+  }
+  for (final transaction in state.allTransactions) {
+    if (!transaction.isLabeled ||
+        transaction.excludedFromInsights ||
+        transaction.source?.toLowerCase() != 'emergency fund') {
+      continue;
+    }
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    if (date == null) continue;
+    activity.add(_EmergencyReflectionItem(
+      title: transaction.title,
+      detail: transaction.category ?? 'Emergency fund activity',
+      amount: transaction.amount.abs(),
+      date: date,
+      add: transaction.amount >= 0,
+    ));
+  }
+  activity.sort((a, b) => b.date.compareTo(a.date));
+  return activity;
+}
+
+class _EmergencyWeekDetail extends StatelessWidget {
+  const _EmergencyWeekDetail({required this.week});
+  final _EmergencyReflectionWeek week;
+
+  @override
+  Widget build(BuildContext context) {
+    final end = week.start.add(const Duration(days: 6));
+    return _ExplorerSection(
+      eyebrow: 'DETAIL · SELECTED WEEK',
+      title: '${_shortDate(week.start)}–${_shortDate(end)}',
+      subtitle:
+          '${money(week.added)} added · ${money(week.used)} used · ${(week.coverage * 100).round()}% data coverage',
+      child: week.activity.isEmpty
+          ? const _ReflectionEmpty(
+              message: 'No emergency fund movement was recorded this week.')
+          : Column(
+              children: [
+                for (final item in week.activity)
+                  _ReflectionDetailRow(
+                    icon: item.add
+                        ? Icons.south_west_rounded
+                        : Icons.north_east_rounded,
+                    color: item.add ? _sage : _red,
+                    title: item.title,
+                    detail: '${item.detail} · ${_shortDate(item.date)}',
+                    amount: '${item.add ? '+' : '-'}${money(item.amount)}',
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+DateTime _mondayOf(DateTime date) {
+  final day = DateTime(date.year, date.month, date.day);
+  return day.subtract(Duration(days: day.weekday - DateTime.monday));
+}
+
+class _WeeklyChartItem {
+  const _WeeklyChartItem({
+    required this.start,
+    required this.value,
+    required this.comparisonValue,
+    required this.coverage,
+    this.isIncomeWeek = false,
+    this.isBillWeek = false,
+    this.hadInterference = false,
+  });
+  final DateTime start;
+  final double value;
+  final double comparisonValue;
+  final double coverage;
+  final bool isIncomeWeek;
+  final bool isBillWeek;
+  final bool hadInterference;
+}
+
+class _SelectableWeeklyChart extends StatelessWidget {
+  const _SelectableWeeklyChart({
+    required this.weeks,
+    required this.selected,
+    required this.primaryLabel,
+    required this.comparisonLabel,
+    required this.primaryColor,
+    required this.onSelected,
+    this.comparisonColor = _purple,
+  });
+  final List<_WeeklyChartItem> weeks;
+  final DateTime? selected;
+  final String primaryLabel;
+  final String comparisonLabel;
+  final Color primaryColor;
+  final Color comparisonColor;
+  final ValueChanged<DateTime> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (weeks.isEmpty) {
+      return const SizedBox(
+        height: 190,
+        child: _ReflectionEmpty(message: 'No weekly data is available yet.'),
+      );
+    }
+    final visible =
+        weeks.length > 14 ? weeks.sublist(weeks.length - 14) : weeks;
+    final maxValue = visible.fold<double>(
+      1,
+      (largest, week) =>
+          math.max(largest, math.max(week.value, week.comparisonValue)),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 14,
+          runSpacing: 7,
+          children: [
+            _ChartLegend(color: primaryColor, label: primaryLabel),
+            _ChartLegend(color: comparisonColor, label: comparisonLabel),
+            const _ChartLegend(color: _border, label: 'Missing data'),
+            if (visible.any((week) => week.isIncomeWeek))
+              const _ContextLegend(
+                  icon: Icons.payments_rounded, label: 'Income'),
+            if (visible.any((week) => week.isBillWeek))
+              const _ContextLegend(
+                  icon: Icons.receipt_long_rounded, label: 'Bills'),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 196,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 46,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(money(maxValue), style: _chartAxisStyle),
+                    Text(money(maxValue / 2), style: _chartAxisStyle),
+                    const Text('₱0', style: _chartAxisStyle),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  itemCount: visible.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (context, reversedIndex) {
+                    final index = visible.length - 1 - reversedIndex;
+                    final week = visible[index];
+                    return _SelectableWeekBars(
+                      week: week,
+                      maxValue: maxValue,
+                      selected: selected == week.start ||
+                          (selected == null && index == visible.length - 1),
+                      primaryColor: primaryColor,
+                      comparisonColor: comparisonColor,
+                      onTap: () => onSelected(week.start),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Tap a week to update the detail list below.',
+          style: TextStyle(
+            color: _body,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+const _chartAxisStyle = TextStyle(
+  color: _body,
+  fontSize: 9,
+  fontWeight: FontWeight.w800,
+);
+
+class _SelectableWeekBars extends StatelessWidget {
+  const _SelectableWeekBars({
+    required this.week,
+    required this.maxValue,
+    required this.selected,
+    required this.primaryColor,
+    required this.comparisonColor,
+    required this.onTap,
+  });
+  final _WeeklyChartItem week;
+  final double maxValue;
+  final bool selected;
+  final Color primaryColor;
+  final Color comparisonColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final missing = week.coverage <= 0;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label:
+          'Week of ${_shortDate(week.start)}, ${money(week.value)} and ${money(week.comparisonValue)}',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 54,
+          padding: const EdgeInsets.fromLTRB(5, 7, 5, 5),
+          decoration: BoxDecoration(
+            color: selected ? _bellySoft : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? _title : Colors.transparent,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 18,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (week.isIncomeWeek)
+                      const Icon(Icons.payments_rounded,
+                          size: 13, color: _sage),
+                    if (week.isBillWeek)
+                      const Icon(Icons.receipt_long_rounded,
+                          size: 13, color: _amber),
+                    if (week.hadInterference)
+                      const Icon(Icons.info_outline_rounded,
+                          size: 13, color: _red),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: missing
+                    ? Container(
+                        width: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: _border),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: const RotatedBox(
+                          quarterTurns: 3,
+                          child: Text('NO DATA', style: _chartAxisStyle),
+                        ),
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _VerticalBar(
+                            value: week.value / maxValue,
+                            color: primaryColor,
+                          ),
+                          const SizedBox(width: 4),
+                          _VerticalBar(
+                            value: week.comparisonValue / maxValue,
+                            color: comparisonColor,
+                          ),
+                        ],
+                      ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                _shortDate(week.start),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: selected ? _title : _body,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VerticalBar extends StatelessWidget {
+  const _VerticalBar({required this.value, required this.color});
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: FractionallySizedBox(
+        heightFactor: value.clamp(.025, 1.0),
+        child: Container(
+          width: 13,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ExplorerSection extends StatelessWidget {
+  const _ExplorerSection({
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+  final String eyebrow;
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              eyebrow,
+              style: const TextStyle(
+                color: _purple,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.0,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              title,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 15),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeekContextRow extends StatelessWidget {
+  const _WeekContextRow({
+    required this.income,
+    required this.bills,
+    required this.interference,
+  });
+  final bool income;
+  final bool bills;
+  final bool interference;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 7,
+      runSpacing: 7,
+      children: [
+        if (income)
+          const _ReflectionContextChip(
+              icon: Icons.payments_rounded, label: 'Income week', color: _sage),
+        if (bills)
+          const _ReflectionContextChip(
+              icon: Icons.receipt_long_rounded,
+              label: 'Bill week',
+              color: _amber),
+        if (interference)
+          const _ReflectionContextChip(
+              icon: Icons.info_outline_rounded,
+              label: 'Noticeable event',
+              color: _red),
+        if (!income && !bills && !interference)
+          const Text(
+            'No income, bill, or emergency context recorded.',
+            style: TextStyle(
+                color: _body, fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+      ],
+    );
+  }
+}
+
+class _ReflectionContextChip extends StatelessWidget {
+  const _ReflectionContextChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Text(label,
+              style: TextStyle(
+                  color: color, fontSize: 10, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContextLegend extends StatelessWidget {
+  const _ContextLegend({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: _body, size: 12),
+        const SizedBox(width: 4),
+        Text(label,
+            style: const TextStyle(
+                color: _body, fontSize: 10, fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+}
+
+class _ReflectionDetailRow extends StatelessWidget {
+  const _ReflectionDetailRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.detail,
+    required this.amount,
+  });
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String detail;
+  final String? amount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 2),
+                Text(detail,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+          if (amount != null) ...[
+            const SizedBox(width: 8),
+            Text(amount!,
+                style: TextStyle(
+                    color: color, fontSize: 11, fontWeight: FontWeight.w900)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ExplorerEmpty extends StatelessWidget {
+  const _ExplorerEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ExplorerSection(
+      eyebrow: 'DETAIL',
+      title: 'No week selected',
+      subtitle: 'Weekly detail will appear once activity has been recorded.',
+      child: _ReflectionEmpty(message: 'No activity is available yet.'),
     );
   }
 }
@@ -1447,7 +2744,7 @@ class _JarTimelineSection extends StatelessWidget {
     return _ReflectionSection(
       title: 'Jar Timeline',
       caption:
-          'Look across weeks to see whether your buffer recovers after bill weeks. Grey gaps mean the line is not filled in from synced data.',
+          'Weekly ending balances in pesos. Shaded columns mark income or bill weeks; gaps mean no synced data was available.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1476,6 +2773,17 @@ class _JarTimelineSection extends StatelessWidget {
                       }).toList(),
                     ),
                   ),
+          ),
+          const SizedBox(height: 10),
+          const Wrap(
+            spacing: 14,
+            runSpacing: 7,
+            children: [
+              _ChartLegend(color: _brand, label: 'Needs balance'),
+              _ChartLegend(color: _purple, label: 'Buffer balance'),
+              _ChartLegend(color: _amber, label: 'Bill week'),
+              _ChartLegend(color: _sage, label: 'Income week'),
+            ],
           ),
           if (hasRange)
             ...weeks
@@ -1539,7 +2847,10 @@ class _SpendComparisonSection extends StatelessWidget {
     final beforeValue = average(beforeNext);
     final filtered = (filter == 'after' ? afterIncome : beforeNext)
         .expand((day) => day.transactions)
-        .where((transaction) => transaction.amount < 0 && transaction.isLabeled)
+        .where((transaction) =>
+            transaction.amount < 0 &&
+            transaction.isLabeled &&
+            transaction.source?.toLowerCase() == 'basic needs fund')
         .take(8)
         .toList();
 
@@ -1636,7 +2947,7 @@ class _DataTrustSection extends StatelessWidget {
     return _ReflectionSection(
       title: 'Data Trust',
       caption:
-          'Filled days are fully classified, hollow days are inferred from jars, and grey days have no synced activity.',
+          'This calendar shows how much information supports each day in the charts. A date with no activity is kept separate from a recorded zero.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1644,17 +2955,347 @@ class _DataTrustSection extends StatelessWidget {
           // Insight type: data quality/missingness.
           _CoverageGrid(days: service.dayRecords),
           const SizedBox(height: 14),
-          Row(
-            children: const [
-              _CoverageLegend(color: _brand, label: 'Fully tracked'),
-              SizedBox(width: 10),
-              _CoverageLegend(color: _purple, label: 'Inferred'),
-              SizedBox(width: 10),
-              _CoverageLegend(color: _border, label: 'No synced data'),
+          const Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _CoverageLegend(
+                  color: _brand, label: 'Complete: synced and labeled'),
+              _CoverageLegend(
+                  color: _purple, label: 'Inferred: jar activity only'),
+              _CoverageLegend(
+                  color: _border, label: 'Missing: no synced activity'),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EmergencyGoalOverview extends StatelessWidget {
+  const _EmergencyGoalOverview({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+    final current = state.displayedEmergencyFundBalance;
+    final target = monthlyEssentials > 0
+        ? monthlyEssentials * 3
+        : math.max(state.emergencyFundTarget, 30000.0);
+    final months = monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
+    final adherence = target <= 0 ? 0.0 : (current / target).clamp(0.0, 1.0);
+    final pending = state.pendingEmergencyReplenishment;
+
+    return _ReflectionSection(
+      title: 'Emergency Fund Overview',
+      caption:
+          'Current savings are compared with your three-month target. Progress is capped at 100% so extra savings do not hide another missing measure.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _GoalPairBar(
+            label: 'Emergency fund',
+            target: target,
+            current: current,
+            color: _amber,
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _LabeledMetric(
+                  label: 'Goal adherence',
+                  value: '${(adherence * 100).round()}%',
+                  note: 'Current ÷ target',
+                  color: _amber,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _LabeledMetric(
+                  label: 'Months covered',
+                  value: months.toStringAsFixed(1),
+                  note: 'Essential expenses',
+                  color: _brand,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _LabeledMetric(
+                  label: 'To replenish',
+                  value: money(pending),
+                  note: pending > 0 ? 'Still pending' : 'Nothing pending',
+                  color: pending > 0 ? _red : _sage,
+                ),
+              ),
+            ],
+          ),
+          if (monthlyEssentials <= 0) ...[
+            const SizedBox(height: 12),
+            const _DataNote(
+              text:
+                  'Monthly essential expenses are not available yet, so a temporary ₱30,000 minimum target is used.',
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyActivityReflection extends StatelessWidget {
+  const _EmergencyActivityReflection({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final activity =
+        <({String label, double amount, DateTime? date, bool add})>[];
+    for (final entry in state.d1Ledger) {
+      final type = entry['type']?.toString();
+      if (!const {
+        'emergency_deposit',
+        'use_emergency',
+        'ef_replenish',
+      }.contains(type)) {
+        continue;
+      }
+      activity.add((
+        label: switch (type) {
+          'emergency_deposit' => 'Income contribution',
+          'ef_replenish' => 'Replenishment',
+          _ => 'Emergency withdrawal',
+        },
+        amount: (entry['amount'] as num?)?.toDouble() ?? 0,
+        date: DateTime.tryParse(entry['date']?.toString() ?? ''),
+        add: type != 'use_emergency',
+      ));
+    }
+    for (final transaction in state.fakeMayaLink?.summary.transactions ??
+        const <FakeMayaTransaction>[]) {
+      if (!transaction.isLabeled ||
+          transaction.excludedFromInsights ||
+          transaction.source?.toLowerCase() != 'emergency fund') {
+        continue;
+      }
+      activity.add((
+        label: transaction.category ?? 'Emergency fund activity',
+        amount: transaction.amount.abs(),
+        date: transaction.createdAt,
+        add: transaction.amount >= 0,
+      ));
+    }
+    activity.sort((a, b) =>
+        (b.date ?? DateTime(1970)).compareTo(a.date ?? DateTime(1970)));
+    final maxAmount = activity.fold<double>(
+      1,
+      (largest, item) => math.max(largest, item.amount),
+    );
+
+    return _ReflectionSection(
+      title: 'Contributions and Use',
+      caption:
+          'Each bar uses the same peso scale. Green adds to the fund; red uses the fund. The list is ordered from newest to oldest.',
+      child: activity.isEmpty
+          ? const _ReflectionEmpty(
+              message:
+                  'No emergency fund activity is recorded yet. New contributions and withdrawals will appear here.',
+            )
+          : Column(
+              children: [
+                const Row(
+                  children: [
+                    _ChartLegend(color: _sage, label: 'Added'),
+                    SizedBox(width: 14),
+                    _ChartLegend(color: _red, label: 'Used'),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                for (final item in activity.take(12))
+                  _EmergencyActivityBar(item: item, maxAmount: maxAmount),
+              ],
+            ),
+    );
+  }
+}
+
+class _EmergencyActivityBar extends StatelessWidget {
+  const _EmergencyActivityBar({required this.item, required this.maxAmount});
+  final ({String label, double amount, DateTime? date, bool add}) item;
+  final double maxAmount;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = item.add ? _sage : _red;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.label,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${item.add ? '+' : '-'}${money(item.amount)}',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: item.amount / maxAmount,
+                    minHeight: 8,
+                    color: color,
+                    backgroundColor: _border.withValues(alpha: .5),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
+              SizedBox(
+                width: 46,
+                child: Text(
+                  item.date == null ? 'No date' : _shortDate(item.date!),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LabeledMetric extends StatelessWidget {
+  const _LabeledMetric({
+    required this.label,
+    required this.value,
+    required this.note,
+    required this.color,
+  });
+  final String label;
+  final String value;
+  final String note;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 94),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  color: _body, fontSize: 10, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(note,
+              style: const TextStyle(
+                  color: _body, fontSize: 9, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
+class _DataNote extends StatelessWidget {
+  const _DataNote({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.info_outline_rounded, color: _body, size: 16),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChartLegend extends StatelessWidget {
+  const _ChartLegend({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1903,9 +3544,46 @@ class _GoalPairBar extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        _ThinBar(value: target / maxValue, color: color.withOpacity(.22)),
+        Row(
+          children: [
+            const SizedBox(
+              width: 52,
+              child: Text(
+                'Target',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _ThinBar(
+                value: target / maxValue,
+                color: color.withOpacity(.22),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 5),
-        _ThinBar(value: current / maxValue, color: color),
+        Row(
+          children: [
+            const SizedBox(
+              width: 52,
+              child: Text(
+                'Current',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Expanded(
+              child: _ThinBar(value: current / maxValue, color: color),
+            ),
+          ],
+        ),
         const SizedBox(height: 5),
         Text(
           'Target ${money(target)}',
@@ -1950,25 +3628,71 @@ class _CoverageGrid extends StatelessWidget {
         child: _ReflectionEmpty(message: 'No coverage days yet.'),
       );
     }
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: days.map((day) {
-        final color = day.fullyClassified
-            ? _brand
-            : day.wasInferred
-                ? _purple
-                : _border;
-        return Container(
-          width: 18,
-          height: 18,
-          decoration: BoxDecoration(
-            color: day.fullyClassified ? color : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(color: color, width: day.wasInferred ? 2 : 1),
+    final byDate = {
+      for (final day in days)
+        DateTime(day.date.year, day.date.month, day.date.day): day,
+    };
+    final first = days.first.date;
+    final last = days.last.date;
+    var weekStart =
+        first.subtract(Duration(days: first.weekday - DateTime.monday));
+    final weeks = <DateTime>[];
+    while (!weekStart.isAfter(last)) {
+      weeks.add(weekStart);
+      weekStart = weekStart.add(const Duration(days: 7));
+    }
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            const SizedBox(width: 58),
+            for (final label in ['M', 'T', 'W', 'T', 'F', 'S', 'S'])
+              Expanded(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        for (final start in weeks)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 58,
+                  child: Text(
+                    _shortDate(start),
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                for (var offset = 0; offset < 7; offset++)
+                  Expanded(
+                    child: _CoverageDay(
+                      date: start.add(Duration(days: offset)),
+                      day: byDate[DateTime(
+                        start.add(Duration(days: offset)).year,
+                        start.add(Duration(days: offset)).month,
+                        start.add(Duration(days: offset)).day,
+                      )],
+                    ),
+                  ),
+              ],
+            ),
           ),
-        );
-      }).toList(),
+      ],
     );
   }
 }
@@ -1979,26 +3703,73 @@ class _CoverageLegend extends StatelessWidget {
   final String label;
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Row(
-        children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
           ),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CoverageDay extends StatelessWidget {
+  const _CoverageDay({required this.date, required this.day});
+  final DateTime date;
+  final DayRecord? day;
+
+  @override
+  Widget build(BuildContext context) {
+    final record = day;
+    final status = record == null
+        ? 'Outside tracked range'
+        : record.fullyClassified
+            ? 'Complete'
+            : record.wasInferred
+                ? 'Inferred'
+                : 'Missing';
+    final color = record == null
+        ? Colors.transparent
+        : record.fullyClassified
+            ? _brand
+            : record.wasInferred
+                ? _purple
+                : _border;
+    final filled = record?.fullyClassified ?? false;
+    return Tooltip(
+      message: '${_shortDate(date)}: $status',
+      child: Container(
+        height: 27,
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? color : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(
+            color: record == null ? _border.withValues(alpha: .35) : color,
+            width: record?.wasInferred == true ? 2 : 1,
           ),
-        ],
+        ),
+        child: Text(
+          '${date.day}',
+          style: TextStyle(
+            color: filled ? Colors.white : _body,
+            fontSize: 9,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ),
     );
   }
@@ -2017,9 +3788,9 @@ class _JarTimelinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (weeks.isEmpty) return;
-    const left = 26.0;
+    const left = 54.0;
     const top = 18.0;
-    const bottom = 26.0;
+    const bottom = 32.0;
     final chartWidth = size.width - left - 8;
     final chartHeight = size.height - top - bottom;
     final maxValue = [
@@ -2034,12 +3805,33 @@ class _JarTimelinePainter extends CustomPainter {
       Rect.fromLTWH(left, math.max(top, targetY - 8), chartWidth, 16),
       bandPaint,
     );
+    final gridPaint = Paint()
+      ..color = _border
+      ..strokeWidth = 1;
+    for (final fraction in [0.0, .5, 1.0]) {
+      final y = top + chartHeight * fraction;
+      canvas.drawLine(Offset(left, y), Offset(left + chartWidth, y), gridPaint);
+      _paintChartText(
+        canvas,
+        money(maxValue * (1 - fraction)),
+        Offset(0, y - 6),
+        maxWidth: left - 7,
+        align: TextAlign.right,
+      );
+    }
+    _paintChartText(
+      canvas,
+      'Needs target',
+      Offset(left + 4, math.max(top, targetY - 17)),
+      color: _brand,
+      fontWeight: FontWeight.w800,
+    );
     final segmentWidth = chartWidth / weeks.length;
     for (var i = 0; i < weeks.length; i++) {
       final week = weeks[i];
       if (week.isBillWeek || week.isSalaryWeek) {
         final paint = Paint()
-          ..color = (week.isBillWeek ? _amber : _brand).withOpacity(.08);
+          ..color = (week.isBillWeek ? _amber : _sage).withOpacity(.10);
         canvas.drawRect(
           Rect.fromLTWH(
               left + i * segmentWidth, top, segmentWidth, chartHeight),
@@ -2076,6 +3868,18 @@ class _JarTimelinePainter extends CustomPainter {
 
     drawSeries((week) => week.needsBalanceEnd, _brand);
     drawSeries((week) => week.bufferBalanceEnd, _purple);
+
+    final labelIndexes = <int>{0, weeks.length ~/ 2, weeks.length - 1};
+    for (final index in labelIndexes) {
+      final x = left + segmentWidth * index + segmentWidth / 2;
+      _paintChartText(
+        canvas,
+        _shortDate(weeks[index].start),
+        Offset(x - 25, top + chartHeight + 8),
+        maxWidth: 50,
+        align: TextAlign.center,
+      );
+    }
   }
 
   @override
@@ -2083,6 +3887,31 @@ class _JarTimelinePainter extends CustomPainter {
       oldDelegate.weeks != weeks ||
       oldDelegate.targetNeeds != targetNeeds ||
       oldDelegate.targetBuffer != targetBuffer;
+}
+
+void _paintChartText(
+  Canvas canvas,
+  String text,
+  Offset offset, {
+  double maxWidth = 90,
+  TextAlign align = TextAlign.left,
+  Color color = _body,
+  FontWeight fontWeight = FontWeight.w700,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(
+        color: color,
+        fontSize: 9,
+        fontWeight: fontWeight,
+      ),
+    ),
+    textAlign: align,
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout(maxWidth: maxWidth);
+  painter.paint(canvas, offset);
 }
 
 void _showWeekDetail(BuildContext context, WeekRecord week) {
@@ -6337,7 +8166,14 @@ class ProfilePage extends StatelessWidget {
         'View',
         () => _push(context, const UserSelectionsScreen()),
       ),
-      const _SettingData('Notifications', Icons.notifications_outlined, 'On'),
+      _SettingData(
+        'Notifications',
+        Icons.notifications_outlined,
+        state.notificationsAllowed
+            ? '${state.notificationReminderMinutes.length} daily'
+            : 'Off',
+        () => _push(context, const NotificationSettingsScreen()),
+      ),
       const _SettingData('Privacy & security', Icons.shield_outlined, ''),
       _SettingData(
         'Linked accounts',
@@ -6406,9 +8242,12 @@ class ProfilePage extends StatelessWidget {
                       children: [
                         Expanded(
                           child: _ProfileStatTile(
-                            emoji: '🔥',
-                            value: '7',
-                            label: 'streak',
+                            emoji: '⏰',
+                            value: state.notificationReminderMinutes.isEmpty
+                                ? '--'
+                                : _formatReminderMinutes(
+                                    state.notificationReminderMinutes.first),
+                            label: 'reminder',
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -6478,6 +8317,260 @@ class ProfilePage extends StatelessWidget {
       ],
     );
   }
+}
+
+class NotificationSettingsScreen extends StatelessWidget {
+  const NotificationSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final times = state.notificationReminderMinutes;
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 28),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 20, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Notifications',
+                      style: GoogleFonts.fredoka(
+                        color: _title,
+                        fontSize: 25,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _border),
+                    ),
+                    child: SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: state.notificationsAllowed,
+                      activeColor: _brand,
+                      title: const Text(
+                        'Transaction reminders',
+                        style: TextStyle(
+                          color: _title,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Shelby will remind you to log cash or sync connected accounts.',
+                        style: TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onChanged: (enabled) async {
+                        await state.setTransactionRemindersEnabled(enabled);
+                        if (!context.mounted) return;
+                        if (enabled && !state.notificationsAllowed) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Notifications are disabled in iPhone Settings.',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'DAILY TIMES',
+                          style: TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.1,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Add reminder time',
+                        onPressed: times.length >= 8
+                            ? null
+                            : () => _addReminderTime(context, state),
+                        icon: const Icon(Icons.add_alarm_rounded),
+                        color: _purple,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  if (times.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: _surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _border),
+                      ),
+                      child: const Text(
+                        'No reminder times yet. Add a time that fits your routine.',
+                        style: TextStyle(
+                          color: _body,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _border),
+                      ),
+                      child: Column(
+                        children: [
+                          for (var index = 0;
+                              index < times.length;
+                              index++) ...[
+                            ListTile(
+                              leading: const Icon(
+                                Icons.schedule_rounded,
+                                color: _purple,
+                              ),
+                              title: Text(
+                                _formatReminderMinutes(times[index]),
+                                style: const TextStyle(
+                                  color: _title,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Every day',
+                                style: TextStyle(
+                                  color: _body,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              onTap: () =>
+                                  _editReminderTime(context, state, index),
+                              trailing: IconButton(
+                                tooltip: 'Remove time',
+                                onPressed: () {
+                                  final updated = List<int>.of(times)
+                                    ..removeAt(index);
+                                  state.setNotificationReminderTimes(updated);
+                                },
+                                icon: const Icon(Icons.delete_outline_rounded),
+                              ),
+                            ),
+                            if (index < times.length - 1)
+                              const Divider(height: 1, color: _border),
+                          ],
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showTestNotification(context, state),
+                      icon: const Icon(Icons.notifications_active_rounded),
+                      label: const Text('Send test notification'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Times follow this iPhone’s timezone. iOS may group banners according to your notification and Focus settings.',
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      height: 1.4,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _addReminderTime(
+    BuildContext context,
+    AppState state,
+  ) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 20, minute: 0),
+    );
+    if (selected == null) return;
+    await state.setNotificationReminderTimes([
+      ...state.notificationReminderMinutes,
+      selected.hour * 60 + selected.minute,
+    ]);
+  }
+
+  Future<void> _editReminderTime(
+    BuildContext context,
+    AppState state,
+    int index,
+  ) async {
+    final current = state.notificationReminderMinutes[index];
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
+    );
+    if (selected == null) return;
+    final updated = List<int>.of(state.notificationReminderMinutes);
+    updated[index] = selected.hour * 60 + selected.minute;
+    await state.setNotificationReminderTimes(updated);
+  }
+
+  Future<void> _showTestNotification(
+    BuildContext context,
+    AppState state,
+  ) async {
+    if (!state.notificationsAllowed) {
+      final granted = await state.enableTransactionReminders();
+      if (!granted) return;
+    }
+    await ShellbyNotificationService.instance.showTestReminder();
+  }
+}
+
+String _formatReminderMinutes(int value) {
+  final hour24 = value ~/ 60;
+  final minute = (value % 60).toString().padLeft(2, '0');
+  final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+  return '$hour12:$minute ${hour24 < 12 ? 'AM' : 'PM'}';
 }
 
 class _SettingData {
@@ -7503,16 +9596,11 @@ class _TxData {
   final FakeMayaTransaction? transaction;
 
   bool get countsAsIncome {
-    final linkedTransaction = transaction;
-    if (linkedTransaction == null) return amount > 0;
-    return linkedTransaction.title.toLowerCase().contains('cash in');
+    return amount > 0;
   }
 
   bool get countsAsExpense {
-    final linkedTransaction = transaction;
-    if (linkedTransaction == null) return amount < 0;
-    final title = linkedTransaction.title.toLowerCase();
-    return title.contains('send money') || title.contains('sent money');
+    return amount < 0;
   }
 
   double get incomeAmount => countsAsIncome ? amount.abs() : 0;
@@ -7533,7 +9621,8 @@ class _TxData {
     if (filter == 'Money in') return amount > 0;
     if (filter == 'Money out') return amount < 0;
     return category.toLowerCase().contains(filter.toLowerCase()) ||
-        name.toLowerCase().contains(filter.toLowerCase());
+        name.toLowerCase().contains(filter.toLowerCase()) ||
+        source.toLowerCase().contains(filter.toLowerCase());
   }
 }
 
@@ -7552,9 +9641,14 @@ class _ActivityPageState extends State<ActivityPage> {
   int _visibleTransactionCount = _transactionsPerPage;
   int _filteredTransactionCount = 0;
 
-  static const _filters = ['All', 'Money in', 'Money out', 'Wallet', 'Savings'];
-
-  static const _groups = <(String, List<_TxData>)>[];
+  static const _filters = [
+    'All',
+    'Money in',
+    'Money out',
+    'Cash',
+    'Wallet',
+    'Savings',
+  ];
 
   @override
   void initState() {
@@ -7597,179 +9691,188 @@ class _ActivityPageState extends State<ActivityPage> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final linked = state.hasFakeMayaLink;
-    final fakeMayaTransactions =
-        state.fakeMayaLink?.summary.transactions ?? const [];
-    final allTransactions = linked
-        ? fakeMayaTransactions.map(_txFromFakeMaya).toList()
-        : _groups.expand((group) => group.$2).toList();
-    if (linked) {
-      allTransactions.sort((a, b) {
-        final aTime = a.occurredAt;
-        final bTime = b.occurredAt;
-        if (aTime == null && bTime == null) return 0;
-        if (aTime == null) return 1;
-        if (bTime == null) return -1;
-        return bTime.compareTo(aTime);
-      });
-    }
+    final allTransactions = state.allTransactions.map(_txFromFakeMaya).toList();
+    allTransactions.sort((a, b) {
+      final aTime = a.occurredAt;
+      final bTime = b.occurredAt;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
     final filteredTransactions = allTransactions
         .where((transaction) => transaction.matchesFilter(_filter))
         .toList();
     _filteredTransactionCount = filteredTransactions.length;
     final hasOlderTransactions =
-        linked && _visibleTransactionCount < _filteredTransactionCount;
-    final groups = linked
-        ? _groupTransactionsByDate(
-            filteredTransactions.take(_visibleTransactionCount),
-          )
-        : _groups;
-    final visibleGroups = groups
-        .map((group) => linked
-            ? group
-            : (
-                group.$1,
-                group.$2.where((tx) => tx.matchesFilter(_filter)).toList(),
-              ))
-        .where((group) => group.$2.isNotEmpty)
-        .toList();
+        _visibleTransactionCount < _filteredTransactionCount;
+    final visibleGroups = _groupTransactionsByDate(
+      filteredTransactions.take(_visibleTransactionCount),
+    );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Stack(
       children: [
-        const PageHeader(eyebrow: 'EVERY MOVE', title: 'Activity'),
-        if (linked) ...[
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Tracking movement from ${state.fakeMayaLink!.email}',
-                    style: const TextStyle(
-                      color: _body,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _refreshFakeMaya(context),
-                  icon: const Icon(Icons.sync_rounded, size: 18),
-                  label: const Text('Refresh'),
-                ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 16),
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            scrollDirection: Axis.horizontal,
-            itemCount: _filters.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final active = _filter == _filters[i];
-              return GestureDetector(
-                onTap: () => _selectFilter(_filters[i]),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: active ? _brand : _surface,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: active ? _brand : _border,
-                    ),
-                  ),
-                  child: Text(
-                    _filters[i],
-                    style: TextStyle(
-                      color: active ? Colors.white : _title,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: visibleGroups.isEmpty
-              ? _EmptyActivity(linked: linked)
-              : ListView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const PageHeader(eyebrow: 'EVERY MOVE', title: 'Activity'),
+            if (linked) ...[
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
                   children: [
-                    _ActivityCalendarSummary(transactions: allTransactions),
-                    const SizedBox(height: 18),
-                    ...visibleGroups.map((group) {
-                      final rows = group.$2;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AppCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                _ActivityDateHeader(
-                                  label: group.$1,
-                                  transactions: rows,
-                                ),
-                                const Divider(height: 1, color: _border),
-                                ...rows.asMap().entries.map((e) {
-                                  final tx = e.value;
-                                  final isLast = e.key == rows.length - 1;
-                                  return Column(
-                                    children: [
-                                      _ActivityRow(
-                                        data: tx,
-                                        onTap: tx.transaction == null
-                                            ? null
-                                            : () => _showTransactionLabelSheet(
-                                                  context,
-                                                  tx.transaction!,
-                                                ),
-                                      ),
-                                      if (!isLast)
-                                        const Divider(
-                                          height: 1,
-                                          color: _border,
-                                          indent: 70,
-                                        ),
-                                    ],
-                                  );
-                                }),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                      );
-                    }),
-                    if (hasOlderTransactions)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4, bottom: 12),
-                        child: Center(
-                          child: Text(
-                            'Scroll down to load older transactions',
-                            style: TextStyle(
-                              color: _body,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                    Expanded(
+                      child: Text(
+                        'Tracking movement from ${state.fakeMayaLink!.email}',
+                        style: const TextStyle(
+                          color: _body,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _refreshFakeMaya(context),
+                      icon: const Icon(Icons.sync_rounded, size: 18),
+                      label: const Text('Refresh'),
+                    ),
                   ],
                 ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 44,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                scrollDirection: Axis.horizontal,
+                itemCount: _filters.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final active = _filter == _filters[i];
+                  return GestureDetector(
+                    onTap: () => _selectFilter(_filters[i]),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: active ? _brand : _surface,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: active ? _brand : _border,
+                        ),
+                      ),
+                      child: Text(
+                        _filters[i],
+                        style: TextStyle(
+                          color: active ? Colors.white : _title,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: visibleGroups.isEmpty
+                  ? _EmptyActivity(linked: linked)
+                  : ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
+                      children: [
+                        _ActivityCalendarSummary(transactions: allTransactions),
+                        const SizedBox(height: 18),
+                        ...visibleGroups.map((group) {
+                          final rows = group.$2;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AppCard(
+                                padding: EdgeInsets.zero,
+                                child: Column(
+                                  children: [
+                                    _ActivityDateHeader(
+                                      label: group.$1,
+                                      transactions: rows,
+                                    ),
+                                    const Divider(height: 1, color: _border),
+                                    ...rows.asMap().entries.map((e) {
+                                      final tx = e.value;
+                                      final isLast = e.key == rows.length - 1;
+                                      return Column(
+                                        children: [
+                                          _ActivityRow(
+                                            data: tx,
+                                            onTap: tx.transaction == null
+                                                ? null
+                                                : () =>
+                                                    _showTransactionLabelSheet(
+                                                      context,
+                                                      tx.transaction!,
+                                                    ),
+                                          ),
+                                          if (!isLast)
+                                            const Divider(
+                                              height: 1,
+                                              color: _border,
+                                              indent: 70,
+                                            ),
+                                        ],
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          );
+                        }),
+                        if (hasOlderTransactions)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 4, bottom: 12),
+                            child: Center(
+                              child: Text(
+                                'Scroll down to load older transactions',
+                                style: TextStyle(
+                                  color: _body,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+        Positioned(
+          left: 20,
+          bottom: 16,
+          child: FloatingActionButton.extended(
+            heroTag: 'manual-transaction',
+            onPressed: () => _showManualTransactionSheet(context),
+            backgroundColor: _brand,
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Transaction'),
+          ),
         ),
       ],
+    );
+  }
+
+  Future<void> _showManualTransactionSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ManualTransactionSheet(),
     );
   }
 
@@ -7850,6 +9953,7 @@ class _ActivityPageState extends State<ActivityPage> {
                   'A similar transaction happened before. Is this the same?'),
               const SizedBox(height: 10),
               _TransactionDetailLine(label: 'Category', value: rule.category),
+              _TransactionDetailLine(label: 'Source', value: rule.source),
               if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
                 _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
               if (rule.tag != null && rule.tag!.isNotEmpty)
@@ -7873,6 +9977,7 @@ class _ActivityPageState extends State<ActivityPage> {
         await state.labelFakeMayaTransaction(
           transactionId: transaction.transactionId,
           category: rule.category,
+          source: rule.source,
           subcategory: rule.subcategory,
           tag: rule.tag,
           note: rule.note,
@@ -7903,7 +10008,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.arrow_downward_rounded,
         _brand,
         age: tx.age,
-        source: 'FakeMaya',
+        source: tx.account ?? 'FakeMaya Wallet',
         transaction: tx,
       );
     }
@@ -7915,7 +10020,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.arrow_upward_rounded,
         _red,
         age: tx.age,
-        source: 'FakeMaya',
+        source: tx.account ?? 'FakeMaya Wallet',
         transaction: tx,
       );
     }
@@ -7929,7 +10034,7 @@ class _ActivityPageState extends State<ActivityPage> {
         Icons.savings_rounded,
         _purple,
         age: tx.age,
-        source: 'FakeMaya',
+        source: tx.account ?? 'FakeMaya Wallet',
         transaction: tx,
       );
     }
@@ -7940,7 +10045,7 @@ class _ActivityPageState extends State<ActivityPage> {
       amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
       amount >= 0 ? _brand : _red,
       age: tx.age,
-      source: 'FakeMaya',
+      source: tx.account ?? 'FakeMaya Wallet',
       transaction: tx,
     );
   }
@@ -8376,7 +10481,7 @@ class _EmptyActivity extends StatelessWidget {
               Text(
                 linked
                     ? 'Make a wallet, savings, credit, or loan movement in FakeMaya, then refresh.'
-                    : 'Link FakeMaya to see wallet movement here.',
+                    : 'Use the Transaction button to log cash manually, or link FakeMaya for synced activity.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: _body,
@@ -8554,6 +10659,274 @@ class _ActivityRow extends StatelessWidget {
   }
 }
 
+class _ManualTransactionSheet extends StatefulWidget {
+  const _ManualTransactionSheet();
+
+  @override
+  State<_ManualTransactionSheet> createState() =>
+      _ManualTransactionSheetState();
+}
+
+class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
+  static const _incomeCategories = [
+    'Salary',
+    'Business income',
+    'Refund',
+    'Gift',
+    'Other income',
+  ];
+  static const _expenseCategories = [
+    'Food & drink',
+    'Transport',
+    'Bills & utilities',
+    'Housing',
+    'Groceries',
+    'Shopping',
+    'Education',
+    'Health',
+    'Insurance',
+    'Debt payment',
+    'Entertainment',
+    'Travel',
+    'Personal goal',
+    'Gifts & giving',
+    'Other expense',
+  ];
+  static const _sources = [
+    'Basic Needs Fund',
+    'Emergency Fund',
+    'Investment',
+    'Time Deposit',
+  ];
+
+  final _nameController = TextEditingController();
+  final _detail = TextEditingController();
+  final _amount = TextEditingController();
+  final _note = TextEditingController();
+  bool _moneyIn = false;
+  String? _category;
+  String? _source;
+  DateTime _occurredAt = DateTime.now();
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _detail.dispose();
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final categories = _moneyIn ? _incomeCategories : _expenseCategories;
+    return _GoalSheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Log cash transaction',
+            style: GoogleFonts.fredoka(
+              color: _title,
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Account: Cash on Hand',
+            style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 16),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                value: false,
+                icon: Icon(Icons.north_east_rounded),
+                label: Text('Money out'),
+              ),
+              ButtonSegment(
+                value: true,
+                icon: Icon(Icons.south_west_rounded),
+                label: Text('Money in'),
+              ),
+            ],
+            selected: {_moneyIn},
+            onSelectionChanged: (selection) => setState(() {
+              _moneyIn = selection.first;
+              _category = null;
+            }),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameController,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration('e.g. Lunch at campus').copyWith(
+              labelText: 'Transaction name',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: inputDecoration('0.00').copyWith(
+              labelText: 'Amount',
+              prefixText: '₱ ',
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _category,
+            decoration: inputDecoration('Choose a category').copyWith(
+              labelText: 'Category',
+            ),
+            items: categories
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (value) => setState(() => _category = value),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _source,
+            decoration: inputDecoration('Choose a fund').copyWith(
+              labelText: 'Fund source',
+            ),
+            items: _sources
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (value) => setState(() => _source = value),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _detail,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration('Merchant, person, or context')
+                .copyWith(labelText: 'Details (optional)'),
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.calendar_today_rounded, color: _purple),
+            title: const Text(
+              'Transaction date',
+              style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+            ),
+            subtitle: Text(
+              _manualDateLabel(_occurredAt),
+              style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: _pickDate,
+          ),
+          TextField(
+            controller: _note,
+            maxLines: 2,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: inputDecoration('Anything useful to remember')
+                .copyWith(labelText: 'Note (optional)'),
+          ),
+          const SizedBox(height: 16),
+          PrimaryButton(
+            label: _saving ? 'Saving…' : 'Save transaction',
+            icon: Icons.check_rounded,
+            enabled: !_saving,
+            onPressed: _save,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final value = await showDatePicker(
+      context: context,
+      initialDate: _occurredAt,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (value == null || !mounted) return;
+    setState(() {
+      _occurredAt = DateTime(
+        value.year,
+        value.month,
+        value.day,
+        _occurredAt.hour,
+        _occurredAt.minute,
+      );
+    });
+  }
+
+  Future<void> _save() async {
+    final title = _nameController.text.trim();
+    final amount = double.tryParse(_amount.text.replaceAll(',', ''));
+    final category = _category;
+    final source = _source;
+    if (title.isEmpty ||
+        amount == null ||
+        amount <= 0 ||
+        category == null ||
+        source == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Enter a name and amount, then choose a category and fund.'),
+        ),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await AppScope.of(context).addManualCashTransaction(
+        title: title,
+        detail: _detail.text,
+        amount: _moneyIn ? amount : -amount,
+        occurredAt: _occurredAt,
+        category: category,
+        source: source,
+        note: _optionalManualText(_note.text),
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cash transaction saved.')),
+      );
+    } on StateError catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    }
+  }
+}
+
+String _manualDateLabel(DateTime value) {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  return '${months[value.month - 1]} ${value.day}, ${value.year}';
+}
+
+String? _optionalManualText(String value) {
+  final trimmed = value.trim();
+  return trimmed.isEmpty ? null : trimmed;
+}
+
 class _TransactionLabelSheet extends StatefulWidget {
   const _TransactionLabelSheet({required this.transaction});
 
@@ -8564,6 +10937,12 @@ class _TransactionLabelSheet extends StatefulWidget {
 }
 
 class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
+  static const _sources = [
+    'Basic Needs Fund',
+    'Emergency Fund',
+    'Investment',
+    'Time Deposit',
+  ];
   static const _incomeCategories = [
     'Salary',
     'Business income',
@@ -8573,7 +10952,6 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     'Other income',
   ];
   static const _expenseCategories = [
-    'Basic Needs',
     'Food & drink',
     'Transport',
     'Bills & utilities',
@@ -8583,10 +10961,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     'Education',
     'Health',
     'Insurance',
-    'Emergency fund',
     'Debt payment',
-    'Investment',
-    'Time deposit',
     'Entertainment',
     'Travel',
     'Personal goal',
@@ -8603,6 +10978,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   ];
 
   late String? _category = widget.transaction.category;
+  late String? _source = _initialSource(widget.transaction);
   late final TextEditingController _subcategory = TextEditingController(
     text: widget.transaction.subcategory ?? '',
   );
@@ -8671,7 +11047,10 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             label: 'Type',
             value: transaction.amount >= 0 ? 'Money in' : 'Money out',
           ),
-          _TransactionDetailLine(label: 'Account', value: 'FakeMaya Wallet'),
+          _TransactionDetailLine(
+            label: 'Account',
+            value: transaction.account ?? 'FakeMaya Wallet',
+          ),
           _TransactionDetailLine(
             label: transaction.title.toLowerCase().contains('cash in')
                 ? 'Sender'
@@ -8694,6 +11073,20 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                     ))
                 .toList(),
             onChanged: (value) => setState(() => _category = value),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _sources.contains(_source) ? _source : null,
+            decoration: inputDecoration('Choose a fund').copyWith(
+              labelText: 'Source',
+            ),
+            items: _sources
+                .map((value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(value),
+                    ))
+                .toList(),
+            onChanged: (value) => setState(() => _source = value),
           ),
           const SizedBox(height: 12),
           TextFormField(
@@ -8744,7 +11137,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
           PrimaryButton(
             label: _saving ? 'Saving…' : 'Save label',
             icon: Icons.check_rounded,
-            enabled: _category != null && !_saving,
+            enabled: _category != null && _source != null && !_saving,
             onPressed: _save,
           ),
         ],
@@ -8754,11 +11147,13 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
 
   Future<void> _save() async {
     final category = _category;
-    if (category == null || _saving) return;
+    final source = _source;
+    if (category == null || source == null || _saving) return;
     setState(() => _saving = true);
     await AppScope.of(context).labelFakeMayaTransaction(
       transactionId: widget.transaction.transactionId,
       category: category,
+      source: source,
       subcategory: _optionalText(_subcategory.text),
       tag: _tag,
       note: _optionalText(_note.text),
@@ -8774,6 +11169,17 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   static String? _optionalText(String value) {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  static String? _initialSource(FakeMayaTransaction transaction) {
+    if (transaction.source != null) return transaction.source;
+    return switch (transaction.category?.trim().toLowerCase()) {
+      'basic needs' => 'Basic Needs Fund',
+      'emergency fund' => 'Emergency Fund',
+      'investment' => 'Investment',
+      'time deposit' => 'Time Deposit',
+      _ => null,
+    };
   }
 }
 

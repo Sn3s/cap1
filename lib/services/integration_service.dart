@@ -169,10 +169,9 @@ List<double> refillConsistency(List<WeekRecord> records) {
 List<DayRecord> _buildDayRecords(AppState state) {
   final events = List<JarEvent>.of(state.jarLedger)
     ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  final transactions = List<FakeMayaTransaction>.of(
-    state.fakeMayaLink?.summary.transactions ?? const [],
-  )..sort((a, b) =>
-      (a.createdAt ?? DateTime(1970)).compareTo(b.createdAt ?? DateTime(1970)));
+  final transactions = List<FakeMayaTransaction>.of(state.allTransactions)
+    ..sort((a, b) => (a.createdAt ?? DateTime(1970))
+        .compareTo(b.createdAt ?? DateTime(1970)));
   final dates = <DateTime>{};
   for (final event in events) {
     dates.add(_day(event.timestamp));
@@ -205,7 +204,9 @@ List<DayRecord> _buildDayRecords(AppState state) {
             transaction.isLabeled && !transaction.excludedFromInsights)
         .toList();
     final expenses = labeled
-        .where((transaction) => transaction.amount < 0)
+        .where((transaction) =>
+            transaction.amount < 0 &&
+            transaction.source?.toLowerCase() == 'basic needs fund')
         .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
     final income = labeled
         .where((transaction) => transaction.amount > 0)

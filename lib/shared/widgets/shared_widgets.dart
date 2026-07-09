@@ -6,11 +6,13 @@ class PageHeader extends StatelessWidget {
     required this.eyebrow,
     required this.title,
     this.onShellbyTap,
+    this.onTimeTap,
   });
 
   final String eyebrow;
   final String title;
   final VoidCallback? onShellbyTap;
+  final VoidCallback? onTimeTap;
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +43,10 @@ class PageHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const _StreakBadge(streak: 7),
+          _TimeButton(
+            onTap: onTimeTap ??
+                () => _push(context, const NotificationSettingsScreen()),
+          ),
           const SizedBox(width: 8),
           _ShellbyAvatar(onTap: onShellbyTap),
         ],
@@ -50,32 +55,21 @@ class PageHeader extends StatelessWidget {
   }
 }
 
-class _StreakBadge extends StatelessWidget {
-  const _StreakBadge({required this.streak});
-  final int streak;
+class _TimeButton extends StatelessWidget {
+  const _TimeButton({required this.onTap});
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: _bellySoft,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('🔥', style: TextStyle(fontSize: 14)),
-          const SizedBox(width: 4),
-          Text(
-            '$streak',
-            style: const TextStyle(
-              color: _title,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
+    return Tooltip(
+      message: 'Shelby reminder times',
+      child: IconButton(
+        onPressed: onTap,
+        style: IconButton.styleFrom(
+          backgroundColor: _bellySoft,
+          foregroundColor: _purple,
+        ),
+        icon: const Icon(Icons.schedule_rounded),
       ),
     );
   }

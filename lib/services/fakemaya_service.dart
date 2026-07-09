@@ -668,6 +668,8 @@ class FakeMayaTransaction {
     required this.amountText,
     this.createdAt,
     this.category,
+    this.source,
+    this.account,
     this.subcategory,
     this.tag,
     this.note,
@@ -682,6 +684,8 @@ class FakeMayaTransaction {
   final String amountText;
   final DateTime? createdAt;
   final String? category;
+  final String? source;
+  final String? account;
   final String? subcategory;
   final String? tag;
   final String? note;
@@ -706,7 +710,9 @@ class FakeMayaTransaction {
     return Uri.encodeComponent('$title|$detail|$timestamp|$amountText');
   }
 
-  bool get isLabeled => (category?.trim().isNotEmpty ?? false);
+  bool get isLabeled =>
+      (category?.trim().isNotEmpty ?? false) &&
+      (source?.trim().isNotEmpty ?? false);
 
   bool get isWalletCashMovement {
     final value = '$title $detail'.toLowerCase();
@@ -725,6 +731,7 @@ class FakeMayaTransaction {
 
   FakeMayaTransaction copyWithLabel({
     required String category,
+    required String source,
     String? subcategory,
     String? tag,
     String? note,
@@ -739,6 +746,8 @@ class FakeMayaTransaction {
       amountText: amountText,
       createdAt: createdAt,
       category: category,
+      source: source,
+      account: account,
       subcategory: subcategory,
       tag: tag,
       note: note,
@@ -748,9 +757,10 @@ class FakeMayaTransaction {
   }
 
   FakeMayaTransaction withLabelFrom(FakeMayaTransaction other) {
-    if (!other.isLabeled) return this;
+    if (!(other.category?.trim().isNotEmpty ?? false)) return this;
     return copyWithLabel(
       category: other.category!,
+      source: other.source ?? 'Basic Needs Fund',
       subcategory: other.subcategory,
       tag: other.tag,
       note: other.note,
@@ -768,6 +778,8 @@ class FakeMayaTransaction {
       'amount': amountText,
       'createdAt': createdAt?.toIso8601String(),
       'category': category,
+      'source': source,
+      'account': account,
       'subcategory': subcategory,
       'tag': tag,
       'note': note,
@@ -778,6 +790,8 @@ class FakeMayaTransaction {
   }
 
   factory FakeMayaTransaction.fromMap(Map<String, dynamic> data) {
+    final savedCategory = data['category'] as String?;
+    final legacyFundSource = _legacyFundSource(savedCategory);
     return FakeMayaTransaction(
       id: data['id'] as String?,
       title: data['title'] as String? ?? 'FakeMaya transaction',
@@ -785,7 +799,13 @@ class FakeMayaTransaction {
       age: data['age'] as String? ?? 'Just now',
       amountText: data['amount'] as String? ?? '',
       createdAt: _dateTimeFrom(data['createdAt'] ?? data['created_at']),
-      category: data['category'] as String?,
+      category: legacyFundSource == null ? savedCategory : 'Other expense',
+      source: data['source'] as String? ??
+          legacyFundSource ??
+          (savedCategory?.trim().isNotEmpty ?? false
+              ? 'Basic Needs Fund'
+              : null),
+      account: data['account'] as String?,
       subcategory: data['subcategory'] as String?,
       tag: data['tag'] as String?,
       note: data['note'] as String?,
@@ -797,6 +817,16 @@ class FakeMayaTransaction {
   static DateTime? _dateTimeFrom(Object? value) {
     if (value is DateTime) return value;
     return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  static String? _legacyFundSource(String? category) {
+    return switch (category?.trim().toLowerCase()) {
+      'basic needs' => 'Basic Needs Fund',
+      'emergency fund' => 'Emergency Fund',
+      'investment' => 'Investment',
+      'time deposit' => 'Time Deposit',
+      _ => null,
+    };
   }
 
   static String _formatDateTime(DateTime value) {

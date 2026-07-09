@@ -79,6 +79,7 @@ class ShellbyAiCoach {
   Future<String> chat({
     required AppState state,
     required List<ChatMessage> messages,
+    String? screenContext,
   }) async {
     if (!isConfigured) {
       throw const AiSetupException();
@@ -86,7 +87,11 @@ class ShellbyAiCoach {
 
     return _sendText(
       instructions: _shellbyChatInstructions,
-      input: _shellbyChatInput(state, messages),
+      input: _shellbyChatInput(
+        state,
+        messages,
+        screenContext: screenContext,
+      ),
       maxOutputTokens: 520,
     );
   }
@@ -339,7 +344,11 @@ Return only JSON with keys reply, title, description, monthly_target.
 ''';
   }
 
-  String _shellbyChatInput(AppState state, List<ChatMessage> messages) {
+  String _shellbyChatInput(
+    AppState state,
+    List<ChatMessage> messages, {
+    String? screenContext,
+  }) {
     final transcript = messages
         .map(
           (message) =>
@@ -347,14 +356,13 @@ Return only JSON with keys reply, title, description, monthly_target.
         )
         .join('\n');
     final summary = state.fakeMayaLink?.summary;
-    final transactions = summary?.transactions
-            .take(10)
-            .map(
-              (transaction) =>
-                  '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; category: ${transaction.category ?? 'unlabeled'}',
-            )
-            .join('\n') ??
-        'No linked transactions available.';
+    final transactions = state.allTransactions
+        .take(10)
+        .map(
+          (transaction) =>
+              '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; account: ${transaction.account ?? 'FakeMaya Wallet'}; category: ${transaction.category ?? 'unlabeled'}; source: ${transaction.source ?? 'unlabeled'}',
+        )
+        .join('\n');
     final assets = state.assets
         .take(8)
         .map((item) => '- ${item.name}: ${money(item.value)}')
@@ -363,6 +371,17 @@ Return only JSON with keys reply, title, description, monthly_target.
         .take(8)
         .map((item) => '- ${item.name}: ${money(item.value)}')
         .join('\n');
+    final incomes = state.onboardingIncomeLedger.take(10).map((income) {
+      final name = income['name'] ?? 'Income';
+      final amount = (income['amount'] as num?)?.toDouble() ?? 0;
+      final type = income['stable'] == true ? 'stable' : 'variable';
+      final scheduled = income['scheduled'] == true;
+      final payDay = (income['payDay'] as num?)?.toInt();
+      final timing = scheduled
+          ? 'scheduled${payDay == null ? '' : ' on day $payDay'}'
+          : 'unscheduled';
+      return '- $name: ${money(amount)} ($type, $timing)';
+    }).join('\n');
     final expenses = state.onboardingExpenseLedger.take(10).map((expense) {
       final name = expense['name'] ?? expense['label'] ?? 'Expense';
       final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
@@ -400,6 +419,7 @@ Shellby app context:
 - Chat summaries: surface="${state.chatSurfaceSummary}", goal="${state.chatGoalFocusSummary}", timeframe="${state.chatTimeframeSummary}", difficulty="${state.chatDifficultySummary}", situations="${state.chatSituationsSummary}", challenges="${state.chatChallengesSummary}"
 - FakeMaya linked: ${state.hasFakeMayaLink ? 'yes' : 'no'}
 - Wallet: ${money(summary?.wallet ?? 0)}
+- Cash on hand: ${money(state.cashOnHandBalance)}
 - Savings: ${money(summary?.savings ?? 0)}
 - Time deposit: ${money(summary?.timeDeposit ?? 0)}
 - Goal balance: ${money(summary?.goalBalance ?? 0)} of ${money(summary?.goalTarget ?? 0)}
@@ -410,20 +430,31 @@ Shellby app context:
 - Safety shield balance: ${money(state.safetyShieldBalance)}
 - Safety shield target: ${money(state.safetyShieldTarget)}
 
+Current Insights screen:
+${screenContext?.trim().isNotEmpty == true ? screenContext : 'No specific Insights screen supplied.'}
+
 Assets:
 ${assets.isEmpty ? 'No manually tracked assets.' : assets}
 
 Liabilities:
 ${liabilities.isEmpty ? 'No manually tracked liabilities.' : liabilities}
 
+Known income:
+${incomes.isEmpty ? 'No detailed income entered.' : incomes}
+
 Known expenses:
 ${expenses.isEmpty ? 'No detailed expenses entered.' : expenses}
 
 Recent linked transactions:
-$transactions
+${transactions.isEmpty ? 'No transactions available.' : transactions}
 
 Conversation:
 $transcript
+
+For an Insights analysis, format the first response with short headings:
+Summary, Notable patterns, Outliers or changes, and Questions to consider.
+Use concise bullets, include relevant values, distinguish missing data from
+zero, avoid claiming causation, and use neutral non-judgmental language.
 ''';
   }
 
