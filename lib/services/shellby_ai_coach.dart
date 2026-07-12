@@ -5,7 +5,7 @@ class ShellbyAiCoach {
 
   bool get usesGemini => _aiProvider.toLowerCase() == 'gemini';
   bool get usesLocalModel => !usesGemini;
-  bool get isConfigured => usesLocalModel || _geminiApiKey.isNotEmpty;
+  bool get isConfigured => true;
 
   Future<MotivationCoachResult> send({
     required String concern,
@@ -101,7 +101,8 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
   }) async {
-    if (usesGemini) {
+    if (usesGemini &&
+        (_geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty)) {
       try {
         return await _sendGeminiText(
           instructions: instructions,
@@ -137,7 +138,8 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
   }) async {
-    if (usesGemini) {
+    if (usesGemini &&
+        (_geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty)) {
       try {
         return await _sendGeminiJson(
           instructions: instructions,
@@ -174,6 +176,9 @@ class ShellbyAiCoach {
     if (error is SocketException || error is TimeoutException) return true;
     if (error is _GeminiRequestException) {
       return error.statusCode == 408 ||
+          error.statusCode == 401 ||
+          error.statusCode == 403 ||
+          error.statusCode == 404 ||
           error.statusCode == 429 ||
           error.statusCode >= 500;
     }
@@ -268,16 +273,14 @@ class ShellbyAiCoach {
       seconds: math.max(1, _geminiRequestTimeoutSeconds),
     );
     try {
-      final request = await client
-          .postUrl(
-            Uri.https(
-              'generativelanguage.googleapis.com',
-              '/v1beta/models/$_geminiModel:generateContent',
-              {'key': _geminiApiKey},
-            ),
-          )
-          .timeout(timeout);
+      final request =
+          await client.postUrl(_geminiEndpointUri()).timeout(timeout);
       request.headers.contentType = ContentType.json;
+      if (_geminiProxyUrl.isNotEmpty) {
+        request.headers.set('x-shellby-gemini-model', _geminiModel);
+      } else if (_geminiApiKey.isNotEmpty) {
+        request.headers.set('x-goog-api-key', _geminiApiKey);
+      }
       request.write(payload);
 
       final response = await request.close().timeout(timeout);
@@ -295,6 +298,16 @@ class ShellbyAiCoach {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Uri _geminiEndpointUri() {
+    if (_geminiProxyUrl.isNotEmpty) {
+      return Uri.parse(_geminiProxyUrl);
+    }
+    return Uri.https(
+      'generativelanguage.googleapis.com',
+      '/v1beta/models/$_geminiModel:generateContent',
+    );
   }
 
   String _motivationCoachInput(

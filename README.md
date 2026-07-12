@@ -4,18 +4,33 @@ Shellby Flutter prototype.
 
 ## AI with Gemini or llamadart
 
-The app uses Gemini by default on a normal internet-connected `flutter run`.
-If Gemini is unavailable because the network is offline, Shellby falls back to
-the bundled Qwen GGUF model.
+The app uses Gemini through a Firebase HTTPS proxy on a normal
+internet-connected `flutter run`. The Gemini API key is stored in Firebase
+Secret Manager, not in the Flutter app. If Gemini is unavailable because the
+network is offline or the proxy is temporarily unavailable, Shellby falls back
+to the bundled Qwen GGUF model.
 
 ```powershell
 flutter run -d emulator-5554
 ```
 
-To override the Gemini key or model without editing code, pass dart defines:
+Configure the backend secret before deploying Functions:
+
+```bash
+firebase functions:secrets:set GEMINI_API_KEY
+firebase deploy --only functions
+```
+
+Firebase requires the project to be on the Blaze plan before it can enable
+Secret Manager and deploy the HTTPS function. Until the function is deployed,
+the app will use the bundled Qwen fallback.
+
+Do not commit Gemini API keys or hardcode them in the Flutter app.
+
+To override the Gemini proxy URL or model, pass dart defines:
 
 ```powershell
-flutter run -d emulator-5554 --dart-define=GEMINI_API_KEY=<your-key> --dart-define=GEMINI_MODEL=gemini-flash-latest
+flutter run -d emulator-5554 --dart-define=GEMINI_PROXY_URL=<https-function-url> --dart-define=GEMINI_MODEL=gemini-flash-latest
 ```
 
 To force fully on-device AI, switch to the local provider with `llamadart`.

@@ -421,6 +421,7 @@ AI_PROVIDER=gemini|local
 LOCAL_MODEL_ASSET=<asset path>
 LOCAL_MODEL_CONTEXT_SIZE=<integer>
 GEMINI_API_KEY=<key override>
+GEMINI_PROXY_URL=<HTTPS function URL>
 GEMINI_MODEL=<model name>
 GEMINI_REQUEST_TIMEOUT_SECONDS=<integer>
 GEMINI_MAX_RETRIES=<integer>
@@ -428,13 +429,12 @@ GEMINI_MAX_RETRIES=<integer>
 
 ### Gemini provider
 
-Gemini is called directly with `HttpClient` when `AI_PROVIDER=gemini`.
-`GEMINI_API_KEY` can be passed with `--dart-define` to override the default
-developer key. Gemini is preferred on normal internet-connected runs; network,
+Gemini is called through the Firebase HTTPS function at `GEMINI_PROXY_URL` when
+`AI_PROVIDER=gemini`. The Gemini API key belongs in Firebase Secret Manager as
+`GEMINI_API_KEY`; do not hardcode it in Flutter source or ship it in app
+builds. Gemini is preferred on normal internet-connected runs; network,
 timeout, rate-limit, and server-availability failures fall back to the bundled
 Qwen local model.
-For local development, `config/gemini.local.json` can also be passed with
-`--dart-define-from-file`; that file is ignored by Git.
 
 ### AI context
 
@@ -576,11 +576,16 @@ Run with Gemini:
 flutter run -d <device>
 ```
 
-Run with a local ignored Gemini config override:
+Deploy or update the Gemini backend proxy:
 
 ```bash
-scripts/run_gemini.sh <device>
+firebase functions:secrets:set GEMINI_API_KEY
+firebase deploy --only functions
 ```
+
+The Shelby Firebase project must be on the Blaze plan before Secret Manager or
+Functions deployment can be enabled. On Spark, regular app runs fall back to the
+bundled Qwen model because the proxy is not deployed.
 
 Run locally with the bundled model:
 

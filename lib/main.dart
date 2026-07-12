@@ -68,9 +68,11 @@ const _localModelContextSize = int.fromEnvironment(
   'LOCAL_MODEL_CONTEXT_SIZE',
   defaultValue: 2048,
 );
-const _geminiApiKey = String.fromEnvironment(
-  'GEMINI_API_KEY',
-  defaultValue: 'AIzaSyD-zMRJdw-rolpBrXMOlFNyGwKLF5pZYa4',
+const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+const _geminiProxyUrl = String.fromEnvironment(
+  'GEMINI_PROXY_URL',
+  defaultValue:
+      'https://us-central1-shelby-1b1d8.cloudfunctions.net/geminiGenerateContent',
 );
 const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
