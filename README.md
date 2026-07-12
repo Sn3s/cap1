@@ -2,10 +2,23 @@
 
 Shellby Flutter prototype.
 
-## Local AI with llamadart
+## AI with Gemini or llamadart
 
-The app now uses `llamadart` locally by default, so the AI coach runs on the
-device instead of relying on an Ollama instance on your computer.
+The app uses Gemini by default on a normal internet-connected `flutter run`.
+If Gemini is unavailable because the network is offline, Shellby falls back to
+the bundled Qwen GGUF model.
+
+```powershell
+flutter run -d emulator-5554
+```
+
+To override the Gemini key or model without editing code, pass dart defines:
+
+```powershell
+flutter run -d emulator-5554 --dart-define=GEMINI_API_KEY=<your-key> --dart-define=GEMINI_MODEL=gemini-flash-latest
+```
+
+To force fully on-device AI, switch to the local provider with `llamadart`.
 
 Add a small GGUF model to `assets/models/` and keep the default asset path in
 sync with the bundled file:
@@ -21,19 +34,13 @@ device memory comfortably.
 Run it on your phone with:
 
 ```powershell
-flutter run -d <iphone-device-id>
+flutter run -d <iphone-device-id> --dart-define=AI_PROVIDER=local
 ```
 
 To use a different bundled model, override the asset path:
 
 ```powershell
-flutter run -d <iphone-device-id> --dart-define=LOCAL_MODEL_ASSET=assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
-```
-
-The app can still use Gemini:
-
-```powershell
-flutter run -d emulator-5554 --dart-define=AI_PROVIDER=gemini --dart-define=GEMINI_API_KEY=<your-key>
+flutter run -d <iphone-device-id> --dart-define=AI_PROVIDER=local --dart-define=LOCAL_MODEL_ASSET=assets/models/qwen3-1.7b-instruct-q4_k_m.gguf
 ```
 
 ## Getting Started

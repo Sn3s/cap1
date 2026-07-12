@@ -390,6 +390,9 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
         text.contains('Set LOCAL_MODEL_ASSET')) {
       return 'I need the bundled GGUF model before I can chat locally. Add the Qwen model under assets/models/ or run with the Gemini provider.';
     }
+    if (text.contains('AI model is not configured')) {
+      return 'I need either an internet connection for Gemini or the bundled Qwen model under assets/models/ before I can chat.';
+    }
     return 'I hit a setup issue while starting the AI model. $text';
   }
 
@@ -3908,6 +3911,81 @@ void _paintChartText(
   painter.paint(canvas, offset);
 }
 
+void _showExpectedSpendDetail(BuildContext context, AppState state) {
+  final ledger = state.onboardingExpenseLedger;
+  final useLedger = ledger.isNotEmpty;
+  final items = useLedger
+      ? ledger
+          .map((e) => (
+                name: (e['name'] as String?)?.trim().isNotEmpty == true
+                    ? e['name'] as String
+                    : 'Untitled expense',
+                amount: (e['amount'] as num?)?.toDouble() ?? 0,
+                essential: e['essential'] as bool? ?? false,
+              ))
+          .toList()
+      : state.cashFlowExpenses
+          .map((e) => (name: e.name, amount: e.budget, essential: false))
+          .toList();
+  items.sort((a, b) => b.amount.compareTo(a.amount));
+
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        shrinkWrap: true,
+        children: [
+          const Text(
+            'Expected spend this month',
+            style: TextStyle(
+              color: _title,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'What your ${money(state.cashFlowPyramidBaseline)} monthly baseline is made of.',
+            style: const TextStyle(color: _body, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          if (items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'No expenses logged yet. Add your monthly expenses to see them here.',
+                style: TextStyle(color: _body, fontSize: 13),
+              ),
+            )
+          else
+            for (final item in items)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  Icons.receipt_long_rounded,
+                  color: item.essential ? _purple : _amber,
+                ),
+                title: Text(item.name),
+                subtitle: useLedger
+                    ? Text(item.essential ? 'Essential' : 'Non-essential')
+                    : null,
+                trailing: Text(
+                  money(item.amount),
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900),
+                ),
+              ),
+        ],
+      ),
+    ),
+  );
+}
+
 void _showWeekDetail(BuildContext context, WeekRecord week) {
   showModalBottomSheet<void>(
     context: context,
@@ -5914,6 +5992,137 @@ const _d1GoalMetas = <_D1GoalMeta>[
       ),
     ],
   ),
+  _D1GoalMeta(
+    id: 'G5',
+    emoji: '📈',
+    title: 'Grow Investments',
+    description:
+        'Have a growing investment portfolio that steadily builds wealth over time.',
+    layerColor: _purple,
+    layerLabel: 'Accumulating Wealth',
+    actions: [
+      _D1ActionMeta(
+        id: 'A12',
+        text:
+            'Invest 10% of every income received into selected investment accounts.',
+        configLabel: 'Allocation',
+        configValue: '10% of income',
+        destBucket: 'Investment Portfolio',
+        metrics: [
+          (
+            label: 'Portfolio Balance',
+            value: '₱24,000',
+            icon: Icons.show_chart_rounded
+          ),
+          (
+            label: 'Invested This Month',
+            value: '₱1,500',
+            icon: Icons.trending_up_rounded
+          ),
+          (
+            label: 'Compliance Rate',
+            value: '80%',
+            icon: Icons.verified_rounded
+          ),
+          (
+            label: 'Cash Balance',
+            value: '₱5,500',
+            icon: Icons.account_balance_wallet_rounded
+          ),
+        ],
+        dataPoints: [
+          (label: 'Financial Activity Date', type: 'T', value: 'Jun 15, 2026'),
+          (label: 'Income Transaction', type: 'S', value: '₱15,000'),
+          (label: 'Transfer Amount', type: 'S', value: '₱1,500'),
+          (label: 'Source Bucket', type: 'S', value: 'Main Cash Account'),
+          (
+            label: 'Destination Bucket',
+            type: 'S',
+            value: 'Investment Portfolio'
+          ),
+          (label: 'Available Cash Balance', type: 'S', value: '₱5,500'),
+          (label: 'Investment Account Balance', type: 'S', value: '₱24,000'),
+          (label: 'Contribution Compliance Rate', type: 'I', value: '80%'),
+        ],
+        activityLog: [
+          (
+            date: 'Jun 15',
+            event: 'Income received → Investment Portfolio',
+            amount: '₱1,500',
+            isIn: true
+          ),
+          (
+            date: 'Jun 1',
+            event: 'Income received → Investment Portfolio',
+            amount: '₱1,200',
+            isIn: true
+          ),
+          (
+            date: 'May 15',
+            event: 'Income received → Investment Portfolio',
+            amount: '₱1,500',
+            isIn: true
+          ),
+        ],
+      ),
+      _D1ActionMeta(
+        id: 'A14',
+        text:
+            'Transfer 50% of unspent monthly funds toward investments at the end of each month.',
+        configLabel: 'Month-end sweep',
+        configValue: '50% of unspent funds',
+        destBucket: 'Investment Portfolio',
+        metrics: [
+          (
+            label: 'Portfolio Balance',
+            value: '₱24,000',
+            icon: Icons.show_chart_rounded
+          ),
+          (
+            label: 'Unspent This Month',
+            value: '₱3,200',
+            icon: Icons.savings_rounded
+          ),
+          (
+            label: 'Last Sweep',
+            value: 'May 31',
+            icon: Icons.check_circle_rounded
+          ),
+          (
+            label: 'Cash Balance',
+            value: '₱5,500',
+            icon: Icons.account_balance_wallet_rounded
+          ),
+        ],
+        dataPoints: [
+          (label: 'Financial Activity Date', type: 'T', value: 'May 31, 2026'),
+          (label: 'Unspent Monthly Funds', type: 'S', value: '₱3,200'),
+          (label: 'Transfer Amount', type: 'S', value: '₱1,600'),
+          (label: 'Source Bucket', type: 'S', value: 'Main Cash Account'),
+          (
+            label: 'Destination Bucket',
+            type: 'S',
+            value: 'Investment Portfolio'
+          ),
+          (label: 'Investment Account Balance', type: 'S', value: '₱24,000'),
+        ],
+        activityLog: [
+          (
+            date: 'May 31',
+            event: 'Month-end sweep → Investment Portfolio',
+            amount: '₱1,600',
+            isIn: true
+          ),
+          (
+            date: 'Apr 30',
+            event: 'Month-end sweep → Investment Portfolio',
+            amount: '₱1,100',
+            isIn: true
+          ),
+        ],
+      ),
+    ],
+  ),
 ];
 
 // ─── Goals page ───────────────────────────────────────────────────────────────
@@ -6271,6 +6480,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
             child: _EmergencyFundSummary(),
           ),
         ],
+        if (goal.id == 'G5') ...[
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _GrowInvestmentsSummary(),
+          ),
+        ],
         const SizedBox(height: 28),
 
         // Actions section
@@ -6309,6 +6525,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: _EmergencyFundTransactionsList(),
+          ),
+        ],
+        if (goal.id == 'G5') ...[
+          const SizedBox(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _InvestmentTransactionsList(),
           ),
         ],
       ],
@@ -6399,6 +6622,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
                   label: 'Expected spend',
                   value: money(expected),
                   color: _purple,
+                  onTap: () => _showExpectedSpendDetail(context, state),
                 ),
               ),
               const SizedBox(width: 7),
@@ -6493,15 +6717,17 @@ class _CashPositionMetric extends StatelessWidget {
       {required this.icon,
       required this.label,
       required this.value,
-      required this.color});
+      required this.color,
+      this.onTap});
   final IconData icon;
   final String label;
   final String value;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
           color: color.withValues(alpha: .08),
@@ -6528,6 +6754,12 @@ class _CashPositionMetric extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (onTap == null) return content;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: content,
     );
   }
 }
@@ -6790,6 +7022,140 @@ class _CashFlowTransactionRow extends StatelessWidget {
   }
 }
 
+class _GrowInvestmentsSummary extends StatelessWidget {
+  const _GrowInvestmentsSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final balance = state.investmentBalance;
+    final target = state.investmentPortfolioTarget;
+    final investedThisMonth = state.investedThisMonth;
+    final latestIncome = _latestIncomeTransaction(state);
+    final contributionMade = latestIncome != null &&
+        state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
+    final sweepDone = state.hasInvestmentSweepForCurrentMonth;
+    final targetProgress =
+        target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    final contributionScore = contributionMade ? 1.0 : 0.0;
+    final sweepScore = sweepDone ? 1.0 : 0.0;
+    final feasibility =
+        ((targetProgress * .60 + contributionScore * .25 + sweepScore * .15) *
+                100)
+            .round();
+    final scoreColor = feasibility >= 80
+        ? _sage
+        : feasibility >= 60
+            ? _brand
+            : feasibility >= 40
+                ? _amber
+                : _red;
+    final scoreLabel = feasibility >= 80
+        ? 'Strong'
+        : feasibility >= 60
+            ? 'Workable'
+            : feasibility >= 40
+                ? 'Needs attention'
+                : 'At risk';
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'ACCUMULATING WEALTH POSITION',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.show_chart_rounded,
+                  label: 'Portfolio balance',
+                  value: money(balance),
+                  color: _purple,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.trending_up_rounded,
+                  label: 'Invested this month',
+                  value: money(investedThisMonth),
+                  color: _brand,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: scoreColor.withValues(alpha: .07),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: scoreColor.withValues(alpha: .18)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Goal feasibility · $scoreLabel',
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '$feasibility%',
+                      style: TextStyle(
+                        color: scoreColor,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: feasibility / 100,
+                    minHeight: 9,
+                    color: scoreColor,
+                    backgroundColor: scoreColor.withValues(alpha: .14),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} annual target. The score also considers whether the latest income received its 10% contribution and whether this month\'s unspent-funds sweep has run.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmergencyActivityItem {
   const _EmergencyActivityItem(
       {required this.title,
@@ -6884,6 +7250,89 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
           const AppCard(
             child: Text(
               'No Financial Safety or Emergency Fund activity yet.',
+              style: TextStyle(
+                color: _body,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          AppCard(
+            child: Column(
+              children: [
+                for (var i = 0; i < activity.length; i++) ...[
+                  _EmergencyActivityRow(item: activity[i]),
+                  if (i < activity.length - 1)
+                    const Divider(height: 18, color: _border),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _InvestmentTransactionsList extends StatelessWidget {
+  const _InvestmentTransactionsList();
+
+  @override
+  Widget build(BuildContext context) {
+    final activity = <_EmergencyActivityItem>[];
+    for (final entry in AppScope.of(context).d1Ledger) {
+      final type = entry['type']?.toString() ?? '';
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      switch (type) {
+        case 'investment_deposit':
+          final percentage = (entry['percentage'] as num?)?.toDouble() ?? 10;
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Income contribution',
+              detail:
+                  '${percentage.toStringAsFixed(0)}% deposited to Investment Portfolio',
+              amount: amount,
+              date: date,
+              incoming: true,
+              icon: Icons.trending_up_rounded,
+            ),
+          );
+        case 'investment_sweep':
+          final percentage = (entry['percentage'] as num?)?.toDouble() ?? 50;
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Month-end sweep',
+              detail:
+                  '${percentage.toStringAsFixed(0)}% of unspent funds invested',
+              amount: amount,
+              date: date,
+              incoming: true,
+              icon: Icons.auto_graph_rounded,
+            ),
+          );
+      }
+    }
+    activity.sort((a, b) => (b.date ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(a.date ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'ACCUMULATING WEALTH TRANSACTIONS',
+          style: TextStyle(
+            color: _body,
+            fontSize: 11,
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (activity.isEmpty)
+          const AppCard(
+            child: Text(
+              'No Investment Portfolio activity yet.',
               style: TextStyle(
                 color: _body,
                 height: 1.35,

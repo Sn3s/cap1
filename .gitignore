@@ -33,6 +33,9 @@ migrate_working_dir/
 .pub/
 /build/
 assets/models/*.gguf
+*.env
+config/*.local.json
+scripts/*.local.sh
 
 # Symbolication related
 app.*.symbols

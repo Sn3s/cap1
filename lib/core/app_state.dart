@@ -109,6 +109,7 @@ class AppState extends ChangeNotifier {
   double essentialExpensesBalance = 0;
   double billsObligationsBalance = 0;
   double emergencyFundBalance = 0;
+  double investmentBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
 
   DateTime? get lastEfWithdrawal => _lastEfWithdrawalStr == null
@@ -122,6 +123,12 @@ class AppState extends ChangeNotifier {
   double get emergencyFundTarget => monthlyEssentialExpenseTotal > 0
       ? monthlyEssentialExpenseTotal * 3
       : math.max(30000, expenses * 3);
+
+  double get investmentMonthlyTarget => income > 0
+      ? income * 0.10
+      : math.max(2000, cashFlowPyramidBaseline * 0.10);
+  double get investmentPortfolioTarget =>
+      math.max(20000, investmentMonthlyTarget * 12);
 
   final List<Map<String, dynamic>> d1Ledger = [];
   final Set<String> trackingVariables = {
@@ -814,6 +821,7 @@ class AppState extends ChangeNotifier {
       'essentialExpensesBalance': essentialExpensesBalance,
       'billsObligationsBalance': billsObligationsBalance,
       'emergencyFundBalance': emergencyFundBalance,
+      'investmentBalance': investmentBalance,
       'd1Ledger': d1Ledger,
       'onboardingSelections': _onboardingSelectionsMap(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1013,6 +1021,10 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance = _doubleFrom(
       data['emergencyFundBalance'],
       emergencyFundBalance,
+    );
+    investmentBalance = _doubleFrom(
+      data['investmentBalance'],
+      investmentBalance,
     );
     final savedD1Ledger = data['d1Ledger'];
     if (savedD1Ledger is Iterable) {
@@ -1466,7 +1478,7 @@ class AppState extends ChangeNotifier {
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletToSavings(amount);
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
@@ -1477,6 +1489,86 @@ class AppState extends ChangeNotifier {
       'percentage': percentage,
       'amount': amount,
       'destination': 'Emergency Fund',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  bool hasInvestmentAllocationForIncome(String transactionId) =>
+      d1Ledger.any((entry) =>
+          entry['type'] == 'investment_deposit' &&
+          entry['sourceTransactionId'] == transactionId);
+
+  String get currentInvestmentSweepMonthKey {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}';
+  }
+
+  bool get hasInvestmentSweepForCurrentMonth => d1Ledger.any((entry) =>
+      entry['type'] == 'investment_sweep' &&
+      entry['monthKey'] == currentInvestmentSweepMonthKey);
+
+  double get investedThisMonth {
+    final now = DateTime.now();
+    var total = 0.0;
+    for (final entry in d1Ledger) {
+      final type = entry['type'];
+      if (type != 'investment_deposit' && type != 'investment_sweep') {
+        continue;
+      }
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date != null && date.year == now.year && date.month == now.month) {
+        total += (entry['amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
+  /// A12: invest X% of every income received into selected investment accounts.
+  Future<void> depositIncomeToInvestment({
+    required String transactionId,
+    required double incomeAmount,
+    required DateTime incomeDate,
+    double percentage = 10,
+  }) async {
+    if (incomeAmount <= 0 || hasInvestmentAllocationForIncome(transactionId)) {
+      return;
+    }
+    final amount = incomeAmount * percentage.clamp(0, 100) / 100;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    investmentBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'investment_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'sourceDate': incomeDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'incomeAmount': incomeAmount,
+      'percentage': percentage,
+      'amount': amount,
+      'destination': 'Investment Portfolio',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// A14: transfer X% of unspent monthly funds toward investments at month end.
+  Future<void> sweepUnspentFundsToInvestment({double percentage = 50}) async {
+    if (hasInvestmentSweepForCurrentMonth) return;
+    final unspent = math.max(0.0, monthlySurplus);
+    final amount = unspent * percentage.clamp(0, 100) / 100;
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    investmentBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'investment_sweep',
+      'date': DateTime.now().toIso8601String(),
+      'monthKey': currentInvestmentSweepMonthKey,
+      'unspentAmount': unspent,
+      'percentage': percentage,
+      'amount': amount,
+      'destination': 'Investment Portfolio',
     });
     await saveProfile();
     notifyListeners();
@@ -1528,7 +1620,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> replenishD1EmergencyFund(double amount) async {
     if (amount <= 0 || amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletToSavings(amount);
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
     emergencyFundBalance += math.min(
       amount,
       pendingRecordedEmergencyReplenishment,
@@ -1543,13 +1635,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _moveFakeMayaWalletToSavings(double amount) async {
+  Future<void> _moveFakeMayaWalletTo(
+      double amount, FakeMayaGoalAccount account) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
     final session = await FakeMayaService.allocateFromWallet(
       link: link,
       amount: amount,
-      account: FakeMayaGoalAccount.savings,
+      account: account,
     );
     final savedById = {
       for (final transaction in link.summary.transactions)

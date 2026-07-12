@@ -102,12 +102,28 @@ class ShellbyAiCoach {
     required int maxOutputTokens,
   }) async {
     if (usesGemini) {
-      return _sendGeminiText(
-        instructions: instructions,
-        input: input,
-        maxOutputTokens: maxOutputTokens,
-      );
+      try {
+        return await _sendGeminiText(
+          instructions: instructions,
+          input: input,
+          maxOutputTokens: maxOutputTokens,
+        );
+      } on Object catch (error) {
+        if (!_shouldFallbackToLocal(error)) rethrow;
+      }
     }
+    return _sendLocalText(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
+  Future<String> _sendLocalText({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
     final runtime = await _LocalLlamaRuntime.instance();
     return runtime.generateText(
       instructions: instructions,
@@ -122,12 +138,28 @@ class ShellbyAiCoach {
     required int maxOutputTokens,
   }) async {
     if (usesGemini) {
-      return _sendGeminiJson(
-        instructions: instructions,
-        input: input,
-        maxOutputTokens: maxOutputTokens,
-      );
+      try {
+        return await _sendGeminiJson(
+          instructions: instructions,
+          input: input,
+          maxOutputTokens: maxOutputTokens,
+        );
+      } on Object catch (error) {
+        if (!_shouldFallbackToLocal(error)) rethrow;
+      }
     }
+    return _sendLocalJson(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+    );
+  }
+
+  Future<Map<String, dynamic>> _sendLocalJson({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+  }) async {
     final runtime = await _LocalLlamaRuntime.instance();
     final text = await runtime.generateJson(
       instructions: instructions,
@@ -138,54 +170,31 @@ class ShellbyAiCoach {
     return jsonDecode(jsonText) as Map<String, dynamic>;
   }
 
+  bool _shouldFallbackToLocal(Object error) {
+    if (error is SocketException || error is TimeoutException) return true;
+    if (error is _GeminiRequestException) {
+      return error.statusCode == 408 ||
+          error.statusCode == 429 ||
+          error.statusCode >= 500;
+    }
+    return false;
+  }
+
   Future<Map<String, dynamic>> _sendGeminiJson({
     required String instructions,
     required String input,
     required int maxOutputTokens,
   }) async {
-    final client = HttpClient();
-    try {
-      final request = await client.postUrl(
-        Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModel:generateContent?key=$_geminiApiKey',
-        ),
-      );
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode({
-          'systemInstruction': {
-            'parts': [
-              {'text': instructions},
-            ],
-          },
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': input},
-              ],
-            },
-          ],
-          'generationConfig': {
-            'maxOutputTokens': maxOutputTokens,
-            'responseMimeType': 'application/json',
-          },
-        }),
-      );
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('Gemini request failed: ${response.statusCode} $body');
-      }
-
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      final text = _extractGeminiText(decoded).trim();
-      final jsonText = _extractJsonObject(text);
-      return jsonDecode(jsonText) as Map<String, dynamic>;
-    } finally {
-      client.close(force: true);
-    }
+    final body = await _sendGeminiGenerateContent(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+      jsonMode: true,
+    );
+    final decoded = jsonDecode(body) as Map<String, dynamic>;
+    final text = _extractGeminiText(decoded).trim();
+    final jsonText = _extractJsonObject(text);
+    return jsonDecode(jsonText) as Map<String, dynamic>;
   }
 
   Future<String> _sendGeminiText({
@@ -193,43 +202,96 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
   }) async {
-    final client = HttpClient();
-    try {
-      final request = await client.postUrl(
-        Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModel:generateContent?key=$_geminiApiKey',
-        ),
-      );
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode({
-          'systemInstruction': {
-            'parts': [
-              {'text': instructions},
-            ],
-          },
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {'text': input},
-              ],
-            },
+    final body = await _sendGeminiGenerateContent(
+      instructions: instructions,
+      input: input,
+      maxOutputTokens: maxOutputTokens,
+      jsonMode: false,
+    );
+    return _extractGeminiText(jsonDecode(body) as Map<String, dynamic>).trim();
+  }
+
+  Future<String> _sendGeminiGenerateContent({
+    required String instructions,
+    required String input,
+    required int maxOutputTokens,
+    required bool jsonMode,
+  }) async {
+    final generationConfig = <String, Object>{
+      'maxOutputTokens': maxOutputTokens,
+      'temperature': 0.4,
+      'topP': 0.9,
+    };
+    if (jsonMode) {
+      generationConfig['responseMimeType'] = 'application/json';
+    }
+
+    final payload = jsonEncode({
+      'systemInstruction': {
+        'parts': [
+          {'text': instructions},
+        ],
+      },
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': input},
           ],
-          'generationConfig': {
-            'maxOutputTokens': maxOutputTokens,
-          },
-        }),
-      );
+        },
+      ],
+      'generationConfig': generationConfig,
+    });
 
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('Gemini request failed: ${response.statusCode} $body');
+    final retries = math.max(0, _geminiMaxRetries);
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await _postGeminiPayload(payload);
+      } on _GeminiRequestException catch (error) {
+        final canRetry = error.statusCode == 429 || error.statusCode >= 500;
+        if (!canRetry || attempt == retries) rethrow;
+      } on SocketException {
+        if (attempt == retries) rethrow;
+      } on TimeoutException {
+        if (attempt == retries) rethrow;
       }
+      await Future<void>.delayed(
+        Duration(milliseconds: 400 * (attempt + 1)),
+      );
+    }
+    throw StateError('Gemini request failed after retrying.');
+  }
 
-      return _extractGeminiText(jsonDecode(body) as Map<String, dynamic>)
-          .trim();
+  Future<String> _postGeminiPayload(String payload) async {
+    final client = HttpClient();
+    final timeout = Duration(
+      seconds: math.max(1, _geminiRequestTimeoutSeconds),
+    );
+    try {
+      final request = await client
+          .postUrl(
+            Uri.https(
+              'generativelanguage.googleapis.com',
+              '/v1beta/models/$_geminiModel:generateContent',
+              {'key': _geminiApiKey},
+            ),
+          )
+          .timeout(timeout);
+      request.headers.contentType = ContentType.json;
+      request.write(payload);
+
+      final response = await request.close().timeout(timeout);
+      final body = await response.transform(utf8.decoder).join().timeout(
+            timeout,
+          );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw _GeminiRequestException(
+          statusCode: response.statusCode,
+          body: body,
+          message: 'Gemini request failed',
+        );
+      }
+      return body;
     } finally {
       client.close(force: true);
     }
@@ -742,6 +804,21 @@ Future<String> _generateTextInWorker({
     throw StateError('The local model returned no content.');
   }
   return text;
+}
+
+class _GeminiRequestException implements Exception {
+  const _GeminiRequestException({
+    required this.statusCode,
+    required this.body,
+    required this.message,
+  });
+
+  final int statusCode;
+  final String body;
+  final String message;
+
+  @override
+  String toString() => '$message: $statusCode $body';
 }
 
 const _motivationCoachInstructions = '''

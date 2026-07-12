@@ -58,7 +58,7 @@ const _amber = Color(0xFFE89A12); // warning
 const _pressGreen = Color(0xFF2F8A5E); // button ledge (green-600)
 const _aiProvider = String.fromEnvironment(
   'AI_PROVIDER',
-  defaultValue: 'local',
+  defaultValue: 'gemini',
 );
 const _localModelAsset = String.fromEnvironment(
   'LOCAL_MODEL_ASSET',
@@ -68,10 +68,21 @@ const _localModelContextSize = int.fromEnvironment(
   'LOCAL_MODEL_CONTEXT_SIZE',
   defaultValue: 2048,
 );
-const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+const _geminiApiKey = String.fromEnvironment(
+  'GEMINI_API_KEY',
+  defaultValue: 'AIzaSyD-zMRJdw-rolpBrXMOlFNyGwKLF5pZYa4',
+);
 const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
-  defaultValue: 'gemini-2.5-flash',
+  defaultValue: 'gemini-flash-latest',
+);
+const _geminiRequestTimeoutSeconds = int.fromEnvironment(
+  'GEMINI_REQUEST_TIMEOUT_SECONDS',
+  defaultValue: 30,
+);
+const _geminiMaxRetries = int.fromEnvironment(
+  'GEMINI_MAX_RETRIES',
+  defaultValue: 2,
 );
 const _onboardingPhaseTotal = 15;
 
