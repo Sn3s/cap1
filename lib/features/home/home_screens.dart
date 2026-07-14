@@ -7625,27 +7625,190 @@ class _EssentialExpensesActionPanelState
     extends State<_EssentialExpensesActionPanel> {
   bool busy = false;
 
-  Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
-    if (busy || income.createdAt == null) return;
+  Future<void> _deposit(
+    AppState state,
+    List<FakeMayaTransaction> incomes, {
+    double percentage = 50,
+  }) async {
+    if (busy || incomes.isEmpty) return;
+    final confirmedPercentage = await _confirmDeposit(
+      state,
+      incomes,
+      percentage,
+    );
+    if (confirmedPercentage == null) return;
     setState(() => busy = true);
-    await state.depositIncomeToEssentialFund(
-      transactionId: income.transactionId,
-      incomeAmount: income.amount,
-      incomeDate: income.createdAt!,
-      percentage: 50,
+    await state.depositPendingIncomeToEssentialFund(
+      incomes: incomes,
+      percentage: confirmedPercentage,
     );
     if (mounted) setState(() => busy = false);
+  }
+
+  Future<double?> _confirmDeposit(
+    AppState state,
+    List<FakeMayaTransaction> incomes,
+    double percentage,
+  ) {
+    final totalIncome =
+        incomes.fold<double>(0, (total, income) => total + income.amount);
+    final allocation = totalIncome * percentage / 100;
+    final remainingWallet = state.unallocatedFakeMayaWallet - allocation;
+    return showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text(
+          'Transfer to fund?',
+          style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _TransactionDetailLine(
+              label: 'Included income',
+              value: money(totalIncome),
+            ),
+            _TransactionDetailLine(
+              label: 'Allocation',
+              value: '${percentage.toStringAsFixed(0)}% = ${money(allocation)}',
+            ),
+            _TransactionDetailLine(
+              label: 'Wallet after transfer',
+              value: money(math.max(0, remainingWallet)),
+            ),
+            if (remainingWallet < 0) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'The unallocated wallet balance is too low for this transfer.',
+                style: TextStyle(color: _red, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final adjusted = await _adjustPercentage(percentage);
+              if (adjusted == null || !dialogContext.mounted) return;
+              Navigator.of(dialogContext).pop(adjusted);
+            },
+            child: const Text('Adjust'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: remainingWallet < 0
+                ? null
+                : () => Navigator.of(dialogContext).pop(percentage),
+            child: const Text('Transfer'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<double?> _adjustPercentage(double currentPercentage) {
+    final controller = TextEditingController(
+      text: currentPercentage.toStringAsFixed(0),
+    );
+    return showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text(
+          'Adjust allocation',
+          style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: inputDecoration('50').copyWith(suffixText: '%'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value =
+                  double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
+              Navigator.of(dialogContext).pop(value.clamp(0, 100).toDouble());
+            },
+            child: const Text('Use percentage'),
+          ),
+        ],
+      ),
+    ).whenComplete(controller.dispose);
+  }
+
+  void _showIncomeBreakdown(
+    List<FakeMayaTransaction> incomes,
+    MaterialLocalizations localizations,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          shrinkWrap: true,
+          children: [
+            const Text(
+              'Included income',
+              style: TextStyle(
+                color: _title,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'These labeled income transactions have not been allocated to the fund yet.',
+              style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            for (final income in incomes)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.payments_rounded, color: _sage),
+                title: Text(income.title),
+                subtitle: Text(
+                  income.createdAt == null
+                      ? income.category ?? 'Income'
+                      : '${income.category ?? 'Income'} · ${localizations.formatShortDate(income.createdAt!)}',
+                ),
+                trailing: Text(
+                  money(income.amount),
+                  style: const TextStyle(
+                    color: _sage,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final income = _latestIncomeTransaction(state);
-    final allocation = (income?.amount ?? 0) * .5;
-    final alreadyDeposited = income != null &&
-        state.hasEssentialAllocationForIncome(income.transactionId);
+    final incomes = state.pendingEssentialIncomeTransactions;
+    final totalIncome =
+        incomes.fold<double>(0, (total, income) => total + income.amount);
+    final allocation = totalIncome * .5;
     final hasEnoughCash = allocation <= state.unallocatedFakeMayaWallet;
-    final date = income?.createdAt;
+    final remainingWallet = state.unallocatedFakeMayaWallet - allocation;
     final localizations = MaterialLocalizations.of(context);
 
     return Container(
@@ -7723,64 +7886,66 @@ class _EssentialExpensesActionPanelState
             ),
           ),
           const SizedBox(height: 12),
-          if (income == null)
+          if (incomes.isEmpty)
             const Text(
-                'No income transaction found yet. When FakeMaya records salary, cash-in, or received income, it will appear here.',
+                'No unallocated labeled income found for the current income day. When salary, racket income, gifts, or received income are labeled, they will appear here.',
                 style: TextStyle(
                     color: _body, height: 1.35, fontWeight: FontWeight.w700))
           else ...[
-            const Text('LATEST INCOME',
-                style: TextStyle(
-                    color: _body,
-                    fontSize: 10,
-                    letterSpacing: 1.1,
-                    fontWeight: FontWeight.w900)),
-            const SizedBox(height: 7),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.payments_rounded, color: _sage, size: 20),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(income.title,
-                          style: const TextStyle(
-                              color: _title, fontWeight: FontWeight.w900)),
-                      if (date != null)
-                        Text(
-                            '${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}',
-                            style: const TextStyle(
-                                color: _body,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700)),
-                    ],
+                const Expanded(
+                  child: Text('UNALLOCATED INCOME',
+                      style: TextStyle(
+                          color: _body,
+                          fontSize: 10,
+                          letterSpacing: 1.1,
+                          fontWeight: FontWeight.w900)),
+                ),
+                IconButton(
+                  tooltip: 'View included incomes',
+                  icon: const Icon(Icons.list_alt_rounded, color: _purple),
+                  onPressed: () => _showIncomeBreakdown(
+                    incomes,
+                    localizations,
                   ),
                 ),
-                Text(money(income.amount),
-                    style: const TextStyle(
-                        color: _sage, fontWeight: FontWeight.w900)),
               ],
+            ),
+            _ActionMetricTile(
+              icon: Icons.payments_rounded,
+              label:
+                  '${incomes.length} income transaction${incomes.length == 1 ? '' : 's'} today',
+              value: money(totalIncome),
+              color: _sage,
+            ),
+            const SizedBox(height: 10),
+            _ActionMetricTile(
+              icon: Icons.savings_rounded,
+              label: '50% allocation',
+              value: money(allocation),
+              color: _brand,
+            ),
+            const SizedBox(height: 10),
+            _ActionMetricTile(
+              icon: Icons.account_balance_wallet_rounded,
+              label: 'Wallet after transfer',
+              value: money(math.max(0, remainingWallet)),
+              color: remainingWallet < 0 ? _red : _purple,
             ),
             const SizedBox(height: 12),
             PrimaryButton(
-              label: alreadyDeposited
-                  ? '50% deposited to fund'
-                  : busy
-                      ? 'Depositing...'
-                      : 'Deposit 50% (${money(allocation)})',
-              icon: alreadyDeposited
-                  ? Icons.check_circle_rounded
-                  : Icons.savings_rounded,
-              enabled:
-                  !busy && !alreadyDeposited && hasEnoughCash && date != null,
-              onPressed: () => _deposit(state, income),
+              label: busy
+                  ? 'Transferring...'
+                  : 'Transfer 50% (${money(allocation)})',
+              icon: Icons.savings_rounded,
+              enabled: !busy && hasEnoughCash,
+              onPressed: () => _deposit(state, incomes),
             ),
-            if (!alreadyDeposited && !hasEnoughCash) ...[
+            if (!hasEnoughCash) ...[
               const SizedBox(height: 7),
               Text(
-                  'The unallocated FakeMaya wallet balance is too low for this deposit.',
+                  'The unallocated FakeMaya wallet balance is too low for this transfer.',
                   style: TextStyle(
                       color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
             ],

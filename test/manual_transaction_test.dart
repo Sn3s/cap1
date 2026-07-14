@@ -49,6 +49,51 @@ void main() {
     );
   });
 
+  test('essential fund allocation batches unallocated labeled incomes',
+      () async {
+    final state = AppState();
+    final date = DateTime(2026, 7, 14, 8);
+
+    await state.addManualCashTransaction(
+      title: 'Old salary',
+      detail: 'Previous day salary',
+      amount: 9000,
+      occurredAt: date.subtract(const Duration(days: 1)),
+      category: 'Salary',
+      source: 'Wallet',
+    );
+    await state.addManualCashTransaction(
+      title: 'Racket income',
+      detail: 'Client payment',
+      amount: 5000,
+      occurredAt: date,
+      category: 'Business income',
+      source: 'Wallet',
+    );
+    await state.addManualCashTransaction(
+      title: 'Gift income',
+      detail: 'Family gift',
+      amount: 7500,
+      occurredAt: date.add(const Duration(minutes: 10)),
+      category: 'Gift',
+      source: 'Wallet',
+    );
+
+    expect(state.pendingEssentialIncomeTransactions, hasLength(2));
+
+    await state.depositPendingIncomeToEssentialFund(
+      incomes: state.pendingEssentialIncomeTransactions,
+      percentage: 50,
+    );
+
+    expect(state.essentialExpensesBalance, 6250);
+    expect(state.pendingEssentialIncomeTransactions, isEmpty);
+    expect(
+      state.d1Ledger.where((entry) => entry['type'] == 'essential_deposit'),
+      hasLength(2),
+    );
+  });
+
   testWidgets('activity exposes the manual transaction sheet', (tester) async {
     await tester.pumpWidget(
       AppScope(

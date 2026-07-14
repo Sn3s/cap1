@@ -382,7 +382,7 @@ class AppState extends ChangeNotifier {
     }
     await user.updateDisplayName(name.trim().isEmpty ? null : name.trim());
     _applyFirebaseUser(user);
-    await saveProfile();
+    if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 
@@ -1365,6 +1365,45 @@ class AppState extends ChangeNotifier {
           entry['type'] == 'essential_deposit' &&
           entry['sourceTransactionId'] == transactionId);
 
+  bool _isEssentialIncomeCandidate(FakeMayaTransaction transaction) {
+    if (transaction.amount <= 0 ||
+        !transaction.isLabeled ||
+        transaction.excludedFromInsights) {
+      return false;
+    }
+    final category = transaction.category?.trim().toLowerCase() ?? '';
+    final text =
+        '${transaction.title} ${transaction.detail} $category'.toLowerCase();
+    return category.contains('salary') ||
+        category.contains('income') ||
+        category == 'gift' ||
+        text.contains('salary') ||
+        text.contains('income') ||
+        text.contains('payroll') ||
+        text.contains('cash in') ||
+        text.contains('received') ||
+        text.contains('gift');
+  }
+
+  List<FakeMayaTransaction> get pendingEssentialIncomeTransactions {
+    final now = DateTime.now();
+    return allTransactions
+        .where((transaction) =>
+            _isEssentialIncomeCandidate(transaction) &&
+            !hasEssentialAllocationForIncome(transaction.transactionId))
+        .where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return date != null &&
+          date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+    }).toList()
+      ..sort((a, b) =>
+          (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
+            a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+          ));
+  }
+
   bool hasEmergencyAllocationForIncome(String transactionId) =>
       d1Ledger.any((entry) =>
           entry['type'] == 'emergency_deposit' &&
@@ -1464,6 +1503,42 @@ class AppState extends ChangeNotifier {
       'destination': 'Essential Expenses Fund',
     });
     await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositPendingIncomeToEssentialFund({
+    required Iterable<FakeMayaTransaction> incomes,
+    double percentage = 50,
+  }) async {
+    final pending = incomes
+        .where((income) =>
+            income.createdAt != null &&
+            income.amount > 0 &&
+            !hasEssentialAllocationForIncome(income.transactionId))
+        .toList();
+    if (pending.isEmpty) return;
+    final clampedPercentage = percentage.clamp(0, 100).toDouble();
+    final totalIncome =
+        pending.fold<double>(0, (total, income) => total + income.amount);
+    final totalAllocation = totalIncome * clampedPercentage / 100;
+    if (totalAllocation <= 0) return;
+    if (fakeMayaLink != null && totalAllocation > unallocatedFakeMayaWallet) {
+      return;
+    }
+    essentialExpensesBalance += totalAllocation;
+    for (final income in pending) {
+      d1Ledger.insert(0, {
+        'type': 'essential_deposit',
+        'date': DateTime.now().toIso8601String(),
+        'sourceDate': income.createdAt!.toIso8601String(),
+        'sourceTransactionId': income.transactionId,
+        'incomeAmount': income.amount,
+        'percentage': clampedPercentage,
+        'amount': income.amount * clampedPercentage / 100,
+        'destination': 'Essential Expenses Fund',
+      });
+    }
+    if (isSignedIn) await saveProfile();
     notifyListeners();
   }
 

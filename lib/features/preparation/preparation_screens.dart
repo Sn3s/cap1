@@ -414,6 +414,467 @@ class ActionField {
   final bool isPercent;
 }
 
+double _baselineMoney(AppState state, String key) {
+  return double.tryParse(
+        (state.onboardingBaselines[key] ?? '').replaceAll(',', '').trim(),
+      ) ??
+      0;
+}
+
+double _mapMoney(Map<String, dynamic> value, String key) {
+  final raw = value[key];
+  if (raw is num) return raw.toDouble();
+  return double.tryParse(raw?.toString().replaceAll(',', '').trim() ?? '') ?? 0;
+}
+
+double _roundMoney(num value, {double step = 500, double minimum = 100}) {
+  final safe = math.max(minimum, value.toDouble());
+  return (safe / step).ceil() * step;
+}
+
+int _roundPercent(num value, {int minimum = 1, int maximum = 100}) {
+  return value.round().clamp(minimum, maximum);
+}
+
+List<String> _moneyOptions(num recommended, {double step = 500}) {
+  final best = _roundMoney(recommended, step: step).round();
+  return [
+    best,
+    _roundMoney(best * 0.85, step: step).round(),
+    _roundMoney(best * 1.15, step: step).round(),
+  ].map((value) => value.toString()).toSet().toList();
+}
+
+List<String> _percentOptions(num recommended,
+    {int spread = 5, int minimum = 1, int maximum = 100}) {
+  final best = _roundPercent(recommended, minimum: minimum, maximum: maximum);
+  return [
+    best,
+    (best - spread).clamp(minimum, maximum),
+    (best + spread).clamp(minimum, maximum),
+  ].map((value) => value.toString()).toSet().toList();
+}
+
+List<String> _dayOptions(num recommended) {
+  final best = recommended.round().clamp(1, 30);
+  return [
+    best,
+    (best + 2).clamp(1, 30),
+    (best + 4).clamp(1, 30),
+  ].map((value) => value.toString()).toSet().toList();
+}
+
+List<double> _moneyListFromBaseline(AppState state, String key) {
+  final raw = state.onboardingBaselines[key] ?? '';
+  final values = <double>[];
+  for (final line in raw.split(RegExp(r'[\n,;]+'))) {
+    final match = RegExp(r'(\d[\d,]*(?:\.\d+)?)').allMatches(line).lastOrNull;
+    final value = double.tryParse(match?.group(1)?.replaceAll(',', '') ?? '');
+    if (value != null && value > 0) values.add(value);
+  }
+  return values;
+}
+
+double _monthlyIncomeBase(AppState state) {
+  if (state.income > 0) return state.income;
+  final ledgerTotal = state.onboardingIncomeLedger.fold<double>(
+    0,
+    (total, income) => total + _mapMoney(income, 'amount'),
+  );
+  if (ledgerTotal > 0) return ledgerTotal;
+  if (state.monthlySalary > 0) return state.monthlySalary;
+  return _baselineMoney(state, 'income_baseline');
+}
+
+int _paydaysPerMonth(AppState state) {
+  final rhythm = state.incomeRhythm.toLowerCase();
+  if (rhythm.contains('week') && rhythm.contains('2')) return 2;
+  if (rhythm.contains('bi') || rhythm.contains('fortnight')) return 2;
+  if (rhythm.contains('week')) return 4;
+  if (rhythm.contains('twice') || rhythm.contains('semi')) return 2;
+  return 1;
+}
+
+String _recommendedFrequency(AppState state) {
+  final rhythm = state.incomeRhythm.toLowerCase();
+  if (rhythm.contains('week') && rhythm.contains('2')) return 'Every 2 weeks';
+  if (rhythm.contains('bi') || rhythm.contains('fortnight')) {
+    return 'Every 2 weeks';
+  }
+  if (rhythm.contains('week')) return 'Weekly';
+  return 'Monthly';
+}
+
+int _frequencyPeriodsPerMonth(String frequency) {
+  final normalized = frequency.toLowerCase();
+  if (normalized == 'weekly') return 4;
+  if (normalized.contains('2') && normalized.contains('week')) return 2;
+  return 1;
+}
+
+double _monthlyExpenseBase(AppState state) {
+  if (state.cashFlowPyramidBaseline > 0) return state.cashFlowPyramidBaseline;
+  final baseline = _baselineMoney(state, 'monthly_expenses');
+  if (baseline > 0) return baseline;
+  final combined = state.expenses + state.variableExpenses + state.debtPayments;
+  if (combined > 0) return combined;
+  final essential = state.monthlyEssentialExpenseTotal > 0
+      ? state.monthlyEssentialExpenseTotal
+      : _baselineMoney(state, 'essential_expenses');
+  if (essential > 0) return essential * 1.25;
+  return 10000;
+}
+
+double _monthlyEssentialBase(AppState state) {
+  if (state.monthlyEssentialExpenseTotal > 0) {
+    return state.monthlyEssentialExpenseTotal;
+  }
+  final baseline = _baselineMoney(state, 'essential_expenses');
+  if (baseline > 0) return baseline;
+  return _monthlyExpenseBase(state) * 0.70;
+}
+
+double _monthlyDiscretionaryBase(AppState state) {
+  if (state.monthlyNonEssentialExpenseTotal > 0) {
+    return state.monthlyNonEssentialExpenseTotal;
+  }
+  final baseline = _baselineMoney(state, 'discretionary_spend');
+  if (baseline > 0) return baseline;
+  if (state.variableExpenses > 0) return state.variableExpenses;
+  return math.max(1000, _monthlyExpenseBase(state) * 0.20);
+}
+
+double _monthlyBillBase(AppState state) {
+  final bills = _moneyListFromBaseline(state, 'bills');
+  if (bills.isNotEmpty) {
+    return bills.fold<double>(0, (total, value) => total + value);
+  }
+  return _monthlyEssentialBase(state) * 0.40;
+}
+
+double _categoryLimitBase(AppState state) {
+  final categoryAverages = _moneyListFromBaseline(state, 'category_averages');
+  if (categoryAverages.isNotEmpty) {
+    final average =
+        categoryAverages.fold<double>(0, (total, value) => total + value) /
+            categoryAverages.length;
+    return average * 0.90;
+  }
+  final categories = (state.onboardingBaselines['categories'] ?? '')
+      .split(',')
+      .where((item) => item.trim().isNotEmpty)
+      .length;
+  if (categories > 0) return _monthlyDiscretionaryBase(state) / categories;
+  return _monthlyDiscretionaryBase(state) / 2;
+}
+
+double _emergencyBalanceBase(AppState state) {
+  final baseline = _baselineMoney(state, 'emergency_balance');
+  if (baseline > 0) return baseline;
+  return math.max(state.emergencyFundBalance, state.accountBalance('Savings'));
+}
+
+double _emergencyTargetBase(AppState state) {
+  final baseline = _baselineMoney(state, 'emergency_target');
+  if (baseline > 0) return baseline;
+  if (state.emergencyFundTarget > 0) return state.emergencyFundTarget;
+  return _monthlyEssentialBase(state) * 3;
+}
+
+double _minimumDebtPaymentBase(AppState state) {
+  final baseline = _baselineMoney(state, 'minimum_debt_payment');
+  if (baseline > 0) return baseline;
+  if (state.debtPayments > 0) return state.debtPayments;
+  return _monthlyIncomeBase(state) * 0.05;
+}
+
+double _debtBalanceBase(AppState state) {
+  final baseline = _baselineMoney(state, 'debt_balance');
+  if (baseline > 0) return baseline;
+  return state.liabilities.fold<double>(0, (total, item) => total + item.value);
+}
+
+double _monthlySurplusBase(AppState state) {
+  final income = _monthlyIncomeBase(state);
+  return income - _monthlyExpenseBase(state) - _minimumDebtPaymentBase(state);
+}
+
+double _goalMonthlyNeedBase(AppState state) {
+  final goals = state.onboardingBaselines['goals'] ?? '';
+  var monthlyNeed = 0.0;
+  final now = DateTime.now();
+  for (final line in goals.split('\n')) {
+    final parts = line.split('|').map((part) => part.trim()).toList();
+    if (parts.length < 3) continue;
+    final balance = double.tryParse(parts[1].replaceAll(',', '')) ?? 0;
+    final target = double.tryParse(parts[2].replaceAll(',', '')) ?? 0;
+    final dueDate = parts.length >= 4 ? DateTime.tryParse(parts[3]) : null;
+    final priority = parts.length >= 5
+        ? (double.tryParse(parts[4].replaceAll(',', '')) ?? 1)
+        : 1;
+    final months = dueDate == null
+        ? 12
+        : math.max(1, ((dueDate.difference(now).inDays) / 30).ceil());
+    monthlyNeed +=
+        math.max(0, target - balance) / months / math.max(1, priority);
+  }
+  if (monthlyNeed > 0) return monthlyNeed;
+  if (state.selectedGoalMonthlyTarget > 0) {
+    return state.selectedGoalMonthlyTarget;
+  }
+  return math.max(1000, _monthlyIncomeBase(state) * 0.10);
+}
+
+double _availableEverydayCash(AppState state) {
+  final baselineCash = _baselineMoney(state, 'cash_balance');
+  final linkedCash = state.accountBalance('Wallet') + state.cashOnHandBalance;
+  return math.max(baselineCash, linkedCash);
+}
+
+int _recommendedEverydayFundMonths(AppState state) {
+  final expenses = _monthlyExpenseBase(state);
+  final income = _monthlyIncomeBase(state);
+  final irregularIncome = state.irregularIncomeFloor > 0 ||
+      state.incomeType.toLowerCase().contains('irregular') ||
+      !state.incomeRhythm.toLowerCase().contains('monthly');
+  final tightCash = income > 0 && income < expenses * 1.15;
+  final lowStartingCash = _availableEverydayCash(state) < expenses * 0.5;
+  if (irregularIncome || tightCash || lowStartingCash) return 2;
+  return 1;
+}
+
+double _recommendedMonthlyEarnings(AppState state) {
+  final expenses = _monthlyExpenseBase(state);
+  final currentIncome = _monthlyIncomeBase(state);
+  final months = _recommendedEverydayFundMonths(state);
+  final everydayTarget = expenses * months;
+  final reserveGap =
+      math.max(0.0, everydayTarget - _availableEverydayCash(state));
+  final monthlyReserveBuild = reserveGap / 6;
+  final desiredBreathingRoom = math.max(expenses * 0.10, monthlyReserveBuild);
+  final target = math.max(currentIncome, expenses + desiredBreathingRoom);
+  return math.max(1000, (target / 500).ceil() * 500);
+}
+
+double _emergencyMonthlyDepositBase(AppState state) {
+  final gap =
+      math.max(0.0, _emergencyTargetBase(state) - _emergencyBalanceBase(state));
+  if (gap > 0) return math.max(_monthlyIncomeBase(state) * 0.05, gap / 12);
+  return math.max(500, _monthlyIncomeBase(state) * 0.05);
+}
+
+List<String> _recommendationsForActionField(
+  AppState state,
+  D2Action action,
+  ActionField field,
+) {
+  final income = math.max(1.0, _monthlyIncomeBase(state));
+  final surplus = _monthlySurplusBase(state);
+  final lowEverydayCash =
+      _availableEverydayCash(state) < _monthlyExpenseBase(state);
+  if (field.key == 'freq') {
+    final best = _recommendedFrequency(state);
+    return [
+      best,
+      if (best != 'Monthly') 'Monthly',
+      if (best != 'Weekly') 'Weekly',
+      if (best != 'Every 2 weeks') 'Every 2 weeks',
+    ].take(3).toList();
+  }
+  if (field.key == 'days') {
+    final predictable = state.billsRhythm.toLowerCase().contains('predict');
+    final highAnxiety = state.anxiety >= 7;
+    final irregularIncome = state.irregularIncomeFloor > 0 ||
+        state.incomeType.toLowerCase().contains('irregular');
+    final recommended = switch (action.id) {
+      'A5' => highAnxiety
+          ? 7
+          : irregularIncome
+              ? 5
+              : predictable
+                  ? 3
+                  : 5,
+      'A10' => irregularIncome ? 14 : 7,
+      _ => 3,
+    };
+    return _dayOptions(recommended);
+  }
+  if (action.id == 'A1' && field.key == 'pct') {
+    return _percentOptions(_monthlyEssentialBase(state) / income * 100,
+        spread: 10, minimum: 30, maximum: 80);
+  }
+  if (action.id == 'A2' && field.key == 'amt') {
+    return _moneyOptions(_monthlyDiscretionaryBase(state) * 0.90);
+  }
+  if (action.id == 'A3' && field.key == 'amt') {
+    return _moneyOptions(_categoryLimitBase(state));
+  }
+  if (action.id == 'A4' && field.key == 'amt') {
+    return _moneyOptions(_monthlyBillBase(state) / _paydaysPerMonth(state));
+  }
+  if (action.id == 'A6' && field.key == 'pct') {
+    final protectedMoney = _monthlyEssentialBase(state) +
+        _emergencyMonthlyDepositBase(state) +
+        _goalMonthlyNeedBase(state);
+    return _percentOptions(protectedMoney / income * 100,
+        spread: 10, minimum: 50, maximum: 90);
+  }
+  if (action.id == 'A7' && field.key == 'pct') {
+    final recommended = lowEverydayCash
+        ? 50
+        : state.irregularIncomeFloor > 0
+            ? 35
+            : 25;
+    return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 80);
+  }
+  if (action.id == 'A8' && field.key == 'pct') {
+    return _percentOptions(_emergencyMonthlyDepositBase(state) / income * 100,
+        spread: 5, minimum: 5, maximum: 25);
+  }
+  if (action.id == 'A9' && field.key == 'amt') {
+    final periods = _frequencyPeriodsPerMonth(_recommendedFrequency(state));
+    return _moneyOptions(_emergencyMonthlyDepositBase(state) / periods);
+  }
+  if (action.id == 'A11' && field.key == 'pct') {
+    final minimumPayment = math.max(1.0, _minimumDebtPaymentBase(state));
+    final recommended =
+        surplus <= 0 ? 5 : (surplus * 0.25 / minimumPayment) * 100;
+    return _percentOptions(recommended, spread: 5, minimum: 5, maximum: 30);
+  }
+  if (action.id == 'A12' && field.key == 'pct') {
+    final monthlyInvestment =
+        surplus > 0 ? math.min(surplus * 0.30, income * 0.15) : income * 0.05;
+    return _percentOptions(monthlyInvestment / income * 100,
+        spread: 5, minimum: 5, maximum: 20);
+  }
+  if (action.id == 'A13' && field.key == 'pct') {
+    final debtHeavy =
+        _debtBalanceBase(state) > _baselineMoney(state, 'investment_balance');
+    final recommended = lowEverydayCash
+        ? 20
+        : debtHeavy
+            ? 50
+            : 35;
+    return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 80);
+  }
+  if (action.id == 'A14' && field.key == 'pct') {
+    final recommended = surplus <= 0
+        ? 25
+        : surplus > income * 0.20
+            ? 60
+            : 50;
+    return _percentOptions(recommended, spread: 10, minimum: 20, maximum: 80);
+  }
+  if (action.id == 'A15' && field.key == 'amt') {
+    final recommended = surplus > 0 ? surplus * 0.15 : income * 0.03;
+    return _moneyOptions(recommended);
+  }
+  if (action.id == 'A16' && field.key == 'amt') {
+    return _moneyOptions(_goalMonthlyNeedBase(state) / _paydaysPerMonth(state));
+  }
+  if (action.id == 'A16' && field.key == 'pct') {
+    return _percentOptions(_goalMonthlyNeedBase(state) / income * 100,
+        spread: 5, minimum: 5, maximum: 25);
+  }
+  if (action.id == 'A17' && field.key == 'pct') {
+    final recommended = surplus <= 0 ? 10 : 20;
+    return _percentOptions(recommended, spread: 5, minimum: 5, maximum: 35);
+  }
+  if (action.id == 'A18' && field.key == 'pct') {
+    final recommended = _debtBalanceBase(state) > income * 3 ? 30 : 20;
+    return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 50);
+  }
+  if (action.id == 'A19' && field.key == 'months') {
+    final recommended = _recommendedEverydayFundMonths(state);
+    return [
+      recommended,
+      math.min(12, recommended + 1),
+      math.min(12, recommended + 2),
+    ].map((value) => value.toString()).toSet().toList();
+  }
+  if (action.id == 'A20' && field.key == 'amt') {
+    final recommended = _recommendedMonthlyEarnings(state).round();
+    return [recommended, recommended * 1.1, recommended * 1.25]
+        .map((value) => ((value / 500).ceil() * 500).toStringAsFixed(0))
+        .toSet()
+        .toList();
+  }
+  return _recommendationsForField(field);
+}
+
+String _recommendedValueText(
+  AppState state,
+  D2Action action,
+  ActionField field,
+) {
+  final recommended =
+      _recommendationsForActionField(state, action, field).first;
+  return _fieldValueLabel(field, recommended);
+}
+
+String _recommendationFormulaForActionField(
+  AppState state,
+  D2Action action,
+  ActionField field,
+) {
+  final income = math.max(1.0, _monthlyIncomeBase(state));
+  final essentials = _monthlyEssentialBase(state);
+  final surplus = _monthlySurplusBase(state);
+  final value = _recommendedValueText(state, action, field);
+  if (field.key == 'freq') {
+    return '$value: matched to your income rhythm (${state.incomeRhythm}).';
+  }
+  if (field.key == 'days') {
+    return switch (action.id) {
+      'A5' =>
+        '$value: based on bill predictability, income stability, and anxiety level.',
+      'A10' =>
+        '$value: 7 days for regular income, 14 days when income is irregular.',
+      _ => '$value: default reminder window for this action.',
+    };
+  }
+  return switch (action.id) {
+    'A1' =>
+      '$value: essential expenses (${money(essentials)}) divided by monthly income (${money(income)}).',
+    'A2' =>
+      '$value: 90% of your monthly discretionary spending (${money(_monthlyDiscretionaryBase(state))}).',
+    'A3' =>
+      '$value: average selected-category spend, reduced by 10% for a realistic cap.',
+    'A4' =>
+      '$value: monthly bills (${money(_monthlyBillBase(state))}) divided by ${_paydaysPerMonth(state)} payday(s).',
+    'A6' =>
+      '$value: essentials, emergency deposits, and goal needs divided by monthly income.',
+    'A7' =>
+      '$value: higher when Everyday Fund cash is low or income is irregular.',
+    'A8' =>
+      '$value: monthly emergency-fund catch-up need divided by monthly income.',
+    'A9' =>
+      '$value: monthly emergency-fund catch-up need divided by your deposit frequency.',
+    'A11' =>
+      '$value: 25% of monthly surplus (${money(math.max(0.0, surplus))}) divided by minimum debt payment.',
+    'A12' =>
+      '$value: invest up to 30% of surplus, capped at 15% of monthly income.',
+    'A13' =>
+      '$value: lower if cash is tight, higher when debt is heavier than investments.',
+    'A14' =>
+      '$value: based on monthly surplus strength after expenses and debt payments.',
+    'A15' =>
+      '$value: 15% of monthly surplus, or 3% of income when surplus is not available.',
+    'A16' when field.key == 'amt' =>
+      '$value: monthly goal funding need divided by ${_paydaysPerMonth(state)} payday(s).',
+    'A16' => '$value: monthly goal funding need divided by monthly income.',
+    'A17' => '$value: 20% when surplus exists, 10% when cash flow is tighter.',
+    'A18' =>
+      '$value: 30% when debt is above 3 months of income, otherwise 20%.',
+    'A19' =>
+      '$value: 2 months if income is irregular, cash is tight, or starting cash is low; otherwise 1 month.',
+    'A20' =>
+      '$value: max(current income, expenses + max(10% expense cushion, Everyday Fund gap divided by 6)).',
+    _ =>
+      '$value: calculated from the onboarding baseline that matches this action.',
+  };
+}
+
 List<String> _recommendationsForField(ActionField field) {
   if (field.key == 'freq') return const ['Weekly', 'Every 2 weeks', 'Monthly'];
   final match = RegExp(r'\d+').firstMatch(field.hint);
@@ -439,13 +900,15 @@ String? _actionFieldError(ActionField field, String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) return 'Choose or enter a value.';
   if (field.key == 'freq') {
-    if (RegExp(r'^(weekly|monthly)$', caseSensitive: false).hasMatch(trimmed))
+    if (RegExp(r'^(weekly|monthly)$', caseSensitive: false).hasMatch(trimmed)) {
       return null;
+    }
     final match = RegExp(r'^every\s+(\d+)\s+(days?|weeks?|months?)$',
             caseSensitive: false)
         .firstMatch(trimmed);
-    if (match == null)
+    if (match == null) {
       return 'Use Weekly, Monthly, or “Every N days/weeks/months.”';
+    }
     final count = int.parse(match.group(1)!);
     final unit = match.group(2)!.toLowerCase();
     final maximum = unit.startsWith('day') ? 30 : 12;
@@ -455,14 +918,20 @@ String? _actionFieldError(ActionField field, String value) {
   }
   final number = double.tryParse(trimmed.replaceAll(',', ''));
   if (number == null) return 'Enter a number.';
-  if (field.isPercent && (number < 1 || number > 100))
+  if (field.isPercent && (number < 1 || number > 100)) {
     return 'Use a percentage from 1 to 100.';
+  }
   if (field.key == 'days' &&
       (number < 1 || number > 30 || number != number.roundToDouble())) {
     return 'Use a whole number from 1 to 30 days.';
   }
+  if (field.key == 'months' &&
+      (number < 1 || number > 12 || number != number.roundToDouble())) {
+    return 'Use a whole number from 1 to 12 months.';
+  }
   if (!field.isPercent &&
       field.key != 'days' &&
+      field.key != 'months' &&
       (number < 100 || number > 1000000)) {
     return 'Use an amount from ₱100 to ₱1,000,000.';
   }
@@ -472,6 +941,7 @@ String? _actionFieldError(ActionField field, String value) {
 String _fieldValueLabel(ActionField field, String value) {
   if (field.isPercent) return '$value%';
   if (field.key == 'days') return '$value days';
+  if (field.key == 'months') return '$value months';
   if (field.key == 'freq') return value;
   return '₱$value';
 }
@@ -902,11 +1372,22 @@ const _d2Actions = <String, D2Action>{
             hint: 'e.g. 25',
             isPercent: true)
       ]),
+  'A19': D2Action(
+      id: 'A19',
+      text:
+          'Keep at least X months worth of expenses available in your Everyday Fund at all times.',
+      fields: [
+        ActionField(key: 'months', label: 'Months of expenses', hint: 'e.g. 2')
+      ]),
+  'A20': D2Action(id: 'A20', text: 'Earn ₱X a month.', fields: [
+    ActionField(
+        key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 25000')
+  ]),
 };
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{
-  'G1': ['A1', 'A3', 'A6', 'A8', 'A9'],
+  'G1': ['A1', 'A3', 'A19', 'A20'],
   'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
   'G3': ['A7', 'A8', 'A9', 'A10'],
   'G4': ['A1', 'A2', 'A4', 'A5', 'A10'],
@@ -1022,6 +1503,8 @@ const _actionDataMatrix = <String, List<String>>{
     'D21',
     'D22'
   ],
+  'A19': ['D1', 'D5', 'D10', 'D18', 'D24'],
+  'A20': ['D1', 'D4', 'D10', 'D24'],
 };
 
 class BaselineField {
@@ -2382,11 +2865,13 @@ class ActionFieldSelector extends StatefulWidget {
     required this.field,
     required this.initialValue,
     required this.onChanged,
+    this.recommendations,
   });
 
   final ActionField field;
   final String initialValue;
   final ValueChanged<String> onChanged;
+  final List<String>? recommendations;
 
   @override
   State<ActionFieldSelector> createState() => _ActionFieldSelectorState();
@@ -2400,16 +2885,19 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
   @override
   void initState() {
     super.initState();
-    recommendations = _recommendationsForField(widget.field);
+    recommendations =
+        widget.recommendations ?? _recommendationsForField(widget.field);
     final recommendedIndex = recommendations.indexOf(widget.initialValue);
     selectedIndex = recommendedIndex >= 0
         ? recommendedIndex
-        : (widget.initialValue.isEmpty ? 0 : 3);
+        : (widget.initialValue.isEmpty ? 0 : recommendations.length);
     customController = TextEditingController(
-        text: selectedIndex == 3 ? widget.initialValue : '');
+      text: selectedIndex == recommendations.length ? widget.initialValue : '',
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.initialValue.isEmpty)
+      if (mounted && widget.initialValue.isEmpty) {
         widget.onChanged(recommendations.first);
+      }
     });
   }
 
@@ -2421,8 +2909,9 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
 
   void _select(int index) {
     setState(() => selectedIndex = index);
-    widget.onChanged(
-        index < 3 ? recommendations[index] : customController.text.trim());
+    widget.onChanged(index < recommendations.length
+        ? recommendations[index]
+        : customController.text.trim());
   }
 
   @override
@@ -2458,7 +2947,7 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
           contentPadding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
           activeColor: _brand,
-          value: 3,
+          value: recommendations.length,
           groupValue: selectedIndex,
           title: const Text('Enter my own',
               style: TextStyle(
@@ -2503,19 +2992,29 @@ class ActionConfigWidget extends StatefulWidget {
 class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   late final PageController _pageController;
   int _page = 0;
-  late final List<Map<String, String>> _values;
+  var _values = <Map<String, String>>[];
+  bool _seeded = false;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_seeded) return;
+    final state = AppScope.of(context);
     _values = [
       for (final action in widget.actions)
         {
           for (final field in action.fields)
-            field.key: _recommendationsForField(field).first
+            field.key:
+                _recommendationsForActionField(state, action, field).first
         },
     ];
+    _seeded = true;
   }
 
   @override
@@ -2538,8 +3037,9 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   void _confirm() {
     for (var i = 0; i < widget.actions.length; i++) {
       for (final field in widget.actions[i].fields) {
-        if (_actionFieldError(field, _values[i][field.key] ?? '') != null)
+        if (_actionFieldError(field, _values[i][field.key] ?? '') != null) {
           return;
+        }
       }
     }
     final values = <String, Map<String, String>>{};
@@ -2575,6 +3075,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
             itemCount: total,
             itemBuilder: (context, i) {
               final action = widget.actions[i];
+              final state = AppScope.of(context);
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: AppCard(
@@ -2597,11 +3098,21 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
                               return ActionFieldSelector(
                                 field: field,
                                 initialValue: _values[i][field.key] ?? '',
+                                recommendations: _recommendationsForActionField(
+                                    state, action, field),
                                 onChanged: (value) =>
                                     _values[i][field.key] = value,
                               );
                             },
                           ),
+                        ),
+                        const SizedBox(height: 10),
+                        _RecommendationExplanationBox(
+                          lines: [
+                            for (final field in action.fields)
+                              _recommendationFormulaForActionField(
+                                  state, action, field),
+                          ],
                         ),
                       ],
                     ],
@@ -2620,6 +3131,58 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
           onPressed: _goNext,
         ),
       ],
+    );
+  }
+}
+
+class _RecommendationExplanationBox extends StatelessWidget {
+  const _RecommendationExplanationBox({required this.lines});
+
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.functions_rounded, size: 15, color: _purple),
+              SizedBox(width: 6),
+              Text(
+                'Why this recommendation',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text(
+                line,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  height: 1.25,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -3597,6 +4160,10 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'Add each bill, its due date, and payment amount. Mark it paid if Shellby cannot detect the payment automatically.',
     'A9' =>
       'Choose the Emergency Fund account or bucket. Confirm a deposit when it is made outside a connected account.',
+    'A19' =>
+      'Confirm the Everyday Fund account or bucket and keep income, expense, and available cash balances connected or updated.',
+    'A20' =>
+      'Keep income sources connected or logged, including new side income or salary changes Shellby cannot import automatically.',
     'A10' =>
       'Mark Emergency Fund withdrawals and confirm the income deposit that starts the replenishment window.',
     'A11' ||
@@ -3640,6 +4207,10 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A2' ||
     'A3' =>
       'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',
+    'A19' =>
+      'Shellby uses your monthly expense baseline to calculate the Everyday Fund target, compares it with available cash, and reminds you when the fund drops below the configured months.',
+    'A20' =>
+      'Shellby compares detected monthly income with the configured earnings target, tracks the monthly gap or surplus, and updates $indicatorText.',
     'A5' =>
       'Shellby counts backward from each due date, reminds you when payment should happen, detects or asks for confirmation, and updates $indicatorText.',
     'A10' =>
@@ -5111,7 +5682,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     for (final field in action.fields) {
       final value = values[field.key]?.trim() ?? '';
       if (value.isEmpty) continue;
-      details.add('${field.label}: $value${field.isPercent ? '%' : ''}');
+      details.add('${field.label}: ${_fieldValueLabel(field, value)}');
     }
     if (details.isNotEmpty) return details.join(' • ');
     return action.hasFields
@@ -5254,7 +5825,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
         state.actionFieldValues[action.id] ?? const <String, String>{};
     final values = {
       for (final field in action.fields)
-        field.key: existing[field.key] ?? _recommendationsForField(field).first,
+        field.key: existing[field.key] ??
+            _recommendationsForActionField(state, action, field).first,
     };
     final result = await showDialog<Map<String, String>>(
       context: context,
@@ -5274,6 +5846,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
                     ActionFieldSelector(
                       field: field,
                       initialValue: values[field.key] ?? '',
+                      recommendations:
+                          _recommendationsForActionField(state, action, field),
                       onChanged: (value) =>
                           setDialogState(() => values[field.key] = value),
                     ),
