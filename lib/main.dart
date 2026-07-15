@@ -56,10 +56,6 @@ const _green = _sage; // money-up alias
 const _red = Color(0xFFE0483D); // coral danger
 const _amber = Color(0xFFE89A12); // warning
 const _pressGreen = Color(0xFF2F8A5E); // button ledge (green-600)
-const _aiProvider = String.fromEnvironment(
-  'AI_PROVIDER',
-  defaultValue: 'gemini',
-);
 const _localModelAsset = String.fromEnvironment(
   'LOCAL_MODEL_ASSET',
   defaultValue: 'assets/models/qwen3-1.7b-instruct-q4_k_m.gguf',
@@ -76,7 +72,7 @@ const _geminiProxyUrl = String.fromEnvironment(
 );
 const _geminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
-  defaultValue: 'gemini-flash-latest',
+  defaultValue: 'gemini-3.1-flash-lite',
 );
 const _geminiRequestTimeoutSeconds = int.fromEnvironment(
   'GEMINI_REQUEST_TIMEOUT_SECONDS',

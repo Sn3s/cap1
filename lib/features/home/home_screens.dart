@@ -17,6 +17,14 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int index = 0;
+  final _goalsKey = GlobalKey<_GoalsPageState>();
+
+  void openGoal(String goalId) {
+    setState(() => index = 3);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _goalsKey.currentState?.openGoal(goalId);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +32,7 @@ class _MainShellState extends State<MainShell> {
       const DashboardPage(),
       const InsightsPage(),
       const AccountsPage(),
-      const GoalsPage(),
+      GoalsPage(key: _goalsKey),
       const ActivityPage(),
       const ProfilePage(),
     ];
@@ -392,6 +400,12 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
     }
     if (text.contains('AI model is not configured')) {
       return 'I need either an internet connection for Gemini or the bundled Qwen model under assets/models/ before I can chat.';
+    }
+    if (text.contains('Gemini proxy request failed: 404')) {
+      return 'Gemini proxy was not found. Check GEMINI_PROXY_URL, or run with GEMINI_API_KEY so Shellby can call Gemini directly.';
+    }
+    if (text.contains('Gemini API request failed: 404')) {
+      return 'Gemini model was not found. Shellby is set to $_geminiModel; use a GenerateContent model such as gemini-3.1-flash-lite.';
     }
     return 'I hit a setup issue while starting the AI model. $text';
   }
@@ -1340,6 +1354,7 @@ class InsightsPage extends StatefulWidget {
 class _InsightsPageState extends State<InsightsPage> {
   int _goal = 0;
   DateTime? _selectedWeek;
+  DateTime? _selectedMonth;
 
   @override
   Widget build(BuildContext context) {
@@ -1356,6 +1371,7 @@ class _InsightsPageState extends State<InsightsPage> {
           onChanged: (value) => setState(() {
             _goal = value;
             _selectedWeek = null;
+            _selectedMonth = null;
           }),
         ),
         const SizedBox(height: 12),
@@ -1398,9 +1414,15 @@ class _InsightsPageState extends State<InsightsPage> {
           _InsightsOverview(state: state, service: service)
         else if (_goal == 1) ...[
           _CashReflectionExplorer(
+            state: state,
             service: service,
             selectedWeek: _selectedWeek,
+            selectedMonth: _selectedMonth,
             onWeekSelected: (week) => setState(() => _selectedWeek = week),
+            onMonthSelected: (month) => setState(() {
+              _selectedMonth = month;
+              _selectedWeek = null;
+            }),
           ),
         ] else ...[
           _EmergencyReflectionExplorer(
@@ -1650,17 +1672,47 @@ String _availableCashAnalysisContext(
   AppState state,
   IntegrationService service,
 ) {
-  final weeklyTarget =
-      service.needsTarget <= 0 ? 0.0 : service.needsTarget / 4.33;
+  final months = _cashMonthsFor(state, service);
+  final currentMonth = months.isEmpty ? null : months.last;
+  final essentialDeposits = currentMonth == null
+      ? 0.0
+      : _monthLedgerAmount(state, currentMonth.start, 'essential_deposit');
+  final selectedBudgets = state.categorySpendingBudgets;
+  final selectedCategories = selectedBudgets.keys.toSet();
+  final selectedCategorySpend = currentMonth == null
+      ? <String, double>{}
+      : Map.fromEntries(currentMonth.spendingCategories.entries.where(
+          (entry) =>
+              selectedCategories.isEmpty ||
+              selectedCategories.contains(entry.key),
+        ));
+  final actionScores = currentMonth?.actionScores ?? const <_CashActionScore>[];
+  final walletAvailable = math.max(
+    state.accountBalance('Wallet'),
+    state.cashOnHandBalance,
+  );
   return '''
 Screen: Available Cash goal
-Question: Which weeks changed my available cash, and what happened inside them?
-Monthly needs target: ${money(service.needsTarget)}
-Estimated weekly target: ${money(weeklyTarget)}
-Current needs balance: ${money(state.needsBalance)}
-Current buffer balance: ${money(state.bufferBalance)}
-Weekly data:
-${service.weekRecords.map((week) => '- ${_shortDate(week.start)}: spent ${money(week.weekExpense)}, income ${money(week.weekIncome)}, ending needs ${money(week.needsBalanceEnd)}, ending buffer ${money(week.bufferBalanceEnd)}, coverage ${(week.propDaysClassified * 100).round()}%, incomeWeek=${week.isSalaryWeek}, billWeek=${week.isBillWeek}, noticeableEvent=${week.hadEmergency}').join('\n')}
+Question: Are the Essential Expenses Fund allocation and selected spending-category limits protecting available cash?
+Current wallet available: ${money(walletAvailable)}
+Cash on hand: ${money(state.cashOnHandBalance)}
+Essential Expenses Fund balance: ${money(state.essentialExpensesBalance)}
+Unallocated FakeMaya wallet: ${money(state.unallocatedFakeMayaWallet)}
+Monthly essential expense baseline: ${money(state.monthlyEssentialExpenseTotal)}
+Configured Maintain Available Cash actions:
+- A1: Set aside a configured percent of each income into the Essential Expenses Fund.
+- A3: Limit spending in selected categories to configured monthly caps.
+Selected category budgets:
+${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
+Monthly cash indexes:
+${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, wallet available ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
+Current month action evidence:
+- Essential deposits recorded: ${money(essentialDeposits)}
+${actionScores.map((score) => '- ${score.id}: ${_scorePercent(score.score)}%, ${score.detail}; formula=${score.formula}').join('\n')}
+Selected category spending this month:
+${selectedCategorySpend.isEmpty ? 'No selected category spending recorded this month.' : selectedCategorySpend.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} spent').join('\n')}
+Weekly cash-flow data:
+${service.weekRecords.map((week) => '- ${_shortDate(week.start)}: income ${money(week.weekIncome)}, spending ${money(week.weekExpense)}, essential allocation ${money(week.weekRefill)}, coverage ${(week.propDaysClassified * 100).round()}%, incomeWeek=${week.isSalaryWeek}, billWeek=${week.isBillWeek}, noticeableEvent=${week.hadEmergency}').join('\n')}
 ''';
 }
 
@@ -1806,40 +1858,1769 @@ class _OverviewMetric extends StatelessWidget {
   }
 }
 
-class _CashReflectionExplorer extends StatelessWidget {
-  const _CashReflectionExplorer({
-    required this.service,
-    required this.selectedWeek,
-    required this.onWeekSelected,
+class _CashMonthInsight {
+  const _CashMonthInsight({
+    required this.start,
+    required this.weeks,
+    required this.transactions,
+    required this.income,
+    required this.spending,
+    required this.billNeed,
+    required this.walletAvailable,
+    required this.incomeSources,
+    required this.spendingCategories,
+    required this.actionScores,
   });
-  final IntegrationService service;
-  final DateTime? selectedWeek;
-  final ValueChanged<DateTime> onWeekSelected;
+
+  final DateTime start;
+  final List<WeekRecord> weeks;
+  final List<FakeMayaTransaction> transactions;
+  final double income;
+  final double spending;
+  final double billNeed;
+  final double walletAvailable;
+  final Map<String, double> incomeSources;
+  final Map<String, double> spendingCategories;
+  final List<_CashActionScore> actionScores;
+
+  bool get canPayBills => walletAvailable >= billNeed;
+  double get billScore =>
+      billNeed <= 0 ? 1 : (walletAvailable / billNeed).clamp(0.0, 1.0);
+  double get goalResiliencyScore => actionScores.isEmpty
+      ? 0
+      : actionScores.fold<double>(0, (sum, item) => sum + item.score) /
+          actionScores.length;
+}
+
+class _CashActionScore {
+  const _CashActionScore({
+    required this.id,
+    required this.title,
+    required this.score,
+    required this.detail,
+    required this.pattern,
+    required this.weekLabels,
+    required this.actualLabel,
+    required this.targetLabel,
+    required this.formula,
+    required this.evidence,
+  });
+
+  final String id;
+  final String title;
+  final double score;
+  final String detail;
+  final List<double> pattern;
+  final List<String> weekLabels;
+  final String actualLabel;
+  final String targetLabel;
+  final String formula;
+  final List<String> evidence;
+}
+
+int _scorePercent(double value) => (value * 100).round().clamp(0, 100);
+
+Color _resiliencyScoreColor(num percent) {
+  final score = percent.clamp(0, 100);
+  if (score >= 80) return _sage;
+  if (score >= 60) return _amber;
+  return _red;
+}
+
+Color _resiliencyValueColor(double value) =>
+    _resiliencyScoreColor(_scorePercent(value));
+
+double _averageWeeklyResiliency(List<double> pattern) {
+  if (pattern.isEmpty) return 0;
+  return pattern.fold<double>(0, (total, value) => total + value) /
+      pattern.length;
+}
+
+List<String> _weekLabels(List<WeekRecord> weeks) {
+  return [
+    for (final week in weeks)
+      '${_shortDate(week.start)}-${_shortDate(week.end)}',
+  ];
+}
+
+List<_CashMonthInsight> _cashMonthsFor(
+  AppState state,
+  IntegrationService service,
+) {
+  final transactions = state.allTransactions
+      .where((transaction) =>
+          transaction.isLabeled &&
+          !transaction.excludedFromInsights &&
+          transaction.createdAt != null)
+      .toList();
+  final starts = <DateTime>{
+    ...service.weekRecords.map((week) => _monthStart(week.start)),
+    ...transactions.map((transaction) => _monthStart(transaction.createdAt!)),
+  }.toList()
+    ..sort();
+  return starts.map((month) {
+    final monthWeeks = service.weekRecords
+        .where((week) => _sameMonth(week.start, month))
+        .toList();
+    final monthTransactions = transactions
+        .where((transaction) => _sameMonth(transaction.createdAt!, month))
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? DateTime(1970))
+          .compareTo(a.createdAt ?? DateTime(1970)));
+    final income = monthTransactions
+        .where((transaction) => transaction.amount > 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final spending = monthTransactions
+        .where((transaction) => transaction.amount < 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final billSpend = monthTransactions
+        .where(_isBillLikeTransaction)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final billNeed = math.max(billSpend, _monthlyBillBase(state));
+    final wallet = math.max(
+      state.accountBalance('Wallet'),
+      state.cashOnHandBalance,
+    );
+    final incomeSources = _transactionTotals(
+      monthTransactions.where((transaction) => transaction.amount > 0),
+      (transaction) => transaction.category ?? 'Income',
+    );
+    final spendingCategories = _transactionTotals(
+      monthTransactions.where((transaction) => transaction.amount < 0),
+      (transaction) => transaction.category ?? 'Unclassified',
+    );
+    return _CashMonthInsight(
+      start: month,
+      weeks: monthWeeks,
+      transactions: monthTransactions,
+      income: income,
+      spending: spending,
+      billNeed: billNeed,
+      walletAvailable: wallet,
+      incomeSources: incomeSources,
+      spendingCategories: spendingCategories,
+      actionScores: _availableCashActionScores(
+        state: state,
+        monthStart: month,
+        weeks: monthWeeks,
+        transactions: monthTransactions,
+        income: income,
+      ),
+    );
+  }).toList();
+}
+
+List<_CashActionScore> _availableCashActionScores({
+  required AppState state,
+  required DateTime monthStart,
+  required List<WeekRecord> weeks,
+  required List<FakeMayaTransaction> transactions,
+  required double income,
+}) {
+  final configured = state.selectedActionIds
+      .where(_availableCashGoalActionIds.contains)
+      .toList();
+  final actionIds =
+      configured.isEmpty ? _availableCashGoalActionIds : configured;
+  return [
+    for (final id in actionIds)
+      _cashActionScoreFor(
+        id: id,
+        state: state,
+        monthStart: monthStart,
+        weeks: weeks,
+        transactions: transactions,
+        income: income,
+      ),
+  ].whereType<_CashActionScore>().toList();
+}
+
+_CashActionScore? _cashActionScoreFor({
+  required String id,
+  required AppState state,
+  required DateTime monthStart,
+  required List<WeekRecord> weeks,
+  required List<FakeMayaTransaction> transactions,
+  required double income,
+}) {
+  final values = state.actionFieldValues[id] ?? const <String, String>{};
+  double configuredNumber(String key, double fallback) {
+    return double.tryParse((values[key] ?? '').replaceAll(',', '').trim()) ??
+        fallback;
+  }
+
+  final weekCount = math.max(1, weeks.length);
+  final action = _d2Actions[id];
+  if (id == 'A1') {
+    final recommended = action == null
+        ? 50.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final targetPct = configuredNumber('pct', recommended) / 100;
+    final allocated =
+        _monthLedgerAmount(state, monthStart, 'essential_deposit');
+    final fallbackAllocated = transactions
+        .where((transaction) =>
+            transaction.amount > 0 &&
+            transaction.source?.toLowerCase() == 'basic needs fund')
+        .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final actual = allocated > 0 ? allocated : fallbackAllocated;
+    final targetAmount = income * targetPct;
+    final pattern = weeks
+        .map((week) => week.weekIncome <= 0
+            ? 0.0
+            : (week.weekRefill / (week.weekIncome * targetPct)).clamp(0.0, 1.5))
+        .toList();
+    return _CashActionScore(
+      id: id,
+      title: 'Set aside income for essentials',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${money(actual)} allocated toward a ${money(targetAmount)} monthly target.',
+      pattern: pattern,
+      weekLabels: _weekLabels(weeks),
+      actualLabel: money(actual),
+      targetLabel: money(targetAmount),
+      formula:
+          'Resiliency = average of each available week: weekly essential allocation ÷ configured ${targetPct * 100}% of weekly income.',
+      evidence: [
+        'Monthly income counted: ${money(income)}',
+        'Configured allocation: ${(targetPct * 100).round()}%',
+        'Essential allocation found: ${money(actual)}',
+      ],
+    );
+  }
+  if (id == 'A3') {
+    final recommended = action == null
+        ? 3000.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final cap = configuredNumber('amt', recommended);
+    final configuredCategories = (values['categories'] ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final selectedCategories = <String>{
+      ...state.categorySpendingBudgets.keys,
+      ...configuredCategories,
+    };
+    final categoryTotals = _transactionTotals(
+      transactions.where((transaction) {
+        if (transaction.amount >= 0) return false;
+        final category = transaction.category ?? 'Unclassified';
+        return selectedCategories.isEmpty ||
+            selectedCategories.contains(category);
+      }),
+      (transaction) => transaction.category ?? 'Unclassified',
+    );
+    final totalCap = state.categorySpendingBudgets.isNotEmpty
+        ? state.categorySpendingBudgets.entries
+            .where((entry) =>
+                selectedCategories.isEmpty ||
+                selectedCategories.contains(entry.key))
+            .fold(0.0, (sum, entry) => sum + entry.value)
+        : cap * math.max(1, selectedCategories.length);
+    final pattern = weeks.map((week) {
+      final spent = week.days.expand((day) => day.transactions).where(
+        (transaction) {
+          if (transaction.amount >= 0 || transaction.excludedFromInsights) {
+            return false;
+          }
+          final category = transaction.category ?? 'Unclassified';
+          return selectedCategories.isEmpty ||
+              selectedCategories.contains(category);
+        },
+      ).fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+      final weeklyCap = totalCap / weekCount;
+      return spent <= 0 ? 1.0 : (weeklyCap / spent).clamp(0.0, 1.0);
+    }).toList();
+    final selectedSpend =
+        categoryTotals.values.fold(0.0, (sum, value) => sum + value);
+    return _CashActionScore(
+      id: id,
+      title: 'Keep categories under cap',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${categoryTotals.length} selected category/categories checked against ${money(totalCap)}.',
+      pattern: pattern,
+      weekLabels: _weekLabels(weeks),
+      actualLabel: money(selectedSpend),
+      targetLabel: money(totalCap),
+      formula:
+          'Resiliency = average of each available week: weekly selected-category cap ÷ selected-category spending, capped at 100%.',
+      evidence: [
+        'Configured category cap total: ${money(totalCap)}',
+        if (selectedCategories.isNotEmpty)
+          'Selected categories: ${selectedCategories.join(', ')}',
+        if (categoryTotals.isEmpty)
+          'No selected category spending was recorded this month.'
+        else
+          ...categoryTotals.entries.map(
+            (entry) => '${entry.key}: ${money(entry.value)} spent',
+          ),
+      ],
+    );
+  }
+  if (id == 'A2') {
+    final recommended = action == null
+        ? math.max(1000.0, state.monthlyNonEssentialExpenseTotal)
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final cap = configuredNumber('amt', recommended);
+    final discretionary = transactions
+        .where((transaction) =>
+            transaction.amount < 0 &&
+            !_isEssentialCashCategory(transaction.category))
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final pattern = weeks.map((week) {
+      final weekSpend = week.days.expand((day) => day.transactions).where(
+        (transaction) {
+          return transaction.amount < 0 &&
+              !transaction.excludedFromInsights &&
+              !_isEssentialCashCategory(transaction.category);
+        },
+      ).fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+      final weeklyCap = cap / weekCount;
+      return weekSpend <= 0 ? 1.0 : (weeklyCap / weekSpend).clamp(0.0, 1.0);
+    }).toList();
+    return _CashActionScore(
+      id: id,
+      title: 'Cap discretionary spending',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${money(discretionary)} discretionary spending checked against ${money(cap)}.',
+      pattern: pattern,
+      weekLabels: _weekLabels(weeks),
+      actualLabel: money(discretionary),
+      targetLabel: money(cap),
+      formula:
+          'Resiliency = average of each available week: weekly discretionary cap ÷ weekly discretionary spending, capped at 100%.',
+      evidence: [
+        'Configured discretionary cap: ${money(cap)}',
+        'Discretionary spending found: ${money(discretionary)}',
+      ],
+    );
+  }
+  if (id == 'A21') {
+    final recommended = action == null
+        ? 14.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final days = configuredNumber('days', recommended);
+    final dailyExpense = math.max(1.0, state.monthlyEssentialExpenseTotal / 30);
+    final targetAmount = dailyExpense * days;
+    final currentFund = math.max(
+      state.essentialExpensesBalance,
+      math.max(state.needsBalance, state.accountBalance('Wallet')),
+    );
+    final currentDays = currentFund / dailyExpense;
+    final pattern = weeks.isEmpty
+        ? <double>[targetAmount <= 0 ? 0 : (currentFund / targetAmount)]
+        : weeks
+            .map((week) => targetAmount <= 0
+                ? 0.0
+                : (week.needsBalanceEnd / targetAmount).clamp(0.0, 1.0))
+            .toList();
+    return _CashActionScore(
+      id: id,
+      title: 'Keep Everyday Fund days covered',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${currentDays.toStringAsFixed(1)} days available toward a ${days.toStringAsFixed(0)} day target.',
+      pattern: pattern,
+      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      actualLabel: '${currentDays.toStringAsFixed(1)} days',
+      targetLabel: '${days.toStringAsFixed(0)} days',
+      formula:
+          'Resiliency = average of each available week: Everyday Fund balance ÷ (${days.toStringAsFixed(0)} days × estimated daily essential expenses).',
+      evidence: [
+        'Daily essential expense estimate: ${money(dailyExpense)}',
+        'Everyday Fund amount counted: ${money(currentFund)}',
+        'Target amount: ${money(targetAmount)}',
+      ],
+    );
+  }
+  return null;
+}
+
+bool _isEssentialCashCategory(String? rawCategory) {
+  final category = rawCategory?.trim().toLowerCase() ?? '';
+  return category.contains('basic') ||
+      category.contains('bill') ||
+      category.contains('utilit') ||
+      category.contains('rent') ||
+      category.contains('housing') ||
+      category.contains('grocery') ||
+      category.contains('food') ||
+      category.contains('transport') ||
+      category.contains('health') ||
+      category.contains('insurance');
+}
+
+double _monthLedgerAmount(AppState state, DateTime monthStart, String type) {
+  return state.d1Ledger.where((entry) {
+    if (entry['type']?.toString() != type) return false;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    return date != null && _sameMonth(date, monthStart);
+  }).fold(
+      0.0, (sum, entry) => sum + ((entry['amount'] as num?)?.toDouble() ?? 0));
+}
+
+bool _isBillLikeTransaction(FakeMayaTransaction transaction) {
+  if (transaction.amount >= 0) return false;
+  final text =
+      '${transaction.title} ${transaction.category ?? ''} ${transaction.detail}'
+          .toLowerCase();
+  return text.contains('bill') ||
+      text.contains('rent') ||
+      text.contains('utility') ||
+      text.contains('electric') ||
+      text.contains('water') ||
+      text.contains('internet') ||
+      text.contains('payment');
+}
+
+DateTime _monthStart(DateTime value) => DateTime(value.year, value.month);
+
+bool _sameMonth(DateTime value, DateTime month) =>
+    value.year == month.year && value.month == month.month;
+
+String _monthLabel(DateTime value) {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  return '${months[value.month - 1]} ${value.year}';
+}
+
+class _CashMonthSelector extends StatelessWidget {
+  const _CashMonthSelector({
+    required this.months,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<_CashMonthInsight> months;
+  final DateTime? selected;
+  final ValueChanged<DateTime> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final weeks = service.weekRecords;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: SizedBox(
+        height: 40,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          itemCount: months.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, reversedIndex) {
+            final index = months.length - 1 - reversedIndex;
+            final month = months[index];
+            final active = selected == month.start;
+            return ChoiceChip(
+              selected: active,
+              label: Text(_monthLabel(month.start)),
+              onSelected: (_) => onSelected(month.start),
+              selectedColor: _title,
+              backgroundColor: _surface,
+              labelStyle: TextStyle(
+                color: active ? Colors.white : _body,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+              side: BorderSide(color: active ? _title : _border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CashMonthStatusSection extends StatelessWidget {
+  const _CashMonthStatusSection({required this.month});
+
+  final _CashMonthInsight month;
+
+  @override
+  Widget build(BuildContext context) {
+    final resiliencyScore = _scorePercent(month.goalResiliencyScore);
+    final billScore = _scorePercent(month.billScore);
+    return _ExplorerSection(
+      eyebrow: 'MONTH · CASH INDEX',
+      title: month.canPayBills
+          ? 'Yes, your wallet can cover this month’s bills'
+          : 'No, your wallet cannot cover this month’s bills yet',
+      subtitle:
+          '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)} and wallet has ${money(month.walletAvailable)}.',
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Bill readiness',
+                  value: '$billScore%',
+                  color: month.canPayBills ? _sage : _red,
+                  icon: month.canPayBills
+                      ? Icons.check_circle_rounded
+                      : Icons.error_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Need',
+                  value: money(month.billNeed),
+                  color: _amber,
+                  icon: Icons.receipt_long_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Have',
+                  value: money(month.walletAvailable),
+                  color: _brand,
+                  icon: Icons.account_balance_wallet_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(
+            value: month.billScore,
+            minHeight: 10,
+            color: month.canPayBills ? _sage : _red,
+            backgroundColor: _border.withValues(alpha: .5),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Earned',
+                  value: money(month.income),
+                  color: _sage,
+                  icon: Icons.south_west_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Spent',
+                  value: money(month.spending),
+                  color: _red,
+                  icon: Icons.north_east_rounded,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OverviewMetric(
+                  label: 'Goal resiliency',
+                  value: '$resiliencyScore%',
+                  color: _resiliencyScoreColor(resiliencyScore),
+                  icon: Icons.task_alt_rounded,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CashActionProgressSection extends StatelessWidget {
+  const _CashActionProgressSection({required this.month});
+
+  final _CashMonthInsight month;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ExplorerSection(
+      eyebrow: 'MONTH · ACTION PROGRESS',
+      title: 'Resiliency score for your actions',
+      subtitle:
+          'Each score is the action completion rate for this month. The goal resiliency rate is the average of these action rates.',
+      child: month.actionScores.isEmpty
+          ? const _ReflectionEmpty(
+              message: 'No resiliency scores are available yet.')
+          : Column(
+              children: [
+                for (final action in month.actionScores)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _CashActionScoreRow(action: action),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _CashActionScoreRow extends StatelessWidget {
+  const _CashActionScoreRow({required this.action});
+
+  final _CashActionScore action;
+
+  @override
+  Widget build(BuildContext context) {
+    final score = _scorePercent(action.score);
+    final color = _resiliencyScoreColor(score);
+    return InkWell(
+      onTap: () => _showCashActionScoreDetails(context, action),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$score%',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${action.id} · ${action.title}',
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: _body, size: 18),
+              ],
+            ),
+            const SizedBox(height: 5),
+            Text(
+              action.detail,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                for (var i = 0; i < action.pattern.length; i++) ...[
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          'Week ${i + 1}: ${_scorePercent(action.pattern[i])}%',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: action.pattern[i].clamp(0.0, 1.0),
+                          minHeight: 8,
+                          color: _resiliencyValueColor(action.pattern[i]),
+                          backgroundColor: _border.withValues(alpha: .5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (i < action.pattern.length - 1) const SizedBox(width: 5),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showCashActionScoreDetails(
+  BuildContext context,
+  _CashActionScore action,
+) {
+  final score = _scorePercent(action.score);
+  final patternStats = _distributionStats(
+    action.pattern.map((value) => value.clamp(0.0, 1.0) * 100).toList(),
+  );
+  final color = _resiliencyScoreColor(score);
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: _surface,
+      title: Text(
+        '${action.id} resiliency',
+        style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _OverviewMetric(
+                    label: 'Score',
+                    value: '$score%',
+                    color: color,
+                    icon: Icons.speed_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _OverviewMetric(
+                    label: 'Actual',
+                    value: action.actualLabel,
+                    color: _brand,
+                    icon: Icons.check_circle_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _OverviewMetric(
+                    label: 'Target',
+                    value: action.targetLabel,
+                    color: _amber,
+                    icon: Icons.flag_rounded,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              action.title,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              action.formula,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Data behind the score',
+              style: TextStyle(
+                color: _title,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final item in action.evidence)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.circle, color: _purple, size: 6),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        item,
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 11,
+                          height: 1.3,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (action.pattern.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              if (patternStats != null) ...[
+                const Text(
+                  'Score measures',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _StatsGrid(
+                  stats: patternStats,
+                  valueFormatter: (value) => '${value.round()}%',
+                  modeEmptyLabel: 'No repeat',
+                ),
+                const SizedBox(height: 14),
+              ],
+              const Text(
+                'Percentage rate per week',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              for (var i = 0; i < action.pattern.length; i++) ...[
+                Builder(builder: (context) {
+                  final weekColor = _resiliencyValueColor(action.pattern[i]);
+                  return Row(
+                    children: [
+                      SizedBox(
+                        width: 54,
+                        child: Text(
+                          i < action.weekLabels.length
+                              ? action.weekLabels[i]
+                              : 'Week ${i + 1}',
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: action.pattern[i].clamp(0.0, 1.0),
+                            minHeight: 8,
+                            color: weekColor,
+                            backgroundColor: _border.withValues(alpha: .5),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${_scorePercent(action.pattern[i])}%',
+                        style: TextStyle(
+                          color: weekColor,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+                if (i < action.pattern.length - 1) const SizedBox(height: 6),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AvailableCashActionStageSection extends StatefulWidget {
+  const _AvailableCashActionStageSection();
+
+  @override
+  State<_AvailableCashActionStageSection> createState() =>
+      _AvailableCashActionStageSectionState();
+}
+
+class _AvailableCashActionStageSectionState
+    extends State<_AvailableCashActionStageSection> {
+  final _coach = const ShellbyAiCoach();
+  ActionStageResult? _result;
+  String? _error;
+  bool _loading = false;
+
+  Future<void> _runStage() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await _coach.recommendAvailableCashActionStage(
+        state: AppScope.of(context),
+      );
+      if (!mounted) return;
+      setState(() => _result = result);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _error = _aiActionStageError(error));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ExplorerSection(
+      eyebrow: 'ACTION STAGE · LATEST 14 DAYS',
+      title: 'What should change first?',
+      subtitle:
+          'Shellby reviews the latest integration data against the Maintain Available Cash action set.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ActionStageOptionChip(label: 'Retain'),
+              _ActionStageOptionChip(label: 'Change target'),
+              _ActionStageOptionChip(label: 'Suggest new'),
+              _ActionStageOptionChip(label: 'Replace'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _loading ? null : _runStage,
+            icon: _loading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: Text(_loading ? 'Analyzing...' : 'Run action stage'),
+            style: FilledButton.styleFrom(backgroundColor: _purple),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: const TextStyle(
+                color: _red,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                height: 1.35,
+              ),
+            ),
+          ],
+          if (_result != null) ...[
+            const SizedBox(height: 14),
+            _ActionStageFirstChange(result: _result!),
+            const SizedBox(height: 12),
+            for (final suggestion in _actionStageDisplaySuggestions(
+              _result!,
+              AppScope.of(context),
+            )) ...[
+              _ActionStageSuggestionCard(
+                suggestion: suggestion,
+                onTap: () => _applySuggestion(suggestion),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ] else if (!_loading) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'The stage will compare current actions with A1 and A3, then rank what to review first.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _applySuggestion(ActionStageSuggestion suggestion) async {
+    final state = AppScope.of(context);
+    final accepted = await _confirmActionStageSuggestion(
+      context,
+      state,
+      suggestion,
+    );
+    if (!mounted || accepted != true) return;
+
+    final message = await _applyAvailableCashActionSuggestion(
+      state,
+      suggestion,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+    final shell = context.findAncestorStateOfType<_MainShellState>();
+    if (shell != null) {
+      shell.openGoal('G1');
+    } else {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const GoalsPage(initialGoalId: 'G1'),
+        ),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+}
+
+Future<bool?> _confirmActionStageSuggestion(
+  BuildContext context,
+  AppState state,
+  ActionStageSuggestion suggestion,
+) {
+  final allowed = _availableCashGoalActionIds.toSet();
+  final actionId = _actionStageTargetActionId(suggestion);
+  if (!allowed.contains(actionId)) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cannot apply this recommendation'),
+        content: const Text(
+          'This recommendation is outside the Maintain Available Cash action set.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  final action = _d2Actions[actionId];
+  final current = state.actionFieldValues[actionId] ?? const <String, String>{};
+  final next = _cleanActionStageTarget(
+    actionId,
+    suggestion.target,
+    state,
+    useFallbacks:
+        suggestion.option != 'retain_action' || suggestion.target.isNotEmpty,
+  );
+  final changes = _actionStageChangeRows(
+    actionId: actionId,
+    current: current,
+    next: next,
+  );
+  final optionLabel = _actionStageOptionReviewLabel(suggestion.option);
+  return showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Review action changes'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$optionLabel for $actionId',
+              style: const TextStyle(
+                color: _title,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              action?.text ?? suggestion.actionText,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (suggestion.reason.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                suggestion.reason,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  height: 1.35,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            const Text(
+              'Details to change',
+              style: TextStyle(
+                color: _title,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (changes.isEmpty)
+              const Text(
+                'No configurable values will change. This action will only be retained or added to the goal.',
+                style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+              )
+            else
+              ...changes.map(
+                (row) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ActionStageChangeRow(row: row),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Reject'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          style: FilledButton.styleFrom(backgroundColor: _purple),
+          child: const Text('Accept'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ActionStageFirstChange extends StatelessWidget {
+  const _ActionStageFirstChange({required this.result});
+
+  final ActionStageResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _purple.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _purple.withValues(alpha: .16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'First change',
+            style: TextStyle(
+              color: _title,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            result.firstChange,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (result.summary.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              result.summary,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionStageSuggestionCard extends StatelessWidget {
+  const _ActionStageSuggestionCard({
+    required this.suggestion,
+    required this.onTap,
+  });
+
+  final ActionStageSuggestion suggestion;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _actionStageOptionColor(suggestion.option);
+    final target = _actionStageTargetText(suggestion.target);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _actionStageOptionLabel(suggestion.option),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${suggestion.actionId} · ${suggestion.actionText.isEmpty ? (_d2Actions[suggestion.actionId]?.text ?? 'Action') : suggestion.actionText}',
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w900,
+                      height: 1.25,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: _body, size: 18),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              suggestion.reason,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (target.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Target: $target',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+            if (suggestion.replacementActionId?.isNotEmpty == true) ...[
+              const SizedBox(height: 5),
+              Text(
+                'Replace with: ${suggestion.replacementActionId}',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+            const SizedBox(height: 7),
+            Text(
+              'Tap to review changes.',
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionStageOptionChip extends StatelessWidget {
+  const _ActionStageOptionChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: _border),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: _body,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+String _aiActionStageError(Object error) {
+  final text = error.toString();
+  if (text.contains('Unable to load asset') ||
+      text.contains('Set LOCAL_MODEL_ASSET')) {
+    return 'Shellby needs the bundled Qwen model for offline action review, or internet access for Gemini.';
+  }
+  if (text.contains('Gemini proxy request failed: 404')) {
+    return 'Gemini proxy was not found. Check GEMINI_PROXY_URL, or run with GEMINI_API_KEY so Shellby can call Gemini directly.';
+  }
+  if (text.contains('Gemini API request failed: 404')) {
+    return 'Gemini model was not found. Shellby is set to $_geminiModel; use a GenerateContent model such as gemini-3.1-flash-lite.';
+  }
+  return 'Shellby could not complete the action review yet. $text';
+}
+
+String _actionStageOptionLabel(String option) {
+  return switch (option) {
+    'retain_action' => 'Retain',
+    'change_parameterized_target' => 'Change target',
+    'suggest_new_action' => 'Suggest new',
+    'remove_and_replace_action' => 'Replace',
+    _ => option.replaceAll('_', ' '),
+  };
+}
+
+String _actionStageOptionReviewLabel(String option) {
+  return switch (option) {
+    'retain_action' => 'Retain action',
+    'change_parameterized_target' => 'Change target',
+    'suggest_new_action' => 'Add action',
+    'remove_and_replace_action' => 'Replace action',
+    _ => 'Update action',
+  };
+}
+
+Color _actionStageOptionColor(String option) {
+  return switch (option) {
+    'retain_action' => _sage,
+    'change_parameterized_target' => _amber,
+    'suggest_new_action' => _purple,
+    'remove_and_replace_action' => _red,
+    _ => _body,
+  };
+}
+
+String _actionStageTargetText(Map<String, String> target) {
+  final parts = <String>[];
+  final pct = target['pct']?.trim();
+  final amount = target['amt']?.trim();
+  final days = target['days']?.trim();
+  final categories = target['categories']?.trim();
+  if (pct?.isNotEmpty == true) parts.add('$pct%');
+  if (amount?.isNotEmpty == true) {
+    final parsed = double.tryParse(amount!.replaceAll(',', ''));
+    parts.add(parsed == null ? '₱$amount' : money(parsed));
+  }
+  if (days?.isNotEmpty == true) parts.add('$days days');
+  if (categories?.isNotEmpty == true) parts.add(categories!);
+  return parts.join(' · ');
+}
+
+String _actionStageTargetActionId(ActionStageSuggestion suggestion) {
+  if (suggestion.option == 'remove_and_replace_action') {
+    final replacement = suggestion.replacementActionId;
+    if (replacement != null && replacement.trim().isNotEmpty) {
+      return replacement.trim();
+    }
+  }
+  return suggestion.actionId;
+}
+
+String _actionStageFieldLabel(String actionId, String key) {
+  final action = _d2Actions[actionId];
+  final field = action?.fields.where((item) => item.key == key).firstOrNull;
+  if (field != null) return field.label;
+  return switch (key) {
+    'pct' => 'Allocation percentage',
+    'amt' => 'Monthly cap',
+    'categories' => 'Selected categories',
+    _ => key,
+  };
+}
+
+String _formatActionStageFieldValue(String key, String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return 'Not set';
+  final numeric = double.tryParse(trimmed.replaceAll(',', ''));
+  if (key == 'pct' && numeric != null) return '${numeric.toStringAsFixed(0)}%';
+  if (key == 'amt' && numeric != null) return money(numeric);
+  return trimmed;
+}
+
+List<_ActionStageChange> _actionStageChangeRows({
+  required String actionId,
+  required Map<String, String> current,
+  required Map<String, String> next,
+}) {
+  final keys = <String>{...current.keys, ...next.keys}
+      .where((key) => key != 'days')
+      .toList();
+  keys.sort((a, b) {
+    const order = ['pct', 'amt', 'categories'];
+    final ai = order.indexOf(a);
+    final bi = order.indexOf(b);
+    if (ai != -1 || bi != -1) {
+      return (ai == -1 ? 99 : ai).compareTo(bi == -1 ? 99 : bi);
+    }
+    return a.compareTo(b);
+  });
+  return [
+    for (final key in keys)
+      if ((current[key] ?? '').trim() != (next[key] ?? '').trim())
+        _ActionStageChange(
+          label: _actionStageFieldLabel(actionId, key),
+          current: _formatActionStageFieldValue(key, current[key] ?? ''),
+          next: _formatActionStageFieldValue(key, next[key] ?? ''),
+        ),
+  ];
+}
+
+class _ActionStageChange {
+  const _ActionStageChange({
+    required this.label,
+    required this.current,
+    required this.next,
+  });
+
+  final String label;
+  final String current;
+  final String next;
+}
+
+class _ActionStageChangeRow extends StatelessWidget {
+  const _ActionStageChangeRow({required this.row});
+
+  final _ActionStageChange row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: _bellySoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            row.label,
+            style: const TextStyle(
+              color: _title,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  row.current,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child:
+                    Icon(Icons.arrow_forward_rounded, size: 16, color: _body),
+              ),
+              Expanded(
+                child: Text(
+                  row.next,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: _purple,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<ActionStageSuggestion> _actionStageDisplaySuggestions(
+  ActionStageResult result,
+  AppState state,
+) {
+  final shown = <ActionStageSuggestion>[];
+  final seen = <String>{};
+  for (final suggestion in result.suggestions) {
+    if (!_availableCashGoalActionIds.contains(suggestion.actionId)) continue;
+    final key = '${suggestion.option}:${suggestion.actionId}';
+    if (seen.add(key)) shown.add(suggestion);
+  }
+  for (final id in _availableCashGoalActionIds) {
+    if (shown.any((suggestion) => suggestion.actionId == id)) continue;
+    final selected = state.selectedActionIds.contains(id);
+    shown.add(
+      ActionStageSuggestion(
+        option: selected ? 'retain_action' : 'suggest_new_action',
+        actionId: id,
+        actionText: _d2Actions[id]?.text ?? id,
+        priority: 50 + shown.length,
+        reason: selected
+            ? 'This action is already part of the Maintain Available Cash plan and can be kept if it still matches the latest data.'
+            : 'This is one of the available Maintain Available Cash actions you can add if it fits the latest data.',
+        target: _defaultActionStageTarget(id, state),
+        replacementActionId: null,
+      ),
+    );
+  }
+  shown.sort((a, b) => a.priority.compareTo(b.priority));
+  return shown.take(4).toList();
+}
+
+Map<String, String> _defaultActionStageTarget(String id, AppState state) {
+  final action = _d2Actions[id];
+  if (action == null || action.fields.isEmpty) return const {};
+  final values = state.actionFieldValues[id] ?? const <String, String>{};
+  return {
+    for (final field in action.fields)
+      field.key: values[field.key] ??
+          _recommendationsForActionField(state, action, field).first,
+  };
+}
+
+Future<String> _applyAvailableCashActionSuggestion(
+  AppState state,
+  ActionStageSuggestion suggestion,
+) async {
+  final allowed = _availableCashGoalActionIds.toSet();
+  final ids = state.selectedActionIds.where(allowed.contains).toList();
+  if (ids.isEmpty) ids.addAll(['A1', 'A3']);
+
+  final option = suggestion.option;
+  var targetActionId = suggestion.actionId;
+  if (!allowed.contains(targetActionId)) {
+    return 'This recommendation is outside the Maintain Available Cash action set.';
+  }
+
+  if (option == 'remove_and_replace_action') {
+    ids.remove(suggestion.actionId);
+    final replacement = suggestion.replacementActionId;
+    if (replacement != null && allowed.contains(replacement)) {
+      targetActionId = replacement;
+      if (!ids.contains(replacement)) ids.add(replacement);
+      state.actionFieldValues.remove(suggestion.actionId);
+    } else if (!ids.contains(targetActionId)) {
+      ids.add(targetActionId);
+    }
+  } else if (option == 'suggest_new_action' ||
+      option == 'change_parameterized_target') {
+    if (!ids.contains(targetActionId)) ids.add(targetActionId);
+  }
+
+  final targetValues = _cleanActionStageTarget(
+    targetActionId,
+    suggestion.target,
+    state,
+    useFallbacks:
+        suggestion.option != 'retain_action' || suggestion.target.isNotEmpty,
+  );
+  if (targetValues.isNotEmpty) {
+    state.actionFieldValues[targetActionId] = targetValues;
+  }
+  _applyActionStageCategoryBudgets(state, targetActionId, targetValues);
+
+  state.configureGoalActions(actionIds: ids.where(allowed.contains));
+  await state.saveProfile();
+  return switch (option) {
+    'retain_action' => '${suggestion.actionId} retained.',
+    'change_parameterized_target' => '$targetActionId target updated.',
+    'suggest_new_action' => '$targetActionId added to Maintain Available Cash.',
+    'remove_and_replace_action' =>
+      '${suggestion.actionId} replaced with $targetActionId.',
+    _ => '$targetActionId updated.',
+  };
+}
+
+Map<String, String> _cleanActionStageTarget(
+  String actionId,
+  Map<String, String> target,
+  AppState state, {
+  bool useFallbacks = true,
+}) {
+  final action = _d2Actions[actionId];
+  if (action == null) return const {};
+  final fallback = _defaultActionStageTarget(actionId, state);
+  final cleaned = <String, String>{};
+  for (final field in action.fields) {
+    final raw = target[field.key]?.trim();
+    if (raw == null || raw.isEmpty) {
+      if (!useFallbacks) continue;
+      final fallbackValue = fallback[field.key];
+      if (fallbackValue != null) cleaned[field.key] = fallbackValue;
+      continue;
+    }
+    final numeric = double.tryParse(raw.replaceAll(',', ''));
+    if (numeric == null) {
+      cleaned[field.key] = raw;
+    } else if (field.isPercent) {
+      cleaned[field.key] = numeric.clamp(1, 100).toStringAsFixed(0);
+    } else {
+      cleaned[field.key] = numeric.clamp(1, 1000000).toStringAsFixed(0);
+    }
+  }
+  final categories = target['categories']?.trim();
+  if (categories?.isNotEmpty == true) cleaned['categories'] = categories!;
+  return cleaned;
+}
+
+void _applyActionStageCategoryBudgets(
+  AppState state,
+  String actionId,
+  Map<String, String> target,
+) {
+  if (actionId != 'A3') return;
+  final amount = double.tryParse(
+    (target['amt'] ?? '').replaceAll(',', '').trim(),
+  );
+  final categories = (target['categories'] ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty);
+  if (amount == null || amount <= 0 || categories.isEmpty) return;
+  for (final category in categories) {
+    state.categorySpendingBudgets[category] = amount;
+  }
+}
+
+class _CashReflectionExplorer extends StatelessWidget {
+  const _CashReflectionExplorer({
+    required this.state,
+    required this.service,
+    required this.selectedWeek,
+    required this.selectedMonth,
+    required this.onWeekSelected,
+    required this.onMonthSelected,
+  });
+  final AppState state;
+  final IntegrationService service;
+  final DateTime? selectedWeek;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime> onWeekSelected;
+  final ValueChanged<DateTime> onMonthSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final months = _cashMonthsFor(state, service);
+    final activeMonth =
+        months.where((month) => month.start == selectedMonth).firstOrNull ??
+            (months.isEmpty ? null : months.last);
+    final weeks = activeMonth?.weeks ?? const <WeekRecord>[];
     final selected =
         weeks.where((week) => week.start == selectedWeek).firstOrNull ??
             (weeks.isEmpty ? null : weeks.last);
-    final weeklyTarget =
-        service.needsTarget <= 0 ? 0.0 : service.needsTarget / 4.33;
+    final monthlyCategoryTarget = state.categorySpendingBudgets.values
+        .fold(0.0, (sum, amount) => sum + amount);
+    final weeklyTarget = monthlyCategoryTarget > 0
+        ? monthlyCategoryTarget / 4.33
+        : state.monthlyEssentialExpenseTotal / 4.33;
 
     return Column(
       children: [
         const _ReflectionQuestion(
           question:
-              'Which weeks changed my available cash, and what happened inside them?',
+              'Can this month’s available cash cover bills, and which weeks changed it?',
           detail:
-              'Select a week in the overview to inspect its daily transactions and money events below.',
+              'Review the month first, then select a week to inspect its transactions, income, bills, and action progress.',
         ),
+        if (months.isNotEmpty)
+          _CashMonthSelector(
+            months: months,
+            selected: activeMonth?.start,
+            onSelected: onMonthSelected,
+          ),
+        if (activeMonth != null) ...[
+          _CashMonthStatusSection(month: activeMonth),
+          _CashActionProgressSection(month: activeMonth),
+          const _AvailableCashActionStageSection(),
+          _BreakdownSection(
+            eyebrow: 'MONTH · MONEY IN',
+            title: 'This is where you earn money',
+            subtitle: 'Income sources for ${_monthLabel(activeMonth.start)}.',
+            totals: activeMonth.incomeSources,
+            emptyMessage: 'No labeled income sources recorded this month.',
+            color: _sage,
+          ),
+          _BreakdownSection(
+            eyebrow: 'MONTH · MONEY OUT',
+            title: 'This is where you spend money',
+            subtitle:
+                'Expense categories for ${_monthLabel(activeMonth.start)}.',
+            totals: activeMonth.spendingCategories,
+            emptyMessage: 'No labeled spending recorded this month.',
+            color: _brand,
+          ),
+        ],
         _ExplorerSection(
-          eyebrow: 'OVERVIEW · WEEKLY',
-          title: 'Basic-needs spending',
+          eyebrow: 'OVERVIEW · MONTHLY WEEKS',
+          title: 'Weekly cash flow',
           subtitle: weeklyTarget > 0
-              ? 'Weekly spending compared with an estimated ${money(weeklyTarget)} share of your monthly target.'
-              : 'Weekly spending from transactions funded by Basic Needs Fund.',
-          child: _SelectableWeeklyChart(
+              ? 'Weekly spending compared with an estimated ${money(weeklyTarget)} selected-category or essential baseline.'
+              : 'Weekly income, spending, and transaction coverage by week.',
+          child: _SelectableWeeklyChartWithStats(
             weeks: weeks
                 .map((week) => _WeeklyChartItem(
                       start: week.start,
@@ -1853,7 +3634,7 @@ class _CashReflectionExplorer extends StatelessWidget {
                 .toList(),
             selected: selected?.start,
             primaryLabel: 'Spent',
-            comparisonLabel: 'Weekly target',
+            comparisonLabel: 'Target',
             primaryColor: _brand,
             onSelected: onWeekSelected,
           ),
@@ -2157,6 +3938,206 @@ class _WeeklyChartItem {
   final bool isIncomeWeek;
   final bool isBillWeek;
   final bool hadInterference;
+}
+
+class _DistributionStats {
+  const _DistributionStats({
+    required this.min,
+    required this.median,
+    required this.max,
+    required this.mean,
+    required this.stdDev,
+    required this.mode,
+  });
+
+  final double min;
+  final double median;
+  final double max;
+  final double mean;
+  final double stdDev;
+  final double? mode;
+}
+
+_DistributionStats? _distributionStats(List<double> rawValues) {
+  final values = rawValues
+      .where((value) => value.isFinite)
+      .map((value) => value < 0 ? value.abs() : value)
+      .toList()
+    ..sort();
+  if (values.isEmpty) return null;
+  final mean =
+      values.fold<double>(0, (sum, value) => sum + value) / values.length;
+  final variance = values.fold<double>(
+        0,
+        (sum, value) => sum + math.pow(value - mean, 2).toDouble(),
+      ) /
+      values.length;
+  return _DistributionStats(
+    min: values.first,
+    median: _percentile(values, .5),
+    max: values.last,
+    mean: mean,
+    stdDev: math.sqrt(variance),
+    mode: _mode(values),
+  );
+}
+
+double _percentile(List<double> sortedValues, double percentile) {
+  if (sortedValues.length == 1) return sortedValues.first;
+  final position = (sortedValues.length - 1) * percentile;
+  final lower = position.floor();
+  final upper = position.ceil();
+  if (lower == upper) return sortedValues[lower];
+  final weight = position - lower;
+  return sortedValues[lower] +
+      (sortedValues[upper] - sortedValues[lower]) * weight;
+}
+
+double? _mode(List<double> sortedValues) {
+  final counts = <int, int>{};
+  for (final value in sortedValues) {
+    final rounded = value.round();
+    counts[rounded] = (counts[rounded] ?? 0) + 1;
+  }
+  var bestValue = 0;
+  var bestCount = 0;
+  for (final entry in counts.entries) {
+    if (entry.value > bestCount) {
+      bestValue = entry.key;
+      bestCount = entry.value;
+    }
+  }
+  return bestCount <= 1 ? null : bestValue.toDouble();
+}
+
+class _SelectableWeeklyChartWithStats extends StatelessWidget {
+  const _SelectableWeeklyChartWithStats({
+    required this.weeks,
+    required this.selected,
+    required this.primaryLabel,
+    required this.comparisonLabel,
+    required this.primaryColor,
+    required this.onSelected,
+  });
+
+  final List<_WeeklyChartItem> weeks;
+  final DateTime? selected;
+  final String primaryLabel;
+  final String comparisonLabel;
+  final Color primaryColor;
+  Color get comparisonColor => _purple;
+  final ValueChanged<DateTime> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final availableValues = weeks
+        .where((week) => week.coverage > 0)
+        .map((week) => week.value)
+        .toList();
+    final stats = _distributionStats(availableValues);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SelectableWeeklyChart(
+          weeks: weeks,
+          selected: selected,
+          primaryLabel: primaryLabel,
+          comparisonLabel: comparisonLabel,
+          primaryColor: primaryColor,
+          comparisonColor: comparisonColor,
+          onSelected: onSelected,
+        ),
+        if (stats != null) ...[
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: _border),
+          const SizedBox(height: 12),
+          const Text(
+            'Monthly weekly spending measures',
+            style: TextStyle(
+              color: _title,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _StatsGrid(
+            stats: stats,
+            valueFormatter: money,
+            modeEmptyLabel: 'No repeat',
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _StatsGrid extends StatelessWidget {
+  const _StatsGrid({
+    required this.stats,
+    required this.valueFormatter,
+    required this.modeEmptyLabel,
+  });
+
+  final _DistributionStats stats;
+  final String Function(double value) valueFormatter;
+  final String modeEmptyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('Mean', valueFormatter(stats.mean)),
+      ('Median', valueFormatter(stats.median)),
+      (
+        'Mode',
+        stats.mode == null ? modeEmptyLabel : valueFormatter(stats.mode!)
+      ),
+      ('Std dev', valueFormatter(stats.stdDev)),
+      ('Min', valueFormatter(stats.min)),
+      ('Max', valueFormatter(stats.max)),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final item in items)
+          SizedBox(
+            width: 96,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.$1,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    item.$2,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _SelectableWeeklyChart extends StatelessWidget {
@@ -6128,7 +8109,9 @@ const _d1GoalMetas = <_D1GoalMeta>[
 // ─── Goals page ───────────────────────────────────────────────────────────────
 
 class GoalsPage extends StatefulWidget {
-  const GoalsPage({super.key});
+  const GoalsPage({super.key, this.initialGoalId});
+
+  final String? initialGoalId;
 
   @override
   State<GoalsPage> createState() => _GoalsPageState();
@@ -6136,6 +8119,17 @@ class GoalsPage extends StatefulWidget {
 
 class _GoalsPageState extends State<GoalsPage> {
   String? _activeGoalId; // null = list view, 'G1' or 'G3' = detail
+
+  @override
+  void initState() {
+    super.initState();
+    _activeGoalId = widget.initialGoalId;
+  }
+
+  void openGoal(String goalId) {
+    if (!mounted) return;
+    setState(() => _activeGoalId = goalId);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -6365,6 +8359,7 @@ class _D1GoalDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actions = _goalDetailActionsFor(context, goal);
     return ListView(
       padding: const EdgeInsets.only(bottom: 40),
       children: [
@@ -6505,10 +8500,9 @@ class _D1GoalDetailScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              for (var i = 0; i < goal.actions.length; i++) ...[
-                _D1ActionPanel(
-                    action: goal.actions[i], goalColor: goal.layerColor),
-                if (i < goal.actions.length - 1) const SizedBox(height: 16),
+              for (var i = 0; i < actions.length; i++) ...[
+                _D1ActionPanel(action: actions[i], goalColor: goal.layerColor),
+                if (i < actions.length - 1) const SizedBox(height: 16),
               ],
             ],
           ),
@@ -6537,6 +8531,161 @@ class _D1GoalDetailScreen extends StatelessWidget {
       ],
     );
   }
+}
+
+List<_D1ActionMeta> _goalDetailActionsFor(
+  BuildContext context,
+  _D1GoalMeta goal,
+) {
+  if (goal.id != 'G1') return goal.actions;
+  final state = AppScope.of(context);
+  final selected = state.selectedActionIds
+      .where(_availableCashGoalActionIds.contains)
+      .toList();
+  final ids = selected.isEmpty ? ['A1', 'A3'] : selected;
+  return [
+    for (final id in ids) _availableCashD1ActionMeta(id, state),
+  ].whereType<_D1ActionMeta>().toList();
+}
+
+_D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
+  final existing = _d1GoalMetas
+      .firstWhere((goal) => goal.id == 'G1')
+      .actions
+      .where((action) => action.id == id)
+      .firstOrNull;
+  final values = state.actionFieldValues[id] ?? const <String, String>{};
+  final d2 = _d2Actions[id];
+  if (id == 'A1' && existing != null) {
+    final pct = values['pct'] ?? '50';
+    return _copyD1ActionMeta(
+      existing,
+      text:
+          'Set aside $pct% of each income received into an Everyday Expenses Fund.',
+      configValue: '$pct% of income',
+    );
+  }
+  if (id == 'A3' && existing != null) {
+    final budgets = state.categorySpendingBudgets;
+    final amount = values['amt'];
+    final categories = values['categories'];
+    return _copyD1ActionMeta(
+      existing,
+      text: d2?.text ?? existing.text,
+      configValue: budgets.isNotEmpty
+          ? '${budgets.length} category budget(s)'
+          : amount == null
+              ? 'Set per category'
+              : '${money(double.tryParse(amount) ?? 0)} per month',
+      destBucket:
+          categories?.isNotEmpty == true ? categories! : existing.destBucket,
+    );
+  }
+  if (id == 'A2') {
+    final amount = double.tryParse(values['amt'] ?? '') ??
+        math.max(1000.0, state.monthlyNonEssentialExpenseTotal);
+    return _D1ActionMeta(
+      id: 'A2',
+      text:
+          'Cap total discretionary spending at ${money(amount)} per month so your essentials stay covered.',
+      configLabel: 'Discretionary cap',
+      configValue: money(amount),
+      destBucket: 'Everyday cash flow',
+      metrics: [
+        (label: 'Monthly cap', value: money(amount), icon: Icons.lock_rounded),
+        (
+          label: 'Discretionary baseline',
+          value: money(state.monthlyNonEssentialExpenseTotal),
+          icon: Icons.shopping_bag_rounded
+        ),
+        (
+          label: 'Wallet',
+          value: money(state.accountBalance('Wallet')),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+        (
+          label: 'Essential fund',
+          value: money(state.essentialExpensesBalance),
+          icon: Icons.savings_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Spending cap', type: 'S', value: money(amount)),
+        (
+          label: 'Monthly non-essential baseline',
+          type: 'S',
+          value: money(state.monthlyNonEssentialExpenseTotal)
+        ),
+        (
+          label: 'Available wallet balance',
+          type: 'S',
+          value: money(state.accountBalance('Wallet'))
+        ),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A21') {
+    final days = double.tryParse(values['days'] ?? '') ?? 14;
+    final daily = math.max(1.0, state.monthlyEssentialExpenseTotal / 30);
+    final target = daily * days;
+    return _D1ActionMeta(
+      id: 'A21',
+      text:
+          "Keep at least ${days.toStringAsFixed(0)} days' worth of expenses available in your Everyday Fund at all times.",
+      configLabel: 'Everyday fund floor',
+      configValue: '${days.toStringAsFixed(0)} days',
+      destBucket: 'Everyday Fund',
+      metrics: [
+        (label: 'Target floor', value: money(target), icon: Icons.flag_rounded),
+        (
+          label: 'Daily expenses',
+          value: money(daily),
+          icon: Icons.today_rounded
+        ),
+        (
+          label: 'Everyday fund',
+          value: money(
+              math.max(state.essentialExpensesBalance, state.needsBalance)),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Wallet',
+          value: money(state.accountBalance('Wallet')),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Required days available',
+          type: 'I',
+          value: days.toStringAsFixed(0)
+        ),
+        (label: 'Target floor amount', type: 'S', value: money(target)),
+        (label: 'Daily essential estimate', type: 'S', value: money(daily)),
+      ],
+      activityLog: const [],
+    );
+  }
+  return existing;
+}
+
+_D1ActionMeta _copyD1ActionMeta(
+  _D1ActionMeta action, {
+  String? text,
+  String? configValue,
+  String? destBucket,
+}) {
+  return _D1ActionMeta(
+    id: action.id,
+    text: text ?? action.text,
+    configLabel: action.configLabel,
+    configValue: configValue ?? action.configValue,
+    destBucket: destBucket ?? action.destBucket,
+    metrics: action.metrics,
+    dataPoints: action.dataPoints,
+    activityLog: action.activityLog,
+  );
 }
 
 class _MaintainAvailableCashSummary extends StatelessWidget {
@@ -7425,7 +9574,15 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
     final action = widget.action;
     final color = widget.goalColor;
     if (action.id == 'A1') {
-      return _EssentialExpensesActionPanel(color: color);
+      final pct = double.tryParse(
+            (AppScope.of(context).actionFieldValues['A1']?['pct'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          50;
+      return _EssentialExpensesActionPanel(
+        color: color,
+        percentage: pct.clamp(0, 100).toDouble(),
+      );
     }
     if (action.id == 'A3') {
       return _CategoryBudgetActionPanel(color: color);
@@ -7613,8 +9770,12 @@ FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
 }
 
 class _EssentialExpensesActionPanel extends StatefulWidget {
-  const _EssentialExpensesActionPanel({required this.color});
+  const _EssentialExpensesActionPanel({
+    required this.color,
+    required this.percentage,
+  });
   final Color color;
+  final double percentage;
 
   @override
   State<_EssentialExpensesActionPanel> createState() =>
@@ -7712,38 +9873,139 @@ class _EssentialExpensesActionPanelState
   }
 
   Future<double?> _adjustPercentage(double currentPercentage) {
+    var percentage = currentPercentage.clamp(0, 100).toDouble();
     final controller = TextEditingController(
-      text: currentPercentage.toStringAsFixed(0),
+      text: percentage.toStringAsFixed(0),
     );
     return showDialog<double>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: _surface,
-        title: const Text(
-          'Adjust allocation',
-          style: TextStyle(color: _title, fontWeight: FontWeight.w900),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: inputDecoration('50').copyWith(suffixText: '%'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+      builder: (dialogContext) {
+        void syncController(double value) {
+          final text = value.toStringAsFixed(value % 1 == 0 ? 0 : 1);
+          controller.value = TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
+          );
+        }
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            backgroundColor: _surface,
+            title: const Text(
+              'Adjust allocation',
+              style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Percentage to transfer',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: widget.color.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${percentage.toStringAsFixed(percentage % 1 == 0 ? 0 : 1)}%',
+                        style: TextStyle(
+                          color: widget.color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Slider(
+                  value: percentage,
+                  min: 0,
+                  max: 100,
+                  divisions: 100,
+                  label: '${percentage.round()}%',
+                  activeColor: widget.color,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      percentage = value;
+                      syncController(value);
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d{0,3}(\.\d{0,1})?$'),
+                    ),
+                  ],
+                  decoration: inputDecoration('50').copyWith(suffixText: '%'),
+                  onChanged: (text) {
+                    final value =
+                        double.tryParse(text.replaceAll(',', '').trim());
+                    if (value == null) return;
+                    setDialogState(() {
+                      percentage = value.clamp(0, 100).toDouble();
+                    });
+                  },
+                  onEditingComplete: () {
+                    final value =
+                        double.tryParse(controller.text.replaceAll(',', '')) ??
+                            percentage;
+                    setDialogState(() {
+                      percentage = value.clamp(0, 100).toDouble();
+                      syncController(percentage);
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Drag the slider or type a percentage from 0 to 100.',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final typed =
+                      double.tryParse(controller.text.replaceAll(',', ''));
+                  final value = (typed ?? percentage).clamp(0, 100).toDouble();
+                  Navigator.of(dialogContext).pop(value);
+                },
+                child: const Text('Use percentage'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () {
-              final value =
-                  double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
-              Navigator.of(dialogContext).pop(value.clamp(0, 100).toDouble());
-            },
-            child: const Text('Use percentage'),
-          ),
-        ],
-      ),
+        );
+      },
     ).whenComplete(controller.dispose);
   }
 
@@ -7806,7 +10068,8 @@ class _EssentialExpensesActionPanelState
     final incomes = state.pendingEssentialIncomeTransactions;
     final totalIncome =
         incomes.fold<double>(0, (total, income) => total + income.amount);
-    final allocation = totalIncome * .5;
+    final percentage = widget.percentage;
+    final allocation = totalIncome * percentage / 100;
     final hasEnoughCash = allocation <= state.unallocatedFakeMayaWallet;
     final remainingWallet = state.unallocatedFakeMayaWallet - allocation;
     final localizations = MaterialLocalizations.of(context);
@@ -7841,10 +10104,10 @@ class _EssentialExpensesActionPanelState
                         fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                 child: Text(
-                    'Set aside 50% of each income received into an Essential Expenses Fund.',
-                    style: TextStyle(
+                    'Set aside ${percentage.toStringAsFixed(0)}% of each income received into an Essential Expenses Fund.',
+                    style: const TextStyle(
                         color: _title,
                         fontSize: 13,
                         height: 1.4,
@@ -7922,7 +10185,7 @@ class _EssentialExpensesActionPanelState
             const SizedBox(height: 10),
             _ActionMetricTile(
               icon: Icons.savings_rounded,
-              label: '50% allocation',
+              label: '${percentage.toStringAsFixed(0)}% allocation',
               value: money(allocation),
               color: _brand,
             ),
@@ -7937,10 +10200,10 @@ class _EssentialExpensesActionPanelState
             PrimaryButton(
               label: busy
                   ? 'Transferring...'
-                  : 'Transfer 50% (${money(allocation)})',
+                  : 'Transfer ${percentage.toStringAsFixed(0)}% (${money(allocation)})',
               icon: Icons.savings_rounded,
               enabled: !busy && hasEnoughCash,
-              onPressed: () => _deposit(state, incomes),
+              onPressed: () => _deposit(state, incomes, percentage: percentage),
             ),
             if (!hasEnoughCash) ...[
               const SizedBox(height: 7),

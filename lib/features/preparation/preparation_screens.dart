@@ -792,6 +792,14 @@ List<String> _recommendationsForActionField(
       math.min(12, recommended + 2),
     ].map((value) => value.toString()).toSet().toList();
   }
+  if (action.id == 'A21' && field.key == 'days') {
+    final essentials = _monthlyEssentialBase(state);
+    final wallet = _availableEverydayCash(state);
+    final currentDays =
+        essentials <= 0 ? 7.0 : wallet / math.max(1, essentials / 30);
+    final recommended = currentDays < 7 ? 7 : math.min(21, currentDays + 3);
+    return _dayOptions(recommended);
+  }
   if (action.id == 'A20' && field.key == 'amt') {
     final recommended = _recommendedMonthlyEarnings(state).round();
     return [recommended, recommended * 1.1, recommended * 1.25]
@@ -1383,11 +1391,20 @@ const _d2Actions = <String, D2Action>{
     ActionField(
         key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 25000')
   ]),
+  'A21': D2Action(
+      id: 'A21',
+      text:
+          "Keep at least X days' worth of expenses available in your Everyday Fund at all times.",
+      fields: [
+        ActionField(key: 'days', label: 'Days of expenses', hint: 'e.g. 14')
+      ]),
 };
+
+const _availableCashGoalActionIds = ['A1', 'A3'];
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{
-  'G1': ['A1', 'A3', 'A19', 'A20'],
+  'G1': _availableCashGoalActionIds,
   'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
   'G3': ['A7', 'A8', 'A9', 'A10'],
   'G4': ['A1', 'A2', 'A4', 'A5', 'A10'],

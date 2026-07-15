@@ -72,7 +72,7 @@ flutter:
     - assets/images/patterns_shelby.png
     - assets/images/share_shelby.png
     - assets/images/control_shelby.png
-    - assets/models/
+  #  - assets/models/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

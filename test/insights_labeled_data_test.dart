@@ -72,9 +72,25 @@ void main() {
     expect(find.text('Emergency fund'), findsOneWidget);
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
-    expect(find.text('Basic-needs spending'), findsOneWidget);
+    expect(find.text('MONTH · CASH INDEX'), findsOneWidget);
+    expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
+    expect(find.text('Goal resiliency'), findsOneWidget);
+    expect(find.textContaining('A1 · Set aside income for essentials'),
+        findsOneWidget);
+    expect(
+        find.textContaining('A3 · Keep categories under cap'), findsOneWidget);
+    expect(
+        find.textContaining('A2 · Cap discretionary spending'), findsNothing);
+    expect(find.textContaining('A21 · Keep Everyday Fund days covered'),
+        findsNothing);
+    expect(find.textContaining('A19'), findsNothing);
+    expect(find.textContaining('A20'), findsNothing);
+    expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
+    expect(find.text('This is where you earn money'), findsOneWidget);
+    expect(find.text('This is where you spend money'), findsOneWidget);
+    expect(find.text('Weekly cash flow'), findsOneWidget);
     expect(find.text('AI Analyze'), findsOneWidget);
-    expect(find.text('OVERVIEW · WEEKLY'), findsOneWidget);
+    expect(find.text('OVERVIEW · MONTHLY WEEKS'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('DETAIL · SELECTED WEEK'),
       300,
@@ -82,6 +98,34 @@ void main() {
     );
     expect(find.text('DETAIL · SELECTED WEEK'), findsOneWidget);
     expect(find.textContaining('days complete'), findsOneWidget);
+  });
+
+  testWidgets('available cash action resiliency opens score detail',
+      (tester) async {
+    final state = _reflectionState();
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Available cash'));
+    await tester.pumpAndSettle();
+
+    final actionRow =
+        find.textContaining('A1 · Set aside income for essentials');
+    await tester.ensureVisible(actionRow);
+    await tester.pumpAndSettle();
+    await tester.tap(actionRow);
+    await tester.pumpAndSettle();
+
+    expect(find.text('A1 resiliency'), findsOneWidget);
+    expect(find.text('Data behind the score'), findsOneWidget);
+    expect(find.text('Percentage rate per week'), findsOneWidget);
+    expect(find.textContaining(RegExp(r'(Jan|Feb) \d+-(Jan|Feb) \d+')),
+        findsWidgets);
   });
 
   testWidgets('emergency fund pairs movement overview with weekly detail',
@@ -124,8 +168,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('January 2026'));
+    await tester.pumpAndSettle();
 
     final firstWeek = find.bySemanticsLabel(RegExp(r'Week of Jan 5,'));
+    await tester.ensureVisible(firstWeek);
+    await tester.pumpAndSettle();
     expect(firstWeek, findsOneWidget);
     await tester.tap(firstWeek);
     await tester.pumpAndSettle();
@@ -136,6 +184,11 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('Jan 5–Jan 11'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Food & drink').first,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.textContaining('Food & drink'), findsWidgets);
   });
 }
@@ -225,6 +278,7 @@ AppState _reflectionState() {
   state
     ..needsBalance = needs
     ..bufferBalance = buffer
+    ..fakeMayaSyncedAccounts.add('Wallet')
     ..fakeMayaLink = FakeMayaLink(
       userId: 'user',
       email: 'user@example.com',

@@ -2885,6 +2885,38 @@ class GoalCoachResult {
   final double monthlyTarget;
 }
 
+class ActionStageResult {
+  const ActionStageResult({
+    required this.summary,
+    required this.firstChange,
+    required this.suggestions,
+  });
+
+  final String summary;
+  final String firstChange;
+  final List<ActionStageSuggestion> suggestions;
+}
+
+class ActionStageSuggestion {
+  const ActionStageSuggestion({
+    required this.option,
+    required this.actionId,
+    required this.actionText,
+    required this.priority,
+    required this.reason,
+    required this.target,
+    required this.replacementActionId,
+  });
+
+  final String option;
+  final String actionId;
+  final String actionText;
+  final int priority;
+  final String reason;
+  final Map<String, String> target;
+  final String? replacementActionId;
+}
+
 // ─── Two-jar system types ─────────────────────────────────────────────────────
 
 enum JarEventType { income, billPaid, transfer }

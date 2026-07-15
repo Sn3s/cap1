@@ -3,7 +3,9 @@ part of '../main.dart';
 class ShellbyAiCoach {
   const ShellbyAiCoach();
 
-  bool get usesGemini => _aiProvider.toLowerCase() == 'gemini';
+  bool get _hasGeminiEndpoint =>
+      _geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty;
+  bool get usesGemini => _hasGeminiEndpoint;
   bool get usesLocalModel => !usesGemini;
   bool get isConfigured => true;
 
@@ -96,13 +98,47 @@ class ShellbyAiCoach {
     );
   }
 
+  Future<ActionStageResult> recommendAvailableCashActionStage({
+    required AppState state,
+  }) async {
+    if (!isConfigured) {
+      throw const AiSetupException();
+    }
+
+    final parsed = await _sendJson(
+      instructions: _availableCashActionStageInstructions,
+      input: _availableCashActionStageInput(state),
+      maxOutputTokens: 900,
+    );
+    final rawSuggestions = parsed['suggestions'];
+    final suggestions = rawSuggestions is List
+        ? rawSuggestions
+            .whereType<Map<String, dynamic>>()
+            .map(_actionStageSuggestionFromJson)
+            .where((item) => item.actionId.isNotEmpty)
+            .toList()
+        : <ActionStageSuggestion>[];
+    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
+    return ActionStageResult(
+      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
+          ? (parsed['summary'] as String).trim()
+          : 'Shellby reviewed the latest 14 days and prepared action updates.',
+      firstChange:
+          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
+              ? (parsed['first_change'] as String).trim()
+              : (suggestions.isEmpty
+                  ? 'No change is recommended yet.'
+                  : suggestions.first.reason),
+      suggestions: suggestions,
+    );
+  }
+
   Future<String> _sendText({
     required String instructions,
     required String input,
     required int maxOutputTokens,
   }) async {
-    if (usesGemini &&
-        (_geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty)) {
+    if (_hasGeminiEndpoint) {
       try {
         return await _sendGeminiText(
           instructions: instructions,
@@ -110,7 +146,7 @@ class ShellbyAiCoach {
           maxOutputTokens: maxOutputTokens,
         );
       } on Object catch (error) {
-        if (!_shouldFallbackToLocal(error)) rethrow;
+        if (!_shouldUseQwenFallback(error)) rethrow;
       }
     }
     return _sendLocalText(
@@ -138,8 +174,7 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
   }) async {
-    if (usesGemini &&
-        (_geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty)) {
+    if (_hasGeminiEndpoint) {
       try {
         return await _sendGeminiJson(
           instructions: instructions,
@@ -147,7 +182,7 @@ class ShellbyAiCoach {
           maxOutputTokens: maxOutputTokens,
         );
       } on Object catch (error) {
-        if (!_shouldFallbackToLocal(error)) rethrow;
+        if (!_shouldUseQwenFallback(error)) rethrow;
       }
     }
     return _sendLocalJson(
@@ -172,16 +207,8 @@ class ShellbyAiCoach {
     return jsonDecode(jsonText) as Map<String, dynamic>;
   }
 
-  bool _shouldFallbackToLocal(Object error) {
+  bool _shouldUseQwenFallback(Object error) {
     if (error is SocketException || error is TimeoutException) return true;
-    if (error is _GeminiRequestException) {
-      return error.statusCode == 408 ||
-          error.statusCode == 401 ||
-          error.statusCode == 403 ||
-          error.statusCode == 404 ||
-          error.statusCode == 429 ||
-          error.statusCode >= 500;
-    }
     return false;
   }
 
@@ -253,6 +280,9 @@ class ShellbyAiCoach {
       try {
         return await _postGeminiPayload(payload);
       } on _GeminiRequestException catch (error) {
+        if (_shouldRetryDirectGemini(error)) {
+          return _postGeminiPayload(payload, forceDirectApi: true);
+        }
         final canRetry = error.statusCode == 429 || error.statusCode >= 500;
         if (!canRetry || attempt == retries) rethrow;
       } on SocketException {
@@ -267,16 +297,28 @@ class ShellbyAiCoach {
     throw StateError('Gemini request failed after retrying.');
   }
 
-  Future<String> _postGeminiPayload(String payload) async {
+  bool _shouldRetryDirectGemini(_GeminiRequestException error) {
+    return _geminiProxyUrl.isNotEmpty &&
+        _geminiApiKey.isNotEmpty &&
+        error.statusCode == 404 &&
+        !error.directApi;
+  }
+
+  Future<String> _postGeminiPayload(
+    String payload, {
+    bool forceDirectApi = false,
+  }) async {
     final client = HttpClient();
     final timeout = Duration(
       seconds: math.max(1, _geminiRequestTimeoutSeconds),
     );
     try {
-      final request =
-          await client.postUrl(_geminiEndpointUri()).timeout(timeout);
+      final directApi = forceDirectApi || _geminiProxyUrl.isEmpty;
+      final request = await client
+          .postUrl(_geminiEndpointUri(forceDirectApi: forceDirectApi))
+          .timeout(timeout);
       request.headers.contentType = ContentType.json;
-      if (_geminiProxyUrl.isNotEmpty) {
+      if (!directApi) {
         request.headers.set('x-shellby-gemini-model', _geminiModel);
       } else if (_geminiApiKey.isNotEmpty) {
         request.headers.set('x-goog-api-key', _geminiApiKey);
@@ -291,7 +333,10 @@ class ShellbyAiCoach {
         throw _GeminiRequestException(
           statusCode: response.statusCode,
           body: body,
-          message: 'Gemini request failed',
+          message: directApi
+              ? 'Gemini API request failed'
+              : 'Gemini proxy request failed',
+          directApi: directApi,
         );
       }
       return body;
@@ -300,8 +345,8 @@ class ShellbyAiCoach {
     }
   }
 
-  Uri _geminiEndpointUri() {
-    if (_geminiProxyUrl.isNotEmpty) {
+  Uri _geminiEndpointUri({bool forceDirectApi = false}) {
+    if (_geminiProxyUrl.isNotEmpty && !forceDirectApi) {
       return Uri.parse(_geminiProxyUrl);
     }
     return Uri.https(
@@ -530,6 +575,147 @@ For an Insights analysis, format the first response with short headings:
 Summary, Notable patterns, Outliers or changes, and Questions to consider.
 Use concise bullets, include relevant values, distinguish missing data from
 zero, avoid claiming causation, and use neutral non-judgmental language.
+''';
+  }
+
+  ActionStageSuggestion _actionStageSuggestionFromJson(
+    Map<String, dynamic> json,
+  ) {
+    final target = <String, String>{};
+    final rawTarget = json['target'];
+    if (rawTarget is Map) {
+      for (final entry in rawTarget.entries) {
+        final key = entry.key?.toString() ?? '';
+        if (key.isEmpty) continue;
+        target[key] = entry.value?.toString() ?? '';
+      }
+    }
+    return ActionStageSuggestion(
+      option: json['option']?.toString().trim() ?? 'retain',
+      actionId: json['action_id']?.toString().trim() ?? '',
+      actionText: json['action_text']?.toString().trim() ?? '',
+      priority: (json['priority'] as num?)?.toInt() ?? 99,
+      reason: json['reason']?.toString().trim() ?? '',
+      target: target,
+      replacementActionId: json['replacement_action_id']?.toString().trim(),
+    );
+  }
+
+  String _availableCashActionStageInput(AppState state) {
+    final now = DateTime.now();
+    final allTransactions = state.allTransactions
+        .where((transaction) => transaction.createdAt != null)
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now));
+    final latestDate = allTransactions.isEmpty
+        ? now
+        : allTransactions.first.createdAt!.toLocal();
+    final cutoff = DateTime(
+      latestDate.year,
+      latestDate.month,
+      latestDate.day,
+    ).subtract(const Duration(days: 13));
+    final latest14 = allTransactions
+        .where(
+            (transaction) => !transaction.createdAt!.toLocal().isBefore(cutoff))
+        .toList();
+    final service = IntegrationService.fromState(state);
+    final latestWeeks = service.weekRecords
+        .where((week) => !week.end.isBefore(cutoff))
+        .toList();
+    final income = latest14
+        .where((transaction) => transaction.amount > 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final spending = latest14
+        .where((transaction) => transaction.amount < 0)
+        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final categoryTotals = <String, double>{};
+    for (final transaction in latest14.where((item) => item.amount < 0)) {
+      final category = transaction.category?.trim().isEmpty == false
+          ? transaction.category!.trim()
+          : 'Unlabeled';
+      categoryTotals.update(
+        category,
+        (value) => value + transaction.amount.abs(),
+        ifAbsent: () => transaction.amount.abs(),
+      );
+    }
+    final sortedCategories = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final selectedBudgets = state.categorySpendingBudgets.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final selectedCategoryNames = state.categorySpendingBudgets.keys.toSet();
+    final selectedCategorySpend = sortedCategories
+        .where((entry) =>
+            selectedCategoryNames.isEmpty ||
+            selectedCategoryNames.contains(entry.key))
+        .toList();
+    final currentActions = state.selectedActionIds
+        .where(_availableCashGoalActionIds.contains)
+        .map((id) {
+      final action = _d2Actions[id];
+      final values = state.actionFieldValues[id] ?? const <String, String>{};
+      return '- $id: ${action?.text ?? id}; current_target=${jsonEncode(values)}';
+    }).join('\n');
+    final candidateActions = _availableCashGoalActionIds
+        .map((id) => '- $id: ${_d2Actions[id]?.text ?? id}')
+        .join('\n');
+    final txLines = latest14.take(40).map((transaction) {
+      return '- ${transaction.createdAt!.toLocal().toIso8601String().split('T').first}: ${transaction.title}; ${transaction.amount >= 0 ? 'income' : 'spend'} ${money(transaction.amount.abs())}; category=${transaction.category ?? 'unlabeled'}; fund=${transaction.source ?? 'unlabeled'}; account=${transaction.account ?? 'Wallet'}';
+    }).join('\n');
+    final weekLines = latestWeeks.map((week) {
+      return '- ${_shortDate(week.start)}-${_shortDate(week.end)}: income=${money(week.weekIncome)}, spending=${money(week.weekExpense)}, essential_allocation=${money(week.weekRefill)}, classified=${(week.propDaysClassified * 100).round()}%, income_week=${week.isSalaryWeek}, bill_week=${week.isBillWeek}';
+    }).join('\n');
+
+    return '''
+Goal: Maintain Available Cash.
+Action stage window: latest 14 days from ${_shortDate(cutoff)} to ${_shortDate(latestDate)}.
+
+User/onboarding profile:
+- Income rhythm: ${state.incomeRhythm}; income type: ${state.incomeType}
+- Monthly income baseline: ${money(state.income)}
+- Monthly salary: ${money(state.monthlySalary)}
+- Monthly expenses baseline: ${money(state.expenses)}
+- Monthly essential expenses: ${money(state.monthlyEssentialExpenseTotal)}
+- Monthly non-essential expenses: ${money(state.monthlyNonEssentialExpenseTotal)}
+- Variable expenses: ${money(state.variableExpenses)}
+- Current monthly savings: ${money(state.savings)}
+- Confidence: ${state.confidence.round()}/10; pressure: ${state.anxiety.round()}/10
+
+Integration balances:
+- FakeMaya linked: ${state.hasFakeMayaLink ? 'yes' : 'no'}
+- Wallet: ${money(state.accountBalance('Wallet'))}
+- Cash on hand: ${money(state.cashOnHandBalance)}
+- Essential Expenses Fund balance: ${money(state.essentialExpensesBalance)}
+- Unallocated FakeMaya wallet: ${money(state.unallocatedFakeMayaWallet)}
+
+Latest 14-day totals:
+- Income: ${money(income)}
+- Spending: ${money(spending)}
+- Net flow: ${money(income - spending)}
+
+Category spending, latest 14 days:
+${sortedCategories.isEmpty ? 'No spending categories available.' : sortedCategories.take(12).map((entry) => '- ${entry.key}: ${money(entry.value)}').join('\n')}
+
+Selected category budgets:
+${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
+
+Selected category spending, latest 14 days:
+${selectedCategorySpend.isEmpty ? 'No selected category spending recorded in the latest 14 days.' : selectedCategorySpend.map((entry) => '- ${entry.key}: ${money(entry.value)} spent').join('\n')}
+
+Current configured actions:
+${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentActions}
+
+Available action set:
+$candidateActions
+
+Week records:
+${weekLines.isEmpty ? 'No week records available.' : weekLines}
+
+Latest transactions:
+${txLines.isEmpty ? 'No linked or manual transactions available.' : txLines}
+
+Analyze the integration data and recommend what to change first.
 ''';
   }
 
@@ -824,11 +1010,13 @@ class _GeminiRequestException implements Exception {
     required this.statusCode,
     required this.body,
     required this.message,
+    required this.directApi,
   });
 
   final int statusCode;
   final String body;
   final String message;
+  final bool directApi;
 
   @override
   String toString() => '$message: $statusCode $body';
@@ -879,6 +1067,55 @@ Return only valid JSON:
   "title": "short goal title",
   "description": "specific goal sentence with target and timeframe",
   "monthly_target": number
+}
+''';
+
+const _availableCashActionStageInstructions = '''
+You are Shellby, the Action Stage AI for a Philippine personal finance app.
+Your job is to analyze the user's latest 14 days of integration data and recommend the first Maintain Available Cash action change.
+
+Allowed actions only:
+- A1: Set aside X% of every income received into your Everyday Expenses Fund.
+- A3: Limit spending in selected categories to ₱X per month to protect day-to-day cash flow.
+
+Allowed recommendation option values only:
+- retain_action
+- change_parameterized_target
+- suggest_new_action
+- remove_and_replace_action
+
+Rules:
+- Use only the provided integration, onboarding, balance, action, and transaction data.
+- Prioritize the suggestion that should be changed first.
+- Return 1-2 suggestions when data is available, ordered by priority.
+- If a current action is working, retain it.
+- If the action is useful but the parameter looks too high/low, choose change_parameterized_target.
+- If A1 or A3 is missing and the data shows a need for it, choose suggest_new_action.
+- If an existing Maintain Available Cash action is less useful than the other allowed action, choose remove_and_replace_action.
+- Do not mention irregular income buffers, needs jars, buffer balances, or actions outside A1 and A3.
+- Do not recommend products, banks, securities, borrowing, or regulated financial advice.
+- Keep reasons concrete and cite a relevant amount, category, balance, or 14-day pattern.
+- Use PHP amounts.
+
+Return only valid JSON:
+{
+  "summary": "1 short paragraph interpreting the latest 14 days",
+  "first_change": "the first thing the user should review or change",
+  "suggestions": [
+    {
+      "priority": 1,
+      "option": "retain_action | change_parameterized_target | suggest_new_action | remove_and_replace_action",
+      "action_id": "A1 | A3",
+      "action_text": "short action label",
+      "reason": "specific reason grounded in the data",
+      "target": {
+        "pct": "number if A1 percentage is recommended",
+        "amt": "number if A3 peso cap is recommended",
+        "categories": "comma-separated categories if A3 is recommended"
+      },
+      "replacement_action_id": "action id only for remove_and_replace_action, otherwise null"
+    }
+  ]
 }
 ''';
 
