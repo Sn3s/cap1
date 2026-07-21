@@ -5,13 +5,13 @@ class PageHeader extends StatelessWidget {
     super.key,
     required this.eyebrow,
     required this.title,
-    this.onShellbyTap,
+    this.onAccountTap,
     this.onTimeTap,
   });
 
   final String eyebrow;
   final String title;
-  final VoidCallback? onShellbyTap;
+  final VoidCallback? onAccountTap;
   final VoidCallback? onTimeTap;
 
   @override
@@ -43,12 +43,14 @@ class PageHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          _AccountIconButton(
+            onTap: onAccountTap ?? () => _push(context, const ProfilePage()),
+          ),
+          const SizedBox(width: 8),
           _TimeButton(
             onTap: onTimeTap ??
                 () => _push(context, const NotificationSettingsScreen()),
           ),
-          const SizedBox(width: 8),
-          _ShellbyAvatar(onTap: onShellbyTap),
         ],
       ),
     );
@@ -75,32 +77,21 @@ class _TimeButton extends StatelessWidget {
   }
 }
 
-class _ShellbyAvatar extends StatelessWidget {
-  const _ShellbyAvatar({this.onTap});
-
-  final VoidCallback? onTap;
+class _AccountIconButton extends StatelessWidget {
+  const _AccountIconButton({required this.onTap});
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Ask Shellby',
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _bellySoft,
-            shape: BoxShape.circle,
-            border: onTap == null ? null : Border.all(color: _brand, width: 2),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Image.asset(
-            'assets/images/shellby_wave.webp',
-            fit: BoxFit.cover,
-          ),
+      message: 'Account',
+      child: IconButton(
+        onPressed: onTap,
+        style: IconButton.styleFrom(
+          backgroundColor: _bellySoft,
+          foregroundColor: _purple,
         ),
+        icon: const Icon(Icons.person_rounded),
       ),
     );
   }

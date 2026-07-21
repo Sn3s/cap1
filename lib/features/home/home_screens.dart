@@ -20,54 +20,266 @@ class _MainShellState extends State<MainShell> {
   final _goalsKey = GlobalKey<_GoalsPageState>();
 
   void openGoal(String goalId) {
-    setState(() => index = 3);
+    setState(() => index = 2);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _goalsKey.currentState?.openGoal(goalId);
     });
+  }
+
+  Future<void> _showManualTransactionSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _ManualTransactionSheet(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
       const DashboardPage(),
-      const InsightsPage(),
-      const AccountsPage(),
+      const WalletPage(),
       GoalsPage(key: _goalsKey),
-      const ActivityPage(),
-      const ProfilePage(),
+      const InsightsPage(),
     ];
     return Scaffold(
       backgroundColor: _bg,
-      body: SafeArea(child: pages[index]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_rounded),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_rounded),
-            label: 'Insights',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_rounded),
-            label: 'Accounts',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.flag_rounded),
-            label: 'Goals',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_rounded),
-            label: 'Activity',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_rounded),
-            label: 'You',
+      body: SafeArea(
+        child: Stack(
+          children: [
+            pages[index],
+            Positioned(
+              bottom: 14,
+              right: 16,
+              child: _AiSparkleButton(
+                onPressed: () =>
+                    _push(context, const ShellbyChatPage()),
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: _AddTransactionButton(
+        onPressed: () => _showManualTransactionSheet(context),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      bottomNavigationBar: _MainNavBar(
+        index: index,
+        onChanged: (value) => setState(() => index = value),
+      ),
+    );
+  }
+}
+
+class _MainNavBar extends StatelessWidget {
+  const _MainNavBar({required this.index, required this.onChanged});
+  final int index;
+  final ValueChanged<int> onChanged;
+
+  static const _items = [
+    (icon: Icons.home_rounded, label: 'Home'),
+    (icon: Icons.account_balance_wallet_rounded, label: 'Wallet'),
+    (icon: Icons.track_changes_rounded, label: 'Goals'),
+    (icon: Icons.bar_chart_rounded, label: 'Insights'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
           ),
         ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 72,
+          child: Row(
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _NavBarItem(
+                      item: _items[0],
+                      selected: index == 0,
+                      onTap: () => onChanged(0),
+                    ),
+                    _NavBarItem(
+                      item: _items[1],
+                      selected: index == 1,
+                      onTap: () => onChanged(1),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 72),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _NavBarItem(
+                      item: _items[2],
+                      selected: index == 2,
+                      onTap: () => onChanged(2),
+                    ),
+                    _NavBarItem(
+                      item: _items[3],
+                      selected: index == 3,
+                      onTap: () => onChanged(3),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavBarItem extends StatelessWidget {
+  const _NavBarItem({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ({IconData icon, String label}) item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? _brand : _body;
+    return InkWell(
+      onTap: onTap,
+      customBorder: const StadiumBorder(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 56,
+              height: 32,
+              decoration: BoxDecoration(
+                color: selected ? _brand.withOpacity(0.12) : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.center,
+              child: Icon(item.icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              item.label,
+              style: GoogleFonts.nunito(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddTransactionButton extends StatelessWidget {
+  const _AddTransactionButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Add transaction',
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: _brand.withOpacity(0.55),
+              blurRadius: 20,
+              spreadRadius: 1,
+            ),
+            BoxShadow(
+              color: _brand.withOpacity(0.30),
+              blurRadius: 36,
+              spreadRadius: 6,
+            ),
+          ],
+        ),
+        child: Material(
+          color: _brand,
+          shape: const CircleBorder(),
+          elevation: 4,
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: const SizedBox(
+              width: 64,
+              height: 64,
+              child: Icon(Icons.add_rounded, color: Colors.white, size: 30),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AiSparkleButton extends StatelessWidget {
+  const _AiSparkleButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Ask Shellby',
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: _purple.withOpacity(0.55),
+              blurRadius: 16,
+              spreadRadius: 1,
+            ),
+            BoxShadow(
+              color: _purple.withOpacity(0.32),
+              blurRadius: 28,
+              spreadRadius: 4,
+            ),
+          ],
+        ),
+        child: Material(
+          color: _purple,
+          shape: const CircleBorder(),
+          elevation: 2,
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: const SizedBox(
+              width: 48,
+              height: 48,
+              child: Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -81,6 +293,20 @@ String _wholeMoney(String value) {
     grouped.add(chars[i]);
   }
   return grouped.reversed.join();
+}
+
+String _homeInsightGlimpse(AppState state) {
+  if (state.allTransactions.isEmpty) {
+    return "Log your first transaction and I'll start spotting patterns to help you save more!";
+  }
+  final score = state.healthScore;
+  if (score >= 75) {
+    return "You're doing great this week — your habits are setting you up for real progress. Keep the streak going!";
+  }
+  if (score >= 50) {
+    return "You're building solid momentum. A little more consistency this week could take your goals even further!";
+  }
+  return 'Every transaction you log helps me find smarter ways to help you save. Small steps add up fast!';
 }
 
 class DashboardPage extends StatelessWidget {
@@ -108,7 +334,6 @@ class DashboardPage extends StatelessWidget {
         PageHeader(
           eyebrow: 'GOOD MORNING',
           title: name.isEmpty ? 'Hi!' : 'Hi $name',
-          onShellbyTap: () => _push(context, const ShellbyChatPage()),
         ),
         const SizedBox(height: 20),
         Padding(
@@ -193,16 +418,28 @@ class DashboardPage extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        state.allTransactions.isNotEmpty
-                            ? 'Shellby is building insights from your logged and synced transactions.'
-                            : 'Log transactions manually or sync an account to start building insights.',
-                        style: GoogleFonts.nunito(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: _title,
-                          height: 1.4,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Shellby suggests',
+                            style: GoogleFonts.nunito(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                              color: _purple,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _homeInsightGlimpse(state),
+                            style: GoogleFonts.nunito(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: _title,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -631,6 +868,49 @@ class _BlankPyramidContent extends StatelessWidget {
   }
 }
 
+// Compute this-month layer-1 (essentials) spending from FakeMaya if available.
+double _cashFlowMonthlySpent(AppState state) {
+  final now = DateTime.now();
+  return (state.fakeMayaLink?.summary.transactions ?? [])
+      .where((t) =>
+          t.amount < 0 &&
+          t.isLabeled &&
+          !t.excludedFromInsights &&
+          (t.createdAt?.year == now.year &&
+              t.createdAt?.month == now.month) &&
+          _insightCategoryConfig(t.category ?? '').$1 == 1)
+      .fold(0.0, (s, t) => s + t.amount.abs());
+}
+
+/// "Maintain Available Cash" goal is on track when this month's essentials
+/// spend hasn't exceeded the cash-flow baseline budget.
+bool isCashFlowGoalOnTrack(AppState state) {
+  final total = state.cashFlowPyramidBaseline;
+  if (total <= 0) return false;
+  return _cashFlowMonthlySpent(state) <= total;
+}
+
+/// "Build Emergency Fund" goal is on track once the safety fund has reached
+/// at least half of its 6-month target (matching the 3-month marker shown
+/// on the Financial Safety pyramid card).
+bool isEmergencyFundGoalOnTrack(AppState state) {
+  final budget = state.safetyShieldMonthlyBase;
+  if (budget <= 0) return false;
+  final current = state.safetyShieldBalance +
+      (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+  return (current / budget) >= 3;
+}
+
+/// (goals on track, goals total) across the 3 D1 goals. "Grow Investments"
+/// has no live tracking yet, so it's counted as on track by default.
+(int, int) goalsOnTrackSummary(AppState state) {
+  var onTrack = 0;
+  if (isCashFlowGoalOnTrack(state)) onTrack++;
+  if (isEmergencyFundGoalOnTrack(state)) onTrack++;
+  onTrack++; // Grow Investments — no live data, not penalized
+  return (onTrack, 3);
+}
+
 class _CashFlowPyramidContent extends StatelessWidget {
   const _CashFlowPyramidContent({required this.state});
   final AppState state;
@@ -662,17 +942,7 @@ class _CashFlowPyramidContent extends StatelessWidget {
         ],
       );
     }
-    // Compute this-month layer-1 spending from FakeMaya if available
-    final now = DateTime.now();
-    final spent = (state.fakeMayaLink?.summary.transactions ?? [])
-        .where((t) =>
-            t.amount < 0 &&
-            t.isLabeled &&
-            !t.excludedFromInsights &&
-            (t.createdAt?.year == now.year &&
-                t.createdAt?.month == now.month) &&
-            _insightCategoryConfig(t.category ?? '').$1 == 1)
-        .fold(0.0, (s, t) => s + t.amount.abs());
+    final spent = _cashFlowMonthlySpent(state);
     final fill = (spent / total).clamp(0.0, 1.0);
     final pct = (fill * 100).round();
     return Column(
@@ -1355,6 +1625,7 @@ class _InsightsPageState extends State<InsightsPage> {
   int _goal = 0;
   DateTime? _selectedWeek;
   DateTime? _selectedMonth;
+  final _actionStageKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -1365,6 +1636,7 @@ class _InsightsPageState extends State<InsightsPage> {
       padding: const EdgeInsets.only(bottom: 32),
       children: [
         const PageHeader(eyebrow: 'REFLECTION', title: 'Goal Insights'),
+        const SizedBox(height: 16),
         _InsightsFilterBar(
           tabs: const ['Overview', 'Available cash', 'Emergency fund'],
           selected: _goal,
@@ -1423,6 +1695,7 @@ class _InsightsPageState extends State<InsightsPage> {
               _selectedMonth = month;
               _selectedWeek = null;
             }),
+            actionStageKey: _actionStageKey,
           ),
         ] else ...[
           _EmergencyReflectionExplorer(
@@ -1493,6 +1766,110 @@ class _ReflectionQuestion extends StatelessWidget {
   }
 }
 
+class _InsightsAiSummaryCard extends StatelessWidget {
+  const _InsightsAiSummaryCard({required this.suggestionCount});
+  final int suggestionCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF5DC295), _brand, Color(0xFF2D7A58)],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: [
+            BoxShadow(
+              color: _brand.withOpacity(0.30),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: Image.asset(
+                    'assets/images/shellby_wave.webp',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Shellby analyzed your',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '14-Day Financial Pattern',
+                        style: GoogleFonts.nunito(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          height: 1.15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (suggestionCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$suggestionCount new suggestion${suggestionCount == 1 ? '' : 's'}!',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'Review where your money is moving and what stands out! '
+              'Then inspect spending categories, funding sources, and '
+              'recent transactions.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InsightsOverview extends StatelessWidget {
   const _InsightsOverview({required this.state, required this.service});
   final AppState state;
@@ -1523,13 +1900,12 @@ class _InsightsOverview extends StatelessWidget {
     );
     final complete = all.where((transaction) => transaction.isLabeled).length;
 
+    final suggestionCount = (isCashFlowGoalOnTrack(state) ? 0 : 1) +
+        (isEmergencyFundGoalOnTrack(state) ? 0 : 1);
+
     return Column(
       children: [
-        const _ReflectionQuestion(
-          question: 'Where is my money moving, and what stands out?',
-          detail:
-              'Review the overall flow first, then inspect spending categories, funding sources, and recent transactions.',
-        ),
+        _InsightsAiSummaryCard(suggestionCount: suggestionCount),
         _ExplorerSection(
           eyebrow: 'OVERVIEW · ALL CLASSIFIED ACTIVITY',
           title: 'Money summary',
@@ -2462,7 +2838,7 @@ class _CashActionProgressSection extends StatelessWidget {
       eyebrow: 'MONTH · ACTION PROGRESS',
       title: 'Resiliency score for your actions',
       subtitle:
-          'Each score is the action completion rate for this month. The goal resiliency rate is the average of these action rates.',
+          "How well you've kept up with each action this month — tap one for details. Your goal resiliency score above is the average of these.",
       child: month.actionScores.isEmpty
           ? const _ReflectionEmpty(
               message: 'No resiliency scores are available yet.')
@@ -2490,75 +2866,98 @@ class _CashActionScoreRow extends StatelessWidget {
     final color = _resiliencyScoreColor(score);
     return InkWell(
       onTap: () => _showCashActionScoreDetails(context, action),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${action.id} · ${action.title}',
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        action.detail,
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     '$score%',
                     style: TextStyle(
                       color: color,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${action.id} · ${action.title}',
-                    style: const TextStyle(
-                      color: _title,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: _body, size: 18),
               ],
             ),
-            const SizedBox(height: 5),
-            Text(
-              action.detail,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                height: 1.3,
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: action.score.clamp(0.0, 1.0),
+                minHeight: 9,
+                color: color,
+                backgroundColor: _border.withValues(alpha: .6),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Row(
               children: [
-                for (var i = 0; i < action.pattern.length; i++) ...[
-                  Expanded(
-                    child: Tooltip(
-                      message:
-                          'Week ${i + 1}: ${_scorePercent(action.pattern[i])}%',
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          value: action.pattern[i].clamp(0.0, 1.0),
-                          minHeight: 8,
-                          color: _resiliencyValueColor(action.pattern[i]),
-                          backgroundColor: _border.withValues(alpha: .5),
-                        ),
-                      ),
+                Expanded(
+                  child: Text(
+                    '${action.actualLabel} of ${action.targetLabel} target',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  if (i < action.pattern.length - 1) const SizedBox(width: 5),
-                ],
+                ),
+                const Text(
+                  'View details',
+                  style: TextStyle(
+                    color: _purple,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded,
+                    color: _purple, size: 16),
               ],
             ),
           ],
@@ -2756,8 +3155,123 @@ void _showCashActionScoreDetails(
   );
 }
 
+class _AvailableCashSuggestionBanner extends StatefulWidget {
+  const _AvailableCashSuggestionBanner({required this.onViewSuggestions});
+  final VoidCallback onViewSuggestions;
+
+  @override
+  State<_AvailableCashSuggestionBanner> createState() =>
+      _AvailableCashSuggestionBannerState();
+}
+
+class _AvailableCashSuggestionBannerState
+    extends State<_AvailableCashSuggestionBanner> {
+  final _coach = const ShellbyAiCoach();
+  bool _started = false;
+  bool _loading = true;
+  int? _count;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started) {
+      _started = true;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final state = AppScope.of(context);
+    try {
+      final result = await _coach.recommendAvailableCashActionStage(
+        state: state,
+      );
+      if (!mounted) return;
+      setState(() {
+        _count = _actionStageDisplaySuggestions(result, state).length;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 14),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: _brand,
+              ),
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Checking for suggestions…',
+              style: TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final count = _count;
+    if (count == null || count == 0) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: GestureDetector(
+        onTap: widget.onViewSuggestions,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: _brand,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: _brand.withOpacity(0.28),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded,
+                  color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$count suggestion${count == 1 ? '' : 's'} for available cash',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AvailableCashActionStageSection extends StatefulWidget {
-  const _AvailableCashActionStageSection();
+  const _AvailableCashActionStageSection({super.key});
 
   @override
   State<_AvailableCashActionStageSection> createState() =>
@@ -2770,6 +3284,16 @@ class _AvailableCashActionStageSectionState
   ActionStageResult? _result;
   String? _error;
   bool _loading = false;
+  bool _autoStarted = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_autoStarted) {
+      _autoStarted = true;
+      _runStage();
+    }
+  }
 
   Future<void> _runStage() async {
     if (_loading) return;
@@ -3554,6 +4078,7 @@ class _CashReflectionExplorer extends StatelessWidget {
     required this.selectedMonth,
     required this.onWeekSelected,
     required this.onMonthSelected,
+    required this.actionStageKey,
   });
   final AppState state;
   final IntegrationService service;
@@ -3561,6 +4086,7 @@ class _CashReflectionExplorer extends StatelessWidget {
   final DateTime? selectedMonth;
   final ValueChanged<DateTime> onWeekSelected;
   final ValueChanged<DateTime> onMonthSelected;
+  final GlobalKey actionStageKey;
 
   @override
   Widget build(BuildContext context) {
@@ -3586,6 +4112,18 @@ class _CashReflectionExplorer extends StatelessWidget {
           detail:
               'Review the month first, then select a week to inspect its transactions, income, bills, and action progress.',
         ),
+        _AvailableCashSuggestionBanner(
+          onViewSuggestions: () {
+            final target = actionStageKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOut,
+              );
+            }
+          },
+        ),
         if (months.isNotEmpty)
           _CashMonthSelector(
             months: months,
@@ -3595,7 +4133,7 @@ class _CashReflectionExplorer extends StatelessWidget {
         if (activeMonth != null) ...[
           _CashMonthStatusSection(month: activeMonth),
           _CashActionProgressSection(month: activeMonth),
-          const _AvailableCashActionStageSection(),
+          _AvailableCashActionStageSection(key: actionStageKey),
           _BreakdownSection(
             eyebrow: 'MONTH · MONEY IN',
             title: 'This is where you earn money',
@@ -4604,58 +5142,6 @@ class _ExplorerEmpty extends StatelessWidget {
       title: 'No week selected',
       subtitle: 'Weekly detail will appear once activity has been recorded.',
       child: _ReflectionEmpty(message: 'No activity is available yet.'),
-    );
-  }
-}
-
-class AccountsPage extends StatefulWidget {
-  const AccountsPage({super.key});
-
-  @override
-  State<AccountsPage> createState() => _AccountsPageState();
-}
-
-class _AccountsPageState extends State<AccountsPage> {
-  // 0=Overview, 1=Accounts, 2=Pyramid, 3=Goals, 4=Spending
-  int _tab = 0;
-  int _spendPeriod = 1;
-
-  static const _tabs = ['Overview', 'Accounts', 'Pyramid', 'Goals', 'Spending'];
-
-  @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final accounts = _buildWealthAccounts(state);
-    final totalAssets = accounts.fold<double>(0.0, (s, a) => s + a.balance);
-    final totalLiabilities = state.totalLiabilities;
-    final show = _tab == 0;
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 32),
-      children: [
-        const PageHeader(eyebrow: 'ACCOUNTS', title: 'My Money'),
-        const SizedBox(height: 16),
-        _NetWorthHero(assets: totalAssets, liabilities: totalLiabilities),
-        const SizedBox(height: 16),
-        _InsightsFilterBar(
-          tabs: _tabs,
-          selected: _tab,
-          onChanged: (i) => setState(() => _tab = i),
-        ),
-        const SizedBox(height: 4),
-        if (_tab != 4) ...[
-          if (show || _tab == 1)
-            _AccountsSection(accounts: accounts, state: state, compact: !show),
-          if (show || _tab == 2)
-            _PyramidBreakdownSection(accounts: accounts, state: state),
-          if (show || _tab == 3) _GoalsOverviewSection(state: state),
-        ] else
-          _SpendingSection(
-            state: state,
-            period: _spendPeriod,
-            onPeriodChanged: (p) => setState(() => _spendPeriod = p),
-          ),
-      ],
     );
   }
 }
@@ -6656,7 +7142,7 @@ class _PyramidBreakdownSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeader(label: 'PYRAMID', total: totalAssets),
+          const _SectionHeader(label: 'PYRAMID', total: null),
           const SizedBox(height: 12),
           ...List.generate(4, (i) {
             final layerNum = i + 1;
@@ -8152,34 +8638,123 @@ class _D1GoalsMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final (onTrack, total) = goalsOnTrackSummary(state);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+      padding: const EdgeInsets.only(bottom: 32),
       children: [
-        const Text(
-          'MY GOALS',
-          style: TextStyle(
-            color: _body,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
+        const PageHeader(eyebrow: 'MY GOALS', title: 'Goals'),
+        const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: _WeeklyProgressCard(onTrack: onTrack, total: total),
+        ),
+        const SizedBox(height: 14),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            'Track your progress and actions for each financial goal.',
+            style: TextStyle(
+                color: _body, fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ),
-        const SizedBox(height: 4),
-        Text('Goals', style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 6),
-        const Text(
-          'Track your progress and actions for each financial goal.',
-          style: TextStyle(
-              color: _body, fontSize: 13, fontWeight: FontWeight.w600),
-        ),
         const SizedBox(height: 24),
-        for (final goal in _d1GoalMetas) ...[
-          _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
-          const SizedBox(height: 14),
-        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              for (final goal in _d1GoalMetas) ...[
+                _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
+                const SizedBox(height: 14),
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }
+}
+
+class _WeeklyProgressCard extends StatelessWidget {
+  const _WeeklyProgressCard({required this.onTrack, required this.total});
+  final int onTrack;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_purple, Color(0xFF5A3FA0)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: _purple.withOpacity(0.30),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: Image.asset(
+              'assets/images/shellby_wave.webp',
+              fit: BoxFit.contain,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'WEEKLY PROGRESS',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$onTrack of $total goals on track!',
+                  style: GoogleFonts.nunito(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _daysRemainingThisWeekLabel(),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _daysRemainingThisWeekLabel() {
+  final daysLeft = 7 - DateTime.now().weekday;
+  if (daysLeft <= 0) return 'Last day of the week';
+  return '$daysLeft day${daysLeft == 1 ? '' : 's'} remaining this week';
 }
 
 class _D1GoalCard extends StatelessWidget {
@@ -11054,10 +11629,17 @@ class ProfilePage extends StatelessWidget {
       ),
       const _SettingData('Appearance', Icons.palette_outlined, 'Light'),
     ];
-    return ListView(
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
-        const PageHeader(eyebrow: 'PROFILE', title: 'You'),
+        _SelectionsHeader(
+          title: 'You',
+          subtitle: 'PROFILE',
+          onBack: () => Navigator.maybePop(context),
+        ),
         const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -11186,6 +11768,8 @@ class ProfilePage extends StatelessWidget {
           ),
         ),
       ],
+        ),
+      ),
     );
   }
 }
@@ -12577,439 +13161,6 @@ class _TxData {
   }
 }
 
-class ActivityPage extends StatefulWidget {
-  const ActivityPage({super.key});
-
-  @override
-  State<ActivityPage> createState() => _ActivityPageState();
-}
-
-class _ActivityPageState extends State<ActivityPage> {
-  static const _transactionsPerPage = 10;
-
-  String _filter = 'All';
-  final ScrollController _scrollController = ScrollController();
-  int _visibleTransactionCount = _transactionsPerPage;
-  int _filteredTransactionCount = 0;
-
-  static const _filters = [
-    'All',
-    'Money in',
-    'Money out',
-    'Cash',
-    'Wallet',
-    'Savings',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_loadOlderTransactionsIfNeeded);
-  }
-
-  @override
-  void dispose() {
-    _scrollController
-      ..removeListener(_loadOlderTransactionsIfNeeded)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _loadOlderTransactionsIfNeeded() {
-    if (!_scrollController.hasClients ||
-        _visibleTransactionCount >= _filteredTransactionCount ||
-        _scrollController.position.extentAfter > 160) {
-      return;
-    }
-
-    setState(() {
-      _visibleTransactionCount = math.min(
-        _visibleTransactionCount + _transactionsPerPage,
-        _filteredTransactionCount,
-      );
-    });
-  }
-
-  void _selectFilter(String filter) {
-    if (_filter == filter) return;
-    setState(() {
-      _filter = filter;
-      _visibleTransactionCount = _transactionsPerPage;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final linked = state.hasFakeMayaLink;
-    final allTransactions = state.allTransactions.map(_txFromFakeMaya).toList();
-    allTransactions.sort((a, b) {
-      final aTime = a.occurredAt;
-      final bTime = b.occurredAt;
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-      return bTime.compareTo(aTime);
-    });
-    final filteredTransactions = allTransactions
-        .where((transaction) => transaction.matchesFilter(_filter))
-        .toList();
-    _filteredTransactionCount = filteredTransactions.length;
-    final hasOlderTransactions =
-        _visibleTransactionCount < _filteredTransactionCount;
-    final visibleGroups = _groupTransactionsByDate(
-      filteredTransactions.take(_visibleTransactionCount),
-    );
-
-    return Stack(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const PageHeader(eyebrow: 'EVERY MOVE', title: 'Activity'),
-            if (linked) ...[
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Tracking movement from ${state.fakeMayaLink!.email}',
-                        style: const TextStyle(
-                          color: _body,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => _refreshFakeMaya(context),
-                      icon: const Icon(Icons.sync_rounded, size: 18),
-                      label: const Text('Refresh'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 44,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                scrollDirection: Axis.horizontal,
-                itemCount: _filters.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, i) {
-                  final active = _filter == _filters[i];
-                  return GestureDetector(
-                    onTap: () => _selectFilter(_filters[i]),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: active ? _brand : _surface,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: active ? _brand : _border,
-                        ),
-                      ),
-                      child: Text(
-                        _filters[i],
-                        style: TextStyle(
-                          color: active ? Colors.white : _title,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: visibleGroups.isEmpty
-                  ? _EmptyActivity(linked: linked)
-                  : ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 96),
-                      children: [
-                        _ActivityCalendarSummary(transactions: allTransactions),
-                        const SizedBox(height: 18),
-                        ...visibleGroups.map((group) {
-                          final rows = group.$2;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              AppCard(
-                                padding: EdgeInsets.zero,
-                                child: Column(
-                                  children: [
-                                    _ActivityDateHeader(
-                                      label: group.$1,
-                                      transactions: rows,
-                                    ),
-                                    const Divider(height: 1, color: _border),
-                                    ...rows.asMap().entries.map((e) {
-                                      final tx = e.value;
-                                      final isLast = e.key == rows.length - 1;
-                                      return Column(
-                                        children: [
-                                          _ActivityRow(
-                                            data: tx,
-                                            onTap: tx.transaction == null
-                                                ? null
-                                                : () =>
-                                                    _showTransactionLabelSheet(
-                                                      context,
-                                                      tx.transaction!,
-                                                    ),
-                                          ),
-                                          if (!isLast)
-                                            const Divider(
-                                              height: 1,
-                                              color: _border,
-                                              indent: 70,
-                                            ),
-                                        ],
-                                      );
-                                    }),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                          );
-                        }),
-                        if (hasOlderTransactions)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 4, bottom: 12),
-                            child: Center(
-                              child: Text(
-                                'Scroll down to load older transactions',
-                                style: TextStyle(
-                                  color: _body,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-            ),
-          ],
-        ),
-        Positioned(
-          left: 20,
-          bottom: 16,
-          child: FloatingActionButton.extended(
-            heroTag: 'manual-transaction',
-            onPressed: () => _showManualTransactionSheet(context),
-            backgroundColor: _brand,
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Transaction'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _showManualTransactionSheet(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _ManualTransactionSheet(),
-    );
-  }
-
-  Future<void> _refreshFakeMaya(BuildContext context) async {
-    try {
-      await AppScope.of(context).refreshFakeMayaAccount();
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FakeMaya activity refreshed.')),
-      );
-    } on FakeMayaException catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
-    }
-  }
-
-  static List<(String, List<_TxData>)> _groupTransactionsByDate(
-    Iterable<_TxData> transactions,
-  ) {
-    final groups = <String, List<_TxData>>{};
-    for (final transaction in transactions) {
-      final label = _dateLabel(transaction.occurredAt);
-      groups.putIfAbsent(label, () => []).add(transaction);
-    }
-    return groups.entries.map((entry) => (entry.key, entry.value)).toList();
-  }
-
-  static String _dateLabel(DateTime? date) {
-    if (date == null) return 'Earlier';
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final year = date.year == DateTime.now().year ? '' : ', ${date.year}';
-    return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} '
-        '${date.day}$year';
-  }
-
-  Future<void> _showTransactionLabelSheet(
-    BuildContext context,
-    FakeMayaTransaction transaction,
-  ) async {
-    final state = AppScope.of(context);
-    final rule = state.transactionLabelRules[transaction.patternKey];
-    if (rule != null && !transaction.isLabeled) {
-      final useRule = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: _surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Text(
-            'Similar transaction',
-            style: GoogleFonts.fredoka(
-              color: _title,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                  'A similar transaction happened before. Is this the same?'),
-              const SizedBox(height: 10),
-              _TransactionDetailLine(label: 'Category', value: rule.category),
-              _TransactionDetailLine(label: 'Source', value: rule.source),
-              if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
-                _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
-              if (rule.tag != null && rule.tag!.isNotEmpty)
-                _TransactionDetailLine(label: 'Tag', value: rule.tag!),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No, I\'ll edit'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _brand),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Yes, same'),
-            ),
-          ],
-        ),
-      );
-      if (useRule == true && context.mounted) {
-        await state.labelFakeMayaTransaction(
-          transactionId: transaction.transactionId,
-          category: rule.category,
-          source: rule.source,
-          subcategory: rule.subcategory,
-          tag: rule.tag,
-          note: rule.note,
-        );
-        return;
-      }
-      if (!context.mounted) return;
-    }
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _TransactionLabelSheet(transaction: transaction),
-    );
-  }
-
-  static _TxData _txFromFakeMaya(FakeMayaTransaction tx) {
-    final amount = tx.amount;
-    final title = tx.title.toLowerCase();
-    final detail = tx.detail.toLowerCase();
-    if (title.contains('cash in') ||
-        title.contains('loan') ||
-        title.contains('opened')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.arrow_downward_rounded,
-        _brand,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
-    if (title.contains('sent') || title.contains('repayment')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.arrow_upward_rounded,
-        _red,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
-    if (title.contains('deposit') ||
-        detail.contains('savings') ||
-        detail.contains('goal')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.savings_rounded,
-        _purple,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
-    return _TxData(
-      tx.title,
-      _transactionSubtitle(tx),
-      amount,
-      amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
-      amount >= 0 ? _brand : _red,
-      age: tx.age,
-      source: tx.account ?? 'Wallet',
-      transaction: tx,
-    );
-  }
-
-  static String _transactionSubtitle(FakeMayaTransaction transaction) {
-    final detail = transaction.detail.trim();
-    final category = transaction.category?.trim() ?? '';
-    if (category.isEmpty || category.toLowerCase() == detail.toLowerCase()) {
-      return detail;
-    }
-    return '$detail • $category';
-  }
-}
 
 class _ActivityCalendarSummary extends StatefulWidget {
   const _ActivityCalendarSummary({required this.transactions});
