@@ -20,6 +20,8 @@ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
 fi
 if [[ -n "${GEMINI_PROXY_URL:-}" ]]; then
   defines+=(--dart-define="GEMINI_PROXY_URL=$GEMINI_PROXY_URL")
+elif [[ -n "${GEMINI_API_KEY:-}" ]]; then
+  defines+=(--dart-define="GEMINI_PROXY_URL=")
 fi
 defines+=(--dart-define="GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}")
 
