@@ -58,7 +58,7 @@ void main() {
     (name: '26_home_dashboard', widget: const DashboardPage()),
     (name: '27_home_insights', widget: const InsightsPage()),
     (name: '28_home_goals', widget: const GoalsPage()),
-    (name: '29_home_activity', widget: const ActivityPage()),
+    (name: '29_home_wallet', widget: const WalletPage()),
     (name: '30_home_you', widget: const ProfilePage()),
     (name: '31_user_selections', widget: const UserSelectionsScreen()),
     (name: '32_legacy_discovery', widget: const DiscoveryScreen()),

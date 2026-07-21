@@ -25,6 +25,7 @@ part 'core/app_scope.dart';
 part 'core/app_state.dart';
 part 'features/auth/auth_screens.dart';
 part 'features/home/home_screens.dart';
+part 'features/home/wallet_screen.dart';
 part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
 part 'services/fakemaya_service.dart';

@@ -94,17 +94,18 @@ void main() {
     );
   });
 
-  testWidgets('activity exposes the manual transaction sheet', (tester) async {
+  testWidgets('the global add-transaction button opens the manual transaction sheet',
+      (tester) async {
     await tester.pumpWidget(
       AppScope(
         state: AppState(),
-        child: const MaterialApp(home: Scaffold(body: ActivityPage())),
+        child: const MaterialApp(home: MainShell()),
       ),
     );
     await tester.pump();
 
-    expect(find.text('Transaction'), findsOneWidget);
-    await tester.tap(find.text('Transaction'));
+    expect(find.byTooltip('Add transaction'), findsOneWidget);
+    await tester.tap(find.byTooltip('Add transaction'));
     await tester.pumpAndSettle();
 
     expect(find.text('Log transaction'), findsOneWidget);
