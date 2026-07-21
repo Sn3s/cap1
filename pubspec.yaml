@@ -66,6 +66,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - .env
     - assets/images/shellby_wave.webp
     - assets/images/shellby_arms_out.webp
     - assets/images/healthy_shelby.png
