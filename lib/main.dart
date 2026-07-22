@@ -37,6 +37,7 @@ part 'shared/widgets/shared_widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _runtimeConfig = await _RuntimeConfig.load();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await ShellbyNotificationService.instance.initialize();
   runApp(const ShellbyApp());
@@ -65,13 +66,12 @@ const _localModelContextSize = int.fromEnvironment(
   'LOCAL_MODEL_CONTEXT_SIZE',
   defaultValue: 2048,
 );
-const _geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-const _geminiProxyUrl = String.fromEnvironment(
-  'GEMINI_PROXY_URL',
-  defaultValue:
-      'https://us-central1-shelby-1b1d8.cloudfunctions.net/geminiGenerateContent',
-);
-const _geminiModel = String.fromEnvironment(
+const _defaultGeminiProxyUrl =
+    'https://us-central1-shelby-1b1d8.cloudfunctions.net/geminiGenerateContent';
+const _dartDefineGeminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
+const _dartDefineGeminiProxyUrl = String.fromEnvironment('GEMINI_PROXY_URL');
+const _hasDartDefineGeminiProxyUrl = bool.hasEnvironment('GEMINI_PROXY_URL');
+const _dartDefineGeminiModel = String.fromEnvironment(
   'GEMINI_MODEL',
   defaultValue: 'gemini-3.1-flash-lite',
 );
@@ -84,6 +84,83 @@ const _geminiMaxRetries = int.fromEnvironment(
   defaultValue: 2,
 );
 const _onboardingPhaseTotal = 15;
+
+late final _RuntimeConfig _runtimeConfig;
+
+String get _geminiApiKey => _runtimeConfig.geminiApiKey;
+String get _geminiProxyUrl => _runtimeConfig.geminiProxyUrl;
+String get _geminiModel => _runtimeConfig.geminiModel;
+
+class _RuntimeConfig {
+  const _RuntimeConfig({
+    required this.geminiApiKey,
+    required this.geminiProxyUrl,
+    required this.geminiModel,
+  });
+
+  final String geminiApiKey;
+  final String geminiProxyUrl;
+  final String geminiModel;
+
+  static Future<_RuntimeConfig> load() async {
+    final env = await _loadDotEnvAsset();
+    final envApiKey = env['GEMINI_API_KEY'] ?? '';
+    final apiKey = _dartDefineGeminiApiKey.isNotEmpty
+        ? _dartDefineGeminiApiKey
+        : envApiKey;
+    final proxyUrl = _resolveGeminiProxyUrl(env, apiKey);
+    final envModel = env['GEMINI_MODEL'] ?? '';
+    final model = _dartDefineGeminiModel.isNotEmpty
+        ? _dartDefineGeminiModel
+        : envModel.isNotEmpty
+            ? envModel
+            : 'gemini-3.1-flash-lite';
+    return _RuntimeConfig(
+      geminiApiKey: apiKey,
+      geminiProxyUrl: proxyUrl,
+      geminiModel: model,
+    );
+  }
+
+  static String _resolveGeminiProxyUrl(
+    Map<String, String> env,
+    String apiKey,
+  ) {
+    if (_hasDartDefineGeminiProxyUrl) return _dartDefineGeminiProxyUrl;
+    final envProxyUrl = env['GEMINI_PROXY_URL'];
+    if (envProxyUrl != null) return envProxyUrl;
+    return apiKey.isNotEmpty ? '' : _defaultGeminiProxyUrl;
+  }
+}
+
+Future<Map<String, String>> _loadDotEnvAsset() async {
+  try {
+    final raw = await rootBundle.loadString('.env');
+    return _parseDotEnv(raw);
+  } on FlutterError {
+    return const {};
+  }
+}
+
+Map<String, String> _parseDotEnv(String raw) {
+  final values = <String, String>{};
+  for (final rawLine in const LineSplitter().convert(raw)) {
+    final line = rawLine.trim();
+    if (line.isEmpty || line.startsWith('#')) continue;
+    final equalsIndex = line.indexOf('=');
+    if (equalsIndex <= 0) continue;
+    final key = line.substring(0, equalsIndex).trim();
+    var value = line.substring(equalsIndex + 1).trim();
+    if (value.length >= 2) {
+      final quote = value[0];
+      if ((quote == '"' || quote == "'") && value.endsWith(quote)) {
+        value = value.substring(1, value.length - 1);
+      }
+    }
+    values[key] = value;
+  }
+  return values;
+}
 
 class ShellbyApp extends StatefulWidget {
   const ShellbyApp({super.key});

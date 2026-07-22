@@ -505,13 +505,6 @@ String _recommendedFrequency(AppState state) {
   return 'Monthly';
 }
 
-int _frequencyPeriodsPerMonth(String frequency) {
-  final normalized = frequency.toLowerCase();
-  if (normalized == 'weekly') return 4;
-  if (normalized.contains('2') && normalized.contains('week')) return 2;
-  return 1;
-}
-
 double _monthlyExpenseBase(AppState state) {
   if (state.cashFlowPyramidBaseline > 0) return state.cashFlowPyramidBaseline;
   final baseline = _baselineMoney(state, 'monthly_expenses');
@@ -579,6 +572,13 @@ double _emergencyTargetBase(AppState state) {
   if (baseline > 0) return baseline;
   if (state.emergencyFundTarget > 0) return state.emergencyFundTarget;
   return _monthlyEssentialBase(state) * 3;
+}
+
+double _investmentMonthlyContributionBase(AppState state) {
+  final income = math.max(1.0, _monthlyIncomeBase(state));
+  final surplus = math.max(0.0, _monthlySurplusBase(state));
+  if (surplus > 0) return math.min(surplus * 0.30, income * 0.15);
+  return math.max(500.0, income * 0.05);
 }
 
 double _minimumDebtPaymentBase(AppState state) {
@@ -732,8 +732,17 @@ List<String> _recommendationsForActionField(
         spread: 5, minimum: 5, maximum: 25);
   }
   if (action.id == 'A9' && field.key == 'amt') {
-    final periods = _frequencyPeriodsPerMonth(_recommendedFrequency(state));
-    return _moneyOptions(_emergencyMonthlyDepositBase(state) / periods);
+    return _moneyOptions(_emergencyMonthlyDepositBase(state));
+  }
+  if (action.id == 'A22' && field.key == 'months') {
+    final target = _emergencyTargetBase(state);
+    final essentials = math.max(1.0, _monthlyEssentialBase(state));
+    final recommended = math.max(3, (target / essentials).ceil());
+    return [
+      recommended,
+      math.max(recommended + 1, 6),
+      math.max(recommended + 3, 9),
+    ].map((value) => value.clamp(1, 12).toString()).toSet().toList();
   }
   if (action.id == 'A11' && field.key == 'pct') {
     final minimumPayment = math.max(1.0, _minimumDebtPaymentBase(state));
@@ -742,10 +751,29 @@ List<String> _recommendationsForActionField(
     return _percentOptions(recommended, spread: 5, minimum: 5, maximum: 30);
   }
   if (action.id == 'A12' && field.key == 'pct') {
-    final monthlyInvestment =
-        surplus > 0 ? math.min(surplus * 0.30, income * 0.15) : income * 0.05;
+    final monthlyInvestment = _investmentMonthlyContributionBase(state);
     return _percentOptions(monthlyInvestment / income * 100,
         spread: 5, minimum: 5, maximum: 20);
+  }
+  if (action.id == 'A23' && field.key == 'amt') {
+    return _moneyOptions(math.max(
+      state.investmentPortfolioTarget,
+      _baselineMoney(state, 'investment_balance') * 1.25,
+    ));
+  }
+  if (action.id == 'A24' && field.key == 'amt') {
+    final balance = math.max(
+      state.investmentBalance,
+      _baselineMoney(state, 'investment_balance'),
+    );
+    return _moneyOptions(math.max(500, balance * 0.01));
+  }
+  if (action.id == 'A25' && field.key == 'amt') {
+    final balance = math.max(
+      state.investmentBalance,
+      _baselineMoney(state, 'investment_balance'),
+    );
+    return _moneyOptions(math.max(500, balance * 0.03));
   }
   if (action.id == 'A13' && field.key == 'pct') {
     final debtHeavy =
@@ -784,13 +812,17 @@ List<String> _recommendationsForActionField(
     final recommended = _debtBalanceBase(state) > income * 3 ? 30 : 20;
     return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 50);
   }
-  if (action.id == 'A19' && field.key == 'months') {
-    final recommended = _recommendedEverydayFundMonths(state);
+  if (action.id == 'A19' && field.key == 'amt') {
+    final expenses = _monthlyExpenseBase(state);
+    final recommended = expenses * _recommendedEverydayFundMonths(state);
     return [
       recommended,
-      math.min(12, recommended + 1),
-      math.min(12, recommended + 2),
-    ].map((value) => value.toString()).toSet().toList();
+      recommended + expenses,
+      recommended + (expenses * 2),
+    ]
+        .map((value) => ((value / 500).ceil() * 500).toStringAsFixed(0))
+        .toSet()
+        .toList();
   }
   if (action.id == 'A21' && field.key == 'days') {
     final essentials = _monthlyEssentialBase(state);
@@ -857,11 +889,19 @@ String _recommendationFormulaForActionField(
     'A8' =>
       '$value: monthly emergency-fund catch-up need divided by monthly income.',
     'A9' =>
-      '$value: monthly emergency-fund catch-up need divided by your deposit frequency.',
+      '$value: monthly emergency-fund catch-up need based on your target gap.',
+    'A22' =>
+      '$value: Emergency Fund target divided by monthly essential expenses.',
     'A11' =>
       '$value: 25% of monthly surplus (${money(math.max(0.0, surplus))}) divided by minimum debt payment.',
     'A12' =>
-      '$value: invest up to 30% of surplus, capped at 15% of monthly income.',
+      '$value: based on a sustainable share of monthly income and available surplus.',
+    'A23' =>
+      '$value: a meaningful next portfolio milestone above your current investment balance.',
+    'A24' =>
+      '$value: about 1% of your current portfolio balance as a monthly earnings target.',
+    'A25' =>
+      '$value: about 3% of your current portfolio balance as a monthly loss limit.',
     'A13' =>
       '$value: lower if cash is tight, higher when debt is heavier than investments.',
     'A14' =>
@@ -875,7 +915,7 @@ String _recommendationFormulaForActionField(
     'A18' =>
       '$value: 30% when debt is above 3 months of income, otherwise 20%.',
     'A19' =>
-      '$value: 2 months if income is irregular, cash is tight, or starting cash is low; otherwise 1 month.',
+      '$value: monthly expenses multiplied by the recommended Everyday Fund buffer.',
     'A20' =>
       '$value: max(current income, expenses + max(10% expense cushion, Everyday Fund gap divided by 6)).',
     _ =>
@@ -1282,19 +1322,17 @@ const _d2Actions = <String, D2Action>{
       ]),
   'A8': D2Action(
       id: 'A8',
-      text: 'Transfer X% of every income received into an Emergency Fund.',
+      text: 'Set aside X% of each income for the Emergency Fund.',
       fields: [
         ActionField(
             key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)
       ]),
   'A9': D2Action(
       id: 'A9',
-      text:
-          'Deposit at least ₱X into the Emergency Fund every X days/weeks/months.',
+      text: 'Deposit at least ₱X into the Emergency Fund each month.',
       fields: [
         ActionField(
             key: 'amt', label: 'Minimum deposit (₱)', hint: 'e.g. 1000'),
-        ActionField(key: 'freq', label: 'Frequency', hint: 'e.g. monthly')
       ]),
   'A10': D2Action(
       id: 'A10',
@@ -1316,8 +1354,7 @@ const _d2Actions = <String, D2Action>{
       ]),
   'A12': D2Action(
       id: 'A12',
-      text:
-          'Invest X% of every income received into selected investment accounts.',
+      text: 'Allocate X% of each income to the Investment Portfolio.',
       fields: [
         ActionField(
             key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)
@@ -1345,6 +1382,27 @@ const _d2Actions = <String, D2Action>{
       fields: [
         ActionField(
             key: 'amt', label: 'Contribution increase (₱)', hint: 'e.g. 500')
+      ]),
+  'A23': D2Action(
+      id: 'A23',
+      text: 'Build the Investment Portfolio to ₱X.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Portfolio value target (₱)', hint: 'e.g. 50000')
+      ]),
+  'A24': D2Action(
+      id: 'A24',
+      text: 'Earn at least ₱X from investments this month.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 1000')
+      ]),
+  'A25': D2Action(
+      id: 'A25',
+      text: 'Keep investment losses below ₱X this month.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Monthly loss limit (₱)', hint: 'e.g. 1000')
       ]),
   'A16': D2Action(
       id: 'A16',
@@ -1383,14 +1441,19 @@ const _d2Actions = <String, D2Action>{
   'A19': D2Action(
       id: 'A19',
       text:
-          'Keep at least X months worth of expenses available in your Everyday Fund at all times.',
+          'Keep at least ₱X available in your Everyday Fund so essentials stay covered even before the next income arrives.',
       fields: [
-        ActionField(key: 'months', label: 'Months of expenses', hint: 'e.g. 2')
+        ActionField(
+            key: 'amt', label: 'Everyday Fund minimum (₱)', hint: 'e.g. 30000')
       ]),
-  'A20': D2Action(id: 'A20', text: 'Earn ₱X a month.', fields: [
-    ActionField(
-        key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 25000')
-  ]),
+  'A20': D2Action(
+      id: 'A20',
+      text:
+          'Bring in at least ₱X this month from income, side gigs, or other cash-in so your available cash target stays on pace.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Monthly cash-in target (₱)', hint: 'e.g. 25000')
+      ]),
   'A21': D2Action(
       id: 'A21',
       text:
@@ -1398,17 +1461,26 @@ const _d2Actions = <String, D2Action>{
       fields: [
         ActionField(key: 'days', label: 'Days of expenses', hint: 'e.g. 14')
       ]),
+  'A22': D2Action(
+      id: 'A22',
+      text:
+          'Build your Emergency Fund to cover X months of essential expenses.',
+      fields: [
+        ActionField(key: 'months', label: 'Months of expenses', hint: 'e.g. 3')
+      ]),
 };
 
-const _availableCashGoalActionIds = ['A1', 'A3'];
+const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
+const _emergencyFundGoalActionIds = ['A9', 'A8', 'A22', 'A10'];
+const _investmentGoalActionIds = ['A12', 'A23', 'A24', 'A25'];
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{
   'G1': _availableCashGoalActionIds,
   'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
-  'G3': ['A7', 'A8', 'A9', 'A10'],
+  'G3': _emergencyFundGoalActionIds,
   'G4': ['A1', 'A2', 'A4', 'A5', 'A10'],
-  'G5': ['A11', 'A12', 'A13', 'A14', 'A15'],
+  'G5': _investmentGoalActionIds,
   'G6': ['A11', 'A13', 'A14', 'A18'],
   'G7': ['A12', 'A15', 'A16', 'A17', 'A18'],
   'G8': ['A2', 'A3', 'A16', 'A17'],
@@ -1446,6 +1518,8 @@ const _planDataPoints = <String, PlanDataPoint>{
   'D22': PlanDataPoint('D22', 'Indicator', 'Contribution compliance rate'),
   'D23': PlanDataPoint('D23', 'Indicator', 'Budget adherence rate'),
   'D24': PlanDataPoint('D24', 'Indicator', 'Monthly cash flow balance'),
+  'D25': PlanDataPoint('D25', 'Source', 'Investment earnings amount'),
+  'D26': PlanDataPoint('D26', 'Source', 'Investment loss amount'),
 };
 
 const _actionDataMatrix = <String, List<String>>{
@@ -1492,6 +1566,9 @@ const _actionDataMatrix = <String, List<String>>{
     'D24'
   ],
   'A15': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20', 'D22'],
+  'A23': ['D1', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20'],
+  'A24': ['D1', 'D16', 'D20', 'D25'],
+  'A25': ['D1', 'D16', 'D20', 'D26'],
   'A16': [
     'D1',
     'D3',
@@ -1522,6 +1599,7 @@ const _actionDataMatrix = <String, List<String>>{
   ],
   'A19': ['D1', 'D5', 'D10', 'D18', 'D24'],
   'A20': ['D1', 'D4', 'D10', 'D24'],
+  'A22': ['D1', 'D5', 'D10', 'D11', 'D19'],
 };
 
 class BaselineField {
@@ -1614,6 +1692,7 @@ const _actionBaselineMatrix = <String, List<String>>{
   'A8': ['emergency_balance', 'emergency_target', 'essential_expenses'],
   'A9': ['emergency_balance', 'emergency_target'],
   'A10': ['emergency_balance'],
+  'A22': ['emergency_balance', 'emergency_target', 'essential_expenses'],
   'A11': ['debt_balance', 'minimum_debt_payment', 'debt_cycle'],
   'A12': ['investment_balance', 'income_baseline'],
   'A13': ['debt_balance', 'investment_balance', 'income_baseline'],
@@ -1624,6 +1703,9 @@ const _actionBaselineMatrix = <String, List<String>>{
     'investment_balance'
   ],
   'A15': ['income_baseline', 'investment_balance'],
+  'A23': ['investment_balance'],
+  'A24': ['investment_balance'],
+  'A25': ['investment_balance'],
   'A16': ['goals', 'income_baseline'],
   'A17': ['goals'],
   'A18': ['goals', 'debt_balance'],
@@ -2658,6 +2740,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     state.actionFieldValues
       ..clear()
       ..addAll(_actionConfigValues);
+    for (final actionId in selectedActionIds) {
+      final action = _d2Actions[actionId];
+      if (action == null || !action.hasFields) continue;
+      state.actionFieldValues.putIfAbsent(
+        actionId,
+        () => _initialActionFieldValues(state, action),
+      );
+    }
     state.setMotivation('${goal.title}. ${goal.description}');
     state.setGuidedChatSummary(
       surface: _summarySentence(_firstAnswer(0), _surfacePhrase),
@@ -2669,6 +2759,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     );
     messages.add(ChatMessage(false,
         "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
+    unawaited(state.saveProfile());
   }
 
   void resetGuidedChat() {
@@ -3025,11 +3116,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
     final state = AppScope.of(context);
     _values = [
       for (final action in widget.actions)
-        {
-          for (final field in action.fields)
-            field.key:
-                _recommendationsForActionField(state, action, field).first
-        },
+        _initialActionFieldValues(state, action),
     ];
     _seeded = true;
   }
@@ -4056,14 +4143,7 @@ String _configuredActionText(D2Action action, Map<String, String> values) {
   if (action.id == 'A9') {
     final amount =
         values['amt'] ?? _recommendationsForField(action.fields[0]).first;
-    final frequency =
-        values['freq'] ?? _recommendationsForField(action.fields[1]).first;
-    final timing = frequency.toLowerCase().startsWith('every')
-        ? frequency.toLowerCase()
-        : frequency.toLowerCase() == 'weekly'
-            ? 'every week'
-            : 'every month';
-    return 'Deposit at least ₱$amount into the Emergency Fund $timing.';
+    return 'Deposit at least ₱$amount into the Emergency Fund each month.';
   }
   var text = action.text;
   for (final field in action.fields) {
@@ -4072,6 +4152,18 @@ String _configuredActionText(D2Action action, Map<String, String> values) {
     text = text.replaceFirst('X', replacement);
   }
   return text;
+}
+
+Map<String, String> _initialActionFieldValues(
+  AppState state,
+  D2Action action, [
+  Map<String, String> existing = const {},
+]) {
+  return {
+    for (final field in action.fields)
+      field.key: existing[field.key] ??
+          _recommendationsForActionField(state, action, field).first,
+  };
 }
 
 class _RecommendedPlanSection extends StatelessWidget {
@@ -4181,6 +4273,8 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'Confirm the Everyday Fund account or bucket and keep income, expense, and available cash balances connected or updated.',
     'A20' =>
       'Keep income sources connected or logged, including new side income or salary changes Shellby cannot import automatically.',
+    'A22' =>
+      'Confirm the Emergency Fund account or bucket and keep essential expense estimates connected or updated.',
     'A10' =>
       'Mark Emergency Fund withdrawals and confirm the income deposit that starts the replenishment window.',
     'A11' ||
@@ -4189,8 +4283,12 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'Connect or enter the relevant debt balances and payments, then confirm any extra payment Shellby cannot detect.',
     'A12' ||
     'A14' ||
-    'A15' =>
+    'A15' ||
+    'A23' =>
       'Connect or enter the investment account and confirm contributions that are not imported automatically.',
+    'A24' ||
+    'A25' =>
+      'Keep the investment account connected or record portfolio gains and losses that Shellby cannot import automatically.',
     'A16' ||
     'A17' =>
       'Choose the goal fund, target date, and destination bucket, then confirm transfers that are not imported.',
@@ -4213,7 +4311,6 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A7' ||
     'A8' ||
     'A9' ||
-    'A12' ||
     'A13' ||
     'A14' ||
     'A15' ||
@@ -4221,6 +4318,14 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A17' ||
     'A18' =>
       'When matching money arrives, Shellby calculates the configured amount, suggests the transfer, records its source and destination, and updates $indicatorText.',
+    'A12' =>
+      'When income arrives, Shellby calculates the configured investment contribution, records the transfer to the Investment Portfolio, and updates $indicatorText.',
+    'A23' =>
+      'Shellby compares the current Investment Portfolio value with the configured target, tracks the remaining gap, and updates $indicatorText.',
+    'A24' =>
+      'Shellby totals investment gains recorded this month, compares them with the configured earnings target, and updates $indicatorText.',
+    'A25' =>
+      'Shellby totals investment losses recorded this month, shows how much of the configured loss limit remains, and warns when it is reached.',
     'A2' ||
     'A3' =>
       'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',
@@ -4228,6 +4333,8 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'Shellby uses your monthly expense baseline to calculate the Everyday Fund target, compares it with available cash, and reminds you when the fund drops below the configured months.',
     'A20' =>
       'Shellby compares detected monthly income with the configured earnings target, tracks the monthly gap or surplus, and updates $indicatorText.',
+    'A22' =>
+      'Shellby multiplies monthly essential expenses by the configured months, compares the target with the Emergency Fund balance, and updates $indicatorText.',
     'A5' =>
       'Shellby counts backward from each due date, reminds you when payment should happen, detects or asks for confirmation, and updates $indicatorText.',
     'A10' =>
@@ -5768,6 +5875,11 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     );
     if (selected == null) return;
     final actionIds = _goalActionIds[selected.id] ?? const <String>[];
+    final initialValues = <String, Map<String, String>>{
+      for (final id in actionIds)
+        if ((_d2Actions[id]?.hasFields ?? false))
+          id: _initialActionFieldValues(state, _d2Actions[id]!),
+    };
     setState(() {
       state.selectedGoalId = selected.id;
       state.setRecommendedGoal(
@@ -5775,9 +5887,12 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
           description: selected.description,
           monthlyTarget: 0);
       state.configureGoalActions(actionIds: actionIds);
-      state.actionFieldValues.clear();
+      state.actionFieldValues
+        ..clear()
+        ..addAll(initialValues);
       state.updateGuidedChatSummary(goalFocus: selected.title);
     });
+    await state.saveProfile();
   }
 
   Future<void> _editActions(BuildContext context) async {
@@ -5833,18 +5948,23 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     setState(() {
       state.configureGoalActions(actionIds: actionIds.where(result.contains));
       state.actionFieldValues.removeWhere((id, _) => !result.contains(id));
+      for (final id in result) {
+        final action = _d2Actions[id];
+        if (action == null || !action.hasFields) continue;
+        state.actionFieldValues.putIfAbsent(
+          id,
+          () => _initialActionFieldValues(state, action),
+        );
+      }
     });
+    await state.saveProfile();
   }
 
   Future<void> _editActionDetails(BuildContext context, D2Action action) async {
     if (!action.hasFields) return;
     final existing =
         state.actionFieldValues[action.id] ?? const <String, String>{};
-    final values = {
-      for (final field in action.fields)
-        field.key: existing[field.key] ??
-            _recommendationsForActionField(state, action, field).first,
-    };
+    final values = _initialActionFieldValues(state, action, existing);
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -5892,6 +6012,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     );
     if (result == null) return;
     setState(() => state.actionFieldValues[action.id] = result);
+    await state.saveProfile();
   }
 
   Future<void> _editMulti({

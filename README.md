@@ -26,12 +26,17 @@ the app will use the bundled Qwen fallback.
 
 Do not commit Gemini API keys or hardcode them in the Flutter app.
 
-For local direct Gemini testing without committing a key, create a gitignored
-`.env` from `.env.example`, then run:
+For phone builds that should keep Gemini configured after installation, create
+a gitignored `.env` from `.env.example`, then run Flutter normally:
 
 ```powershell
-scripts/run_gemini.sh emulator-5554
+flutter run --release -d <phone-device-id>
 ```
+
+Release builds bundle the local `.env` asset, so `GEMINI_API_KEY`,
+`GEMINI_PROXY_URL`, and `GEMINI_MODEL` are picked up automatically without
+`scripts/run_gemini.sh`. If `GEMINI_API_KEY` is present and `GEMINI_PROXY_URL`
+is not, the app calls Gemini directly.
 
 To override the Gemini proxy URL or model, pass dart defines:
 

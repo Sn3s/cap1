@@ -10,5 +10,4 @@ Checking for npm/bin/npm-cli install at /Users/yco/.cache/firebase/tools/lib/nod
 Checking for npm/bin/npm-cli install at /Users/yco/.cache/firebase/tools/node_modules/npm/bin/npm-cli
 Checking for npm/bin/npm-cli install at /snapshot/firepit/node_modules/npm/bin/npm-cli
 Found npm/bin/npm-cli install.
-ShellJSInternalError: EPERM: operation not permitted, chmod '/Users/yco/.cache/firebase/runtime/shell'
-Error: EPERM: operation not permitted, open '/Users/yco/.cache/firebase/runtime/shell'
+ShellJSInternalError: ENOENT: no such file or directory, chmod '/Users/yco/.cache/firebase/runtime/node.bat'
