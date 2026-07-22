@@ -1569,6 +1569,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> depositMonthlyEmergencyFund(double amount) async {
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
+    emergencyFundBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'emergency_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'destination': 'Emergency Fund',
+      'label': 'Monthly Emergency Fund deposit',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
   bool hasInvestmentAllocationForIncome(String transactionId) =>
       d1Ledger.any((entry) =>
           entry['type'] == 'investment_deposit' &&
@@ -1588,9 +1604,34 @@ class AppState extends ChangeNotifier {
     var total = 0.0;
     for (final entry in d1Ledger) {
       final type = entry['type'];
-      if (type != 'investment_deposit' && type != 'investment_sweep') {
+      if (type != 'investment_deposit' &&
+          type != 'investment_sweep' &&
+          type != 'investment_monthly' &&
+          type != 'investment_windfall') {
         continue;
       }
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date != null && date.year == now.year && date.month == now.month) {
+        total += (entry['amount'] as num?)?.toDouble() ?? 0;
+      }
+    }
+    return total;
+  }
+
+  double get investmentEarningsThisMonth =>
+      _investmentPerformanceTotalForCurrentMonth('investment_gain');
+
+  double get investmentLossesThisMonth =>
+      _investmentPerformanceTotalForCurrentMonth('investment_loss');
+
+  double get investmentNetReturnThisMonth =>
+      investmentEarningsThisMonth - investmentLossesThisMonth;
+
+  double _investmentPerformanceTotalForCurrentMonth(String type) {
+    final now = DateTime.now();
+    var total = 0.0;
+    for (final entry in d1Ledger) {
+      if (entry['type'] != type) continue;
       final date = DateTime.tryParse(entry['date']?.toString() ?? '');
       if (date != null && date.year == now.year && date.month == now.month) {
         total += (entry['amount'] as num?)?.toDouble() ?? 0;
@@ -1622,6 +1663,100 @@ class AppState extends ChangeNotifier {
       'percentage': percentage,
       'amount': amount,
       'destination': 'Investment Portfolio',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositMonthlyInvestment(double amount) async {
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    investmentBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'investment_monthly',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'destination': 'Investment Portfolio',
+      'label': 'Monthly investment contribution',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> recordInvestmentPerformance({
+    required double amount,
+    required bool isGain,
+  }) async {
+    if (amount <= 0) return;
+    final appliedAmount = isGain ? amount : math.min(amount, investmentBalance);
+    if (appliedAmount <= 0) return;
+    investmentBalance += isGain ? appliedAmount : -appliedAmount;
+    d1Ledger.insert(0, {
+      'type': isGain ? 'investment_gain' : 'investment_loss',
+      'date': DateTime.now().toIso8601String(),
+      'amount': appliedAmount,
+      'balance': investmentBalance,
+      'destination': 'Investment Portfolio',
+      'label': isGain ? 'Investment earnings' : 'Investment loss',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  bool hasInvestmentWindfallAllocation(String transactionId) =>
+      d1Ledger.any((entry) =>
+          entry['type'] == 'investment_windfall' &&
+          entry['sourceTransactionId'] == transactionId);
+
+  Future<void> depositWindfallToInvestment({
+    required String transactionId,
+    required double cashInAmount,
+    required DateTime cashInDate,
+    double percentage = 50,
+  }) async {
+    if (cashInAmount <= 0 || hasInvestmentWindfallAllocation(transactionId)) {
+      return;
+    }
+    final amount = cashInAmount * percentage.clamp(0, 100) / 100;
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    investmentBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'investment_windfall',
+      'date': DateTime.now().toIso8601String(),
+      'sourceDate': cashInDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'cashInAmount': cashInAmount,
+      'percentage': percentage,
+      'amount': amount,
+      'destination': 'Investment Portfolio',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  DateTime? get lastInvestmentReviewDate {
+    DateTime? latest;
+    for (final entry in d1Ledger) {
+      if (entry['type'] != 'investment_review') continue;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date == null) continue;
+      if (latest == null || date.isAfter(latest)) latest = date;
+    }
+    return latest;
+  }
+
+  Future<void> markInvestmentPortfolioReviewed(
+      {required int intervalDays}) async {
+    d1Ledger.insert(0, {
+      'type': 'investment_review',
+      'date': DateTime.now().toIso8601String(),
+      'intervalDays': intervalDays,
+      'balance': investmentBalance,
+      'destination': 'Investment Portfolio',
+      'label': 'Portfolio reviewed',
     });
     await saveProfile();
     notifyListeners();

@@ -8544,8 +8544,7 @@ const _d1GoalMetas = <_D1GoalMeta>[
     actions: [
       _D1ActionMeta(
         id: 'A12',
-        text:
-            'Invest 10% of every income received into selected investment accounts.',
+        text: 'Allocate 10% of each income to the Investment Portfolio.',
         configLabel: 'Allocation',
         configValue: '10% of income',
         destBucket: 'Investment Portfolio',
@@ -9186,8 +9185,26 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   BuildContext context,
   _D1GoalMeta goal,
 ) {
-  if (goal.id != 'G1') return goal.actions;
   final state = AppScope.of(context);
+  if (goal.id == 'G3') {
+    final selected = state.selectedActionIds
+        .where(_emergencyFundGoalActionIds.contains)
+        .toList();
+    final ids = selected.isEmpty ? _emergencyFundGoalActionIds : selected;
+    return [
+      for (final id in ids) _emergencyFundD1ActionMeta(id, state),
+    ].whereType<_D1ActionMeta>().toList();
+  }
+  if (goal.id == 'G5') {
+    final selected = state.selectedActionIds
+        .where(_investmentGoalActionIds.contains)
+        .toList();
+    final ids = selected.isEmpty ? _investmentGoalActionIds : selected;
+    return [
+      for (final id in ids) _investmentD1ActionMeta(id, state),
+    ].whereType<_D1ActionMeta>().toList();
+  }
+  if (goal.id != 'G1') return goal.actions;
   final selected = state.selectedActionIds
       .where(_availableCashGoalActionIds.contains)
       .toList();
@@ -9195,6 +9212,382 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   return [
     for (final id in ids) _availableCashD1ActionMeta(id, state),
   ].whereType<_D1ActionMeta>().toList();
+}
+
+_D1ActionMeta? _emergencyFundD1ActionMeta(String id, AppState state) {
+  final values = _configuredActionValues(state, id);
+  final current = state.displayedEmergencyFundBalance;
+  final monthlyEssentials = math.max(1.0, state.monthlyEssentialExpenseTotal);
+  final monthsCovered = current / monthlyEssentials;
+  if (id == 'A9') {
+    final amount = double.tryParse(
+          (values['amt'] ?? '').replaceAll(',', '').trim(),
+        ) ??
+        _emergencyMonthlyDepositBase(state);
+    final deposited = _currentMonthEmergencyDeposits(state);
+    return _D1ActionMeta(
+      id: 'A9',
+      text:
+          'Deposit at least ${money(amount)} into the Emergency Fund each month.',
+      configLabel: 'Monthly deposit',
+      configValue: money(amount),
+      destBucket: 'Emergency Fund',
+      metrics: [
+        (
+          label: 'Deposited this month',
+          value: money(deposited),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Monthly target',
+          value: money(amount),
+          icon: Icons.flag_rounded
+        ),
+        (
+          label: 'Fund balance',
+          value: money(current),
+          icon: Icons.shield_rounded
+        ),
+        (
+          label: 'Months covered',
+          value: monthsCovered.toStringAsFixed(1),
+          icon: Icons.calendar_month_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Emergency Fund monthly deposit',
+          type: 'S',
+          value: money(amount)
+        ),
+        (label: 'Emergency Fund balance', type: 'S', value: money(current)),
+        (
+          label: 'Emergency Fund coverage',
+          type: 'I',
+          value: '${monthsCovered.toStringAsFixed(1)} months'
+        ),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A8') {
+    final pct =
+        double.tryParse((values['pct'] ?? '').replaceAll(',', '').trim()) ?? 10;
+    return _D1ActionMeta(
+      id: 'A8',
+      text:
+          'Set aside ${pct.toStringAsFixed(0)}% of each income for the Emergency Fund.',
+      configLabel: 'Allocation',
+      configValue: '${pct.toStringAsFixed(0)}% of income',
+      destBucket: 'Emergency Fund',
+      metrics: [
+        (
+          label: 'Fund coverage',
+          value: '${monthsCovered.toStringAsFixed(1)} months',
+          icon: Icons.shield_rounded
+        ),
+        (
+          label: 'Fund balance',
+          value: money(current),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Pending replenish',
+          value: money(state.pendingEmergencyReplenishment),
+          icon: Icons.restore_rounded
+        ),
+        (
+          label: 'Wallet available',
+          value: money(state.unallocatedFakeMayaWallet),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Income transaction', type: 'S', value: 'Latest income'),
+        (
+          label: 'Transfer percentage',
+          type: 'I',
+          value: '${pct.toStringAsFixed(0)}%'
+        ),
+        (label: 'Emergency Fund balance', type: 'S', value: money(current)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A22') {
+    final months =
+        double.tryParse((values['months'] ?? '').replaceAll(',', '').trim()) ??
+            3;
+    final target = monthlyEssentials * months;
+    return _D1ActionMeta(
+      id: 'A22',
+      text:
+          'Build your Emergency Fund to cover ${months.toStringAsFixed(0)} months of essential expenses.',
+      configLabel: 'Coverage target',
+      configValue: '${months.toStringAsFixed(0)} months',
+      destBucket: 'Emergency Fund',
+      metrics: [
+        (
+          label: 'Fund balance',
+          value: money(current),
+          icon: Icons.savings_rounded
+        ),
+        (label: 'Target', value: money(target), icon: Icons.flag_rounded),
+        (
+          label: 'Months covered',
+          value: monthsCovered.toStringAsFixed(1),
+          icon: Icons.calendar_month_rounded
+        ),
+        (
+          label: 'Gap',
+          value: money(math.max(0.0, target - current)),
+          icon: Icons.trending_up_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Monthly essential expenses',
+          type: 'S',
+          value: money(monthlyEssentials)
+        ),
+        (label: 'Emergency Fund target', type: 'S', value: money(target)),
+        (
+          label: 'Emergency Fund coverage',
+          type: 'I',
+          value: '${monthsCovered.toStringAsFixed(1)} months'
+        ),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A10') {
+    final days =
+        double.tryParse((values['days'] ?? '').replaceAll(',', '').trim()) ?? 7;
+    return _D1ActionMeta(
+      id: 'A10',
+      text:
+          'Replenish withdrawn Emergency Fund amounts within ${days.toStringAsFixed(0)} days after receiving income.',
+      configLabel: 'Replenish within',
+      configValue: '${days.toStringAsFixed(0)} days of income',
+      destBucket: 'Emergency Fund',
+      metrics: [
+        (
+          label: 'Pending replenish',
+          value: money(state.pendingEmergencyReplenishment),
+          icon: Icons.restore_rounded
+        ),
+        (
+          label: 'Fund balance',
+          value: money(current),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Fund coverage',
+          value: '${monthsCovered.toStringAsFixed(1)} months',
+          icon: Icons.shield_rounded
+        ),
+        (
+          label: 'Wallet available',
+          value: money(state.unallocatedFakeMayaWallet),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Emergency Fund withdrawal',
+          type: 'S',
+          value: money(state.pendingEmergencyReplenishment)
+        ),
+        (
+          label: 'Replenishment window',
+          type: 'I',
+          value: '${days.toStringAsFixed(0)} days'
+        ),
+        (label: 'Emergency Fund balance', type: 'S', value: money(current)),
+      ],
+      activityLog: const [],
+    );
+  }
+  return null;
+}
+
+_D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
+  final values = _configuredActionValues(state, id);
+  final balance = state.investmentBalance;
+  if (id == 'A12') {
+    final pct =
+        double.tryParse((values['pct'] ?? '').replaceAll(',', '').trim()) ?? 10;
+    final latestIncome = _latestIncomeTransaction(state);
+    final contribution = (latestIncome?.amount ?? 0) * pct / 100;
+    final done = latestIncome != null &&
+        state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
+    return _D1ActionMeta(
+      id: 'A12',
+      text:
+          'Allocate ${pct.toStringAsFixed(0)}% of each income to the Investment Portfolio.',
+      configLabel: 'Income allocation',
+      configValue: '${pct.toStringAsFixed(0)}% of income',
+      destBucket: 'Investment Portfolio',
+      metrics: [
+        (
+          label: 'Portfolio balance',
+          value: money(balance),
+          icon: Icons.show_chart_rounded
+        ),
+        (
+          label: 'Latest contribution',
+          value: money(contribution),
+          icon: Icons.trending_up_rounded
+        ),
+        (
+          label: 'Latest income handled',
+          value: done ? 'Yes' : 'No',
+          icon: Icons.verified_rounded
+        ),
+        (
+          label: 'Wallet available',
+          value: money(state.unallocatedFakeMayaWallet),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Income transaction',
+          type: 'S',
+          value: latestIncome == null
+              ? 'None detected'
+              : money(latestIncome.amount)
+        ),
+        (label: 'Contribution amount', type: 'S', value: money(contribution)),
+        (label: 'Investment account balance', type: 'S', value: money(balance)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A23') {
+    final amount = double.tryParse(
+          (values['amt'] ?? '').replaceAll(',', '').trim(),
+        ) ??
+        state.investmentPortfolioTarget;
+    final remaining = math.max(0.0, amount - balance);
+    return _D1ActionMeta(
+      id: 'A23',
+      text: 'Build the Investment Portfolio to ${money(amount)}.',
+      configLabel: 'Portfolio target',
+      configValue: money(amount),
+      destBucket: 'Investment Portfolio',
+      metrics: [
+        (
+          label: 'Portfolio balance',
+          value: money(balance),
+          icon: Icons.show_chart_rounded
+        ),
+        (
+          label: 'Portfolio target',
+          value: money(amount),
+          icon: Icons.flag_rounded
+        ),
+        (
+          label: 'Remaining',
+          value: money(remaining),
+          icon: Icons.timelapse_rounded
+        ),
+        (
+          label: 'Progress',
+          value:
+              '${amount <= 0 ? 0 : (balance / amount * 100).clamp(0, 100).round()}%',
+          icon: Icons.insights_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Investment account balance', type: 'S', value: money(balance)),
+        (label: 'Portfolio value target', type: 'I', value: money(amount)),
+        (label: 'Remaining portfolio gap', type: 'I', value: money(remaining)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A24') {
+    final target =
+        double.tryParse((values['amt'] ?? '').replaceAll(',', '').trim()) ??
+            1000;
+    final earned = state.investmentEarningsThisMonth;
+    final remaining = math.max(0.0, target - earned);
+    return _D1ActionMeta(
+      id: 'A24',
+      text: 'Earn at least ${money(target)} from investments this month.',
+      configLabel: 'Monthly earnings target',
+      configValue: money(target),
+      destBucket: 'Investment Portfolio',
+      metrics: [
+        (
+          label: 'Earned this month',
+          value: money(earned),
+          icon: Icons.trending_up_rounded
+        ),
+        (
+          label: 'Earnings target',
+          value: money(target),
+          icon: Icons.flag_rounded
+        ),
+        (
+          label: 'Still needed',
+          value: money(remaining),
+          icon: Icons.timelapse_rounded
+        ),
+        (
+          label: 'Portfolio balance',
+          value: money(balance),
+          icon: Icons.show_chart_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Investment earnings', type: 'S', value: money(earned)),
+        (label: 'Monthly earnings target', type: 'I', value: money(target)),
+        (label: 'Investment account balance', type: 'S', value: money(balance)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A25') {
+    final limit =
+        double.tryParse((values['amt'] ?? '').replaceAll(',', '').trim()) ??
+            1000;
+    final losses = state.investmentLossesThisMonth;
+    final remaining = math.max(0.0, limit - losses);
+    return _D1ActionMeta(
+      id: 'A25',
+      text: 'Keep investment losses below ${money(limit)} this month.',
+      configLabel: 'Monthly loss limit',
+      configValue: money(limit),
+      destBucket: 'Investment Portfolio',
+      metrics: [
+        (
+          label: 'Losses this month',
+          value: money(losses),
+          icon: Icons.trending_down_rounded
+        ),
+        (label: 'Loss limit', value: money(limit), icon: Icons.flag_rounded),
+        (
+          label: losses >= limit ? 'Limit exceeded' : 'Room remaining',
+          value: money(remaining),
+          icon: losses >= limit ? Icons.warning_rounded : Icons.shield_rounded
+        ),
+        (
+          label: 'Net return this month',
+          value: money(state.investmentNetReturnThisMonth),
+          icon: Icons.insights_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Investment losses', type: 'S', value: money(losses)),
+        (label: 'Monthly loss limit', type: 'I', value: money(limit)),
+        (label: 'Investment account balance', type: 'S', value: money(balance)),
+      ],
+      activityLog: const [],
+    );
+  }
+  return null;
 }
 
 _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
@@ -9936,20 +10329,27 @@ class _GrowInvestmentsSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final balance = state.investmentBalance;
-    final target = state.investmentPortfolioTarget;
-    final investedThisMonth = state.investedThisMonth;
+    final target =
+        _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
+    final earningsTarget = _configuredActionAmount(state, 'A24', 1000);
+    final lossLimit = _configuredActionAmount(state, 'A25', 1000);
+    final earnings = state.investmentEarningsThisMonth;
+    final losses = state.investmentLossesThisMonth;
     final latestIncome = _latestIncomeTransaction(state);
     final contributionMade = latestIncome != null &&
         state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
-    final sweepDone = state.hasInvestmentSweepForCurrentMonth;
     final targetProgress =
         target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    final earningsProgress =
+        earningsTarget <= 0 ? 0.0 : (earnings / earningsTarget).clamp(0.0, 1.0);
     final contributionScore = contributionMade ? 1.0 : 0.0;
-    final sweepScore = sweepDone ? 1.0 : 0.0;
-    final feasibility =
-        ((targetProgress * .60 + contributionScore * .25 + sweepScore * .15) *
-                100)
-            .round();
+    final lossScore = lossLimit <= 0 || losses < lossLimit ? 1.0 : 0.0;
+    final feasibility = ((targetProgress * .40 +
+                earningsProgress * .25 +
+                contributionScore * .20 +
+                lossScore * .15) *
+            100)
+        .round();
     final scoreColor = feasibility >= 80
         ? _sage
         : feasibility >= 60
@@ -9992,10 +10392,12 @@ class _GrowInvestmentsSummary extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(
                 child: _CashPositionMetric(
-                  icon: Icons.trending_up_rounded,
-                  label: 'Invested this month',
-                  value: money(investedThisMonth),
-                  color: _brand,
+                  icon: state.investmentNetReturnThisMonth >= 0
+                      ? Icons.trending_up_rounded
+                      : Icons.trending_down_rounded,
+                  label: 'Net return this month',
+                  value: money(state.investmentNetReturnThisMonth),
+                  color: state.investmentNetReturnThisMonth >= 0 ? _sage : _red,
                 ),
               ),
             ],
@@ -10046,7 +10448,7 @@ class _GrowInvestmentsSummary extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} annual target. The score also considers whether the latest income received its 10% contribution and whether this month\'s unspent-funds sweep has run.',
+                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} target. The score also considers this month\'s earnings, whether the latest income was invested, and whether losses remain below ${money(lossLimit)}.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 10.5,
@@ -10218,6 +10620,63 @@ class _InvestmentTransactionsList extends StatelessWidget {
               icon: Icons.auto_graph_rounded,
             ),
           );
+        case 'investment_monthly':
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Monthly contribution',
+              detail: 'Invested toward this month\'s target',
+              amount: amount,
+              date: date,
+              incoming: true,
+              icon: Icons.flag_rounded,
+            ),
+          );
+        case 'investment_windfall':
+          final percentage = (entry['percentage'] as num?)?.toDouble() ?? 50;
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Windfall contribution',
+              detail:
+                  '${percentage.toStringAsFixed(0)}% of unexpected cash-in invested',
+              amount: amount,
+              date: date,
+              incoming: true,
+              icon: Icons.bolt_rounded,
+            ),
+          );
+        case 'investment_review':
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Portfolio reviewed',
+              detail: 'Review and rebalance check completed',
+              amount: 0,
+              date: date,
+              incoming: true,
+              icon: Icons.fact_check_rounded,
+            ),
+          );
+        case 'investment_gain':
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Investment earnings',
+              detail: 'Portfolio gain recorded',
+              amount: amount,
+              date: date,
+              incoming: true,
+              icon: Icons.trending_up_rounded,
+            ),
+          );
+        case 'investment_loss':
+          activity.add(
+            _EmergencyActivityItem(
+              title: 'Investment loss',
+              detail: 'Portfolio loss recorded',
+              amount: amount,
+              date: date,
+              incoming: false,
+              icon: Icons.trending_down_rounded,
+            ),
+          );
       }
     }
     activity.sort((a, b) => (b.date ?? DateTime.fromMillisecondsSinceEpoch(0))
@@ -10352,10 +10811,52 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
       return _EverydayFundFloorActionPanel(color: color);
     }
     if (action.id == 'A8') {
-      return _EmergencyFundIncomeActionPanel(color: color);
+      final pct = double.tryParse(
+            (_configuredActionValues(AppScope.of(context), 'A8')['pct'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          10;
+      return _EmergencyFundIncomeActionPanel(
+        color: color,
+        percentage: pct.clamp(0, 100).toDouble(),
+      );
+    }
+    if (action.id == 'A9') {
+      return _EmergencyMonthlyDepositActionPanel(color: color);
+    }
+    if (action.id == 'A22') {
+      return _EmergencyFundCoverageActionPanel(color: color);
     }
     if (action.id == 'A10') {
-      return _EmergencyReplenishmentActionPanel(color: color);
+      final days = double.tryParse(
+            (_configuredActionValues(AppScope.of(context), 'A10')['days'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          7;
+      return _EmergencyReplenishmentActionPanel(
+        color: color,
+        days: days.clamp(1, 30).toDouble(),
+      );
+    }
+    if (action.id == 'A12') {
+      final pct = double.tryParse(
+            (_configuredActionValues(AppScope.of(context), 'A12')['pct'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          10;
+      return _InvestmentIncomeActionPanel(
+        color: color,
+        percentage: pct.clamp(0, 100).toDouble(),
+      );
+    }
+    if (action.id == 'A23') {
+      return _InvestmentPortfolioTargetActionPanel(color: color);
+    }
+    if (action.id == 'A24') {
+      return _InvestmentEarningsActionPanel(color: color);
+    }
+    if (action.id == 'A25') {
+      return _InvestmentLossLimitActionPanel(color: color);
     }
     return Container(
       decoration: BoxDecoration(
@@ -10983,9 +11484,680 @@ class _EssentialExpensesActionPanelState
   }
 }
 
-class _EmergencyFundIncomeActionPanel extends StatefulWidget {
-  const _EmergencyFundIncomeActionPanel({required this.color});
+class _InvestmentIncomeActionPanel extends StatefulWidget {
+  const _InvestmentIncomeActionPanel({
+    required this.color,
+    required this.percentage,
+  });
   final Color color;
+  final double percentage;
+
+  @override
+  State<_InvestmentIncomeActionPanel> createState() =>
+      _InvestmentIncomeActionPanelState();
+}
+
+class _InvestmentIncomeActionPanelState
+    extends State<_InvestmentIncomeActionPanel> {
+  bool busy = false;
+
+  Future<void> _deposit(AppState state, FakeMayaTransaction? income) async {
+    if (busy || income == null || income.createdAt == null) return;
+    setState(() => busy = true);
+    await state.depositIncomeToInvestment(
+      transactionId: income.transactionId,
+      incomeAmount: income.amount,
+      incomeDate: income.createdAt!,
+      percentage: widget.percentage,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final income = _latestIncomeTransaction(state);
+    final percentage = widget.percentage;
+    final contribution = (income?.amount ?? 0) * percentage / 100;
+    final deposited = income != null &&
+        state.hasInvestmentAllocationForIncome(income.transactionId);
+    final canDeposit = contribution <= state.unallocatedFakeMayaWallet;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A12',
+            color: widget.color,
+            text:
+                'Allocate ${percentage.toStringAsFixed(0)}% of each income to the Investment Portfolio.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.payments_rounded,
+            label: 'Latest income',
+            value: income == null ? 'None' : money(income.amount),
+            color: _sage,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.trending_up_rounded,
+            label: 'Investment amount',
+            value: money(contribution),
+            color: widget.color,
+          ),
+          const SizedBox(height: 12),
+          PrimaryButton(
+            label: deposited
+                ? '${percentage.toStringAsFixed(0)}% invested'
+                : busy
+                    ? 'Investing...'
+                    : 'Invest ${percentage.toStringAsFixed(0)}% (${money(contribution)})',
+            icon: deposited
+                ? Icons.check_circle_rounded
+                : Icons.show_chart_rounded,
+            enabled:
+                !busy && !deposited && canDeposit && income?.createdAt != null,
+            onPressed: () => _deposit(state, income),
+          ),
+          if (!canDeposit) ...[
+            const SizedBox(height: 7),
+            const Text(
+              'The unallocated FakeMaya wallet balance is too low for this investment.',
+              style: TextStyle(
+                  color: _red, fontSize: 11, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentPortfolioTargetActionPanel extends StatefulWidget {
+  const _InvestmentPortfolioTargetActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_InvestmentPortfolioTargetActionPanel> createState() =>
+      _InvestmentPortfolioTargetActionPanelState();
+}
+
+class _InvestmentPortfolioTargetActionPanelState
+    extends State<_InvestmentPortfolioTargetActionPanel> {
+  bool busy = false;
+
+  Future<void> _addInvestment(AppState state, double remaining) async {
+    if (busy || remaining <= 0) return;
+    final amount = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Add to Investment Portfolio',
+      label: 'Amount to invest',
+      initialAmount:
+          math.max(100, math.min(remaining, state.investmentMonthlyTarget)),
+      color: widget.color,
+    );
+    if (amount == null || amount <= 0) return;
+    setState(() => busy = true);
+    await state.depositMonthlyInvestment(amount);
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set portfolio value target',
+      label: 'Portfolio value target',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A23'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final target =
+        _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
+    final balance = state.investmentBalance;
+    final progress = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    final remaining = math.max(0.0, target - balance);
+    final complete = balance >= target && target > 0;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A23',
+            color: widget.color,
+            text: 'Build the Investment Portfolio to ${money(target)}.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.trending_up_rounded,
+            label: 'Portfolio balance',
+            value: money(balance),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.flag_rounded,
+            label: 'Portfolio target',
+            value: money(target),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: money(balance),
+            trailingLabel: money(target),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? 'The portfolio value target has been reached.'
+                : '${money(remaining)} more is needed to reach the portfolio target.',
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Adding...' : 'Add investment',
+                  icon: Icons.show_chart_rounded,
+                  enabled: !busy && !complete,
+                  onPressed: () => _addInvestment(state, remaining),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit portfolio target',
+                onPressed: () => _editTarget(state, target),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentEarningsActionPanel extends StatefulWidget {
+  const _InvestmentEarningsActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_InvestmentEarningsActionPanel> createState() =>
+      _InvestmentEarningsActionPanelState();
+}
+
+class _InvestmentEarningsActionPanelState
+    extends State<_InvestmentEarningsActionPanel> {
+  bool busy = false;
+
+  Future<void> _recordEarnings(AppState state, double suggestedAmount) async {
+    if (busy) return;
+    final amount = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Record investment earnings',
+      label: 'Earnings amount',
+      initialAmount: math.max(100, suggestedAmount),
+      color: widget.color,
+    );
+    if (amount == null) return;
+    setState(() => busy = true);
+    await state.recordInvestmentPerformance(
+      amount: amount,
+      isGain: true,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set monthly earnings target',
+      label: 'Monthly earnings target',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A24'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final target = _configuredActionAmount(state, 'A24', 1000);
+    final earned = state.investmentEarningsThisMonth;
+    final remaining = math.max(0.0, target - earned);
+    final progress = target <= 0 ? 0.0 : (earned / target).clamp(0.0, 1.0);
+    final complete = earned >= target && target > 0;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A24',
+            color: widget.color,
+            text: 'Earn at least ${money(target)} from investments this month.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.trending_up_rounded,
+            label: 'Earned this month',
+            value: money(earned),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.flag_rounded,
+            label: 'Earnings target',
+            value: money(target),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: money(earned),
+            trailingLabel: money(target),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? 'This month\'s investment earnings target has been reached.'
+                : '${money(remaining)} more in earnings is needed this month.',
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Saving...' : 'Record earnings',
+                  icon: Icons.add_chart_rounded,
+                  enabled: !busy,
+                  onPressed: () => _recordEarnings(state, remaining),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit earnings target',
+                onPressed: () => _editTarget(state, target),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentLossLimitActionPanel extends StatefulWidget {
+  const _InvestmentLossLimitActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_InvestmentLossLimitActionPanel> createState() =>
+      _InvestmentLossLimitActionPanelState();
+}
+
+class _InvestmentLossLimitActionPanelState
+    extends State<_InvestmentLossLimitActionPanel> {
+  bool busy = false;
+
+  Future<void> _recordLoss(AppState state, double suggestedAmount) async {
+    if (busy || state.investmentBalance <= 0) return;
+    final amount = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Record investment loss',
+      label: 'Loss amount',
+      initialAmount: math.max(100, suggestedAmount),
+      color: _red,
+    );
+    if (amount == null) return;
+    setState(() => busy = true);
+    await state.recordInvestmentPerformance(
+      amount: amount,
+      isGain: false,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editLimit(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set monthly loss limit',
+      label: 'Monthly loss limit',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A25'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final limit = _configuredActionAmount(state, 'A25', 1000);
+    final losses = state.investmentLossesThisMonth;
+    final remaining = math.max(0.0, limit - losses);
+    final progress = limit <= 0 ? 1.0 : (losses / limit).clamp(0.0, 1.0);
+    final exceeded = losses >= limit && limit > 0;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A25',
+            color: widget.color,
+            text: 'Keep investment losses below ${money(limit)} this month.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.trending_down_rounded,
+            label: 'Losses this month',
+            value: money(losses),
+            color: exceeded ? _red : _sage,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.shield_rounded,
+            label: exceeded ? 'Limit exceeded' : 'Room remaining',
+            value: money(remaining),
+            color: exceeded ? _red : widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: exceeded ? _red : widget.color,
+            leadingLabel: money(losses),
+            trailingLabel: '${money(limit)} limit',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            exceeded
+                ? 'The monthly loss limit has been reached. Consider reducing risk before adding more money.'
+                : '${money(remaining)} remains before the monthly loss limit is reached.',
+            style: TextStyle(
+              color: exceeded ? _red : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Saving...' : 'Record loss',
+                  icon: Icons.trending_down_rounded,
+                  enabled: !busy && state.investmentBalance > 0,
+                  onPressed: () => _recordLoss(state, remaining),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit loss limit',
+                onPressed: () => _editLimit(state, limit),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyMonthlyDepositActionPanel extends StatefulWidget {
+  const _EmergencyMonthlyDepositActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EmergencyMonthlyDepositActionPanel> createState() =>
+      _EmergencyMonthlyDepositActionPanelState();
+}
+
+class _EmergencyMonthlyDepositActionPanelState
+    extends State<_EmergencyMonthlyDepositActionPanel> {
+  bool busy = false;
+
+  Future<void> _deposit(AppState state, double amount) async {
+    if (busy || amount <= 0) return;
+    setState(() => busy = true);
+    await state.depositMonthlyEmergencyFund(amount);
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set monthly Emergency Fund deposit',
+      label: 'Monthly deposit target',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A9'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final target = _configuredActionAmount(
+      state,
+      'A9',
+      _emergencyMonthlyDepositBase(state),
+    );
+    final deposited = _currentMonthEmergencyDeposits(state);
+    final progress = target <= 0 ? 0.0 : (deposited / target).clamp(0.0, 1.0);
+    final remaining = math.max(0.0, target - deposited);
+    final complete = deposited >= target && target > 0;
+    final canDeposit =
+        state.fakeMayaLink == null || target <= state.unallocatedFakeMayaWallet;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A9',
+            color: widget.color,
+            text:
+                'Deposit at least ${money(target)} into the Emergency Fund each month.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.savings_rounded,
+            label: 'Deposited this month',
+            value: money(deposited),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.flag_rounded,
+            label: 'Monthly target',
+            value: money(target),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: money(deposited),
+            trailingLabel: money(target),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? "This month's Emergency Fund deposit target is complete."
+                : "${money(remaining)} still needed to complete this month's Emergency Fund deposit target.",
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Depositing...' : 'Deposit ${money(target)}',
+                  icon: Icons.shield_rounded,
+                  enabled: !busy && !complete && canDeposit,
+                  onPressed: () => _deposit(state, target),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit monthly deposit',
+                onPressed: () => _editTarget(state, target),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+          if (!canDeposit) ...[
+            const SizedBox(height: 7),
+            const Text(
+              'The unallocated FakeMaya wallet balance is too low for this deposit.',
+              style: TextStyle(
+                  color: _red, fontSize: 11, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyFundCoverageActionPanel extends StatefulWidget {
+  const _EmergencyFundCoverageActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EmergencyFundCoverageActionPanel> createState() =>
+      _EmergencyFundCoverageActionPanelState();
+}
+
+class _EmergencyFundCoverageActionPanelState
+    extends State<_EmergencyFundCoverageActionPanel> {
+  Future<void> _editMonths(AppState state, double current) async {
+    final updated = await _showMonthsTargetDialog(
+      context: context,
+      title: 'Set Emergency Fund coverage',
+      initialMonths: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A22'] = {'months': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final monthlyEssentials = math.max(1.0, state.monthlyEssentialExpenseTotal);
+    final months = double.tryParse(
+          (_configuredActionValues(state, 'A22')['months'] ?? '')
+              .replaceAll(',', ''),
+        ) ??
+        3;
+    final target = monthlyEssentials * months;
+    final current = state.displayedEmergencyFundBalance;
+    final covered = current / monthlyEssentials;
+    final progress = target <= 0 ? 0.0 : (current / target).clamp(0.0, 1.0);
+    final gap = math.max(0.0, target - current);
+    final complete = current >= target && target > 0;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A22',
+            color: widget.color,
+            text:
+                'Build your Emergency Fund to cover ${months.toStringAsFixed(0)} months of essential expenses.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.shield_rounded,
+            label: 'Emergency Fund',
+            value: money(current),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.flag_rounded,
+            label: '${months.toStringAsFixed(0)} month target',
+            value: money(target),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: '${covered.toStringAsFixed(1)} months',
+            trailingLabel: '${months.toStringAsFixed(0)} months',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? 'Your Emergency Fund has reached this coverage target.'
+                : '${money(gap)} more is needed to reach ${months.toStringAsFixed(0)} months of essential expenses.',
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => _editMonths(state, months),
+            icon: const Icon(Icons.tune_rounded),
+            label: const Text('Edit coverage target'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyFundIncomeActionPanel extends StatefulWidget {
+  const _EmergencyFundIncomeActionPanel({
+    required this.color,
+    required this.percentage,
+  });
+  final Color color;
+  final double percentage;
 
   @override
   State<_EmergencyFundIncomeActionPanel> createState() =>
@@ -11003,7 +12175,7 @@ class _EmergencyFundIncomeActionPanelState
       transactionId: income.transactionId,
       incomeAmount: income.amount,
       incomeDate: income.createdAt!,
-      percentage: 10,
+      percentage: widget.percentage,
     );
     if (mounted) setState(() => busy = false);
   }
@@ -11053,7 +12225,8 @@ class _EmergencyFundIncomeActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final income = _latestIncomeTransaction(state);
-    final allocation = (income?.amount ?? 0) * .10;
+    final percentage = widget.percentage;
+    final allocation = (income?.amount ?? 0) * percentage / 100;
     final deposited = income != null &&
         state.hasEmergencyAllocationForIncome(income.transactionId);
     final canDeposit = allocation <= state.unallocatedFakeMayaWallet;
@@ -11083,10 +12256,10 @@ class _EmergencyFundIncomeActionPanelState
                         fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                   child: Text(
-                      'Transfer 10% of every income received into an Emergency Fund.',
-                      style: TextStyle(
+                      'Set aside ${percentage.toStringAsFixed(0)}% of each income for the Emergency Fund.',
+                      style: const TextStyle(
                           color: _title,
                           fontSize: 13,
                           height: 1.4,
@@ -11166,10 +12339,10 @@ class _EmergencyFundIncomeActionPanelState
             const SizedBox(height: 12),
             PrimaryButton(
               label: deposited
-                  ? '10% deposited to fund'
+                  ? '${percentage.toStringAsFixed(0)}% deposited to fund'
                   : busy
                       ? 'Depositing...'
-                      : 'Deposit 10% (${money(allocation)})',
+                      : 'Deposit ${percentage.toStringAsFixed(0)}% (${money(allocation)})',
               icon:
                   deposited ? Icons.check_circle_rounded : Icons.shield_rounded,
               enabled: !busy && !deposited && canDeposit && date != null,
@@ -11190,8 +12363,12 @@ class _EmergencyFundIncomeActionPanelState
 }
 
 class _EmergencyReplenishmentActionPanel extends StatefulWidget {
-  const _EmergencyReplenishmentActionPanel({required this.color});
+  const _EmergencyReplenishmentActionPanel({
+    required this.color,
+    required this.days,
+  });
   final Color color;
+  final double days;
 
   @override
   State<_EmergencyReplenishmentActionPanel> createState() =>
@@ -11218,8 +12395,10 @@ class _EmergencyReplenishmentActionPanelState
     final incomeAfterWithdrawal = withdrawalDate != null &&
         incomeDate != null &&
         incomeDate.isAfter(withdrawalDate);
-    final deadline =
-        incomeAfterWithdrawal ? incomeDate.add(const Duration(days: 7)) : null;
+    final configuredDays = widget.days.round();
+    final deadline = incomeAfterWithdrawal
+        ? incomeDate.add(Duration(days: configuredDays))
+        : null;
     final hoursLeft = deadline?.difference(DateTime.now()).inHours ?? 0;
     final daysLeft = math.max(0, (hoursLeft / 24).ceil());
     final overdue = deadline != null && deadline.isBefore(DateTime.now());
@@ -11248,10 +12427,10 @@ class _EmergencyReplenishmentActionPanelState
                         fontWeight: FontWeight.w900)),
               ),
               const SizedBox(width: 10),
-              const Expanded(
+              Expanded(
                   child: Text(
-                      'Replenish withdrawn Emergency Fund amounts within 7 days after receiving income.',
-                      style: TextStyle(
+                      'Replenish withdrawn Emergency Fund amounts within $configuredDays days after receiving income.',
+                      style: const TextStyle(
                           color: _title,
                           fontSize: 13,
                           height: 1.4,
@@ -11283,9 +12462,9 @@ class _EmergencyReplenishmentActionPanelState
                 color: _red),
             const SizedBox(height: 10),
             if (!incomeAfterWithdrawal)
-              const Text(
-                  'Waiting for your next income. The 7-day replenishment countdown starts when that income arrives.',
-                  style: TextStyle(
+              Text(
+                  'Waiting for your next income. The $configuredDays-day replenishment countdown starts when that income arrives.',
+                  style: const TextStyle(
                       color: _body, height: 1.35, fontWeight: FontWeight.w700))
             else ...[
               _ActionMetricTile(
@@ -12100,13 +13279,92 @@ Future<double?> _showMoneyTargetDialog({
   ).whenComplete(controller.dispose);
 }
 
+Future<double?> _showMonthsTargetDialog({
+  required BuildContext context,
+  required String title,
+  required double initialMonths,
+  required Color color,
+}) {
+  final controller =
+      TextEditingController(text: initialMonths.toStringAsFixed(0));
+  return showDialog<double>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        final months =
+            double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+        final valid =
+            months >= 1 && months <= 12 && months == months.roundToDouble();
+        return AlertDialog(
+          backgroundColor: _surface,
+          title: Text(title,
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Months of essential expenses',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: false),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: inputDecoration('3').copyWith(suffixText: 'months'),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                valid
+                    ? 'Shellby will target ${months.toStringAsFixed(0)} months of essential expenses.'
+                    : 'Use a whole number from 1 to 12 months.',
+                style: TextStyle(
+                  color: valid ? color : _red,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed:
+                  valid ? () => Navigator.of(dialogContext).pop(months) : null,
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ),
+  ).whenComplete(controller.dispose);
+}
+
 double _configuredActionAmount(
   AppState state,
   String actionId,
   double fallback,
 ) {
-  final raw = state.actionFieldValues[actionId]?['amt'];
+  final raw = _configuredActionValues(state, actionId)['amt'];
   return double.tryParse((raw ?? '').replaceAll(',', '').trim()) ?? fallback;
+}
+
+Map<String, String> _configuredActionValues(AppState state, String actionId) {
+  final existing = state.actionFieldValues[actionId];
+  if (existing != null) return existing;
+  final action = _d2Actions[actionId];
+  if (action == null) return const <String, String>{};
+  return _initialActionFieldValues(state, action);
 }
 
 DateTime _currentMonthStart() {
@@ -12130,6 +13388,17 @@ List<FakeMayaTransaction> _currentMonthPositiveTransactions(AppState state) {
   }).toList()
     ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
         .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+}
+
+double _currentMonthEmergencyDeposits(AppState state) {
+  return state.d1Ledger.where((entry) {
+    if (entry['type'] != 'emergency_deposit') return false;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    return _isInCurrentMonth(date);
+  }).fold<double>(
+    0,
+    (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
+  );
 }
 
 double _currentEverydayFundAmount(AppState state) {
