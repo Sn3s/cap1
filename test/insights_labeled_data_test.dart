@@ -83,8 +83,10 @@ void main() {
         find.textContaining('A2 · Cap discretionary spending'), findsNothing);
     expect(find.textContaining('A21 · Keep Everyday Fund days covered'),
         findsNothing);
-    expect(find.textContaining('A19'), findsNothing);
-    expect(find.textContaining('A20'), findsNothing);
+    expect(find.textContaining('A20 · Reach monthly cash-in target'),
+        findsOneWidget);
+    expect(find.textContaining('A19 · Keep Everyday Fund above floor'),
+        findsOneWidget);
     expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
     expect(find.text('This is where you earn money'), findsOneWidget);
     expect(find.text('This is where you spend money'), findsOneWidget);

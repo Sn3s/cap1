@@ -784,13 +784,17 @@ List<String> _recommendationsForActionField(
     final recommended = _debtBalanceBase(state) > income * 3 ? 30 : 20;
     return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 50);
   }
-  if (action.id == 'A19' && field.key == 'months') {
-    final recommended = _recommendedEverydayFundMonths(state);
+  if (action.id == 'A19' && field.key == 'amt') {
+    final expenses = _monthlyExpenseBase(state);
+    final recommended = expenses * _recommendedEverydayFundMonths(state);
     return [
       recommended,
-      math.min(12, recommended + 1),
-      math.min(12, recommended + 2),
-    ].map((value) => value.toString()).toSet().toList();
+      recommended + expenses,
+      recommended + (expenses * 2),
+    ]
+        .map((value) => ((value / 500).ceil() * 500).toStringAsFixed(0))
+        .toSet()
+        .toList();
   }
   if (action.id == 'A21' && field.key == 'days') {
     final essentials = _monthlyEssentialBase(state);
@@ -875,7 +879,7 @@ String _recommendationFormulaForActionField(
     'A18' =>
       '$value: 30% when debt is above 3 months of income, otherwise 20%.',
     'A19' =>
-      '$value: 2 months if income is irregular, cash is tight, or starting cash is low; otherwise 1 month.',
+      '$value: monthly expenses multiplied by the recommended Everyday Fund buffer.',
     'A20' =>
       '$value: max(current income, expenses + max(10% expense cushion, Everyday Fund gap divided by 6)).',
     _ =>
@@ -1383,14 +1387,19 @@ const _d2Actions = <String, D2Action>{
   'A19': D2Action(
       id: 'A19',
       text:
-          'Keep at least X months worth of expenses available in your Everyday Fund at all times.',
+          'Keep at least ₱X available in your Everyday Fund so essentials stay covered even before the next income arrives.',
       fields: [
-        ActionField(key: 'months', label: 'Months of expenses', hint: 'e.g. 2')
+        ActionField(
+            key: 'amt', label: 'Everyday Fund minimum (₱)', hint: 'e.g. 30000')
       ]),
-  'A20': D2Action(id: 'A20', text: 'Earn ₱X a month.', fields: [
-    ActionField(
-        key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 25000')
-  ]),
+  'A20': D2Action(
+      id: 'A20',
+      text:
+          'Bring in at least ₱X this month from income, side gigs, or other cash-in so your available cash target stays on pace.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Monthly cash-in target (₱)', hint: 'e.g. 25000')
+      ]),
   'A21': D2Action(
       id: 'A21',
       text:
@@ -1400,7 +1409,7 @@ const _d2Actions = <String, D2Action>{
       ]),
 };
 
-const _availableCashGoalActionIds = ['A1', 'A3'];
+const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{

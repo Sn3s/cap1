@@ -1077,6 +1077,8 @@ Your job is to analyze the user's latest 14 days of integration data and recomme
 Allowed actions only:
 - A1: Set aside X% of every income received into your Everyday Expenses Fund.
 - A3: Limit spending in selected categories to ₱X per month to protect day-to-day cash flow.
+- A20: Bring in at least ₱X this month from income, side gigs, or other cash-in to keep available cash on pace.
+- A19: Keep at least ₱X available in your Everyday Fund as a minimum cash floor for essentials.
 
 Allowed recommendation option values only:
 - retain_action
