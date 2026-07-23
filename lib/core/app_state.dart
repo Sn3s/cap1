@@ -465,7 +465,14 @@ class AppState extends ChangeNotifier {
     selectedGoalMonthlyTarget = 1350;
     selectedActionIds
       ..clear()
-      ..addAll(const {'ACT1', 'ACT6'});
+      // ACT1/ACT6 drive the legacy concern-tracking flow; A1/A3/A20/A19 are
+      // the Maintain Available Cash (G1) actions so the Goals tab and the
+      // Insights > Available cash tab both recognize this demo account as
+      // having adopted that goal.
+      ..addAll(const {'ACT1', 'ACT6', 'A1', 'A3', 'A20', 'A19'});
+    actionFieldValues
+      ..clear()
+      ..['A1'] = {'pct': '70'};
     onboardingComplete = true;
     confidence = 5;
     employmentStatus = 'Freelance';
@@ -1961,6 +1968,20 @@ class AppState extends ChangeNotifier {
       ..addAll(actionIds);
     emotionalLogsEnabled = enableEmotionalLogs;
     stressIndicatorsEnabled = enableStressIndicators;
+    notifyListeners();
+  }
+
+  /// Adds a newly-adopted goal's actions on top of whatever is already
+  /// selected, unlike [configureGoalActions] which replaces everything.
+  /// Used when a user adds an additional goal after onboarding.
+  void addGoalActions(
+    Iterable<String> actionIds,
+    Map<String, Map<String, String>> fieldValues,
+  ) {
+    selectedActionIds.addAll(actionIds);
+    for (final entry in fieldValues.entries) {
+      actionFieldValues[entry.key] = entry.value;
+    }
     notifyListeners();
   }
 

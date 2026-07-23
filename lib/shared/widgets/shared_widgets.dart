@@ -1,5 +1,143 @@
 part of '../../main.dart';
 
+// ─── App notice (replaces SnackBar) ───────────────────────────────────────────
+
+/// Shows a brief, centered, auto-dismissing notice instead of a bottom
+/// SnackBar — SnackBars sit on top of the bottom nav bar and push the docked
+/// floating action button upward while visible, which reads as a bug.
+void showAppNotice(
+  BuildContext context,
+  String message, {
+  bool isError = false,
+}) {
+  final overlay = Overlay.of(context);
+  late OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => _AppNoticeOverlay(
+      message: message,
+      isError: isError,
+      onDismissed: () => entry.remove(),
+    ),
+  );
+  overlay.insert(entry);
+}
+
+class _AppNoticeOverlay extends StatefulWidget {
+  const _AppNoticeOverlay({
+    required this.message,
+    required this.isError,
+    required this.onDismissed,
+  });
+
+  final String message;
+  final bool isError;
+  final VoidCallback onDismissed;
+
+  @override
+  State<_AppNoticeOverlay> createState() => _AppNoticeOverlayState();
+}
+
+class _AppNoticeOverlayState extends State<_AppNoticeOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+    reverseDuration: const Duration(milliseconds: 160),
+  );
+  late final Animation<double> _scale = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutBack,
+    reverseCurve: Curves.easeIn,
+  ).drive(Tween(begin: 0.86, end: 1.0));
+  late final Animation<double> _opacity = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOut,
+    reverseCurve: Curves.easeIn,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.forward();
+    Future.delayed(const Duration(milliseconds: 2200), () async {
+      if (!mounted) return;
+      await _controller.reverse();
+      widget.onDismissed();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.isError ? _red : _brand;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: Material(
+            type: MaterialType.transparency,
+            child: FadeTransition(
+            opacity: _opacity,
+            child: ScaleTransition(
+              scale: _scale,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.82,
+                ),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  decoration: BoxDecoration(
+                    color: _surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.14),
+                        blurRadius: 26,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        widget.isError
+                            ? Icons.error_rounded
+                            : Icons.check_circle_rounded,
+                        color: color,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: Text(
+                          widget.message,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -238,6 +376,7 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = fromUser ? Colors.white : _title;
     return Align(
       alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -246,9 +385,18 @@ class ChatBubble extends StatelessWidget {
         ),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: fromUser ? _brand : _bg,
+          color: fromUser ? _brand : _surface,
           borderRadius: BorderRadius.circular(18),
           border: fromUser ? null : Border.all(color: _border),
+          boxShadow: fromUser
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
         ),
         child: loading
             ? Row(
@@ -272,19 +420,79 @@ class ChatBubble extends StatelessWidget {
                   ),
                 ],
               )
-            : RichText(
-                text: TextSpan(
-                  style: TextStyle(
-                    color: fromUser ? Colors.white : _title,
-                    height: 1.32,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  children: _boldMarkdownSpans(
-                    text,
-                    fromUser ? Colors.white : _title,
-                  ),
-                ),
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: _markdownBlocks(text, color),
               ),
+      ),
+    );
+  }
+
+  List<Widget> _markdownBlocks(String value, Color color) {
+    final lines = value.split('\n');
+    final blocks = <Widget>[];
+    for (final rawLine in lines) {
+      final trimmed = rawLine.trim();
+      if (trimmed.isEmpty) continue;
+      if (blocks.isNotEmpty) blocks.add(const SizedBox(height: 6));
+      if (trimmed.startsWith('### ')) {
+        blocks.add(_headerText(trimmed.substring(4), color, 14));
+      } else if (trimmed.startsWith('## ')) {
+        blocks.add(_headerText(trimmed.substring(3), color, 15.5));
+      } else if (trimmed.startsWith('# ')) {
+        blocks.add(_headerText(trimmed.substring(2), color, 17));
+      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        blocks.add(_bulletLine(trimmed.substring(2), color));
+      } else {
+        blocks.add(_paragraph(trimmed, color));
+      }
+    }
+    if (blocks.isEmpty) blocks.add(_paragraph(value, color));
+    return blocks;
+  }
+
+  Widget _headerText(String value, Color color, double fontSize) {
+    return Text(
+      value,
+      style: TextStyle(
+        color: color,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w900,
+        height: 1.3,
+      ),
+    );
+  }
+
+  Widget _bulletLine(String value, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '•  ',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              height: 1.32,
+            ),
+          ),
+          Expanded(child: _paragraph(value, color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _paragraph(String value, Color color) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(
+          color: color,
+          height: 1.32,
+          fontWeight: FontWeight.w700,
+        ),
+        children: _boldMarkdownSpans(value, color),
       ),
     );
   }
@@ -1673,10 +1881,10 @@ class ChoiceTile extends StatelessWidget {
         height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? _surface : _bg,
+          color: _surface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? _brand : Colors.transparent,
+            color: selected ? _brand : _border,
             width: 2,
           ),
         ),

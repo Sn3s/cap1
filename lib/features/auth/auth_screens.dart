@@ -408,12 +408,7 @@ void _showAuthError(BuildContext context, Object error) {
         ? 'Sign-in failed. Please try again.'
         : error.toString(),
   };
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-    ),
-  );
+  showAppNotice(context, message, isError: true);
 }
 
 // Preparation stage map:
