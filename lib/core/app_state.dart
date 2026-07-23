@@ -2319,6 +2319,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Adds a newly-adopted goal's actions on top of whatever is already
+  /// selected, unlike [configureGoalActions] which replaces everything.
+  /// Used when a user adds an additional goal after onboarding.
+  void addGoalActions(
+    Iterable<String> actionIds,
+    Map<String, Map<String, String>> fieldValues,
+  ) {
+    selectedActionIds.addAll(actionIds);
+    for (final entry in fieldValues.entries) {
+      actionFieldValues[entry.key] = entry.value;
+    }
+    notifyListeners();
+  }
+
   void toggleTrackingVariable(String value) {
     if (trackingVariables.contains(value)) {
       trackingVariables.remove(value);

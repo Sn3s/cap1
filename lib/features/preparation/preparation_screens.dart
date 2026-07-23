@@ -167,7 +167,6 @@ class OrientationSlide extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                     fontSize: compact ? 28 : 34,
-                    fontStyle: FontStyle.italic,
                   ),
             ),
             const SizedBox(height: 14),
@@ -2582,26 +2581,36 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
       child: Column(
-        children: _goalBranches
-            .map(
-              (branch) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SelectableOption(
-                  icon: branch.icon,
-                  title: branch.layer,
-                  body: branch.layerDescription,
-                  selected: state.primaryConcern == branch.layer,
-                  onTap: () => setState(() {
-                    state.primaryConcern = branch.layer;
-                    state.choosePresetGoal(
-                      branch.defaultGoalTitle,
-                      branch.defaultGoalDescription,
-                    );
-                  }),
-                ),
+        children: [
+          ..._goalBranches.map(
+            (branch) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: SelectableOption(
+                icon: branch.icon,
+                title: branch.layer,
+                body: branch.layerDescription,
+                selected: state.primaryConcern == branch.layer,
+                onTap: () => setState(() {
+                  state.primaryConcern = branch.layer;
+                  state.choosePresetGoal(
+                    branch.defaultGoalTitle,
+                    branch.defaultGoalDescription,
+                  );
+                }),
               ),
-            )
-            .toList(),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Don't worry — you can add more later once your account is set up!",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2799,8 +2808,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     switch (stepIndex) {
       case 0:
         stepIndex = 1;
-        messages.add(ChatMessage(
-            false, 'Specify: Which goal would you like to focus on first?'));
+        messages.add(ChatMessage(false,
+            "Specify: Which goal would you like to focus on first? Don't worry — you can add more later once your account is set up!"));
       case 1:
         stepIndex = 2;
         answers[2] = _actionSelectOptions();
@@ -3070,6 +3079,335 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     return trimmed.endsWith('.')
         ? trimmed.substring(0, trimmed.length - 1)
         : trimmed;
+  }
+}
+
+// ─── Add a goal after onboarding ───────────────────────────────────────────
+//
+// Reuses the same D1/D2 catalog and chat widgets as onboarding's goal-focus
+// and action-select steps, but as a standalone flow reachable from the
+// Goals tab: pick a motivation (excluding ones with no goal left to adopt),
+// pick one goal under it, pick actions, configure them, done. Actions are
+// added on top of whatever's already selected rather than replacing it.
+
+class AddGoalMotivationScreen extends StatelessWidget {
+  const AddGoalMotivationScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final available = motivationsWithAvailableGoal(state);
+    final branches =
+        _goalBranches.where((branch) => available.contains(branch.layer)).toList();
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconButton(
+                onPressed: () => Navigator.maybePop(context),
+                color: _brand,
+                icon: const Icon(Icons.chevron_left_rounded, size: 32),
+              ),
+              const SizedBox(height: 4),
+              Text('Add a new goal',
+                  style: Theme.of(context).textTheme.headlineMedium),
+              const SizedBox(height: 8),
+              const Text(
+                'Which area would you like to focus on next?',
+                style: TextStyle(
+                    color: _body, height: 1.35, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 24),
+              Expanded(
+                child: branches.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            "You've already set up every goal Shelby offers right now — nice work!",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: _body, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      )
+                    : ListView(
+                        children: [
+                          for (final branch in branches)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: SelectableOption(
+                                icon: branch.icon,
+                                title: branch.layer,
+                                body: branch.layerDescription,
+                                selected: false,
+                                onTap: () => _push(
+                                  context,
+                                  AddGoalChatScreen(layer: branch.layer),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AddGoalChatScreen extends StatefulWidget {
+  const AddGoalChatScreen({super.key, required this.layer});
+  final String layer;
+
+  @override
+  State<AddGoalChatScreen> createState() => _AddGoalChatScreenState();
+}
+
+class _AddGoalChatScreenState extends State<AddGoalChatScreen> {
+  final controller = TextEditingController();
+  final scrollController = ScrollController();
+  final List<ChatMessage> messages = [];
+  int stepIndex = 0; // 0 = goal focus, 1 = action select, 2 = configure
+  final Map<int, List<GuidedOption>> answers = {};
+  String? _selectedGoalId;
+  bool _seeded = false;
+  bool _saving = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_seeded) return;
+    _seeded = true;
+    messages.add(ChatMessage(
+        false, 'Which goal under ${widget.layer} would you like to focus on?'));
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  List<GuidedOption> get _goalOptions {
+    final state = AppScope.of(context);
+    final ids = (_motivationGoalIds[widget.layer] ?? const <String>[])
+        .where((id) => !isGoalAdopted(state, id))
+        .toList();
+    return [
+      for (var i = 0; i < ids.length; i++)
+        GuidedOption(
+          label: String.fromCharCode(65 + i),
+          text: _d1GoalById(ids[i]).description,
+          goalTitle: ids[i],
+        ),
+    ];
+  }
+
+  List<GuidedOption> get _actionOptions {
+    final ids = _goalActionIds[_selectedGoalId] ?? const <String>[];
+    return [
+      for (final id in ids)
+        GuidedOption(label: id, text: _d2Actions[id]?.text ?? id, goalTitle: id),
+    ];
+  }
+
+  List<D2Action> get _selectedD2Actions {
+    return (answers[1] ?? const <GuidedOption>[])
+        .map((o) => _d2Actions[o.goalTitle])
+        .whereType<D2Action>()
+        .toList();
+  }
+
+  bool get _isMultiSelectStep => stepIndex == 1;
+
+  bool get canContinueMulti =>
+      _isMultiSelectStep && (answers[stepIndex]?.isNotEmpty ?? false);
+
+  GuidedStep get _stepForControls {
+    if (stepIndex == 0) {
+      return GuidedStep(
+        title: 'Goal',
+        question: 'Which goal would you like to focus on?',
+        options: _goalOptions,
+      );
+    }
+    return GuidedStep(
+      title: 'Actions',
+      question: 'Pick the actions for this goal.',
+      options: _actionOptions,
+      multiSelect: true,
+    );
+  }
+
+  List<GuidedOption> get currentOptions =>
+      stepIndex == 0 ? _goalOptions : _actionOptions;
+
+  void chooseOption(GuidedOption option) {
+    if (stepIndex == 0) {
+      // Show the pick highlighted for a beat before advancing, so the tap
+      // has visible feedback instead of jumping straight to the next step.
+      setState(() {
+        _selectedGoalId = option.goalTitle;
+        answers[0] = [option];
+      });
+      Future.delayed(const Duration(milliseconds: 260), () {
+        if (!mounted || stepIndex != 0) return;
+        setState(() {
+          messages.add(ChatMessage(true, option.text));
+          stepIndex = 1;
+          messages.add(const ChatMessage(false,
+              'Here are the recommended actions for this goal. Unselect any you want to skip, then confirm.'));
+        });
+        _scrollToBottom();
+      });
+      return;
+    }
+    setState(() {
+      if (_isMultiSelectStep) {
+        final selected = [...answers[stepIndex] ?? <GuidedOption>[]];
+        final idx =
+            selected.indexWhere((o) => o.goalTitle == option.goalTitle);
+        if (idx >= 0) {
+          selected.removeAt(idx);
+        } else {
+          selected.add(option);
+        }
+        answers[stepIndex] = selected;
+      }
+    });
+    _scrollToBottom();
+  }
+
+  void continueMultiSelect() {
+    if (!canContinueMulti) return;
+    setState(() {
+      final selected = answers[stepIndex] ?? <GuidedOption>[];
+      messages
+          .add(ChatMessage(true, selected.map((o) => o.text).join(', ')));
+      stepIndex = 2;
+    });
+    _scrollToBottom();
+  }
+
+  void submitTypedAnswer() {
+    controller.clear();
+  }
+
+  Future<void> _onActionsConfigured(
+      Map<String, Map<String, String>> values) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final state = AppScope.of(context);
+    final actionIds = (answers[1] ?? const <GuidedOption>[])
+        .map((o) => o.goalTitle ?? o.label)
+        .toList();
+    final fieldValues = <String, Map<String, String>>{};
+    for (final id in actionIds) {
+      final action = _d2Actions[id];
+      if (action == null || !action.hasFields) continue;
+      fieldValues[id] =
+          values[id] ?? _initialActionFieldValues(state, action);
+    }
+    state.addGoalActions(actionIds, fieldValues);
+    await state.saveProfile();
+    if (!mounted) return;
+    Navigator.of(context)
+      ..pop()
+      ..pop();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!scrollController.hasClients) return;
+      scrollController.animateTo(
+        scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = answers[stepIndex] ?? const <GuidedOption>[];
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.maybePop(context),
+                    color: _brand,
+                    icon: const Icon(Icons.chevron_left_rounded, size: 32),
+                  ),
+                  Expanded(
+                    child: Text(
+                      widget.layer,
+                      style: Theme.of(context).textTheme.titleLarge,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: AppCard(
+                  padding: EdgeInsets.zero,
+                  child: ListView.separated(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(12),
+                    itemCount: messages.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      if (index == messages.length) {
+                        if (stepIndex == 2) {
+                          return _saving
+                              ? const Padding(
+                                  padding: EdgeInsets.all(20),
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                )
+                              : ActionConfigWidget(
+                                  actions: _selectedD2Actions,
+                                  onConfirm: _onActionsConfigured,
+                                );
+                        }
+                        return GuidedChatControls(
+                          step: _stepForControls,
+                          options: currentOptions,
+                          selected: selected,
+                          controller: controller,
+                          canContinueMulti: canContinueMulti,
+                          onOptionTap: chooseOption,
+                          onContinue: continueMultiSelect,
+                          onSubmitTyped: submitTypedAnswer,
+                        );
+                      }
+                      final message = messages[index];
+                      return ChatBubble(
+                          fromUser: message.fromUser, text: message.text);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

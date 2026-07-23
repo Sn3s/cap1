@@ -332,14 +332,10 @@ class _WalletPageState extends State<WalletPage> {
     try {
       await AppScope.of(context).refreshFakeMayaAccount();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FakeMaya activity refreshed.')),
-      );
+      showAppNotice(context, 'FakeMaya activity refreshed.');
     } on FakeMayaException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      showAppNotice(context, error.message, isError: true);
     }
   }
 

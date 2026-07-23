@@ -702,7 +702,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                         ),
                         Text(
                           widget.analysisTitle == null
-                              ? 'App and money context'
+                              ? 'Your friendly money buddy'
                               : '${widget.analysisTitle} analysis',
                           style: const TextStyle(
                             color: _body,
@@ -909,14 +909,52 @@ bool isLifestyleGoalOnTrack(AppState state) {
       _currentWeekLifestyleSpend(state) <= weeklyLimit;
 }
 
-/// (goals on track, goals total) across the four Goals-screen goals.
+/// (goals on track, goals total) across whichever goals the user has
+/// actually adopted. Goals without live tracking yet aren't penalized.
 (int, int) goalsOnTrackSummary(AppState state) {
-  var onTrack = 0;
-  if (isCashFlowGoalOnTrack(state)) onTrack++;
-  if (isEmergencyFundGoalOnTrack(state)) onTrack++;
-  onTrack++; // Grow Investments remains neutral until market data is linked.
-  if (isLifestyleGoalOnTrack(state)) onTrack++;
-  return (onTrack, 4);
+  final adopted = _adoptedGoalMetas(state);
+  if (adopted.isEmpty) return (0, 0);
+  final onTrack = adopted.where((goal) => isGoalOnTrack(state, goal.id)).length;
+  return (onTrack, adopted.length);
+}
+
+bool isGoalOnTrack(AppState state, String goalId) {
+  return switch (goalId) {
+    'G1' => isCashFlowGoalOnTrack(state),
+    'G3' => isEmergencyFundGoalOnTrack(state),
+    'G8' => isLifestyleGoalOnTrack(state),
+    _ => true, // no live tracking yet — not penalized
+  };
+}
+
+/// A 0-100 performance figure for the goal card's progress bar, built from
+/// the same underlying data as [isGoalOnTrack]. Null when there's no live
+/// data to show yet (e.g. Grow Investments).
+double? goalPerformancePercent(AppState state, String goalId) {
+  switch (goalId) {
+    case 'G1':
+      final total = state.cashFlowPyramidBaseline;
+      if (total <= 0) return null;
+      final spent = _cashFlowMonthlySpent(state);
+      return (1 - (spent / total)).clamp(0.0, 1.0) * 100;
+    case 'G3':
+      final budget = state.safetyShieldMonthlyBase;
+      if (budget <= 0) return null;
+      final current = state.safetyShieldBalance +
+          (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+      return (current / (budget * 6)).clamp(0.0, 1.0) * 100;
+    case 'G8':
+      final weeklyLimit = _configuredActionAmount(
+        state,
+        'A28',
+        math.max(100.0, _monthlyLifestyleBase(state) / 4.33),
+      );
+      if (weeklyLimit <= 0) return null;
+      final spent = _currentWeekLifestyleSpend(state);
+      return (1 - (spent / weeklyLimit)).clamp(0.0, 1.0) * 100;
+    default:
+      return null;
+  }
 }
 
 class _CashFlowPyramidContent extends StatelessWidget {
@@ -1740,6 +1778,14 @@ class InsightsPage extends StatefulWidget {
   State<InsightsPage> createState() => _InsightsPageState();
 }
 
+// Canonical motivation → Insights tab label, in display order.
+const _insightsMotivationTabs = <(String motivation, String label)>[
+  ('Cash Flow & Basic Needs', 'Available cash'),
+  ('Financial Safety', 'Emergency fund'),
+  ('Accumulating Wealth', 'Accumulating wealth'),
+  ('Financial Freedom', 'Financial freedom'),
+];
+
 class _InsightsPageState extends State<InsightsPage> {
   int _goal = 0;
   DateTime? _selectedWeek;
@@ -1750,81 +1796,210 @@ class _InsightsPageState extends State<InsightsPage> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final service = IntegrationService.fromState(state);
+    // The Reflection Demo account shows every motivation tab regardless of
+    // adoption, so it doubles as a showcase of what each one looks like.
+    final adopted =
+        isReflectionDemoAccount(state) ? null : _adoptedMotivations(state);
+    final visibleMotivations = [
+      for (final entry in _insightsMotivationTabs)
+        if (adopted == null || adopted.contains(entry.$1)) entry,
+    ];
+    final tabs = ['Overview', for (final entry in visibleMotivations) entry.$2];
+    final activeIndex = _goal < tabs.length ? _goal : 0;
+    final activeMotivation =
+        activeIndex == 0 ? null : visibleMotivations[activeIndex - 1].$1;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
         const PageHeader(eyebrow: 'REFLECTION', title: 'Goal Insights'),
         const SizedBox(height: 16),
-        _InsightsFilterBar(
-          tabs: const ['Overview', 'Available cash', 'Emergency fund'],
-          selected: _goal,
+        _InsightsTabSwitcher(
+          tabs: tabs,
+          selected: activeIndex,
           onChanged: (value) => setState(() {
             _goal = value;
             _selectedWeek = null;
             _selectedMonth = null;
           }),
         ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: () {
-                final analysis = switch (_goal) {
-                  1 => (
-                      'Available cash',
-                      _availableCashAnalysisContext(state, service)
+        if (activeMotivation == 'Financial Safety') ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: () {
+                  final analysis = (
+                    'Emergency fund',
+                    _emergencyAnalysisContext(state, service),
+                  );
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ShellbyChatPage(
+                        analysisTitle: analysis.$1,
+                        analysisContext: analysis.$2,
+                      ),
                     ),
-                  2 => (
-                      'Emergency fund',
-                      _emergencyAnalysisContext(state, service)
-                    ),
-                  _ => (
-                      'Insights overview',
-                      _overviewAnalysisContext(state, service)
-                    ),
-                };
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ShellbyChatPage(
-                      analysisTitle: analysis.$1,
-                      analysisContext: analysis.$2,
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-              label: const Text('AI Analyze'),
-              style: FilledButton.styleFrom(backgroundColor: _purple),
+                  );
+                },
+                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+                label: const Text('AI Analyze'),
+                style: FilledButton.styleFrom(backgroundColor: _purple),
+              ),
             ),
           ),
-        ),
-        if (_goal == 0)
-          _InsightsOverview(state: state, service: service)
-        else if (_goal == 1) ...[
-          _CashReflectionExplorer(
-            state: state,
-            service: service,
-            selectedWeek: _selectedWeek,
-            selectedMonth: _selectedMonth,
-            onWeekSelected: (week) => setState(() => _selectedWeek = week),
-            onMonthSelected: (month) => setState(() {
-              _selectedMonth = month;
-              _selectedWeek = null;
-            }),
-            actionStageKey: _actionStageKey,
-          ),
-        ] else ...[
-          _EmergencyReflectionExplorer(
-            state: state,
-            service: service,
-            selectedWeek: _selectedWeek,
-            onWeekSelected: (week) => setState(() => _selectedWeek = week),
-          ),
-        ],
+        ] else
+          const SizedBox(height: 12),
+        switch (activeMotivation) {
+          null => _InsightsOverview(state: state, service: service),
+          'Cash Flow & Basic Needs' => _CashReflectionExplorer(
+              state: state,
+              service: service,
+              selectedMonth: _selectedMonth,
+              onMonthSelected: (month) => setState(() {
+                _selectedMonth = month;
+                _selectedWeek = null;
+              }),
+              actionStageKey: _actionStageKey,
+            ),
+          'Financial Safety' => _EmergencyReflectionExplorer(
+              state: state,
+              service: service,
+              selectedWeek: _selectedWeek,
+              onWeekSelected: (week) => setState(() => _selectedWeek = week),
+            ),
+          _ => _MotivationGoalsSummary(
+              state: state,
+              motivation: activeMotivation,
+            ),
+        },
       ],
+    );
+  }
+}
+
+/// A lightweight stand-in Insights tab for motivations that don't have a
+/// full custom analysis page yet (Accumulating Wealth, Financial Freedom) —
+/// shows the goal(s) adopted under this motivation with their action list,
+/// reusing the same goal-card treatment as the Goals tab.
+class _MotivationGoalsSummary extends StatelessWidget {
+  const _MotivationGoalsSummary(
+      {required this.state, required this.motivation});
+  final AppState state;
+  final String motivation;
+
+  @override
+  Widget build(BuildContext context) {
+    final goalIds = _motivationGoalIds[motivation] ?? const <String>[];
+    final goals = _allGoalMetas(state)
+        .where((goal) =>
+            goalIds.contains(goal.id) && isGoalAdopted(state, goal.id))
+        .toList();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Full insights for this goal are on the way. Here's what you've set up so far.",
+            style: TextStyle(
+                color: _body,
+                fontSize: 12.5,
+                height: 1.4,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 14),
+          for (final goal in goals) ...[
+            _D1GoalCard(
+              goal: goal,
+              state: state,
+              onTap: () {
+                final shell =
+                    context.findAncestorStateOfType<_MainShellState>();
+                if (shell != null) {
+                  shell.openGoal(goal.id);
+                } else {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => GoalsPage(initialGoalId: goal.id),
+                    ),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 14),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightsTabSwitcher extends StatelessWidget {
+  const _InsightsTabSwitcher({
+    required this.tabs,
+    required this.selected,
+    required this.onChanged,
+  });
+  final List<String> tabs;
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: _bellySoft,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            for (var i = 0; i < tabs.length; i++)
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => onChanged(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: selected == i ? _surface : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: selected == i
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        tabs[i],
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: selected == i ? _purple : _body,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1886,108 +2061,160 @@ class _ReflectionQuestion extends StatelessWidget {
 }
 
 class _InsightsAiSummaryCard extends StatelessWidget {
-  const _InsightsAiSummaryCard({required this.suggestionCount});
+  const _InsightsAiSummaryCard({
+    required this.suggestionCount,
+    required this.onTap,
+  });
   final int suggestionCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF5DC295), _brand, Color(0xFF2D7A58)],
-          ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(28),
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: _brand.withOpacity(0.30),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: 52,
-                  height: 52,
-                  child: Image.asset(
-                    'assets/images/shellby_wave.webp',
-                    fit: BoxFit.contain,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Shellby analyzed your',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        '14-Day Financial Pattern',
-                        style: GoogleFonts.nunito(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          height: 1.15,
-                        ),
-                      ),
-                    ],
-                  ),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF5DC295), _brand, Color(0xFF2D7A58)],
+              ),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: _brand.withOpacity(0.30),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
-            if (suggestionCount > 0) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.22),
-                  borderRadius: BorderRadius.circular(999),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Image.asset(
+                        'assets/images/shellby_wave.webp',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Shellby analyzed your',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            '14-Day Financial Pattern',
+                            style: GoogleFonts.nunito(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              height: 1.15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  '$suggestionCount new suggestion${suggestionCount == 1 ? '' : 's'}!',
-                  style: const TextStyle(
+                if (suggestionCount > 0) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '$suggestionCount new suggestion${suggestionCount == 1 ? '' : 's'}!',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                const Text(
+                  'Review where your money is moving and what stands out! '
+                  'Then inspect spending categories, funding sources, and '
+                  'recent transactions.',
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+                    fontSize: 12.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            const Text(
-              'Review where your money is moving and what stands out! '
-              'Then inspect spending categories, funding sources, and '
-              'recent transactions.',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12.5,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Text(
+                      'Tap to ask Shellby about this',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.arrow_forward_rounded,
+                        color: Colors.white.withOpacity(0.9), size: 14),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
+
+DateTime _insightsCutoff() => DateTime.now().subtract(const Duration(days: 14));
+
+List<FakeMayaTransaction> _last14DaysTransactions(AppState state) {
+  final cutoff = _insightsCutoff();
+  return state.allTransactions
+      .where((transaction) =>
+          transaction.isLabeled &&
+          !transaction.excludedFromInsights &&
+          transaction.createdAt != null &&
+          !transaction.createdAt!.isBefore(cutoff))
+      .toList()
+    ..sort((a, b) => (b.createdAt ?? DateTime(1970))
+        .compareTo(a.createdAt ?? DateTime(1970)));
+}
+
+const _overviewPalette = [
+  _brand,
+  _purple,
+  _amber,
+  _red,
+  Color(0xFF6AA8F0),
+  _sage,
+];
 
 class _InsightsOverview extends StatelessWidget {
   const _InsightsOverview({required this.state, required this.service});
@@ -1996,19 +2223,14 @@ class _InsightsOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final all = state.allTransactions;
-    final transactions = all
-        .where((transaction) =>
-            transaction.isLabeled && !transaction.excludedFromInsights)
-        .toList()
-      ..sort((a, b) => (b.createdAt ?? DateTime(1970))
-          .compareTo(a.createdAt ?? DateTime(1970)));
+    final transactions = _last14DaysTransactions(state);
     final inflow = transactions
         .where((transaction) => transaction.amount > 0)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final outflow = transactions
         .where((transaction) => transaction.amount < 0)
         .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final netFlow = inflow - outflow;
     final categories = _transactionTotals(
       transactions.where((transaction) => transaction.amount < 0),
       (transaction) => transaction.category ?? 'Unclassified',
@@ -2017,19 +2239,27 @@ class _InsightsOverview extends StatelessWidget {
       transactions,
       (transaction) => transaction.source ?? 'Unclassified',
     );
-    final complete = all.where((transaction) => transaction.isLabeled).length;
 
     final suggestionCount = (isCashFlowGoalOnTrack(state) ? 0 : 1) +
         (isEmergencyFundGoalOnTrack(state) ? 0 : 1);
 
     return Column(
       children: [
-        _InsightsAiSummaryCard(suggestionCount: suggestionCount),
-        _ExplorerSection(
-          eyebrow: 'OVERVIEW · ALL CLASSIFIED ACTIVITY',
-          title: 'Money summary',
-          subtitle:
-              '$complete of ${all.length} transactions have both a category and fund source.',
+        _InsightsAiSummaryCard(
+          suggestionCount: suggestionCount,
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ShellbyChatPage(
+                  analysisTitle: 'Insights overview',
+                  analysisContext: _overviewAnalysisContext(state, service),
+                ),
+              ),
+            );
+          },
+        ),
+        _OverviewCard(
+          title: 'Money Summary',
           child: Row(
             children: [
               Expanded(
@@ -2053,57 +2283,244 @@ class _InsightsOverview extends StatelessWidget {
               Expanded(
                 child: _OverviewMetric(
                   label: 'Net flow',
-                  value: money(inflow - outflow),
-                  color: inflow >= outflow ? _brand : _amber,
+                  value: money(netFlow),
+                  color: netFlow >= 0 ? _brand : _amber,
                   icon: Icons.swap_vert_rounded,
                 ),
               ),
             ],
           ),
+          insight: _AiInsightNote(
+            trend: inflow == 0 && outflow == 0
+                ? _InsightTrend.neutral
+                : (netFlow >= 0 ? _InsightTrend.up : _InsightTrend.down),
+            text: _moneyFlowInsight(inflow, outflow),
+          ),
         ),
-        _BreakdownSection(
-          eyebrow: 'SPENDING BREAKDOWN',
-          title: 'Where money was spent',
-          subtitle: 'Expense categories ranked by total outgoing amount.',
-          totals: categories,
-          emptyMessage: 'No classified outgoing transactions yet.',
-          color: _brand,
-        ),
-        _BreakdownSection(
-          eyebrow: 'FUND USAGE',
-          title: 'Which funds handled the most money',
-          subtitle:
-              'Total transaction volume by source, including money in and money out.',
-          totals: sources,
-          emptyMessage: 'No classified fund sources yet.',
-          color: _purple,
-        ),
-        _ExplorerSection(
-          eyebrow: 'DETAIL · RECENT TRANSACTIONS',
-          title: 'Recent activity',
-          subtitle:
-              'Category describes the transaction; source shows the fund that handled it.',
-          child: transactions.isEmpty
+        _OverviewCard(
+          title: 'Where Your Money Went',
+          child: categories.isEmpty
               ? const _ReflectionEmpty(
-                  message: 'No classified transactions yet.')
-              : Column(
-                  children: [
-                    for (final transaction in transactions.take(12))
-                      _ReflectionDetailRow(
-                        icon: transaction.amount >= 0
-                            ? Icons.south_west_rounded
-                            : Icons.north_east_rounded,
-                        color: transaction.amount >= 0 ? _sage : _red,
-                        title: transaction.title,
-                        detail:
-                            '${transaction.category} · ${transaction.source} · ${_shortDate(transaction.createdAt ?? DateTime.now())}',
-                        amount:
-                            '${transaction.amount >= 0 ? '+' : '-'}${money(transaction.amount.abs())}',
-                      ),
-                  ],
-                ),
+                  message: 'No spending in the last 14 days yet.')
+              : _ColoredBreakdownList(totals: categories),
+          insight: _AiInsightNote(
+            trend: _InsightTrend.neutral,
+            text: _categoryInsight(categories, outflow),
+          ),
+        ),
+        _OverviewCard(
+          title: 'Which Funds You Used',
+          child: sources.isEmpty
+              ? const _ReflectionEmpty(
+                  message: 'No fund activity in the last 14 days yet.')
+              : _ColoredBreakdownList(totals: sources),
+          insight: _AiInsightNote(
+            trend: _InsightTrend.neutral,
+            text: _fundInsight(sources),
+          ),
         ),
       ],
+    );
+  }
+}
+
+String _moneyFlowInsight(double inflow, double outflow) {
+  if (inflow == 0 && outflow == 0) {
+    return 'No money movement in the last 14 days yet — log a transaction to start seeing insights here.';
+  }
+  final net = inflow - outflow;
+  if (net > 0) {
+    return 'You brought in ${money(net)} more than you spent over the last 14 days — a healthy positive net flow.';
+  }
+  if (net < 0) {
+    return 'You spent ${money(net.abs())} more than you brought in over the last 14 days — worth keeping an eye on.';
+  }
+  return 'Money in and money out balanced out exactly over the last 14 days.';
+}
+
+String _categoryInsight(Map<String, double> categories, double outflow) {
+  if (categories.isEmpty) {
+    return 'Nothing has been categorized as spending in the last 14 days yet.';
+  }
+  final top = categories.entries.first;
+  final pct = outflow > 0 ? (top.value / outflow * 100).round() : 0;
+  return '${top.key} was your biggest category over the last 14 days — $pct% of your spending (${money(top.value)}).';
+}
+
+String _fundInsight(Map<String, double> sources) {
+  if (sources.isEmpty) {
+    return 'No fund has handled any transactions in the last 14 days yet.';
+  }
+  final top = sources.entries.first;
+  return '${top.key} saw the most activity over the last 14 days, handling ${money(top.value)} in total.';
+}
+
+enum _InsightTrend { up, down, neutral }
+
+class _OverviewCard extends StatelessWidget {
+  const _OverviewCard({
+    required this.title,
+    required this.child,
+    required this.insight,
+  });
+  final String title;
+  final Widget child;
+  final Widget insight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            child,
+            const SizedBox(height: 12),
+            insight,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ColoredBreakdownList extends StatelessWidget {
+  const _ColoredBreakdownList({required this.totals});
+  final Map<String, double> totals;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = totals.values.reduce(math.max);
+    final total = totals.values.fold(0.0, (sum, value) => sum + value);
+    final entries = totals.entries.take(6).toList();
+    return Column(
+      children: [
+        for (var i = 0; i < entries.length; i++)
+          Padding(
+            padding: EdgeInsets.only(bottom: i == entries.length - 1 ? 0 : 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        entries[i].key,
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${money(entries[i].value)} · ${(entries[i].value / total * 100).round()}%',
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: entries[i].value / maxValue,
+                    minHeight: 8,
+                    color: _overviewPalette[i % _overviewPalette.length],
+                    backgroundColor: _border.withValues(alpha: .45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AiInsightNote extends StatelessWidget {
+  const _AiInsightNote({required this.text, required this.trend});
+  final String text;
+  final _InsightTrend trend;
+
+  @override
+  Widget build(BuildContext context) {
+    final trendColor = switch (trend) {
+      _InsightTrend.up => _sage,
+      _InsightTrend.down => _red,
+      _InsightTrend.neutral => _purple,
+    };
+    final trendIcon = switch (trend) {
+      _InsightTrend.up => Icons.trending_up_rounded,
+      _InsightTrend.down => Icons.trending_down_rounded,
+      _InsightTrend.neutral => Icons.insights_rounded,
+    };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F4F6),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded, color: _purple, size: 12),
+              const SizedBox(width: 5),
+              const Text(
+                'AI INSIGHT',
+                style: TextStyle(
+                  color: _purple,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(trendIcon, color: trendColor, size: 15),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2129,11 +2546,7 @@ String _overviewAnalysisContext(
   AppState state,
   IntegrationService service,
 ) {
-  final all = state.allTransactions;
-  final labeled = all
-      .where((transaction) =>
-          transaction.isLabeled && !transaction.excludedFromInsights)
-      .toList();
+  final labeled = _last14DaysTransactions(state);
   final inflow = labeled
       .where((transaction) => transaction.amount > 0)
       .fold(0.0, (sum, transaction) => sum + transaction.amount);
@@ -2151,7 +2564,7 @@ String _overviewAnalysisContext(
   return '''
 Screen: Insights Overview
 Question: Where is my money moving, and what stands out?
-Classified transactions: ${labeled.length} of ${all.length}
+Classified transactions in the last 14 days: ${labeled.length}
 Money in: ${money(inflow)}
 Money out: ${money(outflow)}
 Net flow: ${money(inflow - outflow)}
@@ -2928,6 +3341,240 @@ class _CashMonthSelector extends StatelessWidget {
   }
 }
 
+String _cashIndexInsight(_CashMonthInsight month) {
+  final billScore = _scorePercent(month.billScore);
+  if (month.canPayBills) {
+    return 'Your wallet covers ${money(month.billNeed)} in bills for ${_monthLabel(month.start)} with room to spare — ${money(month.walletAvailable - month.billNeed)} left over.';
+  }
+  return "You're at $billScore% of what you need to cover ${_monthLabel(month.start)}'s bills — ${money(month.billNeed - month.walletAvailable)} short of the ${money(month.billNeed)} needed.";
+}
+
+class _AvailableCashAnswerCard extends StatelessWidget {
+  const _AvailableCashAnswerCard({
+    required this.months,
+    required this.month,
+    required this.selectedMonth,
+    required this.onMonthSelected,
+  });
+  final List<_CashMonthInsight> months;
+  final _CashMonthInsight month;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime> onMonthSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final billScore = _scorePercent(month.billScore);
+    final resiliencyScore = _scorePercent(month.goalResiliencyScore);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _purple.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _purple.withValues(alpha: .18)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'REFLECTION QUESTION',
+              style: TextStyle(
+                color: _purple,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Can this month’s available cash cover bills?',
+              style: TextStyle(
+                color: _title,
+                fontSize: 16,
+                height: 1.3,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Here’s the answer for the month you pick below.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (months.length > 1) ...[
+              SizedBox(
+                height: 36,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  itemCount: months.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (context, reversedIndex) {
+                    final index = months.length - 1 - reversedIndex;
+                    final item = months[index];
+                    final active = selectedMonth == item.start;
+                    return ChoiceChip(
+                      selected: active,
+                      label: Text(_monthLabel(item.start)),
+                      onSelected: (_) => onMonthSelected(item.start),
+                      selectedColor: _title,
+                      backgroundColor: _surface,
+                      labelStyle: TextStyle(
+                        color: active ? Colors.white : _body,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
+                      side: BorderSide(color: active ? _title : _border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _surface,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        month.canPayBills
+                            ? Icons.check_circle_rounded
+                            : Icons.error_rounded,
+                        color: month.canPayBills ? _sage : _red,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          month.canPayBills
+                              ? 'Yes, your wallet can cover this month’s bills'
+                              : 'No, your wallet cannot cover this month’s bills yet',
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)} and wallet has ${money(month.walletAvailable)}.',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Bill readiness',
+                          value: '$billScore%',
+                          color: month.canPayBills ? _sage : _red,
+                          icon: month.canPayBills
+                              ? Icons.check_circle_rounded
+                              : Icons.error_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Need',
+                          value: money(month.billNeed),
+                          color: _amber,
+                          icon: Icons.receipt_long_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Have',
+                          value: money(month.walletAvailable),
+                          color: _brand,
+                          icon: Icons.account_balance_wallet_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: month.billScore,
+                      minHeight: 8,
+                      color: month.canPayBills ? _sage : _red,
+                      backgroundColor: _border.withValues(alpha: .5),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Earned',
+                          value: money(month.income),
+                          color: _sage,
+                          icon: Icons.south_west_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Spent',
+                          value: money(month.spending),
+                          color: _red,
+                          icon: Icons.north_east_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _OverviewMetric(
+                          label: 'Goal resiliency',
+                          value: '$resiliencyScore%',
+                          color: _resiliencyScoreColor(resiliencyScore),
+                          icon: Icons.task_alt_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _AiInsightNote(
+              trend: month.canPayBills ? _InsightTrend.up : _InsightTrend.down,
+              text: _cashIndexInsight(month),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CashMonthStatusSection extends StatelessWidget {
   const _CashMonthStatusSection({required this.month});
 
@@ -3022,6 +3669,85 @@ class _CashMonthStatusSection extends StatelessWidget {
   }
 }
 
+/// A single measure shown as a circular gauge: (label, 0-100 score).
+typedef _ActionMeasure = (String label, int percent);
+
+/// Consistency, Resiliency, and Adherence, derived from the same weekly
+/// [_CashActionScore.pattern] data every action already computes:
+/// - Resiliency: the action's overall score (how well the target held up
+///   week to week, including partial misses) — always shown.
+/// - Adherence: % of weeks the target was fully met.
+/// - Consistency: % of weeks with any measurable activity at all.
+/// Adherence and Consistency only make sense across multiple periods, so
+/// single-point actions (pattern.length <= 1) show Resiliency alone.
+List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
+  final resiliency = ('Resiliency', _scorePercent(action.score));
+  if (action.pattern.length <= 1) return [resiliency];
+  final adherence = _scorePercent(
+    action.pattern.where((value) => value >= 1.0).length /
+        action.pattern.length,
+  );
+  final consistency = _scorePercent(
+    action.pattern.where((value) => value > 0).length / action.pattern.length,
+  );
+  return [
+    ('Consistency', consistency),
+    resiliency,
+    ('Adherence', adherence),
+  ];
+}
+
+class _CircularScoreGauge extends StatelessWidget {
+  const _CircularScoreGauge({required this.label, required this.percent});
+  final String label;
+  final int percent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _resiliencyScoreColor(percent);
+    return Column(
+      children: [
+        SizedBox(
+          width: 60,
+          height: 60,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 60,
+                height: 60,
+                child: CircularProgressIndicator(
+                  value: percent / 100,
+                  strokeWidth: 6,
+                  color: color,
+                  backgroundColor: _border,
+                ),
+              ),
+              Text(
+                '$percent',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            color: _title,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _CashActionProgressSection extends StatelessWidget {
   const _CashActionProgressSection({required this.month});
 
@@ -3031,18 +3757,18 @@ class _CashActionProgressSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _ExplorerSection(
       eyebrow: 'MONTH · ACTION PROGRESS',
-      title: 'Resiliency score for your actions',
+      title: 'Your actions, measured',
       subtitle:
-          "How well you've kept up with each action this month — tap one for details. Your goal resiliency score above is the average of these.",
+          "Tap an action for the full breakdown. Consistency, Resiliency, and Adherence — only shown when they're meaningful for that action.",
       child: month.actionScores.isEmpty
           ? const _ReflectionEmpty(
-              message: 'No resiliency scores are available yet.')
+              message: 'No action scores are available yet.')
           : Column(
               children: [
                 for (final action in month.actionScores)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: _CashActionScoreRow(action: action),
+                    child: _ActionMeasureCard(action: action),
                   ),
               ],
             ),
@@ -3050,15 +3776,14 @@ class _CashActionProgressSection extends StatelessWidget {
   }
 }
 
-class _CashActionScoreRow extends StatelessWidget {
-  const _CashActionScoreRow({required this.action});
+class _ActionMeasureCard extends StatelessWidget {
+  const _ActionMeasureCard({required this.action});
 
   final _CashActionScore action;
 
   @override
   Widget build(BuildContext context) {
-    final score = _scorePercent(action.score);
-    final color = _resiliencyScoreColor(score);
+    final measures = _actionMeasures(action);
     return InkWell(
       onTap: () => _showCashActionScoreDetails(context, action),
       borderRadius: BorderRadius.circular(18),
@@ -3073,64 +3798,41 @@ class _CashActionScoreRow extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              action.title,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              action.detail,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 14),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${action.id} · ${action.title}',
-                        style: const TextStyle(
-                          color: _title,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        action.detail,
-                        style: const TextStyle(
-                          color: _body,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
+                for (final measure in measures)
+                  _CircularScoreGauge(
+                    label: measure.$1,
+                    percent: measure.$2,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$score%',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
               ],
             ),
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: action.score.clamp(0.0, 1.0),
-                minHeight: 9,
-                color: color,
-                backgroundColor: _border.withValues(alpha: .6),
-              ),
+            _AiInsightNote(
+              trend: _actionInsightTrend(measures),
+              text: _actionInsight(action, measures),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -3162,190 +3864,223 @@ class _CashActionScoreRow extends StatelessWidget {
   }
 }
 
+_InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
+  final lowest = measures.reduce((a, b) => a.$2 <= b.$2 ? a : b);
+  if (lowest.$2 >= 80) return _InsightTrend.up;
+  if (lowest.$2 >= 50) return _InsightTrend.neutral;
+  return _InsightTrend.down;
+}
+
+String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
+  final lowest = measures.reduce((a, b) => a.$2 <= b.$2 ? a : b);
+  if (lowest.$2 >= 80) {
+    return "Strong performance across the board for this action — keep it up.";
+  }
+  final label = lowest.$1.toLowerCase();
+  final detail = switch (lowest.$1) {
+    'Consistency' =>
+      "you're not logging activity for this action every week — try to keep it up weekly.",
+    'Adherence' =>
+      "you're hitting the target less often than not — consider a smaller target if it feels out of reach.",
+    _ =>
+      "the target has been hard to hold onto some weeks, even with partial progress.",
+  };
+  return 'Your $label is the area to watch here — $detail';
+}
+
+Widget _dialogSectionLabel(String text) => Text(
+      text,
+      style: const TextStyle(
+        color: _title,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+
 void _showCashActionScoreDetails(
   BuildContext context,
   _CashActionScore action,
 ) {
-  final score = _scorePercent(action.score);
+  final measures = _actionMeasures(action);
   final patternStats = _distributionStats(
     action.pattern.map((value) => value.clamp(0.0, 1.0) * 100).toList(),
   );
-  final color = _resiliencyScoreColor(score);
   showDialog<void>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => Dialog(
       backgroundColor: _surface,
-      title: Text(
-        '${action.id} resiliency',
-        style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
-      ),
-      content: SingleChildScrollView(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _OverviewMetric(
-                    label: 'Score',
-                    value: '$score%',
-                    color: color,
-                    icon: Icons.speed_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _OverviewMetric(
-                    label: 'Actual',
-                    value: action.actualLabel,
-                    color: _brand,
-                    icon: Icons.check_circle_rounded,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _OverviewMetric(
-                    label: 'Target',
-                    value: action.targetLabel,
-                    color: _amber,
-                    icon: Icons.flag_rounded,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
             Text(
-              action.title,
+              '${action.title} resiliency',
               style: const TextStyle(
                 color: _title,
-                fontSize: 13,
+                fontSize: 16,
                 fontWeight: FontWeight.w900,
+                height: 1.25,
               ),
             ),
-            const SizedBox(height: 5),
-            Text(
-              action.formula,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 11,
-                height: 1.35,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              'Data behind the score',
-              style: TextStyle(
-                color: _title,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 6),
-            for (final item in action.evidence)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.circle, color: _purple, size: 6),
-                    const SizedBox(width: 8),
-                    Expanded(
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        for (final measure in measures)
+                          _CircularScoreGauge(
+                            label: measure.$1,
+                            percent: measure.$2,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _bellySoft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Text(
-                        item,
+                        '${action.actualLabel} of ${action.targetLabel} target',
                         style: const TextStyle(
-                          color: _body,
-                          fontSize: 11,
-                          height: 1.3,
-                          fontWeight: FontWeight.w700,
+                          color: _purple,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      action.formula,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 11.5,
+                        height: 1.4,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Divider(height: 1, color: _border),
+                    const SizedBox(height: 16),
+                    _dialogSectionLabel('Data behind the score'),
+                    const SizedBox(height: 8),
+                    for (final item in action.evidence)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 7),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 5),
+                              child:
+                                  Icon(Icons.circle, color: _purple, size: 5),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                item,
+                                style: const TextStyle(
+                                  color: _body,
+                                  fontSize: 11.5,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (action.pattern.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Divider(height: 1, color: _border),
+                      const SizedBox(height: 16),
+                      if (patternStats != null) ...[
+                        _dialogSectionLabel('Score measures'),
+                        const SizedBox(height: 10),
+                        _StatsGrid(
+                          stats: patternStats,
+                          valueFormatter: (value) => '${value.round()}%',
+                          modeEmptyLabel: 'No repeat',
+                        ),
+                        const SizedBox(height: 18),
+                      ],
+                      _dialogSectionLabel('Percentage rate per week'),
+                      const SizedBox(height: 10),
+                      for (var i = 0; i < action.pattern.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Builder(builder: (context) {
+                            final weekColor =
+                                _resiliencyValueColor(action.pattern[i]);
+                            return Row(
+                              children: [
+                                SizedBox(
+                                  width: 54,
+                                  child: Text(
+                                    i < action.weekLabels.length
+                                        ? action.weekLabels[i]
+                                        : 'Week ${i + 1}',
+                                    style: const TextStyle(
+                                      color: _body,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: LinearProgressIndicator(
+                                      value: action.pattern[i].clamp(0.0, 1.0),
+                                      minHeight: 8,
+                                      color: weekColor,
+                                      backgroundColor:
+                                          _border.withValues(alpha: .5),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${_scorePercent(action.pattern[i])}%',
+                                  style: TextStyle(
+                                    color: weekColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            );
+                          }),
+                        ),
+                    ],
                   ],
                 ),
               ),
-            if (action.pattern.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              if (patternStats != null) ...[
-                const Text(
-                  'Score measures',
-                  style: TextStyle(
-                    color: _title,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _StatsGrid(
-                  stats: patternStats,
-                  valueFormatter: (value) => '${value.round()}%',
-                  modeEmptyLabel: 'No repeat',
-                ),
-                const SizedBox(height: 14),
-              ],
-              const Text(
-                'Percentage rate per week',
-                style: TextStyle(
-                  color: _title,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text(
+                  'Close',
+                  style: TextStyle(color: _purple, fontWeight: FontWeight.w800),
                 ),
               ),
-              const SizedBox(height: 8),
-              for (var i = 0; i < action.pattern.length; i++) ...[
-                Builder(builder: (context) {
-                  final weekColor = _resiliencyValueColor(action.pattern[i]);
-                  return Row(
-                    children: [
-                      SizedBox(
-                        width: 54,
-                        child: Text(
-                          i < action.weekLabels.length
-                              ? action.weekLabels[i]
-                              : 'Week ${i + 1}',
-                          style: const TextStyle(
-                            color: _body,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(999),
-                          child: LinearProgressIndicator(
-                            value: action.pattern[i].clamp(0.0, 1.0),
-                            minHeight: 8,
-                            color: weekColor,
-                            backgroundColor: _border.withValues(alpha: .5),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${_scorePercent(action.pattern[i])}%',
-                        style: TextStyle(
-                          color: weekColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  );
-                }),
-                if (i < action.pattern.length - 1) const SizedBox(height: 6),
-              ],
-            ],
+            ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Close'),
-        ),
-      ],
     ),
   );
 }
@@ -3600,9 +4335,7 @@ class _AvailableCashActionStageSectionState
       suggestion,
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    showAppNotice(context, message);
     final shell = context.findAncestorStateOfType<_MainShellState>();
     if (shell != null) {
       shell.openGoal('G1');
@@ -3667,7 +4400,7 @@ Future<bool?> _confirmActionStageSuggestion(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '$optionLabel for $actionId',
+              '$optionLabel for ${action?.text ?? suggestion.actionText}',
               style: const TextStyle(
                 color: _title,
                 fontSize: 13,
@@ -3837,7 +4570,9 @@ class _ActionStageSuggestionCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${suggestion.actionId} · ${suggestion.actionText.isEmpty ? (_d2Actions[suggestion.actionId]?.text ?? 'Action') : suggestion.actionText}',
+                    suggestion.actionText.isEmpty
+                        ? (_d2Actions[suggestion.actionId]?.text ?? 'Action')
+                        : suggestion.actionText,
                     style: const TextStyle(
                       color: _title,
                       fontSize: 11.5,
@@ -4204,13 +4939,13 @@ Future<String> _applyAvailableCashActionSuggestion(
 
   state.configureGoalActions(actionIds: ids.where(allowed.contains));
   await state.saveProfile();
+  final targetLabel = _d2Actions[targetActionId]?.text ?? targetActionId;
   return switch (option) {
-    'retain_action' => '${suggestion.actionId} retained.',
-    'change_parameterized_target' => '$targetActionId target updated.',
-    'suggest_new_action' => '$targetActionId added to Maintain Available Cash.',
-    'remove_and_replace_action' =>
-      '${suggestion.actionId} replaced with $targetActionId.',
-    _ => '$targetActionId updated.',
+    'retain_action' => 'Kept: $targetLabel',
+    'change_parameterized_target' => 'Updated target for: $targetLabel',
+    'suggest_new_action' => 'Added to Maintain Available Cash: $targetLabel',
+    'remove_and_replace_action' => 'Replaced with: $targetLabel',
+    _ => 'Updated: $targetLabel',
   };
 }
 
@@ -4269,17 +5004,13 @@ class _CashReflectionExplorer extends StatelessWidget {
   const _CashReflectionExplorer({
     required this.state,
     required this.service,
-    required this.selectedWeek,
     required this.selectedMonth,
-    required this.onWeekSelected,
     required this.onMonthSelected,
     required this.actionStageKey,
   });
   final AppState state;
   final IntegrationService service;
-  final DateTime? selectedWeek;
   final DateTime? selectedMonth;
-  final ValueChanged<DateTime> onWeekSelected;
   final ValueChanged<DateTime> onMonthSelected;
   final GlobalKey actionStageKey;
 
@@ -4289,24 +5020,9 @@ class _CashReflectionExplorer extends StatelessWidget {
     final activeMonth =
         months.where((month) => month.start == selectedMonth).firstOrNull ??
             (months.isEmpty ? null : months.last);
-    final weeks = activeMonth?.weeks ?? const <WeekRecord>[];
-    final selected =
-        weeks.where((week) => week.start == selectedWeek).firstOrNull ??
-            (weeks.isEmpty ? null : weeks.last);
-    final monthlyCategoryTarget = state.categorySpendingBudgets.values
-        .fold(0.0, (sum, amount) => sum + amount);
-    final weeklyTarget = monthlyCategoryTarget > 0
-        ? monthlyCategoryTarget / 4.33
-        : state.monthlyEssentialExpenseTotal / 4.33;
 
     return Column(
       children: [
-        const _ReflectionQuestion(
-          question:
-              'Can this month’s available cash cover bills, and which weeks changed it?',
-          detail:
-              'Review the month first, then select a week to inspect its transactions, income, bills, and action progress.',
-        ),
         _AvailableCashSuggestionBanner(
           onViewSuggestions: () {
             final target = actionStageKey.currentContext;
@@ -4319,63 +5035,38 @@ class _CashReflectionExplorer extends StatelessWidget {
             }
           },
         ),
-        if (months.isNotEmpty)
-          _CashMonthSelector(
-            months: months,
-            selected: activeMonth?.start,
-            onSelected: onMonthSelected,
-          ),
         if (activeMonth != null) ...[
-          _CashMonthStatusSection(month: activeMonth),
+          _AvailableCashAnswerCard(
+            months: months,
+            month: activeMonth,
+            selectedMonth: activeMonth.start,
+            onMonthSelected: onMonthSelected,
+          ),
           _CashActionProgressSection(month: activeMonth),
           _AvailableCashActionStageSection(key: actionStageKey),
-          _BreakdownSection(
-            eyebrow: 'MONTH · MONEY IN',
-            title: 'This is where you earn money',
-            subtitle: 'Income sources for ${_monthLabel(activeMonth.start)}.',
-            totals: activeMonth.incomeSources,
-            emptyMessage: 'No labeled income sources recorded this month.',
-            color: _sage,
-          ),
-          _BreakdownSection(
-            eyebrow: 'MONTH · MONEY OUT',
-            title: 'This is where you spend money',
-            subtitle:
-                'Expense categories for ${_monthLabel(activeMonth.start)}.',
-            totals: activeMonth.spendingCategories,
-            emptyMessage: 'No labeled spending recorded this month.',
-            color: _brand,
-          ),
         ],
-        _ExplorerSection(
-          eyebrow: 'OVERVIEW · MONTHLY WEEKS',
-          title: 'Weekly cash flow',
-          subtitle: weeklyTarget > 0
-              ? 'Weekly spending compared with an estimated ${money(weeklyTarget)} selected-category or essential baseline.'
-              : 'Weekly income, spending, and transaction coverage by week.',
-          child: _SelectableWeeklyChartWithStats(
-            weeks: weeks
-                .map((week) => _WeeklyChartItem(
-                      start: week.start,
-                      value: week.weekExpense,
-                      comparisonValue: weeklyTarget,
-                      coverage: week.propDaysClassified,
-                      isIncomeWeek: week.isSalaryWeek,
-                      isBillWeek: week.isBillWeek,
-                      hadInterference: week.hadEmergency,
-                    ))
-                .toList(),
-            selected: selected?.start,
-            primaryLabel: 'Spent',
-            comparisonLabel: 'Target',
-            primaryColor: _brand,
-            onSelected: onWeekSelected,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ShellbyChatPage(
+                      analysisTitle: 'Available cash',
+                      analysisContext:
+                          _availableCashAnalysisContext(state, service),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+              label: const Text('AI Analyze'),
+              style: FilledButton.styleFrom(backgroundColor: _purple),
+            ),
           ),
         ),
-        if (selected != null)
-          _CashWeekDetail(week: selected)
-        else
-          const _ExplorerEmpty(),
       ],
     );
   }
@@ -8827,8 +9518,9 @@ class _GoalsPageState extends State<GoalsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     if (_activeGoalId != null) {
-      final goal = _d1GoalMetas.firstWhere((g) => g.id == _activeGoalId);
+      final goal = _goalMetaById(state, _activeGoalId!);
       return _D1GoalDetailScreen(
         goal: goal,
         onBack: () => setState(() => _activeGoalId = null),
@@ -8836,6 +9528,116 @@ class _GoalsPageState extends State<GoalsPage> {
     }
     return _D1GoalsMenu(onGoal: (id) => setState(() => _activeGoalId = id));
   }
+}
+
+// ─── Goal adoption + generated goal metadata ──────────────────────────────────
+//
+// Only G1, G3, and G5 have hand-authored _D1GoalMeta entries (bespoke hero
+// copy, action config labels). The other goals in the D1 catalog (G2, G4,
+// G6, G7, G8 — covering Accumulating Wealth's second goal and all of
+// Financial Freedom) get a generated entry built from the same D1Goal /
+// D2Action data the onboarding questionnaire already uses, so they render
+// through the existing generic action-panel fallback.
+
+const _generatedGoalLayers = <String, (Color, String, String)>{
+  // goalId: (layerColor, layerLabel, emoji)
+  'G2': (_brand, 'Cash Flow', '🔄'),
+  'G4': (_brand, 'Cash Flow', '🧾'),
+  'G6': (_purple, 'Accumulating Wealth', '📉'),
+  'G7': (Color(0xFF6AA8F0), 'Financial Freedom', '🎯'),
+  'G8': (Color(0xFF6AA8F0), 'Financial Freedom', '🎉'),
+};
+
+_D1ActionMeta _generatedActionMeta(AppState state, String actionId) {
+  final action = _d2Actions[actionId];
+  final field = action?.fields.isNotEmpty == true ? action!.fields.first : null;
+  final configuredValue =
+      field == null ? null : state.actionFieldValues[actionId]?[field.key];
+  final configValue = configuredValue == null
+      ? (field?.hint ?? 'Not set')
+      : (field!.isPercent ? '$configuredValue%' : configuredValue);
+  return _D1ActionMeta(
+    id: actionId,
+    text: action?.text ?? actionId,
+    configLabel: field?.label ?? 'Configuration',
+    configValue: configValue,
+    destBucket: '',
+    metrics: const [],
+    dataPoints: const [],
+    activityLog: const [],
+  );
+}
+
+_D1GoalMeta _generatedGoalMeta(AppState state, String goalId) {
+  final goal = _d1GoalById(goalId);
+  final layer = _generatedGoalLayers[goalId] ?? (_brand, 'Cash Flow', '🎯');
+  final actionIds = _goalActionIds[goalId] ?? const <String>[];
+  return _D1GoalMeta(
+    id: goal.id,
+    emoji: layer.$3,
+    title: goal.title,
+    description: goal.description,
+    layerColor: layer.$1,
+    layerLabel: layer.$2,
+    actions: [for (final id in actionIds) _generatedActionMeta(state, id)],
+  );
+}
+
+List<_D1GoalMeta> _allGoalMetas(AppState state) {
+  final authoredIds = _d1GoalMetas.map((g) => g.id).toSet();
+  return [
+    ..._d1GoalMetas,
+    for (final goalId in _generatedGoalLayers.keys)
+      if (!authoredIds.contains(goalId)) _generatedGoalMeta(state, goalId),
+  ];
+}
+
+_D1GoalMeta _goalMetaById(AppState state, String goalId) {
+  return _allGoalMetas(state).firstWhere(
+    (g) => g.id == goalId,
+    orElse: () => _d1GoalMetas.first,
+  );
+}
+
+/// A goal counts as adopted once the user has at least one of its actions
+/// selected — true for the goal chosen at onboarding, and for any goal
+/// added later via the Goals tab's "Add new goal" flow. No separate
+/// "adopted goals" field is persisted; this is derived on the fly.
+bool isGoalAdopted(AppState state, String goalId) {
+  final actionIds = _goalActionIds[goalId] ?? const <String>[];
+  return actionIds.any(state.selectedActionIds.contains);
+}
+
+List<_D1GoalMeta> _adoptedGoalMetas(AppState state) {
+  return _allGoalMetas(state)
+      .where((goal) => isGoalAdopted(state, goal.id))
+      .toList();
+}
+
+/// The seeded showcase account (Login screen's "Seed Reflection Demo User"),
+/// identified by its fixed demo email — used to relax adoption-based
+/// filtering so it can display every motivation tab as a demo, without
+/// affecting real users.
+bool isReflectionDemoAccount(AppState state) =>
+    state.email == 'reflection@test.com';
+
+/// Motivations (D1 layers) that already have at least one adopted goal.
+Set<String> _adoptedMotivations(AppState state) {
+  return {
+    for (final entry in _motivationGoalIds.entries)
+      if (entry.value.any((goalId) => isGoalAdopted(state, goalId))) entry.key,
+  };
+}
+
+/// Motivations that still have at least one goal the user hasn't adopted
+/// yet — used by the "Add new goal" picker. A motivation only disappears
+/// once every goal under it has been adopted (goals like G1 are shared
+/// across motivations, so "adopted" alone would hide everything).
+Set<String> motivationsWithAvailableGoal(AppState state) {
+  return {
+    for (final entry in _motivationGoalIds.entries)
+      if (entry.value.any((goalId) => !isGoalAdopted(state, goalId))) entry.key,
+  };
 }
 
 // ─── Goals menu ───────────────────────────────────────────────────────────────
@@ -8848,16 +9650,56 @@ class _D1GoalsMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final (onTrack, total) = goalsOnTrackSummary(state);
+    final goals = _adoptedGoalMetas(state);
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
-        const PageHeader(eyebrow: 'MY GOALS', title: 'Goals'),
-        const SizedBox(height: 14),
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _WeeklyProgressCard(onTrack: onTrack, total: total),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('MY GOALS',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2)),
+                    Text('Goals',
+                        style: Theme.of(context).textTheme.headlineLarge),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () =>
+                    _push(context, const AddGoalMotivationScreen()),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add new goal'),
+                style: TextButton.styleFrom(
+                  foregroundColor: _purple,
+                  backgroundColor: _bellySoft,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 14),
+        if (goals.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _WeeklyProgressCard(onTrack: onTrack, total: total),
+          ),
+          const SizedBox(height: 14),
+        ],
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Text(
@@ -8869,14 +9711,34 @@ class _D1GoalsMenu extends StatelessWidget {
         const SizedBox(height: 24),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            children: [
-              for (final goal in _d1GoalMetas) ...[
-                _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
-                const SizedBox(height: 14),
-              ],
-            ],
-          ),
+          child: goals.isEmpty
+              ? Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    "You haven't set up a goal yet. Tap \"Add new goal\" above to get started.",
+                    style: TextStyle(
+                        color: _body,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700),
+                  ),
+                )
+              : Column(
+                  children: [
+                    for (final goal in goals) ...[
+                      _D1GoalCard(
+                        goal: goal,
+                        state: state,
+                        onTap: () => onGoal(goal.id),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  ],
+                ),
         ),
       ],
     );
@@ -8999,13 +9861,21 @@ double _currentWeekLifestyleSpend(AppState state) {
 }
 
 class _D1GoalCard extends StatelessWidget {
-  const _D1GoalCard({required this.goal, required this.onTap});
+  const _D1GoalCard({
+    required this.goal,
+    required this.state,
+    required this.onTap,
+  });
   final _D1GoalMeta goal;
+  final AppState state;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final actionCount = _goalDetailActionsFor(context, goal).length;
+    final onTrack = isGoalOnTrack(state, goal.id);
+    final performance = goalPerformancePercent(state, goal.id);
+    final progressColor = onTrack ? _brand : _amber;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -9023,17 +9893,14 @@ class _D1GoalCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Color accent header
+            // Neutral header
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              decoration: BoxDecoration(
-                color: goal.layerColor.withValues(alpha: .08),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
-                border: Border(
-                    bottom: BorderSide(
-                        color: goal.layerColor.withValues(alpha: .15))),
+              decoration: const BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: _border)),
               ),
               child: Row(
                 children: [
@@ -9041,8 +9908,9 @@ class _D1GoalCard extends StatelessWidget {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: goal.layerColor.withValues(alpha: .15),
+                      color: _surface,
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
                     ),
                     alignment: Alignment.center,
                     child:
@@ -9051,31 +9919,35 @@ class _D1GoalCard extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      goal.id,
-                      style: TextStyle(
-                        color: goal.layerColor,
-                        fontSize: 12,
+                      goal.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: _title,
+                        fontSize: 15,
                         fontWeight: FontWeight.w900,
-                        letterSpacing: 1,
                       ),
                     ),
                   ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: goal.layerColor.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      goal.layerLabel,
-                      style: TextStyle(
-                        color: goal.layerColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                  if (onTrack) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _brand.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        'On Track',
+                        style: TextStyle(
+                          color: _brand,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -9086,16 +9958,6 @@ class _D1GoalCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    goal.title,
-                    style: const TextStyle(
-                      color: _title,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
                     goal.description,
                     style: const TextStyle(
                       color: _body,
@@ -9105,6 +9967,33 @@ class _D1GoalCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
+                  if (performance != null) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: LinearProgressIndicator(
+                              value: performance / 100,
+                              minHeight: 8,
+                              color: progressColor,
+                              backgroundColor: _border,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${performance.round()}%',
+                          style: TextStyle(
+                            color: progressColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   Row(
                     children: [
                       _GoalPillChip(
@@ -9113,17 +10002,17 @@ class _D1GoalCard extends StatelessWidget {
                         color: goal.layerColor,
                       ),
                       const Spacer(),
-                      Text(
+                      const Text(
                         'View details',
                         style: TextStyle(
-                          color: goal.layerColor,
+                          color: _purple,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(width: 2),
-                      Icon(Icons.arrow_forward_rounded,
-                          size: 16, color: goal.layerColor),
+                      const Icon(Icons.arrow_forward_rounded,
+                          size: 16, color: _purple),
                     ],
                   ),
                 ],
@@ -9195,7 +10084,7 @@ class _D1GoalDetailScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      goal.id,
+                      'GOAL DETAILS',
                       style: TextStyle(
                         color: goal.layerColor,
                         fontSize: 11,
@@ -9241,35 +10130,60 @@ class _D1GoalDetailScreen extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: goal.layerColor,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  goal.layerColor,
+                  Color.lerp(goal.layerColor, Colors.black, 0.25)!,
+                ],
+              ),
               borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: goal.layerColor.withValues(alpha: .35),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text(goal.emoji, style: const TextStyle(fontSize: 28)),
-                    const SizedBox(width: 10),
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .18),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(goal.emoji,
+                          style: const TextStyle(fontSize: 24)),
+                    ),
+                    const SizedBox(width: 14),
                     Expanded(
                       child: Text(
                         goal.title,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
                           height: 1.2,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 Text(
                   goal.description,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: .85),
-                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: .88),
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
                     height: 1.45,
                   ),
@@ -11460,20 +12374,14 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(9),
                     ),
-                    child: Text(
-                      action.id,
-                      style: TextStyle(
-                          color: color,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: .5),
-                    ),
+                    alignment: Alignment.center,
+                    child: Icon(Icons.bolt_rounded, color: color, size: 17),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -11503,14 +12411,15 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
           // Config chip row (always visible)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _GoalPillChip(
                   icon: Icons.tune_rounded,
                   label: '${action.configLabel}: ${action.configValue}',
                   color: color,
                 ),
-                const SizedBox(width: 8),
                 _GoalPillChip(
                   icon: Icons.savings_rounded,
                   label: action.destBucket,
@@ -11935,15 +12844,13 @@ class _EssentialExpensesActionPanelState
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text('A1',
-                    style: TextStyle(
-                        color: widget.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900)),
+                    borderRadius: BorderRadius.circular(9)),
+                alignment: Alignment.center,
+                child: Icon(Icons.bolt_rounded, color: widget.color, size: 17),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -13295,15 +14202,13 @@ class _EmergencyFundIncomeActionPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text('A8',
-                    style: TextStyle(
-                        color: widget.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900)),
+                    borderRadius: BorderRadius.circular(9)),
+                alignment: Alignment.center,
+                child: Icon(Icons.bolt_rounded, color: widget.color, size: 17),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -13466,15 +14371,13 @@ class _EmergencyReplenishmentActionPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text('A10',
-                    style: TextStyle(
-                        color: widget.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900)),
+                    borderRadius: BorderRadius.circular(9)),
+                alignment: Alignment.center,
+                child: Icon(Icons.bolt_rounded, color: widget.color, size: 17),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -13712,15 +14615,13 @@ class _CategoryBudgetActionPanelState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                width: 32,
+                height: 32,
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Text('A3',
-                    style: TextStyle(
-                        color: widget.color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900)),
+                    borderRadius: BorderRadius.circular(9)),
+                alignment: Alignment.center,
+                child: Icon(Icons.bolt_rounded, color: widget.color, size: 17),
               ),
               const SizedBox(width: 10),
               const Expanded(
@@ -14917,12 +15818,10 @@ class NotificationSettingsScreen extends StatelessWidget {
                         await state.setTransactionRemindersEnabled(enabled);
                         if (!context.mounted) return;
                         if (enabled && !state.notificationsAllowed) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Notifications are disabled in iPhone Settings.',
-                              ),
-                            ),
+                          showAppNotice(
+                            context,
+                            'Notifications are disabled in iPhone Settings.',
+                            isError: true,
                           );
                         }
                       },
@@ -15296,13 +16195,10 @@ class LinkedAccountsScreen extends StatelessWidget {
     try {
       await action();
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(success)));
+      showAppNotice(context, success);
     } on FakeMayaException catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      showAppNotice(context, error.message, isError: true);
     }
   }
 }
@@ -15540,14 +16436,10 @@ class _FakeMayaLoginSheetState extends State<_FakeMayaLoginSheet> {
       );
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FakeMaya is now linked to Shellby.')),
-      );
+      showAppNotice(context, 'FakeMaya is now linked to Shellby.');
     } on FakeMayaException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      showAppNotice(context, error.message, isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -16093,9 +16985,7 @@ class _PlanSetupEditorSheetState extends State<_PlanSetupEditorSheet> {
     await state.saveProfile();
     if (!mounted) return;
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Plan changed to ${concern.goalTitle}.')),
-    );
+    showAppNotice(context, 'Plan changed to ${concern.goalTitle}.');
   }
 }
 
@@ -17061,11 +17951,10 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         amount <= 0 ||
         category == null ||
         source == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Enter a name and amount, then choose a category and fund.'),
-        ),
+      showAppNotice(
+        context,
+        'Enter a name and amount, then choose a category and fund.',
+        isError: true,
       );
       return;
     }
@@ -17083,15 +17972,11 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
       );
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cash transaction saved.')),
-      );
+      showAppNotice(context, 'Cash transaction saved.');
     } on StateError catch (error) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      showAppNotice(context, error.message, isError: true);
     }
   }
 }
@@ -17353,9 +18238,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     );
     if (!mounted) return;
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Transaction label saved.')),
-    );
+    showAppNotice(context, 'Transaction label saved.');
   }
 
   static String? _optionalText(String value) {
