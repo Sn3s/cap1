@@ -899,14 +899,24 @@ bool isEmergencyFundGoalOnTrack(AppState state) {
   return (current / budget) >= 3;
 }
 
-/// (goals on track, goals total) across the 3 D1 goals. "Grow Investments"
-/// has no live tracking yet, so it's counted as on track by default.
+bool isLifestyleGoalOnTrack(AppState state) {
+  final weeklyLimit = _configuredActionAmount(
+    state,
+    'A28',
+    math.max(100.0, _monthlyLifestyleBase(state) / 4.33),
+  );
+  return state.lifestyleFundBalance > 0 &&
+      _currentWeekLifestyleSpend(state) <= weeklyLimit;
+}
+
+/// (goals on track, goals total) across the four Goals-screen goals.
 (int, int) goalsOnTrackSummary(AppState state) {
   var onTrack = 0;
   if (isCashFlowGoalOnTrack(state)) onTrack++;
   if (isEmergencyFundGoalOnTrack(state)) onTrack++;
-  onTrack++; // Grow Investments — no live data, not penalized
-  return (onTrack, 3);
+  onTrack++; // Grow Investments remains neutral until market data is linked.
+  if (isLifestyleGoalOnTrack(state)) onTrack++;
+  return (onTrack, 4);
 }
 
 class _CashFlowPyramidContent extends StatelessWidget {
@@ -8778,6 +8788,16 @@ const _d1GoalMetas = <_D1GoalMeta>[
       ),
     ],
   ),
+  _D1GoalMeta(
+    id: 'G8',
+    emoji: '🎨',
+    title: 'Lifestyle Fund',
+    description:
+        'Consistently have money set aside for personal lifestyle activities, hobbies, and everyday enjoyment.',
+    layerColor: Color(0xFF4F86C6),
+    layerLabel: 'Financial Freedom',
+    actions: [],
+  ),
 ];
 
 // ─── Goals page ───────────────────────────────────────────────────────────────
@@ -8945,6 +8965,39 @@ String _daysRemainingThisWeekLabel() {
   return '$daysLeft day${daysLeft == 1 ? '' : 's'} remaining this week';
 }
 
+double _currentWeekLifestyleSpend(AppState state) {
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day)
+      .subtract(Duration(days: now.weekday - 1));
+  final lifestylePattern = RegExp(
+    r'entertainment|travel|personal goal|movie|cinema|concert|game|hobby|coffee|cafe|restaurant|bar',
+    caseSensitive: false,
+  );
+  final recurringPattern = RegExp(
+    r'subscription|membership|stream|netflix|spotify|gym|club|app plan',
+    caseSensitive: false,
+  );
+  return state.allTransactions.where((transaction) {
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    if (transaction.amount >= 0 ||
+        transaction.excludedFromInsights ||
+        date == null ||
+        date.isBefore(start) ||
+        date.isAfter(now)) {
+      return false;
+    }
+    final category = transaction.category ?? '';
+    final layer = _insightCategoryConfig(category).$1;
+    final text =
+        '$category ${transaction.title} ${transaction.detail}'.toLowerCase();
+    if (recurringPattern.hasMatch(text)) return false;
+    return layer == 4 || lifestylePattern.hasMatch(text);
+  }).fold<double>(
+    0,
+    (total, transaction) => total + transaction.amount.abs(),
+  );
+}
+
 class _D1GoalCard extends StatelessWidget {
   const _D1GoalCard({required this.goal, required this.onTap});
   final _D1GoalMeta goal;
@@ -8952,6 +9005,7 @@ class _D1GoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actionCount = _goalDetailActionsFor(context, goal).length;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -9055,7 +9109,7 @@ class _D1GoalCard extends StatelessWidget {
                     children: [
                       _GoalPillChip(
                         icon: Icons.bolt_rounded,
-                        label: '${goal.actions.length} actions active',
+                        label: '$actionCount actions active',
                         color: goal.layerColor,
                       ),
                       const Spacer(),
@@ -9245,6 +9299,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
             child: _GrowInvestmentsSummary(),
           ),
         ],
+        if (goal.id == 'G8') ...[
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _LifestyleFundSummary(),
+          ),
+        ],
         const SizedBox(height: 28),
 
         // Actions section
@@ -9291,6 +9352,13 @@ class _D1GoalDetailScreen extends StatelessWidget {
             child: _InvestmentTransactionsList(),
           ),
         ],
+        if (goal.id == 'G8') ...[
+          const SizedBox(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _LifestyleTransactionsList(),
+          ),
+        ],
       ],
     );
   }
@@ -9317,6 +9385,15 @@ List<_D1ActionMeta> _goalDetailActionsFor(
     final ids = selected.isEmpty ? _investmentGoalActionIds : selected;
     return [
       for (final id in ids) _investmentD1ActionMeta(id, state),
+    ].whereType<_D1ActionMeta>().toList();
+  }
+  if (goal.id == 'G8') {
+    final selected = state.selectedActionIds
+        .where(_lifestyleGoalActionIds.contains)
+        .toList();
+    final ids = selected.isEmpty ? _lifestyleGoalActionIds : selected;
+    return [
+      for (final id in ids) _lifestyleD1ActionMeta(id, state),
     ].whereType<_D1ActionMeta>().toList();
   }
   if (goal.id != 'G1') return goal.actions;
@@ -9698,6 +9775,188 @@ _D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
         (label: 'Investment losses', type: 'S', value: money(losses)),
         (label: 'Monthly loss limit', type: 'I', value: money(limit)),
         (label: 'Investment account balance', type: 'S', value: money(balance)),
+      ],
+      activityLog: const [],
+    );
+  }
+  return null;
+}
+
+_D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
+  final values = _configuredActionValues(state, id);
+  final available = state.lifestyleFundBalance;
+  if (id == 'A26') {
+    final target = _configuredActionAmount(
+      state,
+      'A26',
+      _monthlySubscriptionBase(state),
+    );
+    final reserved = state.lifestyleReservedThisMonth;
+    return _D1ActionMeta(
+      id: id,
+      text:
+          'Set aside ${money(target)} each month for subscriptions and memberships.',
+      configLabel: 'Monthly recurring costs',
+      configValue: money(target),
+      destBucket: 'Lifestyle Fund',
+      metrics: [
+        (
+          label: 'Reserved this month',
+          value: money(reserved),
+          icon: Icons.subscriptions_rounded
+        ),
+        (
+          label: 'Monthly target',
+          value: money(target),
+          icon: Icons.flag_rounded
+        ),
+        (
+          label: 'Lifestyle Fund',
+          value: money(available),
+          icon: Icons.account_balance_wallet_rounded
+        ),
+        (
+          label: 'Still needed',
+          value: money(math.max(0.0, target - reserved)),
+          icon: Icons.timelapse_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Lifestyle contribution amount',
+          type: 'S',
+          value: money(reserved)
+        ),
+        (
+          label: 'Monthly recurring-cost target',
+          type: 'I',
+          value: money(target)
+        ),
+        (label: 'Lifestyle Fund balance', type: 'S', value: money(available)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A27') {
+    final amount =
+        double.tryParse((values['amt'] ?? '').replaceAll(',', '')) ?? 1000;
+    final income = _latestIncomeTransaction(state);
+    final handled = income != null &&
+        state.hasLifestylePaydayAllocation(income.transactionId);
+    return _D1ActionMeta(
+      id: id,
+      text: 'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+      configLabel: 'Every payday',
+      configValue: money(amount),
+      destBucket: 'Everyday Enjoyment Fund',
+      metrics: [
+        (
+          label: 'Latest payday',
+          value: income == null ? 'None detected' : money(income.amount),
+          icon: Icons.payments_rounded
+        ),
+        (
+          label: 'Payday amount',
+          value: money(amount),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Latest payday handled',
+          value: handled ? 'Yes' : 'No',
+          icon: Icons.verified_rounded
+        ),
+        (
+          label: 'Enjoyment available',
+          value: money(available),
+          icon: Icons.celebration_rounded
+        ),
+      ],
+      dataPoints: [
+        (
+          label: 'Income transaction',
+          type: 'S',
+          value: income == null ? 'None detected' : money(income.amount)
+        ),
+        (
+          label: 'Lifestyle contribution amount',
+          type: 'S',
+          value: money(amount)
+        ),
+        (label: 'Lifestyle Fund balance', type: 'S', value: money(available)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A28') {
+    final limit =
+        double.tryParse((values['amt'] ?? '').replaceAll(',', '')) ?? 1500;
+    final spent = _currentWeekLifestyleSpend(state);
+    return _D1ActionMeta(
+      id: id,
+      text:
+          'Keep everyday enjoyment spending within ${money(limit)} each week.',
+      configLabel: 'Weekly limit',
+      configValue: money(limit),
+      destBucket: 'Everyday enjoyment spending',
+      metrics: [
+        (
+          label: 'Spent this week',
+          value: money(spent),
+          icon: Icons.receipt_long_rounded
+        ),
+        (label: 'Weekly limit', value: money(limit), icon: Icons.flag_rounded),
+        (
+          label: spent > limit ? 'Over limit' : 'Remaining',
+          value: money(math.max(0.0, limit - spent)),
+          icon:
+              spent > limit ? Icons.warning_rounded : Icons.check_circle_rounded
+        ),
+        (
+          label: 'Days remaining',
+          value: _daysRemainingThisWeekLabel(),
+          icon: Icons.calendar_today_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Lifestyle spending amount', type: 'S', value: money(spent)),
+        (label: 'Weekly lifestyle limit', type: 'I', value: money(limit)),
+      ],
+      activityLog: const [],
+    );
+  }
+  if (id == 'A29') {
+    final target =
+        double.tryParse((values['amt'] ?? '').replaceAll(',', '')) ?? 10000;
+    final months =
+        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
+    final saved = state.lifestyleActivityBalance;
+    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return _D1ActionMeta(
+      id: id,
+      text:
+          'Save ${money(target)} for a hobby or activity within $months months.',
+      configLabel: 'Activity target',
+      configValue: '${money(target)} in $months months',
+      destBucket: 'Hobby or Activity Fund',
+      metrics: [
+        (label: 'Saved', value: money(saved), icon: Icons.savings_rounded),
+        (label: 'Target', value: money(target), icon: Icons.flag_rounded),
+        (
+          label: 'Still needed',
+          value: money(math.max(0.0, target - saved)),
+          icon: Icons.timelapse_rounded
+        ),
+        (
+          label: 'Target date',
+          value: _shortDate(due),
+          icon: Icons.event_rounded
+        ),
+      ],
+      dataPoints: [
+        (label: 'Lifestyle Fund balance', type: 'S', value: money(saved)),
+        (label: 'Activity target', type: 'I', value: money(target)),
+        (label: 'Target completion date', type: 'T', value: _shortDate(due)),
       ],
       activityLog: const [],
     );
@@ -10580,6 +10839,115 @@ class _GrowInvestmentsSummary extends StatelessWidget {
   }
 }
 
+class _LifestyleFundSummary extends StatelessWidget {
+  const _LifestyleFundSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final subscriptionTarget = _configuredActionAmount(
+      state,
+      'A26',
+      _monthlySubscriptionBase(state),
+    );
+    final weeklyLimit = _configuredActionAmount(state, 'A28', 1500);
+    final activityTarget = _configuredActionAmount(state, 'A29', 10000);
+    final reserved = state.lifestyleReservedThisMonth;
+    final weeklySpent = _currentWeekLifestyleSpend(state);
+    final recurringProgress = subscriptionTarget <= 0
+        ? 0.0
+        : (reserved / subscriptionTarget).clamp(0.0, 1.0);
+    final weeklyScore =
+        weeklyLimit <= 0 || weeklySpent <= weeklyLimit ? 1.0 : 0.0;
+    final activityProgress = activityTarget <= 0
+        ? 0.0
+        : (state.lifestyleActivityBalance / activityTarget).clamp(0.0, 1.0);
+    final score =
+        ((recurringProgress * .4 + weeklyScore * .25 + activityProgress * .35) *
+                100)
+            .round();
+    final color = score >= 70
+        ? _sage
+        : score >= 40
+            ? _amber
+            : _red;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'LIFESTYLE FUND POSITION',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.celebration_rounded,
+                  label: 'Enjoyment available',
+                  value: money(state.lifestyleFundBalance),
+                  color: const Color(0xFF4F86C6),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.savings_rounded,
+                  label: 'Activity savings',
+                  value: money(state.lifestyleActivityBalance),
+                  color: _purple,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Lifestyle funding progress',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '$score%',
+                style: TextStyle(color: color, fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: score / 100,
+            minHeight: 8,
+            color: color,
+            backgroundColor: color.withValues(alpha: .12),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '${money(reserved)} of ${money(subscriptionTarget)} is reserved for recurring lifestyle costs. This week\'s enjoyment spending is ${money(weeklySpent)} of ${money(weeklyLimit)}.',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmergencyActivityItem {
   const _EmergencyActivityItem(
       {required this.title,
@@ -10838,6 +11206,88 @@ class _InvestmentTransactionsList extends StatelessWidget {
   }
 }
 
+class _LifestyleTransactionsList extends StatelessWidget {
+  const _LifestyleTransactionsList();
+
+  @override
+  Widget build(BuildContext context) {
+    final activity = <_EmergencyActivityItem>[];
+    for (final entry in AppScope.of(context).d1Ledger) {
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      switch (entry['type']) {
+        case 'lifestyle_subscription_reserve':
+          activity.add(_EmergencyActivityItem(
+            title: 'Recurring costs reserved',
+            detail: 'Subscriptions and memberships',
+            amount: amount,
+            date: date,
+            incoming: true,
+            icon: Icons.subscriptions_rounded,
+          ));
+        case 'lifestyle_payday':
+          activity.add(_EmergencyActivityItem(
+            title: 'Payday enjoyment contribution',
+            detail: 'Added to Everyday Enjoyment Fund',
+            amount: amount,
+            date: date,
+            incoming: true,
+            icon: Icons.celebration_rounded,
+          ));
+        case 'lifestyle_activity_deposit':
+          activity.add(_EmergencyActivityItem(
+            title: 'Activity savings',
+            detail: 'Added to Hobby or Activity Fund',
+            amount: amount,
+            date: date,
+            incoming: true,
+            icon: Icons.savings_rounded,
+          ));
+      }
+    }
+    activity.sort((a, b) => (b.date ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(a.date ?? DateTime.fromMillisecondsSinceEpoch(0)));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'LIFESTYLE FUND ACTIVITY',
+          style: TextStyle(
+            color: _body,
+            fontSize: 11,
+            letterSpacing: 1.1,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (activity.isEmpty)
+          const AppCard(
+            child: Text(
+              'No Lifestyle Fund activity yet.',
+              style: TextStyle(
+                color: _body,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          )
+        else
+          AppCard(
+            child: Column(
+              children: [
+                for (var i = 0; i < activity.length; i++) ...[
+                  _EmergencyActivityRow(item: activity[i]),
+                  if (i < activity.length - 1)
+                    const Divider(height: 18, color: _border),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _EmergencyActivityRow extends StatelessWidget {
   const _EmergencyActivityRow({required this.item});
   final _EmergencyActivityItem item;
@@ -10972,6 +11422,18 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
     }
     if (action.id == 'A25') {
       return _InvestmentLossLimitActionPanel(color: color);
+    }
+    if (action.id == 'A26') {
+      return _LifestyleSubscriptionsActionPanel(color: color);
+    }
+    if (action.id == 'A27') {
+      return _LifestylePaydayActionPanel(color: color);
+    }
+    if (action.id == 'A28') {
+      return _LifestyleWeeklyLimitActionPanel(color: color);
+    }
+    if (action.id == 'A29') {
+      return _LifestyleActivityTargetActionPanel(color: color);
     }
     return Container(
       decoration: BoxDecoration(
@@ -12039,6 +12501,479 @@ class _InvestmentLossLimitActionPanelState
                 tooltip: 'Edit loss limit',
                 onPressed: () => _editLimit(state, limit),
                 icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleSubscriptionsActionPanel extends StatefulWidget {
+  const _LifestyleSubscriptionsActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_LifestyleSubscriptionsActionPanel> createState() =>
+      _LifestyleSubscriptionsActionPanelState();
+}
+
+class _LifestyleSubscriptionsActionPanelState
+    extends State<_LifestyleSubscriptionsActionPanel> {
+  bool busy = false;
+
+  Future<void> _reserve(AppState state, double amount) async {
+    if (busy || amount <= 0) return;
+    setState(() => busy = true);
+    await state.depositLifestyleSubscriptionReserve(amount);
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set recurring lifestyle costs',
+      label: 'Monthly subscriptions and memberships',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A26'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final target = _configuredActionAmount(
+      state,
+      'A26',
+      _monthlySubscriptionBase(state),
+    );
+    final reserved = state.lifestyleReservedThisMonth;
+    final remaining = math.max(0.0, target - reserved);
+    final progress = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
+    final complete = reserved >= target && target > 0;
+    final canReserve = state.fakeMayaLink == null ||
+        remaining <= state.unallocatedFakeMayaWallet;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A26',
+            color: widget.color,
+            text:
+                'Set aside ${money(target)} each month for subscriptions and memberships.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.subscriptions_rounded,
+            label: 'Reserved this month',
+            value: money(reserved),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.account_balance_wallet_rounded,
+            label: 'Lifestyle Fund available',
+            value: money(state.lifestyleFundBalance),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: money(reserved),
+            trailingLabel: money(target),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? 'Subscriptions and memberships are covered for this month.'
+                : '${money(remaining)} still needs to be reserved this month.',
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Reserving...' : 'Reserve ${money(remaining)}',
+                  icon: Icons.subscriptions_rounded,
+                  enabled: !busy && !complete && canReserve,
+                  onPressed: () => _reserve(state, remaining),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit monthly target',
+                onPressed: () => _editTarget(state, target),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestylePaydayActionPanel extends StatefulWidget {
+  const _LifestylePaydayActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_LifestylePaydayActionPanel> createState() =>
+      _LifestylePaydayActionPanelState();
+}
+
+class _LifestylePaydayActionPanelState
+    extends State<_LifestylePaydayActionPanel> {
+  bool busy = false;
+
+  Future<void> _deposit(
+    AppState state,
+    FakeMayaTransaction? income,
+    double amount,
+  ) async {
+    if (busy || income?.createdAt == null) return;
+    setState(() => busy = true);
+    await state.depositLifestylePayday(
+      transactionId: income!.transactionId,
+      amount: amount,
+      incomeDate: income.createdAt!,
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editAmount(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set payday enjoyment amount',
+      label: 'Amount to add every payday',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A27'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final amount = _configuredActionAmount(state, 'A27', 1000);
+    final income = _latestIncomeTransaction(state);
+    final deposited = income != null &&
+        state.hasLifestylePaydayAllocation(income.transactionId);
+    final canDeposit =
+        state.fakeMayaLink == null || amount <= state.unallocatedFakeMayaWallet;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A27',
+            color: widget.color,
+            text:
+                'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.payments_rounded,
+            label: 'Latest payday',
+            value: income == null ? 'None detected' : money(income.amount),
+            color: _sage,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.celebration_rounded,
+            label: 'Enjoyment available',
+            value: money(state.lifestyleFundBalance),
+            color: widget.color,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: deposited
+                      ? 'Latest payday funded'
+                      : busy
+                          ? 'Adding...'
+                          : 'Add ${money(amount)}',
+                  icon: deposited
+                      ? Icons.check_circle_rounded
+                      : Icons.savings_rounded,
+                  enabled: !busy &&
+                      !deposited &&
+                      canDeposit &&
+                      income?.createdAt != null,
+                  onPressed: () => _deposit(state, income, amount),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Edit payday amount',
+                onPressed: () => _editAmount(state, amount),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleWeeklyLimitActionPanel extends StatefulWidget {
+  const _LifestyleWeeklyLimitActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_LifestyleWeeklyLimitActionPanel> createState() =>
+      _LifestyleWeeklyLimitActionPanelState();
+}
+
+class _LifestyleWeeklyLimitActionPanelState
+    extends State<_LifestyleWeeklyLimitActionPanel> {
+  Future<void> _editLimit(AppState state, double current) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set weekly enjoyment limit',
+      label: 'Weekly enjoyment spending limit',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A28'] = {'amt': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final limit = _configuredActionAmount(state, 'A28', 1500);
+    final spent = _currentWeekLifestyleSpend(state);
+    final remaining = math.max(0.0, limit - spent);
+    final over = spent > limit;
+    final progress = limit <= 0 ? 1.0 : (spent / limit).clamp(0.0, 1.0);
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A28',
+            color: widget.color,
+            text:
+                'Keep everyday enjoyment spending within ${money(limit)} each week.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.receipt_long_rounded,
+            label: 'Spent this week',
+            value: money(spent),
+            color: over ? _red : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.calendar_today_rounded,
+            label: 'Time remaining',
+            value: _daysRemainingThisWeekLabel(),
+            color: over ? _red : _sage,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: over ? _red : widget.color,
+            leadingLabel: money(spent),
+            trailingLabel: '${money(limit)} limit',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            over
+                ? 'Weekly enjoyment spending is ${money(spent - limit)} over the limit.'
+                : '${money(remaining)} remains for everyday enjoyment this week.',
+            style: TextStyle(
+              color: over ? _red : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              tooltip: 'Edit weekly limit',
+              onPressed: () => _editLimit(state, limit),
+              icon: const Icon(Icons.tune_rounded),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleActivityTargetActionPanel extends StatefulWidget {
+  const _LifestyleActivityTargetActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_LifestyleActivityTargetActionPanel> createState() =>
+      _LifestyleActivityTargetActionPanelState();
+}
+
+class _LifestyleActivityTargetActionPanelState
+    extends State<_LifestyleActivityTargetActionPanel> {
+  bool busy = false;
+
+  Future<void> _addSavings(AppState state, double remaining) async {
+    if (busy || remaining <= 0) return;
+    final amount = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Add hobby or activity savings',
+      label: 'Amount to save',
+      initialAmount: math.max(100, math.min(remaining, 1000)),
+      color: widget.color,
+    );
+    if (amount == null) return;
+    setState(() => busy = true);
+    await state.depositLifestyleActivity(amount);
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(
+    AppState state,
+    double current,
+    int months,
+  ) async {
+    final updated = await _showMoneyTargetDialog(
+      context: context,
+      title: 'Set hobby or activity target',
+      label: 'Target amount',
+      initialAmount: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A29'] = {
+      'amt': updated.toStringAsFixed(0),
+      'months': months.toString(),
+    };
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _editMonths(
+    AppState state,
+    double target,
+    int current,
+  ) async {
+    final updated = await _showMonthsTargetDialog(
+      context: context,
+      title: 'Set target window',
+      initialMonths: current.toDouble(),
+      color: widget.color,
+      fieldLabel: 'Months to reach the target',
+      validDescription: 'Shellby will use this as the activity target window.',
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A29'] = {
+      'amt': target.toStringAsFixed(0),
+      'months': updated.toStringAsFixed(0),
+    };
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final values = _configuredActionValues(state, 'A29');
+    final target = _configuredActionAmount(state, 'A29', 10000);
+    final months =
+        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
+    final saved = state.lifestyleActivityBalance;
+    final remaining = math.max(0.0, target - saved);
+    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
+    final complete = saved >= target && target > 0;
+    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A29',
+            color: widget.color,
+            text:
+                'Save ${money(target)} for a hobby or activity within $months months.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.savings_rounded,
+            label: 'Saved for activity',
+            value: money(saved),
+            color: complete ? _sage : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.event_rounded,
+            label: 'Target date',
+            value: _shortDate(due),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: complete ? _sage : widget.color,
+            leadingLabel: money(saved),
+            trailingLabel: money(target),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            complete
+                ? 'The hobby or activity target is fully funded.'
+                : '${money(remaining)} still needs to be saved.',
+            style: TextStyle(
+              color: complete ? _sage : _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: busy ? 'Adding...' : 'Add savings',
+                  icon: Icons.savings_rounded,
+                  enabled: !busy && !complete,
+                  onPressed: () => _addSavings(state, remaining),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: 'Edit target amount',
+                onPressed: () => _editTarget(state, target, months),
+                icon: const Icon(Icons.tune_rounded),
+              ),
+              IconButton(
+                tooltip: 'Edit target window',
+                onPressed: () => _editMonths(state, target, months),
+                icon: const Icon(Icons.calendar_month_rounded),
               ),
             ],
           ),
@@ -13399,6 +14334,8 @@ Future<double?> _showMonthsTargetDialog({
   required String title,
   required double initialMonths,
   required Color color,
+  String fieldLabel = 'Months of essential expenses',
+  String? validDescription,
 }) {
   final controller =
       TextEditingController(text: initialMonths.toStringAsFixed(0));
@@ -13419,8 +14356,8 @@ Future<double?> _showMonthsTargetDialog({
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Months of essential expenses',
-                  style: TextStyle(
+              Text(fieldLabel,
+                  style: const TextStyle(
                       color: _title,
                       fontSize: 12,
                       fontWeight: FontWeight.w900)),
@@ -13437,7 +14374,8 @@ Future<double?> _showMonthsTargetDialog({
               const SizedBox(height: 8),
               Text(
                 valid
-                    ? 'Shellby will target ${months.toStringAsFixed(0)} months of essential expenses.'
+                    ? validDescription ??
+                        'Shellby will target ${months.toStringAsFixed(0)} months of essential expenses.'
                     : 'Use a whole number from 1 to 12 months.',
                 style: TextStyle(
                   color: valid ? color : _red,

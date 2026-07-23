@@ -537,6 +537,37 @@ double _monthlyDiscretionaryBase(AppState state) {
   return math.max(1000, _monthlyExpenseBase(state) * 0.20);
 }
 
+double _monthlyLifestyleBase(AppState state) {
+  final onboardingTotal = state.onboardingExpenseLedger
+      .where(
+        (expense) =>
+            expenseLayerForLedger(expense) == ExpenseLayer.nonEssentials,
+      )
+      .fold<double>(
+          0, (total, expense) => total + _mapMoney(expense, 'amount'));
+  if (onboardingTotal > 0) return onboardingTotal;
+  final savedTotal = state.cashFlowBudgetForLayer(ExpenseLayer.nonEssentials);
+  if (savedTotal > 0) return savedTotal;
+  return _monthlyDiscretionaryBase(state);
+}
+
+double _monthlySubscriptionBase(AppState state) {
+  final subscriptionPattern = RegExp(
+    r'subscription|membership|stream|netflix|spotify|youtube|gym|club|app|game pass',
+    caseSensitive: false,
+  );
+  final matching = state.onboardingExpenseLedger.where((expense) {
+    if (expenseLayerForLedger(expense) != ExpenseLayer.nonEssentials) {
+      return false;
+    }
+    final name = expense['name']?.toString() ?? '';
+    return subscriptionPattern.hasMatch(name) ||
+        (expense['scheduled'] as bool? ?? false);
+  }).fold<double>(0, (total, expense) => total + _mapMoney(expense, 'amount'));
+  if (matching > 0) return matching;
+  return math.max(500, _monthlyLifestyleBase(state) * 0.35);
+}
+
 double _monthlyBillBase(AppState state) {
   final bills = _moneyListFromBaseline(state, 'bills');
   if (bills.isNotEmpty) {
@@ -775,6 +806,24 @@ List<String> _recommendationsForActionField(
     );
     return _moneyOptions(math.max(500, balance * 0.03));
   }
+  if (action.id == 'A26' && field.key == 'amt') {
+    return _moneyOptions(_monthlySubscriptionBase(state), step: 100);
+  }
+  if (action.id == 'A27' && field.key == 'amt') {
+    return _moneyOptions(
+      _monthlyLifestyleBase(state) / _paydaysPerMonth(state),
+      step: 100,
+    );
+  }
+  if (action.id == 'A28' && field.key == 'amt') {
+    return _moneyOptions(_monthlyLifestyleBase(state) / 4.33, step: 100);
+  }
+  if (action.id == 'A29' && field.key == 'amt') {
+    return _moneyOptions(math.max(5000, _monthlyLifestyleBase(state) * 3));
+  }
+  if (action.id == 'A29' && field.key == 'months') {
+    return const ['3', '6', '12'];
+  }
   if (action.id == 'A13' && field.key == 'pct') {
     final debtHeavy =
         _debtBalanceBase(state) > _baselineMoney(state, 'investment_balance');
@@ -902,6 +951,15 @@ String _recommendationFormulaForActionField(
       '$value: about 1% of your current portfolio balance as a monthly earnings target.',
     'A25' =>
       '$value: about 3% of your current portfolio balance as a monthly loss limit.',
+    'A26' =>
+      '$value: based on the subscriptions, memberships, and scheduled non-essential expenses you listed.',
+    'A27' =>
+      '$value: your monthly lifestyle spending divided across your expected paydays.',
+    'A28' =>
+      '$value: your monthly lifestyle spending spread across an average month.',
+    'A29' when field.key == 'amt' =>
+      '$value: a practical larger target based on about three months of lifestyle spending.',
+    'A29' => '$value: a realistic window for funding a hobby or activity.',
     'A13' =>
       '$value: lower if cash is tight, higher when debt is heavier than investments.',
     'A14' =>
@@ -1404,6 +1462,42 @@ const _d2Actions = <String, D2Action>{
         ActionField(
             key: 'amt', label: 'Monthly loss limit (₱)', hint: 'e.g. 1000')
       ]),
+  'A26': D2Action(
+      id: 'A26',
+      text: 'Set aside ₱X each month for subscriptions and memberships.',
+      fields: [
+        ActionField(
+            key: 'amt',
+            label: 'Monthly subscriptions and memberships (₱)',
+            hint: 'e.g. 1500')
+      ]),
+  'A27': D2Action(
+      id: 'A27',
+      text: 'Add ₱X to the Everyday Enjoyment Fund every payday.',
+      fields: [
+        ActionField(
+            key: 'amt',
+            label: 'Amount to add every payday (₱)',
+            hint: 'e.g. 1000')
+      ]),
+  'A28': D2Action(
+      id: 'A28',
+      text: 'Keep everyday enjoyment spending within ₱X each week.',
+      fields: [
+        ActionField(
+            key: 'amt', label: 'Weekly enjoyment limit (₱)', hint: 'e.g. 1500')
+      ]),
+  'A29': D2Action(
+      id: 'A29',
+      text: 'Save ₱X for a hobby or activity within X months.',
+      fields: [
+        ActionField(
+            key: 'amt',
+            label: 'Hobby or activity target (₱)',
+            hint: 'e.g. 10000'),
+        ActionField(
+            key: 'months', label: 'Target window in months', hint: 'e.g. 6')
+      ]),
   'A16': D2Action(
       id: 'A16',
       text:
@@ -1473,6 +1567,7 @@ const _d2Actions = <String, D2Action>{
 const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
 const _emergencyFundGoalActionIds = ['A9', 'A8', 'A22', 'A10'];
 const _investmentGoalActionIds = ['A12', 'A23', 'A24', 'A25'];
+const _lifestyleGoalActionIds = ['A26', 'A27', 'A28', 'A29'];
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{
@@ -1483,7 +1578,7 @@ const _goalActionIds = <String, List<String>>{
   'G5': _investmentGoalActionIds,
   'G6': ['A11', 'A13', 'A14', 'A18'],
   'G7': ['A12', 'A15', 'A16', 'A17', 'A18'],
-  'G8': ['A2', 'A3', 'A16', 'A17'],
+  'G8': _lifestyleGoalActionIds,
 };
 
 class PlanDataPoint {
@@ -1520,6 +1615,9 @@ const _planDataPoints = <String, PlanDataPoint>{
   'D24': PlanDataPoint('D24', 'Indicator', 'Monthly cash flow balance'),
   'D25': PlanDataPoint('D25', 'Source', 'Investment earnings amount'),
   'D26': PlanDataPoint('D26', 'Source', 'Investment loss amount'),
+  'D27': PlanDataPoint('D27', 'Source', 'Lifestyle contribution amount'),
+  'D28': PlanDataPoint('D28', 'Source', 'Lifestyle spending amount'),
+  'D29': PlanDataPoint('D29', 'Source', 'Lifestyle fund balance'),
 };
 
 const _actionDataMatrix = <String, List<String>>{
@@ -1569,6 +1667,10 @@ const _actionDataMatrix = <String, List<String>>{
   'A23': ['D1', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20'],
   'A24': ['D1', 'D16', 'D20', 'D25'],
   'A25': ['D1', 'D16', 'D20', 'D26'],
+  'A26': ['D1', 'D7', 'D8', 'D9', 'D10', 'D27', 'D29', 'D22'],
+  'A27': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D27', 'D29', 'D22'],
+  'A28': ['D1', 'D5', 'D6', 'D10', 'D28', 'D23'],
+  'A29': ['D1', 'D3', 'D7', 'D8', 'D9', 'D10', 'D27', 'D29', 'D21'],
   'A16': [
     'D1',
     'D3',
@@ -1706,6 +1808,10 @@ const _actionBaselineMatrix = <String, List<String>>{
   'A23': ['investment_balance'],
   'A24': ['investment_balance'],
   'A25': ['investment_balance'],
+  'A26': ['monthly_expenses', 'cash_balance'],
+  'A27': ['income_baseline', 'cash_balance'],
+  'A28': ['monthly_expenses', 'cash_balance'],
+  'A29': ['goals', 'cash_balance'],
   'A16': ['goals', 'income_baseline'],
   'A17': ['goals'],
   'A18': ['goals', 'debt_balance'],
@@ -4289,6 +4395,14 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A24' ||
     'A25' =>
       'Keep the investment account connected or record portfolio gains and losses that Shellby cannot import automatically.',
+    'A26' =>
+      'Keep subscription and membership expenses updated, then confirm Lifestyle Fund transfers Shellby cannot detect.',
+    'A27' =>
+      'Keep income deposits connected or logged and confirm each payday transfer to the Everyday Enjoyment Fund.',
+    'A28' =>
+      'Connect or log lifestyle purchases and keep entertainment, travel, and personal spending categories accurate.',
+    'A29' =>
+      'Choose the hobby or activity target and confirm contributions that are not imported automatically.',
     'A16' ||
     'A17' =>
       'Choose the goal fund, target date, and destination bucket, then confirm transfers that are not imported.',
@@ -4326,6 +4440,14 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'Shellby totals investment gains recorded this month, compares them with the configured earnings target, and updates $indicatorText.',
     'A25' =>
       'Shellby totals investment losses recorded this month, shows how much of the configured loss limit remains, and warns when it is reached.',
+    'A26' =>
+      'Shellby totals monthly Lifestyle Fund reserves against the configured subscription and membership amount and updates $indicatorText.',
+    'A27' =>
+      'When payday income arrives, Shellby tracks the configured transfer to the Everyday Enjoyment Fund and updates $indicatorText.',
+    'A28' =>
+      'Shellby totals lifestyle spending for the current week, compares it with the configured limit, and updates $indicatorText.',
+    'A29' =>
+      'Shellby tracks contributions toward the configured hobby or activity target and calculates progress against its target window.',
     'A2' ||
     'A3' =>
       'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',

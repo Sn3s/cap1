@@ -110,6 +110,8 @@ class AppState extends ChangeNotifier {
   double billsObligationsBalance = 0;
   double emergencyFundBalance = 0;
   double investmentBalance = 0;
+  double lifestyleFundBalance = 0;
+  double lifestyleActivityBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
 
   DateTime? get lastEfWithdrawal => _lastEfWithdrawalStr == null
@@ -463,14 +465,51 @@ class AppState extends ChangeNotifier {
     name = 'Reflection Demo';
     email = user?.email ?? 'reflection@test.com';
     primaryConcern = 'Cash Flow & Basic Needs';
-    selectedGoalId = 'GOAL1C';
-    selectedGoal = 'Irregular Income Buffer';
+    selectedGoalId = 'G1';
+    selectedGoal = 'Maintain Available Cash';
     selectedGoalDescription =
-        'Maintain available cash with a two-jar plan for basic needs and buffer money across irregular income weeks.';
-    selectedGoalMonthlyTarget = 1350;
+        'Maintain enough available cash while steadily funding safety, investments, and everyday enjoyment.';
+    selectedGoalMonthlyTarget = 4000;
     selectedActionIds
       ..clear()
-      ..addAll(const {'ACT1', 'ACT6'});
+      ..addAll(const {
+        'A1',
+        'A3',
+        'A20',
+        'A19',
+        'A9',
+        'A8',
+        'A22',
+        'A10',
+        'A12',
+        'A23',
+        'A24',
+        'A25',
+        'A26',
+        'A27',
+        'A28',
+        'A29',
+      });
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A1': {'pct': '55'},
+        'A3': {'amt': '4500'},
+        'A20': {'amt': '30000'},
+        'A19': {'amt': '12000'},
+        'A9': {'amt': '4000'},
+        'A8': {'pct': '10'},
+        'A22': {'months': '3'},
+        'A10': {'days': '7'},
+        'A12': {'pct': '10'},
+        'A23': {'amt': '50000'},
+        'A24': {'amt': '1500'},
+        'A25': {'amt': '1200'},
+        'A26': {'amt': '2100'},
+        'A27': {'amt': '1200'},
+        'A28': {'amt': '1500'},
+        'A29': {'amt': '12000', 'months': '6'},
+      });
     onboardingComplete = true;
     confidence = 5;
     employmentStatus = 'Freelance';
@@ -482,17 +521,18 @@ class AppState extends ChangeNotifier {
     basicNeedsMonthlyTarget = 9000;
     basicNeedsAllocationPercent = .70;
     bufferAllocationPercent = .30;
-    income = 15800;
-    expenses = 6700;
-    variableExpenses = 2300;
-    savings = 1500;
+    income = 32000;
+    expenses = 9000;
+    variableExpenses = 2998;
+    debtPayments = 2000;
+    savings = 6500;
     monthlySalary = 0;
-    irregularIncomeFloor = 15800;
+    irregularIncomeFloor = 24000;
     onboardingIncomeLedger
       ..clear()
       ..add({
         'name': 'Project client work',
-        'amount': 15800.0,
+        'amount': 32000.0,
         'stable': false,
         'scheduled': false,
         'payDay': null,
@@ -504,6 +544,7 @@ class AppState extends ChangeNotifier {
           'name': 'Rent share',
           'amount': 4500.0,
           'essential': true,
+          'expenseType': 'basicNeeds',
           'scheduled': true,
           'dueDay': 5,
         },
@@ -511,6 +552,7 @@ class AppState extends ChangeNotifier {
           'name': 'Utilities',
           'amount': 2200.0,
           'essential': true,
+          'expenseType': 'basicNeeds',
           'scheduled': true,
           'dueDay': 15,
         },
@@ -518,6 +560,7 @@ class AppState extends ChangeNotifier {
           'name': 'Food and drinks',
           'amount': 1500.0,
           'essential': true,
+          'expenseType': 'basicNeeds',
           'scheduled': false,
           'dueDay': null,
         },
@@ -525,6 +568,47 @@ class AppState extends ChangeNotifier {
           'name': 'Transport',
           'amount': 800.0,
           'essential': true,
+          'expenseType': 'basicNeeds',
+          'scheduled': false,
+          'dueDay': null,
+        },
+        {
+          'name': 'Health insurance',
+          'amount': 1200.0,
+          'essential': false,
+          'expenseType': 'emergencyInsurance',
+          'scheduled': true,
+          'dueDay': 20,
+        },
+        {
+          'name': 'Student loan payment',
+          'amount': 2000.0,
+          'essential': false,
+          'expenseType': 'debtInvestments',
+          'scheduled': true,
+          'dueDay': 25,
+        },
+        {
+          'name': 'Streaming subscriptions',
+          'amount': 700.0,
+          'essential': false,
+          'expenseType': 'nonEssentials',
+          'scheduled': true,
+          'dueDay': 12,
+        },
+        {
+          'name': 'Gym membership',
+          'amount': 800.0,
+          'essential': false,
+          'expenseType': 'nonEssentials',
+          'scheduled': true,
+          'dueDay': 18,
+        },
+        {
+          'name': 'Everyday enjoyment',
+          'amount': 1498.0,
+          'essential': false,
+          'expenseType': 'nonEssentials',
           'scheduled': false,
           'dueDay': null,
         },
@@ -532,11 +616,14 @@ class AppState extends ChangeNotifier {
     onboardingBaselines
       ..clear()
       ..addAll({
-        'income_baseline': '15800.00',
+        'income_baseline': '32000.00',
         'stable_income': '0.00',
-        'variable_income': '15800.00',
-        'monthly_expenses': '9000.00',
+        'variable_income': '32000.00',
+        'monthly_expenses': '15198.00',
         'essential_expenses': '9000.00',
+        'discretionary_spend': '2998.00',
+        'investment_balance': '32000.00',
+        'emergency_balance': '23000.00',
       });
     cashFlowExpenses
       ..clear()
@@ -544,10 +631,46 @@ class AppState extends ChangeNotifier {
         CashFlowExpense('Rent share', 4500),
         CashFlowExpense('Utilities', 2200),
         CashFlowExpense('Food and transport', 2300),
+        CashFlowExpense(
+          'Health insurance',
+          1200,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+        CashFlowExpense(
+          'Student loan payment',
+          2000,
+          layer: ExpenseLayer.debtInvestments,
+        ),
+        CashFlowExpense(
+          'Streaming subscriptions',
+          700,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+        CashFlowExpense(
+          'Gym membership',
+          800,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+        CashFlowExpense(
+          'Everyday enjoyment',
+          1498,
+          layer: ExpenseLayer.nonEssentials,
+        ),
       ]);
     jarLedger.clear();
     d1Ledger.clear();
-    emergencyFundBalance = 12000;
+    essentialExpensesBalance = 3500;
+    billsObligationsBalance = 1800;
+    emergencyFundBalance = 24000;
+    investmentBalance = 32000;
+    lifestyleFundBalance = 2800;
+    lifestyleActivityBalance = 3500;
+    categorySpendingBudgets
+      ..clear()
+      ..addAll({
+        'Food & drink': 4500,
+        'Entertainment': 1500,
+      });
 
     final today = DateTime.now();
     final weekStart = today
@@ -683,11 +806,135 @@ class AppState extends ChangeNotifier {
         ));
       }
     }
+    final recent = today.subtract(const Duration(days: 2));
+    final earlierThisMonth = DateTime(today.year, today.month, 3);
+    final activityStart = DateTime(today.year, today.month - 1, 18);
+    d1Ledger.insertAll(0, [
+      {
+        'type': 'essential_deposit',
+        'date': earlierThisMonth.toIso8601String(),
+        'sourceDate': earlierThisMonth.toIso8601String(),
+        'sourceTransactionId': 'income-9',
+        'incomeAmount': 7000.0,
+        'percentage': 55.0,
+        'amount': 3850.0,
+        'destination': 'Essential Expenses Fund',
+      },
+      {
+        'type': 'emergency_deposit',
+        'date': earlierThisMonth.add(const Duration(days: 1)).toIso8601String(),
+        'sourceDate': earlierThisMonth.toIso8601String(),
+        'sourceTransactionId': 'income-9',
+        'incomeAmount': 7000.0,
+        'percentage': 10.0,
+        'amount': 700.0,
+        'destination': 'Emergency Fund',
+      },
+      {
+        'type': 'emergency_deposit',
+        'date': recent.toIso8601String(),
+        'amount': 2500.0,
+        'destination': 'Emergency Fund',
+        'label': 'Monthly Emergency Fund deposit',
+      },
+      {
+        'type': 'investment_deposit',
+        'date': earlierThisMonth.add(const Duration(days: 1)).toIso8601String(),
+        'sourceDate': earlierThisMonth.toIso8601String(),
+        'sourceTransactionId': 'income-9',
+        'incomeAmount': 7000.0,
+        'percentage': 10.0,
+        'amount': 700.0,
+        'destination': 'Investment Portfolio',
+      },
+      {
+        'type': 'investment_monthly',
+        'date': recent.toIso8601String(),
+        'amount': 2800.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Monthly investment contribution',
+      },
+      {
+        'type': 'investment_gain',
+        'date': recent.subtract(const Duration(days: 1)).toIso8601String(),
+        'amount': 900.0,
+        'balance': 32250.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+      {
+        'type': 'investment_loss',
+        'date': recent.toIso8601String(),
+        'amount': 250.0,
+        'balance': 32000.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment loss',
+      },
+      {
+        'type': 'lifestyle_subscription_reserve',
+        'date': recent.subtract(const Duration(days: 1)).toIso8601String(),
+        'amount': 1200.0,
+        'destination': 'Lifestyle Fund',
+        'label': 'Subscriptions and memberships reserve',
+      },
+      {
+        'type': 'lifestyle_payday',
+        'date': earlierThisMonth.add(const Duration(days: 2)).toIso8601String(),
+        'sourceDate': earlierThisMonth.toIso8601String(),
+        'sourceTransactionId': 'income-9',
+        'amount': 1200.0,
+        'destination': 'Everyday Enjoyment Fund',
+        'label': 'Payday enjoyment contribution',
+      },
+      {
+        'type': 'lifestyle_activity_deposit',
+        'date': activityStart.toIso8601String(),
+        'amount': 2000.0,
+        'destination': 'Hobby or Activity Fund',
+        'label': 'Hobby or activity contribution',
+      },
+      {
+        'type': 'lifestyle_activity_deposit',
+        'date': recent.toIso8601String(),
+        'amount': 1500.0,
+        'destination': 'Hobby or Activity Fund',
+        'label': 'Hobby or activity contribution',
+      },
+    ]);
+    transactions.addAll([
+      _demoTransaction(
+        id: 'lifestyle-coffee-current',
+        title: 'Paid merchant',
+        detail: 'To: Neighborhood coffee shop',
+        amount: -320,
+        date: recent,
+        category: 'Food & drink',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'lifestyle-movie-current',
+        title: 'Paid merchant',
+        detail: 'To: Cinema tickets',
+        amount: -450,
+        date: recent.add(const Duration(hours: 3)),
+        category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'subscription-current',
+        title: 'Subscription payment',
+        detail: 'To: Streaming service',
+        amount: -700,
+        date: recent.subtract(const Duration(days: 1)),
+        category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+    ]);
     jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     d1Ledger.add({
       'type': 'emergency_deposit',
       'date': weekStart.subtract(const Duration(days: 14)).toIso8601String(),
-      'amount': 12000,
+      'amount': 20800,
       'destination': 'Emergency Fund',
       'label': 'Opening emergency balance',
     });
@@ -705,13 +952,13 @@ class AppState extends ChangeNotifier {
       refreshToken: '',
       expiresAt: null,
       summary: FakeMayaAccountSummary(
-        wallet: needsBalance,
-        savings: bufferBalance,
-        timeDeposit: 0,
-        goalName: 'Available Cash',
-        goalEmoji: '',
-        goalBalance: 0,
-        goalTarget: needsTarget,
+        wallet: 18000,
+        savings: emergencyFundBalance,
+        timeDeposit: investmentBalance,
+        goalName: 'Lifestyle and Activity Funds',
+        goalEmoji: '🎨',
+        goalBalance: lifestyleFundBalance + lifestyleActivityBalance,
+        goalTarget: 12000,
         creditLimit: 0,
         creditUsed: 0,
         transactions: transactions
@@ -827,6 +1074,8 @@ class AppState extends ChangeNotifier {
       'billsObligationsBalance': billsObligationsBalance,
       'emergencyFundBalance': emergencyFundBalance,
       'investmentBalance': investmentBalance,
+      'lifestyleFundBalance': lifestyleFundBalance,
+      'lifestyleActivityBalance': lifestyleActivityBalance,
       'd1Ledger': d1Ledger,
       'onboardingSelections': _onboardingSelectionsMap(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1030,6 +1279,14 @@ class AppState extends ChangeNotifier {
     investmentBalance = _doubleFrom(
       data['investmentBalance'],
       investmentBalance,
+    );
+    lifestyleFundBalance = _doubleFrom(
+      data['lifestyleFundBalance'],
+      lifestyleFundBalance,
+    );
+    lifestyleActivityBalance = _doubleFrom(
+      data['lifestyleActivityBalance'],
+      lifestyleActivityBalance,
     );
     final savedD1Ledger = data['d1Ledger'];
     if (savedD1Ledger is Iterable) {
@@ -1784,6 +2041,99 @@ class AppState extends ChangeNotifier {
       'percentage': percentage,
       'amount': amount,
       'destination': 'Investment Portfolio',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  double get lifestyleReservedThisMonth =>
+      _currentMonthLedgerTotal({'lifestyle_subscription_reserve'});
+
+  double get lifestylePaydayContributionsThisMonth =>
+      _currentMonthLedgerTotal({'lifestyle_payday'});
+
+  double get lifestyleActivityContributionsThisMonth =>
+      _currentMonthLedgerTotal({'lifestyle_activity_deposit'});
+
+  double _currentMonthLedgerTotal(Set<String> types) {
+    final now = DateTime.now();
+    return d1Ledger.where((entry) {
+      if (!types.contains(entry['type'])) return false;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      return date != null && date.year == now.year && date.month == now.month;
+    }).fold<double>(
+      0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
+    );
+  }
+
+  bool hasLifestylePaydayAllocation(String transactionId) => d1Ledger.any(
+        (entry) =>
+            entry['type'] == 'lifestyle_payday' &&
+            entry['sourceTransactionId'] == transactionId,
+      );
+
+  DateTime? get lifestyleActivityStartedAt {
+    DateTime? earliest;
+    for (final entry in d1Ledger) {
+      if (entry['type'] != 'lifestyle_activity_deposit') continue;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date != null && (earliest == null || date.isBefore(earliest))) {
+        earliest = date;
+      }
+    }
+    return earliest;
+  }
+
+  Future<void> depositLifestyleSubscriptionReserve(double amount) async {
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    lifestyleFundBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'lifestyle_subscription_reserve',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'destination': 'Lifestyle Fund',
+      'label': 'Subscriptions and memberships reserve',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositLifestylePayday({
+    required String transactionId,
+    required double amount,
+    required DateTime incomeDate,
+  }) async {
+    if (amount <= 0 || hasLifestylePaydayAllocation(transactionId)) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    lifestyleFundBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'lifestyle_payday',
+      'date': DateTime.now().toIso8601String(),
+      'sourceDate': incomeDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'amount': amount,
+      'destination': 'Everyday Enjoyment Fund',
+      'label': 'Payday enjoyment contribution',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositLifestyleActivity(double amount) async {
+    if (amount <= 0) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    lifestyleActivityBalance += amount;
+    d1Ledger.insert(0, {
+      'type': 'lifestyle_activity_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'amount': amount,
+      'destination': 'Hobby or Activity Fund',
+      'label': 'Hobby or activity contribution',
     });
     await saveProfile();
     notifyListeners();
