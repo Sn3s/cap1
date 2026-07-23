@@ -194,13 +194,18 @@ class AppState extends ChangeNotifier {
       : safetyShieldBalance / safetyShieldMonthlyBase;
   double get totalCashFlowBudget =>
       cashFlowExpenses.fold(0, (s, e) => s + e.budget);
+  double cashFlowBudgetForLayer(ExpenseLayer layer) => cashFlowExpenses
+      .where((expense) => expense.layer == layer)
+      .fold(0, (total, expense) => total + expense.budget);
   double get monthlyExpenseLedgerTotal => onboardingExpenseLedger.fold(
         0,
         (total, expense) =>
             total + ((expense['amount'] as num?)?.toDouble() ?? 0),
       );
   double get monthlyEssentialExpenseTotal => onboardingExpenseLedger
-      .where((expense) => expense['essential'] as bool? ?? false)
+      .where(
+        (expense) => expenseLayerForLedger(expense) == ExpenseLayer.basicNeeds,
+      )
       .fold(
         0,
         (total, expense) =>
@@ -210,7 +215,7 @@ class AppState extends ChangeNotifier {
       math.max(0, monthlyExpenseLedgerTotal - monthlyEssentialExpenseTotal);
   double get cashFlowPyramidBaseline => monthlyExpenseLedgerTotal > 0
       ? monthlyExpenseLedgerTotal
-      : totalCashFlowBudget;
+      : cashFlowBudgetForLayer(ExpenseLayer.basicNeeds);
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
   double get unallocatedFakeMayaWallet => math.max(
         0,
@@ -3123,15 +3128,68 @@ class JarEvent {
   }
 }
 
+enum ExpenseLayer {
+  basicNeeds,
+  emergencyInsurance,
+  debtInvestments,
+  nonEssentials,
+}
+
+extension ExpenseLayerDetails on ExpenseLayer {
+  String get label => switch (this) {
+        ExpenseLayer.basicNeeds => 'Basic Needs',
+        ExpenseLayer.emergencyInsurance => 'Emergency / Insurance',
+        ExpenseLayer.debtInvestments => 'Debt / Investments',
+        ExpenseLayer.nonEssentials => 'Non-Essentials',
+      };
+
+  String get examples => switch (this) {
+        ExpenseLayer.basicNeeds => 'Electricity, water, rent, food, transport',
+        ExpenseLayer.emergencyInsurance =>
+          'Insurance premiums, hospital and medical bills',
+        ExpenseLayer.debtInvestments =>
+          'Credit card, loan payments, investment contributions',
+        ExpenseLayer.nonEssentials =>
+          'Subscriptions, memberships, entertainment',
+      };
+}
+
+ExpenseLayer? expenseLayerFromValue(Object? value) {
+  final name = value?.toString();
+  return ExpenseLayer.values.where((layer) => layer.name == name).firstOrNull;
+}
+
+ExpenseLayer expenseLayerForLedger(Map<String, dynamic> expense) {
+  return expenseLayerFromValue(expense['expenseType'] ?? expense['layer']) ??
+      ((expense['essential'] as bool? ?? false)
+          ? ExpenseLayer.basicNeeds
+          : ExpenseLayer.nonEssentials);
+}
+
 class CashFlowExpense {
-  CashFlowExpense(this.name, this.budget);
+  CashFlowExpense(
+    this.name,
+    this.budget, {
+    this.layer = ExpenseLayer.basicNeeds,
+  });
   String name;
   double budget;
+  ExpenseLayer layer;
 
-  Map<String, dynamic> toMap() => {'name': name, 'budget': budget};
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'budget': budget,
+        'expenseType': layer.name,
+      };
 
-  static CashFlowExpense fromMap(Map<String, dynamic> m) => CashFlowExpense(
-      m['name'] as String? ?? '', (m['budget'] as num?)?.toDouble() ?? 0);
+  static CashFlowExpense fromMap(Map<String, dynamic> m) {
+    return CashFlowExpense(
+      m['name'] as String? ?? '',
+      (m['budget'] as num?)?.toDouble() ?? 0,
+      layer: expenseLayerFromValue(m['expenseType'] ?? m['layer']) ??
+          ExpenseLayer.basicNeeds,
+    );
+  }
 }
 
 class ShieldEvent {

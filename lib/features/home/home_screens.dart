@@ -1130,7 +1130,7 @@ class _CashFlowPageState extends State<_CashFlowPage> {
     if (!_saving) {
       _expenses = List.of(AppScope.of(context)
           .cashFlowExpenses
-          .map((e) => CashFlowExpense(e.name, e.budget)));
+          .map((e) => CashFlowExpense(e.name, e.budget, layer: e.layer)));
     }
   }
 
@@ -1149,6 +1149,12 @@ class _CashFlowPageState extends State<_CashFlowPage> {
   @override
   Widget build(BuildContext context) {
     final total = _expenses.fold(0.0, (s, e) => s + e.budget);
+    final layerTotals = {
+      for (final layer in ExpenseLayer.values)
+        layer: _expenses
+            .where((expense) => expense.layer == layer)
+            .fold(0.0, (sum, expense) => sum + expense.budget),
+    };
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -1168,14 +1174,14 @@ class _CashFlowPageState extends State<_CashFlowPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'LAYER 1',
+                          'EXPENSES',
                           style: TextStyle(
                               color: _body,
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 1.2),
                         ),
-                        Text('Cash Flow & Basic Needs',
+                        Text('Plan your expenses',
                             style: Theme.of(context).textTheme.titleLarge),
                       ],
                     ),
@@ -1191,20 +1197,59 @@ class _CashFlowPageState extends State<_CashFlowPage> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                          color: _brand.withOpacity(.1),
-                          borderRadius: BorderRadius.circular(18)),
-                      child: Row(
+                          color: _brand.withValues(alpha: .1),
+                          borderRadius: BorderRadius.circular(8)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.account_balance_wallet_rounded,
-                              color: _brand),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Total budget: ${money(total)}',
-                            style: const TextStyle(
-                                color: _title,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16),
+                          Row(
+                            children: [
+                              const Icon(Icons.account_balance_wallet_rounded,
+                                  color: _brand),
+                              const SizedBox(width: 12),
+                              Text(
+                                'Total budget: ${money(total)}',
+                                style: const TextStyle(
+                                    color: _title,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 12),
+                          for (final layer in ExpenseLayer.values)
+                            if ((layerTotals[layer] ?? 0) > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _expenseLayerIcon(layer),
+                                      size: 16,
+                                      color: _expenseLayerColor(layer),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        layer.label,
+                                        style: const TextStyle(
+                                          color: _body,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      money(layerTotals[layer] ?? 0),
+                                      style: const TextStyle(
+                                        color: _title,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                         ],
                       ),
                     ),
@@ -1276,41 +1321,107 @@ class _ExpenseRowState extends State<_ExpenseRow> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 5,
-            child: TextField(
-              controller: _nameCtrl,
-              decoration: inputDecoration('Expense name'),
-              onChanged: (v) => widget.expense.name = v,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  flex: 5,
+                  child: TextField(
+                    controller: _nameCtrl,
+                    decoration: inputDecoration('Expense name'),
+                    onChanged: (v) => widget.expense.name = v,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _budgetCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration:
+                        inputDecoration('Budget').copyWith(prefixText: '₱ '),
+                    onChanged: (v) {
+                      final parsed =
+                          double.tryParse(v.replaceAll(RegExp(r'[^0-9.]'), ''));
+                      widget.expense.budget = parsed ?? 0;
+                    },
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Remove expense',
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  color: _body,
+                  onPressed: widget.onRemove,
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 3,
-            child: TextField(
-              controller: _budgetCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: inputDecoration('Budget').copyWith(prefixText: '₱ '),
-              onChanged: (v) {
-                final parsed =
-                    double.tryParse(v.replaceAll(RegExp(r'[^0-9.]'), ''));
-                widget.expense.budget = parsed ?? 0;
+            const SizedBox(height: 10),
+            DropdownButtonFormField<ExpenseLayer>(
+              value: widget.expense.layer,
+              isExpanded: true,
+              decoration: inputDecoration('Expense type').copyWith(
+                labelText: 'Expense type',
+                prefixIcon: Icon(
+                  _expenseLayerIcon(widget.expense.layer),
+                  color: _expenseLayerColor(widget.expense.layer),
+                ),
+              ),
+              items: ExpenseLayer.values
+                  .map(
+                    (layer) => DropdownMenuItem(
+                      value: layer,
+                      child: Text(
+                        layer.label,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (layer) {
+                if (layer == null) return;
+                setState(() => widget.expense.layer = layer);
               },
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close_rounded, size: 20),
-            color: _body,
-            onPressed: widget.onRemove,
-          ),
-        ],
+            const SizedBox(height: 7),
+            Text(
+              widget.expense.layer.examples,
+              style: TextStyle(
+                color: _expenseLayerColor(widget.expense.layer),
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
+
+IconData _expenseLayerIcon(ExpenseLayer layer) => switch (layer) {
+      ExpenseLayer.basicNeeds => Icons.home_rounded,
+      ExpenseLayer.emergencyInsurance => Icons.health_and_safety_rounded,
+      ExpenseLayer.debtInvestments => Icons.account_balance_rounded,
+      ExpenseLayer.nonEssentials => Icons.interests_rounded,
+    };
+
+Color _expenseLayerColor(ExpenseLayer layer) => switch (layer) {
+      ExpenseLayer.basicNeeds => _brand,
+      ExpenseLayer.emergencyInsurance => _amber,
+      ExpenseLayer.debtInvestments => _purple,
+      ExpenseLayer.nonEssentials => _sage,
+    };
 
 // ─── Financial Safety detail page ─────────────────────────────────────────────
 
@@ -6466,7 +6577,11 @@ void _showExpectedSpendDetail(BuildContext context, AppState state) {
               ))
           .toList()
       : state.cashFlowExpenses
-          .map((e) => (name: e.name, amount: e.budget, essential: false))
+          .map((e) => (
+                name: e.name,
+                amount: e.budget,
+                essential: e.layer == ExpenseLayer.basicNeeds,
+              ))
           .toList();
   items.sort((a, b) => b.amount.compareTo(a.amount));
 

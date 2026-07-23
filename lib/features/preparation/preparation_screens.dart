@@ -4924,10 +4924,12 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
           state.onboardingExpenseLedger.map(_ExpenseLedgerDraft.fromMap));
     } else {
       expenses.addAll([
-        _ExpenseLedgerDraft(name: 'Electric Bill', essential: true),
-        _ExpenseLedgerDraft(name: 'Water Bill', essential: true),
-        _ExpenseLedgerDraft(name: 'Food and Drinks', essential: true),
-        _ExpenseLedgerDraft(name: 'Transport', essential: true),
+        _ExpenseLedgerDraft(
+            name: 'Electric Bill', layer: ExpenseLayer.basicNeeds),
+        _ExpenseLedgerDraft(name: 'Water Bill', layer: ExpenseLayer.basicNeeds),
+        _ExpenseLedgerDraft(
+            name: 'Food and Drinks', layer: ExpenseLayer.basicNeeds),
+        _ExpenseLedgerDraft(name: 'Transport', layer: ExpenseLayer.basicNeeds),
       ]);
     }
     if (expenses.isEmpty) expenses.add(_ExpenseLedgerDraft());
@@ -4972,7 +4974,7 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
       phase: 5,
       title: 'Monthly expenses.',
       subtitle:
-          'List each expected monthly expense, mark whether it is essential, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
+          'List each expected monthly expense, choose its financial layer, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
       bottom: PrimaryButton(
           label: 'See How Shelby Helps',
           icon: Icons.arrow_forward_rounded,
@@ -4990,7 +4992,7 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Text(
-                '✓ Essential = needed for basic living   •   📅 Scheduled = expected on a regular due day',
+                'Choose the layer that best matches each expense. Scheduled bills can also include an expected due day.',
                 style: TextStyle(
                   color: _body,
                   fontSize: 11,
@@ -5026,7 +5028,7 @@ class _ExpenseLedgerDraft {
   _ExpenseLedgerDraft(
       {String name = '',
       String amount = '',
-      this.essential = false,
+      this.layer,
       this.scheduled = false,
       this.dueDay})
       : nameController = TextEditingController(text: name),
@@ -5036,16 +5038,18 @@ class _ExpenseLedgerDraft {
       _ExpenseLedgerDraft(
         name: value['name']?.toString() ?? '',
         amount: value['amount']?.toString() ?? '',
-        essential: value['essential'] as bool? ?? false,
+        layer: expenseLayerForLedger(value),
         scheduled: value['scheduled'] as bool? ?? false,
         dueDay: (value['dueDay'] as num?)?.toInt(),
       );
 
   final TextEditingController nameController;
   final TextEditingController amountController;
-  bool essential;
+  ExpenseLayer? layer;
   bool scheduled;
   int? dueDay;
+
+  bool get essential => layer == ExpenseLayer.basicNeeds;
 
   double get amountValue =>
       double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
@@ -5054,6 +5058,7 @@ class _ExpenseLedgerDraft {
         'name': nameController.text.trim(),
         'amount': amountValue,
         'essential': essential,
+        'expenseType': layer?.name,
         'scheduled': scheduled,
         'dueDay': scheduled ? dueDay : null,
       };
@@ -5086,18 +5091,6 @@ class _ExpenseLedgerCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Tooltip(
-                message: 'Essential expense',
-                child: Checkbox(
-                  activeColor: _brand,
-                  value: expense.essential,
-                  onChanged: (value) {
-                    expense.essential = value ?? false;
-                    onChanged();
-                  },
-                ),
-              ),
-              const SizedBox(width: 2),
               Expanded(
                 child: TextFormField(
                   controller: expense.nameController,
@@ -5145,6 +5138,50 @@ class _ExpenseLedgerCard extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<ExpenseLayer>(
+            value: expense.layer,
+            isExpanded: true,
+            decoration: inputDecoration('Choose expense type').copyWith(
+              labelText: 'Expense type',
+              isDense: true,
+              prefixIcon: expense.layer == null
+                  ? const Icon(Icons.layers_rounded, color: _body)
+                  : Icon(
+                      _expenseLayerIcon(expense.layer!),
+                      color: _expenseLayerColor(expense.layer!),
+                    ),
+            ),
+            items: ExpenseLayer.values
+                .map(
+                  (layer) => DropdownMenuItem(
+                    value: layer,
+                    child: Text(
+                      layer.label,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: (layer) {
+              expense.layer = layer;
+              onChanged();
+            },
+            validator: (layer) =>
+                layer == null ? 'Choose an expense type.' : null,
+          ),
+          if (expense.layer != null) ...[
+            const SizedBox(height: 7),
+            Text(
+              expense.layer!.examples,
+              style: TextStyle(
+                color: _expenseLayerColor(expense.layer!),
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 10,
@@ -7015,9 +7052,7 @@ class PreparationCommitmentScreen extends StatelessWidget {
       final scheduled = expense['scheduled'] as bool? ?? false;
       final dueDay = (expense['dueDay'] as num?)?.toInt();
       final details = <String>[
-        (expense['essential'] as bool? ?? false)
-            ? 'Essential'
-            : 'Non-essential',
+        expenseLayerForLedger(expense).label,
         if (scheduled)
           'Scheduled monthly${dueDay == null ? '' : ' on day $dueDay'}',
       ];
