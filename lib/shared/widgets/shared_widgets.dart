@@ -1,5 +1,112 @@
 part of '../../main.dart';
 
+/// Shows an in-app notice as a centered pop-up card over a shadowed
+/// backdrop, instead of a bottom SnackBar. Use this for warnings/status
+/// messages on screens that have a docked FloatingActionButton (a SnackBar
+/// there visually shoves the FAB upward as it appears).
+Future<void> showAppNotice(
+  BuildContext context, {
+  required String message,
+  IconData icon = Icons.info_rounded,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.black.withValues(alpha: .35),
+    transitionDuration: const Duration(milliseconds: 200),
+    pageBuilder: (context, animation, secondaryAnimation) =>
+        _AppNoticeCard(message: message, icon: icon),
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: .92, end: 1).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
+class _AppNoticeCard extends StatefulWidget {
+  const _AppNoticeCard({required this.message, required this.icon});
+  final String message;
+  final IconData icon;
+
+  @override
+  State<_AppNoticeCard> createState() => _AppNoticeCardState();
+}
+
+class _AppNoticeCardState extends State<_AppNoticeCard> {
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) Navigator.of(context).maybePop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 320),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 32),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: _surface,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .2),
+                  blurRadius: 26,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    color: _bellySoft,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Icon(widget.icon, color: _brand, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      widget.message,
+                      style: const TextStyle(
+                        color: _title,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -157,6 +264,7 @@ class SelectableOption extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.body,
+    this.enabled = true,
   });
 
   final IconData icon;
@@ -164,60 +272,87 @@ class SelectableOption extends StatelessWidget {
   final String? body;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
+    final dimmed = !enabled;
     return InkWell(
-      onTap: onTap,
+      onTap: dimmed ? null : onTap,
       borderRadius: BorderRadius.circular(22),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: selected ? _bellySoft : _surface,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: selected ? _brand : _border, width: 2),
-        ),
-        child: Row(
-          children: [
-            IconBubble(
-              icon,
-              color: selected ? Colors.white : _brand,
-              background: selected ? _brand : _bellySoft,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: _title,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  if (body != null) ...[
-                    const SizedBox(height: 4),
+      child: Opacity(
+        opacity: dimmed ? .45 : 1,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected ? _bellySoft : _surface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: selected ? _brand : _border, width: 2),
+          ),
+          child: Row(
+            children: [
+              IconBubble(
+                icon,
+                color: selected ? Colors.white : _brand,
+                background: selected ? _brand : _bellySoft,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      body!,
+                      title,
                       style: const TextStyle(
-                        color: _body,
-                        height: 1.3,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        color: _title,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
+                    if (body != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        body!,
+                        style: const TextStyle(
+                          color: _body,
+                          height: 1.3,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    if (dimmed) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(Icons.lock_rounded,
+                              size: 13, color: _body),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Coming soon',
+                            style: const TextStyle(
+                              color: _body,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            Icon(
-              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
-              color: selected ? _brand : _body,
-            ),
-          ],
+              Icon(
+                dimmed
+                    ? Icons.lock_outline_rounded
+                    : (selected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined),
+                color: selected ? _brand : _body,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -246,9 +381,18 @@ class ChatBubble extends StatelessWidget {
         ),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: fromUser ? _brand : _bg,
+          color: fromUser ? _brand : _surface,
           borderRadius: BorderRadius.circular(18),
           border: fromUser ? null : Border.all(color: _border),
+          boxShadow: fromUser
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: .05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
         ),
         child: loading
             ? Row(
@@ -272,25 +416,24 @@ class ChatBubble extends StatelessWidget {
                   ),
                 ],
               )
-            : RichText(
-                text: TextSpan(
-                  style: TextStyle(
-                    color: fromUser ? Colors.white : _title,
-                    height: 1.32,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  children: _boldMarkdownSpans(
-                    text,
-                    fromUser ? Colors.white : _title,
-                  ),
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: _markdownBlocks(
+                  text,
+                  fromUser ? Colors.white : _title,
                 ),
               ),
       ),
     );
   }
 
-  List<TextSpan> _boldMarkdownSpans(String value, Color color) {
-    final spans = <TextSpan>[];
+  List<InlineSpan> _inlineSpans(
+    String value,
+    Color color, {
+    FontWeight baseWeight = FontWeight.w500,
+  }) {
+    final spans = <InlineSpan>[];
     var remaining = value;
     while (remaining.isNotEmpty) {
       final start = remaining.indexOf('**');
@@ -310,12 +453,92 @@ class ChatBubble extends StatelessWidget {
       spans.add(
         TextSpan(
           text: remaining.substring(afterStart, end),
-          style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          style: TextStyle(color: color, fontWeight: FontWeight.w800),
         ),
       );
       remaining = remaining.substring(end + 2);
     }
     return spans;
+  }
+
+  static final _headerLine = RegExp(r'^#{1,3}\s+(.*)');
+  static final _bulletLine = RegExp(r'^[-*]\s+(.*)');
+
+  List<Widget> _markdownBlocks(String text, Color color) {
+    final widgets = <Widget>[];
+    for (final rawLine in text.split('\n')) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        if (widgets.isNotEmpty) widgets.add(const SizedBox(height: 6));
+        continue;
+      }
+      final header = _headerLine.firstMatch(line);
+      final bullet = _bulletLine.firstMatch(line);
+      if (header != null) {
+        widgets.add(
+          Padding(
+            padding: EdgeInsets.only(top: widgets.isEmpty ? 0 : 8, bottom: 2),
+            child: RichText(
+              text: TextSpan(
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  height: 1.32,
+                ),
+                children: _inlineSpans(header.group(1)!, color,
+                    baseWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        );
+      } else if (bullet != null) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('•  ',
+                    style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                        height: 1.32)),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w500,
+                        height: 1.32,
+                      ),
+                      children: _inlineSpans(bullet.group(1)!, color),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: RichText(
+              text: TextSpan(
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w500,
+                  height: 1.32,
+                ),
+                children: _inlineSpans(line, color),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return widgets.isEmpty ? [const SizedBox.shrink()] : widgets;
   }
 }
 
@@ -1673,10 +1896,10 @@ class ChoiceTile extends StatelessWidget {
         height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? _surface : _bg,
+          color: _surface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? _brand : Colors.transparent,
+            color: selected ? _brand : _border,
             width: 2,
           ),
         ),

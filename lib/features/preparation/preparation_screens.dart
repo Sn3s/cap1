@@ -167,7 +167,6 @@ class OrientationSlide extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineLarge?.copyWith(
                     fontSize: compact ? 28 : 34,
-                    fontStyle: FontStyle.italic,
                   ),
             ),
             const SizedBox(height: 14),
@@ -2582,26 +2581,37 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
       child: Column(
-        children: _goalBranches
-            .map(
-              (branch) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: SelectableOption(
-                  icon: branch.icon,
-                  title: branch.layer,
-                  body: branch.layerDescription,
-                  selected: state.primaryConcern == branch.layer,
-                  onTap: () => setState(() {
-                    state.primaryConcern = branch.layer;
-                    state.choosePresetGoal(
-                      branch.defaultGoalTitle,
-                      branch.defaultGoalDescription,
-                    );
-                  }),
-                ),
+        children: [
+          ..._goalBranches.map(
+            (branch) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: SelectableOption(
+                icon: branch.icon,
+                title: branch.layer,
+                body: branch.layerDescription,
+                selected: state.primaryConcern == branch.layer,
+                onTap: () => setState(() {
+                  state.primaryConcern = branch.layer;
+                  state.choosePresetGoal(
+                    branch.defaultGoalTitle,
+                    branch.defaultGoalDescription,
+                  );
+                }),
               ),
-            )
-            .toList(),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Don't worry — you can add more goals later once your "
+            'account is set up!',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2961,7 +2971,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
                         onConfirm: _onActionsConfigured,
                       );
                     }
-                    return GuidedChatControls(
+                    final controls = GuidedChatControls(
                       step: _stepForControls,
                       options: currentOptions,
                       selected: selected,
@@ -2971,6 +2981,29 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
                       onContinue: continueMultiSelect,
                       onSubmitTyped: submitTypedAnswer,
                     );
+                    if (stepIndex == 1) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              "Don't worry — you can add more goals later "
+                              'once your account is set up!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: _body,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          controls,
+                        ],
+                      );
+                    }
+                    return controls;
                   }
                   final resetIndex = messages.length + (hasReflection ? 0 : 1);
                   if (index == resetIndex) {

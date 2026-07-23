@@ -702,8 +702,8 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                         ),
                         Text(
                           widget.analysisTitle == null
-                              ? 'App and money context'
-                              : '${widget.analysisTitle} analysis',
+                              ? 'Your app & money chat mate'
+                              : '${widget.analysisTitle} chat',
                           style: const TextStyle(
                             color: _body,
                             fontSize: 12,
@@ -762,7 +762,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                         decoration: InputDecoration(
                           hintText: 'Ask about your app data...',
                           filled: true,
-                          fillColor: _bg,
+                          fillColor: const Color(0xFFF3F1EC),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 12,
@@ -909,14 +909,139 @@ bool isLifestyleGoalOnTrack(AppState state) {
       _currentWeekLifestyleSpend(state) <= weeklyLimit;
 }
 
-/// (goals on track, goals total) across the four Goals-screen goals.
+/// "Grow Investments" goal is on track once the portfolio has reached its
+/// target — replaces the previous always-neutral placeholder now that a
+/// real target field (`investmentPortfolioTarget`) is available.
+bool isInvestmentGoalOnTrack(AppState state) {
+  final target = state.investmentPortfolioTarget;
+  if (target <= 0) return false;
+  return state.investmentBalance >= target;
+}
+
+double _clampPercent(double value) => value.isFinite ? value.clamp(0, 100) : 0;
+
+/// Percent-complete for each canonical goal card, clamped 0-100. These are
+/// separate from the on-track booleans above: a goal can be "on track" well
+/// before it reaches 100% (e.g. the emergency fund) or vice versa.
+double cashFlowGoalPercent(AppState state) {
+  final total = state.cashFlowPyramidBaseline;
+  if (total <= 0) return 0;
+  final used = _cashFlowMonthlySpent(state);
+  return _clampPercent((1 - (used / total)) * 100);
+}
+
+double emergencyFundGoalPercent(AppState state) {
+  final target = state.emergencyFundTarget;
+  if (target <= 0) return 0;
+  final current = state.safetyShieldBalance +
+      (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+  return _clampPercent((current / target) * 100);
+}
+
+double investmentGoalPercent(AppState state) {
+  final target = state.investmentPortfolioTarget;
+  if (target <= 0) return 0;
+  return _clampPercent((state.investmentBalance / target) * 100);
+}
+
+double lifestyleGoalPercent(AppState state) {
+  final weeklyLimit = _configuredActionAmount(
+    state,
+    'A28',
+    math.max(100.0, _monthlyLifestyleBase(state) / 4.33),
+  );
+  if (weeklyLimit <= 0) return 0;
+  final spent = _currentWeekLifestyleSpend(state);
+  return _clampPercent((1 - (spent / weeklyLimit)) * 100);
+}
+
+/// Layer -> canonical goal id shown on the Goals page (only these 4 goals
+/// have full `_D1GoalMeta` card content authored).
+const _layerCanonicalGoalId = <String, String>{
+  'Cash Flow & Basic Needs': 'G1',
+  'Financial Safety': 'G3',
+  'Accumulating Wealth': 'G5',
+  'Financial Freedom': 'G8',
+};
+
+/// Add Goal unlock rule: which layer becomes addable given the layer chosen
+/// at onboarding. `null` means no layer unlocks (Coming Soon).
+const _addGoalUnlockMap = <String, String?>{
+  'Cash Flow & Basic Needs': 'Financial Safety',
+  'Financial Safety': 'Cash Flow & Basic Needs',
+  'Accumulating Wealth': null,
+  'Financial Freedom': null,
+};
+
+bool _isGoalOnTrack(String goalId, AppState state) {
+  switch (goalId) {
+    case 'G1':
+      return isCashFlowGoalOnTrack(state);
+    case 'G3':
+      return isEmergencyFundGoalOnTrack(state);
+    case 'G5':
+      return isInvestmentGoalOnTrack(state);
+    case 'G8':
+      return isLifestyleGoalOnTrack(state);
+    default:
+      return false;
+  }
+}
+
+double _goalPercent(String goalId, AppState state) {
+  switch (goalId) {
+    case 'G1':
+      return cashFlowGoalPercent(state);
+    case 'G3':
+      return emergencyFundGoalPercent(state);
+    case 'G5':
+      return investmentGoalPercent(state);
+    case 'G8':
+      return lifestyleGoalPercent(state);
+    default:
+      return 0;
+  }
+}
+
+/// Which pyramid layer a given onboarding-catalog goal id belongs to (e.g.
+/// 'G8' -> 'Financial Freedom'), used as a fallback so the goal actually
+/// selected during onboarding is respected even if it isn't the layer's
+/// default pick.
+String? _layerForGoalId(String goalId) {
+  for (final entry in _motivationGoalIds.entries) {
+    if (entry.value.contains(goalId)) return entry.key;
+  }
+  return null;
+}
+
+/// Which canonical goal cards should render on the Goals page. The
+/// Reflection Demo account always shows all of them (showcase account).
+/// Real accounts always see the goal for their onboarding pick —
+/// preferring the layer implied by `selectedGoalId` (falling back to
+/// `primaryConcern` when that's unset) — plus whatever goals were
+/// explicitly added via "+ Add Goal" (`AppState.addedGoalIds`). This is
+/// intentionally NOT based on action-selection overlap
+/// (`_insightsAdoptedMotivations`) — several goals share action ids across
+/// their catalogs (e.g. G4 and G3 both include 'A10'), which would falsely
+/// mark a goal "added" just because an unrelated goal's action overlaps.
+Set<String> _visibleGoalIds(AppState state) {
+  if (_insightsIsReflectionDemoAccount(state)) {
+    return _d1GoalMetas.map((g) => g.id).toSet();
+  }
+  final ids = <String>{...state.addedGoalIds};
+  final onboardingLayer =
+      _layerForGoalId(state.selectedGoalId) ?? state.primaryConcern;
+  final primaryGoalId = _layerCanonicalGoalId[onboardingLayer];
+  if (primaryGoalId != null) ids.add(primaryGoalId);
+  return ids;
+}
+
+/// (goals on track, goals total) across the goals currently visible to
+/// this account.
 (int, int) goalsOnTrackSummary(AppState state) {
-  var onTrack = 0;
-  if (isCashFlowGoalOnTrack(state)) onTrack++;
-  if (isEmergencyFundGoalOnTrack(state)) onTrack++;
-  onTrack++; // Grow Investments remains neutral until market data is linked.
-  if (isLifestyleGoalOnTrack(state)) onTrack++;
-  return (onTrack, 4);
+  final visible = _visibleGoalIds(state);
+  final onTrack = visible.where((id) => _isGoalOnTrack(id, state)).length;
+  return (onTrack, visible.length);
 }
 
 class _CashFlowPyramidContent extends StatelessWidget {
@@ -9517,11 +9642,36 @@ class _D1GoalsMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final (onTrack, total) = goalsOnTrackSummary(state);
+    final visibleGoalIds = _visibleGoalIds(state);
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
       children: [
         const PageHeader(eyebrow: 'MY GOALS', title: 'Goals'),
-        const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AddGoalScreen()),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: _brand,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                elevation: 0,
+              ),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Add Goal',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _WeeklyProgressCard(onTrack: onTrack, total: total),
@@ -9540,10 +9690,11 @@ class _D1GoalsMenu extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             children: [
-              for (final goal in _d1GoalMetas) ...[
-                _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
-                const SizedBox(height: 14),
-              ],
+              for (final goal in _d1GoalMetas)
+                if (visibleGoalIds.contains(goal.id)) ...[
+                  _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
+                  const SizedBox(height: 14),
+                ],
             ],
           ),
         ),
@@ -9674,7 +9825,11 @@ class _D1GoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     final actionCount = _goalDetailActionsFor(context, goal).length;
+    final onTrack = _isGoalOnTrack(goal.id, state);
+    final percent = _goalPercent(goal.id, state);
+    const accent = _brand;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -9692,26 +9847,23 @@ class _D1GoalCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Color accent header
+            // Neutral header (color no longer encodes the layer)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              decoration: BoxDecoration(
-                color: goal.layerColor.withValues(alpha: .08),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
-                border: Border(
-                    bottom: BorderSide(
-                        color: goal.layerColor.withValues(alpha: .15))),
+              decoration: const BoxDecoration(
+                color: _bg,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: _border)),
               ),
               child: Row(
                 children: [
                   Container(
                     width: 38,
                     height: 38,
-                    decoration: BoxDecoration(
-                      color: goal.layerColor.withValues(alpha: .15),
-                      borderRadius: BorderRadius.circular(10),
+                    decoration: const BoxDecoration(
+                      color: _bellySoft,
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
                     ),
                     alignment: Alignment.center,
                     child:
@@ -9721,30 +9873,31 @@ class _D1GoalCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       goal.id,
-                      style: TextStyle(
-                        color: goal.layerColor,
+                      style: const TextStyle(
+                        color: _body,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1,
                       ),
                     ),
                   ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: goal.layerColor.withValues(alpha: .12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      goal.layerLabel,
-                      style: TextStyle(
-                        color: goal.layerColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                  if (onTrack)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        'On Track',
+                        style: TextStyle(
+                          color: accent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -9754,6 +9907,16 @@ class _D1GoalCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    goal.layerLabel,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .4,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
                   Text(
                     goal.title,
                     style: const TextStyle(
@@ -9773,26 +9936,45 @@ class _D1GoalCard extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: percent / 100,
+                      minHeight: 7,
+                      backgroundColor: _border,
+                      valueColor: const AlwaysStoppedAnimation(accent),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${percent.round()}% of goal',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
                       _GoalPillChip(
                         icon: Icons.bolt_rounded,
                         label: '$actionCount actions active',
-                        color: goal.layerColor,
+                        color: accent,
                       ),
                       const Spacer(),
-                      Text(
+                      const Text(
                         'View details',
                         style: TextStyle(
-                          color: goal.layerColor,
+                          color: accent,
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(width: 2),
-                      Icon(Icons.arrow_forward_rounded,
-                          size: 16, color: goal.layerColor),
+                      const Icon(Icons.arrow_forward_rounded,
+                          size: 16, color: accent),
                     ],
                   ),
                 ],
@@ -17730,11 +17912,10 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         amount <= 0 ||
         category == null ||
         source == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Enter a name and amount, then choose a category and fund.'),
-        ),
+      showAppNotice(
+        context,
+        message: 'Enter a name and amount, then choose a category and fund.',
+        icon: Icons.warning_amber_rounded,
       );
       return;
     }
@@ -17752,14 +17933,18 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
       );
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cash transaction saved.')),
+      showAppNotice(
+        context,
+        message: 'Cash transaction saved.',
+        icon: Icons.check_circle_rounded,
       );
     } on StateError catch (error) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
+      showAppNotice(
+        context,
+        message: error.message,
+        icon: Icons.warning_amber_rounded,
       );
     }
   }

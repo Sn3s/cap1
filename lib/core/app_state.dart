@@ -99,6 +99,12 @@ class AppState extends ChangeNotifier {
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {};
+  /// Canonical goal ids explicitly added via the Goals page "+ Add Goal"
+  /// flow (post-onboarding). The onboarding goal itself is NOT stored here
+  /// — it's always derived live from `primaryConcern` — this only tracks
+  /// EXTRA goals, so it can't be affected by unrelated action-id overlap
+  /// between different goals' catalogs.
+  final Set<String> addedGoalIds = {};
   final Map<String, Map<String, String>> actionFieldValues = {};
   final Map<String, double> categorySpendingBudgets = {};
   final Map<String, String> onboardingBaselines = {};
@@ -1064,6 +1070,7 @@ class AppState extends ChangeNotifier {
       'goalBucketOverrides':
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
       'selectedActionIds': selectedActionIds.toList()..sort(),
+      'addedGoalIds': addedGoalIds.toList()..sort(),
       'selectedGoalId': selectedGoalId,
       'actionFieldValues': actionFieldValues,
       'categorySpendingBudgets': categorySpendingBudgets,
@@ -1500,6 +1507,7 @@ class AppState extends ChangeNotifier {
       selectedActionIds,
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
     );
+    _replaceSet(addedGoalIds, data['addedGoalIds']);
   }
 
   double _doubleFrom(Object? value, double fallback) {
@@ -2316,6 +2324,23 @@ class AppState extends ChangeNotifier {
       ..addAll(actionIds);
     emotionalLogsEnabled = enableEmotionalLogs;
     stressIndicatorsEnabled = enableStressIndicators;
+    notifyListeners();
+  }
+
+  /// Additive variant used when a goal is added after onboarding (e.g. via
+  /// "+ Add Goal" on the Goals page) — unlike [configureGoalActions], this
+  /// must NOT clear existing selections or it would wipe out the actions
+  /// belonging to goals the user already has.
+  void addActionsForGoal(Iterable<String> actionIds) {
+    selectedActionIds.addAll(actionIds);
+    notifyListeners();
+  }
+
+  /// Explicitly marks a canonical goal as added via "+ Add Goal". Kept
+  /// separate from action-selection overlap checks so that goals sharing
+  /// an action id with another goal's catalog can't falsely appear added.
+  void addUnlockedGoal(String goalId) {
+    addedGoalIds.add(goalId);
     notifyListeners();
   }
 
