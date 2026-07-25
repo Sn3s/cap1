@@ -49,10 +49,27 @@ void main() {
 
     expect(source.patternKey, matching.patternKey);
     expect(recognized.category, 'Salary');
-    expect(recognized.source, 'Basic Needs Fund');
+    expect(recognized.source, 'E-wallet');
     expect(recognized.subcategory, 'Main job');
     expect(recognized.tag, 'Work');
     expect(recognized.note, isNull);
+  });
+
+  test('FakeMaya cash ins automatically target the e-wallet', () {
+    const transaction = FakeMayaTransaction(
+      title: 'Cash in',
+      detail: 'From: ACME Payroll',
+      age: 'Just now',
+      amountText: '+ ₱1,000.00',
+    );
+    final labeled = transaction.copyWithLabel(
+      category: 'Salary',
+      source: transaction.automaticDestination ?? 'Basic Needs Fund',
+    );
+
+    expect(transaction.isFakeMayaCashIn, isTrue);
+    expect(transaction.automaticDestination, 'E-wallet');
+    expect(TransactionLabelRule.fromTransaction(labeled).source, 'E-wallet');
   });
 
   test('legacy labels gain a source when loaded', () {

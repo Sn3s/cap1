@@ -719,6 +719,15 @@ class FakeMayaTransaction {
     return value.contains('cash in') || value.contains('cash out');
   }
 
+  bool get isFakeMayaCashIn {
+    final accountName = account?.trim();
+    return amount > 0 &&
+        title.toLowerCase().contains('cash in') &&
+        (accountName == null || accountName.isEmpty || accountName == 'Wallet');
+  }
+
+  String? get automaticDestination => isFakeMayaCashIn ? 'E-wallet' : null;
+
   String get counterpartyKey {
     var value = detail.trim().toLowerCase();
     value = value.replaceFirst(RegExp(r'^(from|to)\s*:\s*'), '');

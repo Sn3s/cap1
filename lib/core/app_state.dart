@@ -3240,7 +3240,9 @@ class TransactionLabelRule {
   ) {
     return TransactionLabelRule(
       category: transaction.category!,
-      source: transaction.source ?? 'Basic Needs Fund',
+      source: transaction.automaticDestination ??
+          transaction.source ??
+          'Basic Needs Fund',
       subcategory: transaction.subcategory,
       tag: transaction.tag,
     );
@@ -3249,7 +3251,7 @@ class TransactionLabelRule {
   FakeMayaTransaction applyTo(FakeMayaTransaction transaction) {
     return transaction.copyWithLabel(
       category: category,
-      source: source,
+      source: transaction.automaticDestination ?? source,
       subcategory: subcategory,
       tag: tag,
     );

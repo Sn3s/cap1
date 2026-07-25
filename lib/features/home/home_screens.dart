@@ -18047,6 +18047,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final transaction = widget.transaction;
     final categories =
         transaction.amount >= 0 ? _incomeCategories : _expenseCategories;
+    final automaticDestination = transaction.automaticDestination;
     return _GoalSheetFrame(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -18121,19 +18122,25 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             onChanged: (value) => setState(() => _category = value),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _sources.contains(_source) ? _source : null,
-            decoration: inputDecoration('Choose a fund').copyWith(
-              labelText: 'Source',
+          if (automaticDestination == null)
+            DropdownButtonFormField<String>(
+              value: _sources.contains(_source) ? _source : null,
+              decoration: inputDecoration('Choose a fund').copyWith(
+                labelText: 'Source',
+              ),
+              items: _sources
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value),
+                      ))
+                  .toList(),
+              onChanged: (value) => setState(() => _source = value),
+            )
+          else
+            _TransactionDetailLine(
+              label: 'Destination',
+              value: automaticDestination,
             ),
-            items: _sources
-                .map((value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(value),
-                    ))
-                .toList(),
-            onChanged: (value) => setState(() => _source = value),
-          ),
           const SizedBox(height: 12),
           TextFormField(
             controller: _subcategory,
@@ -18193,7 +18200,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
 
   Future<void> _save() async {
     final category = _category;
-    final source = _source;
+    final source = widget.transaction.automaticDestination ?? _source;
     if (category == null || source == null || _saving) return;
     setState(() => _saving = true);
     await AppScope.of(context).labelFakeMayaTransaction(
@@ -18218,6 +18225,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   }
 
   static String? _initialSource(FakeMayaTransaction transaction) {
+    final automaticDestination = transaction.automaticDestination;
+    if (automaticDestination != null) return automaticDestination;
     if (transaction.source != null) return transaction.source;
     return switch (transaction.category?.trim().toLowerCase()) {
       'basic needs' => 'Basic Needs Fund',

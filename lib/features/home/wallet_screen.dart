@@ -372,7 +372,12 @@ class _WalletPageState extends State<WalletPage> {
                   'A similar transaction happened before. Is this the same?'),
               const SizedBox(height: 10),
               _TransactionDetailLine(label: 'Category', value: rule.category),
-              _TransactionDetailLine(label: 'Source', value: rule.source),
+              _TransactionDetailLine(
+                label: transaction.automaticDestination == null
+                    ? 'Source'
+                    : 'Destination',
+                value: transaction.automaticDestination ?? rule.source,
+              ),
               if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
                 _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
               if (rule.tag != null && rule.tag!.isNotEmpty)
@@ -396,7 +401,7 @@ class _WalletPageState extends State<WalletPage> {
         await state.labelFakeMayaTransaction(
           transactionId: transaction.transactionId,
           category: rule.category,
-          source: rule.source,
+          source: transaction.automaticDestination ?? rule.source,
           subcategory: rule.subcategory,
           tag: rule.tag,
           note: rule.note,
