@@ -10,76 +10,28 @@ class WalletPage extends StatefulWidget {
 }
 
 class _WalletPageState extends State<WalletPage> {
-  static const _transactionsPerPage = 10;
-
   // 0=Pyramid, 1=Goals, 2=Spending
   int _secondaryTab = 0;
   int _spendPeriod = 1;
   String _filter = 'All';
   String? _expandedAccount;
-  final ScrollController _scrollController = ScrollController();
-  int _visibleTransactionCount = _transactionsPerPage;
-  int _filteredTransactionCount = 0;
 
   static const _secondaryTabs = ['Pyramid', 'Goals', 'Spending'];
-  static const _filters = [
-    'All',
-    'Money in',
-    'Money out',
-    'Cash',
-    'Wallet',
-    'Savings',
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_loadOlderTransactionsIfNeeded);
-  }
-
-  @override
-  void dispose() {
-    _scrollController
-      ..removeListener(_loadOlderTransactionsIfNeeded)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _loadOlderTransactionsIfNeeded() {
-    if (!_scrollController.hasClients ||
-        _visibleTransactionCount >= _filteredTransactionCount ||
-        _scrollController.position.extentAfter > 160) {
-      return;
-    }
-
-    setState(() {
-      _visibleTransactionCount = math.min(
-        _visibleTransactionCount + _transactionsPerPage,
-        _filteredTransactionCount,
-      );
-    });
-  }
-
-  void _selectFilter(String filter) {
-    if (_filter == filter) return;
-    setState(() {
-      _filter = filter;
-      _visibleTransactionCount = _transactionsPerPage;
-    });
-  }
 
   void _handleAccountTap(_WealthAccount? account, String filterToken) {
     setState(() {
-      if (_filter != filterToken) {
-        _filter = filterToken;
-        _visibleTransactionCount = _transactionsPerPage;
-      }
+      _filter = filterToken;
       if (account != null &&
           (account.name == 'Wallet' || account.name == 'Savings')) {
         _expandedAccount =
             _expandedAccount == account.name ? null : account.name;
       }
     });
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RecentActivityPage(initialFilter: filterToken),
+      ),
+    );
   }
 
   @override
@@ -87,26 +39,7 @@ class _WalletPageState extends State<WalletPage> {
     final state = AppScope.of(context);
     final accounts = _buildWealthAccounts(state);
 
-    final linked = state.hasFakeMayaLink;
-    final allTransactions =
-        state.allTransactions.map(_txFromFakeMaya).toList();
-    allTransactions.sort((a, b) {
-      final aTime = a.occurredAt;
-      final bTime = b.occurredAt;
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-      return bTime.compareTo(aTime);
-    });
-    final filteredTransactions = allTransactions
-        .where((transaction) => transaction.matchesFilter(_filter))
-        .toList();
-    _filteredTransactionCount = filteredTransactions.length;
-    final hasOlderTransactions =
-        _visibleTransactionCount < _filteredTransactionCount;
-    final visibleGroups = _groupTransactionsByDate(
-      filteredTransactions.take(_visibleTransactionCount),
-    );
+    final allTransactions = state.allTransactions.map(_txFromFakeMaya).toList();
 
     final now = DateTime.now();
     final monthTransactions = allTransactions.where((t) =>
@@ -121,7 +54,6 @@ class _WalletPageState extends State<WalletPage> {
         .fold(0.0, (s, t) => s + t.amount.abs());
 
     return ListView(
-      controller: _scrollController,
       padding: const EdgeInsets.only(bottom: 96),
       children: [
         const PageHeader(eyebrow: 'WALLET', title: 'My Money'),
@@ -166,7 +98,37 @@ class _WalletPageState extends State<WalletPage> {
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const RecentActivityPage(initialFilter: 'All'),
+                ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: _brand,
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 4,
+                ),
+              ),
+              icon: const Text('See Recent Activity',
+                  style:
+                      TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+              label: const Icon(Icons.arrow_forward_rounded, size: 14),
+              iconAlignment: IconAlignment.end,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
         const _WalletSectionDivider(label: 'BREAKDOWN'),
         const SizedBox(height: 12),
         _InsightsFilterBar(
@@ -184,337 +146,107 @@ class _WalletPageState extends State<WalletPage> {
             period: _spendPeriod,
             onPeriodChanged: (p) => setState(() => _spendPeriod = p),
           ),
-        const SizedBox(height: 24),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            'Recent Activity',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (linked) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Tracking movement from ${state.fakeMayaLink!.email}',
-                    style: const TextStyle(
-                      color: _body,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _refreshFakeMaya(context),
-                  icon: const Icon(Icons.sync_rounded, size: 18),
-                  label: const Text('Refresh'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-        SizedBox(
-          height: 44,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            scrollDirection: Axis.horizontal,
-            itemCount: _filters.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, i) {
-              final active = _filter == _filters[i];
-              return GestureDetector(
-                onTap: () => _selectFilter(_filters[i]),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: active ? _brand : _surface,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: active ? _brand : _border,
-                    ),
-                  ),
-                  child: Text(
-                    _filters[i],
-                    style: TextStyle(
-                      color: active ? Colors.white : _title,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: visibleGroups.isEmpty
-              ? _EmptyActivity(linked: linked)
-              : Column(
-                  children: [
-                    _ActivityCalendarSummary(transactions: allTransactions),
-                    const SizedBox(height: 18),
-                    ...visibleGroups.map((group) {
-                      final rows = group.$2;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          AppCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                _ActivityDateHeader(
-                                  label: group.$1,
-                                  transactions: rows,
-                                ),
-                                const Divider(height: 1, color: _border),
-                                ...rows.asMap().entries.map((e) {
-                                  final tx = e.value;
-                                  final isLast = e.key == rows.length - 1;
-                                  return Column(
-                                    children: [
-                                      _ActivityRow(
-                                        data: tx,
-                                        onTap: tx.transaction == null
-                                            ? null
-                                            : () =>
-                                                _showTransactionLabelSheet(
-                                                  context,
-                                                  tx.transaction!,
-                                                ),
-                                      ),
-                                      if (!isLast)
-                                        const Divider(
-                                          height: 1,
-                                          color: _border,
-                                          indent: 70,
-                                        ),
-                                    ],
-                                  );
-                                }),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                      );
-                    }),
-                    if (hasOlderTransactions)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 4, bottom: 12),
-                        child: Center(
-                          child: Text(
-                            'Scroll down to load older transactions',
-                            style: TextStyle(
-                              color: _body,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-        ),
       ],
     );
   }
+}
 
-  Future<void> _refreshFakeMaya(BuildContext context) async {
-    try {
-      await AppScope.of(context).refreshFakeMayaAccount();
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FakeMaya activity refreshed.')),
-      );
-    } on FakeMayaException catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
-    }
-  }
-
-  Future<void> _showTransactionLabelSheet(
-    BuildContext context,
-    FakeMayaTransaction transaction,
-  ) async {
-    final state = AppScope.of(context);
-    final rule = state.transactionLabelRules[transaction.patternKey];
-    if (rule != null && !transaction.isLabeled) {
-      final useRule = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: _surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Text(
-            'Similar transaction',
-            style: GoogleFonts.fredoka(
-              color: _title,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                  'A similar transaction happened before. Is this the same?'),
-              const SizedBox(height: 10),
-              _TransactionDetailLine(label: 'Category', value: rule.category),
-              _TransactionDetailLine(
-                label: transaction.automaticDestination == null
-                    ? 'Source'
-                    : 'Destination',
-                value: transaction.automaticDestination ?? rule.source,
-              ),
-              if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
-                _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
-              if (rule.tag != null && rule.tag!.isNotEmpty)
-                _TransactionDetailLine(label: 'Tag', value: rule.tag!),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No, I\'ll edit'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _brand),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Yes, same'),
-            ),
-          ],
-        ),
-      );
-      if (useRule == true && context.mounted) {
-        await state.labelFakeMayaTransaction(
-          transactionId: transaction.transactionId,
-          category: rule.category,
-          source: transaction.automaticDestination ?? rule.source,
-          subcategory: rule.subcategory,
-          tag: rule.tag,
-          note: rule.note,
-        );
-        return;
-      }
-      if (!context.mounted) return;
-    }
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _TransactionLabelSheet(transaction: transaction),
-    );
-  }
-
-  static _TxData _txFromFakeMaya(FakeMayaTransaction tx) {
-    final amount = tx.amount;
-    final title = tx.title.toLowerCase();
-    final detail = tx.detail.toLowerCase();
-    if (title.contains('cash in') ||
-        title.contains('loan') ||
-        title.contains('opened')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.arrow_downward_rounded,
-        _brand,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
-    if (title.contains('sent') || title.contains('repayment')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.arrow_upward_rounded,
-        _red,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
-    if (title.contains('deposit') ||
-        detail.contains('savings') ||
-        detail.contains('goal')) {
-      return _TxData(
-        tx.title,
-        _transactionSubtitle(tx),
-        amount,
-        Icons.savings_rounded,
-        _purple,
-        age: tx.age,
-        source: tx.account ?? 'Wallet',
-        transaction: tx,
-      );
-    }
+_TxData _txFromFakeMaya(FakeMayaTransaction tx) {
+  final amount = tx.amount;
+  final title = tx.title.toLowerCase();
+  final detail = tx.detail.toLowerCase();
+  if (title.contains('cash in') ||
+      title.contains('loan') ||
+      title.contains('opened')) {
     return _TxData(
       tx.title,
       _transactionSubtitle(tx),
       amount,
-      amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
-      amount >= 0 ? _brand : _red,
+      Icons.arrow_downward_rounded,
+      _brand,
       age: tx.age,
       source: tx.account ?? 'Wallet',
       transaction: tx,
     );
   }
-
-  static String _transactionSubtitle(FakeMayaTransaction transaction) {
-    final detail = transaction.detail.trim();
-    final category = transaction.category?.trim() ?? '';
-    if (category.isEmpty || category.toLowerCase() == detail.toLowerCase()) {
-      return detail;
-    }
-    return '$detail • $category';
+  if (title.contains('sent') || title.contains('repayment')) {
+    return _TxData(
+      tx.title,
+      _transactionSubtitle(tx),
+      amount,
+      Icons.arrow_upward_rounded,
+      _red,
+      age: tx.age,
+      source: tx.account ?? 'Wallet',
+      transaction: tx,
+    );
   }
-
-  static List<(String, List<_TxData>)> _groupTransactionsByDate(
-    Iterable<_TxData> transactions,
-  ) {
-    final groups = <String, List<_TxData>>{};
-    for (final transaction in transactions) {
-      final label = _dateLabel(transaction.occurredAt);
-      groups.putIfAbsent(label, () => []).add(transaction);
-    }
-    return groups.entries.map((entry) => (entry.key, entry.value)).toList();
+  if (title.contains('deposit') ||
+      detail.contains('savings') ||
+      detail.contains('goal')) {
+    return _TxData(
+      tx.title,
+      _transactionSubtitle(tx),
+      amount,
+      Icons.savings_rounded,
+      _purple,
+      age: tx.age,
+      source: tx.account ?? 'Wallet',
+      transaction: tx,
+    );
   }
+  return _TxData(
+    tx.title,
+    _transactionSubtitle(tx),
+    amount,
+    amount >= 0 ? Icons.add_card_rounded : Icons.payments_rounded,
+    amount >= 0 ? _brand : _red,
+    age: tx.age,
+    source: tx.account ?? 'Wallet',
+    transaction: tx,
+  );
+}
 
-  static String _dateLabel(DateTime? date) {
-    if (date == null) return 'Earlier';
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final year = date.year == DateTime.now().year ? '' : ', ${date.year}';
-    return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} '
-        '${date.day}$year';
+String _transactionSubtitle(FakeMayaTransaction transaction) {
+  final detail = transaction.detail.trim();
+  final category = transaction.category?.trim() ?? '';
+  if (category.isEmpty || category.toLowerCase() == detail.toLowerCase()) {
+    return detail;
   }
+  return '$detail • $category';
+}
+
+List<(String, List<_TxData>)> _groupTransactionsByDate(
+  Iterable<_TxData> transactions,
+) {
+  final groups = <String, List<_TxData>>{};
+  for (final transaction in transactions) {
+    final label = _dateLabel(transaction.occurredAt);
+    groups.putIfAbsent(label, () => []).add(transaction);
+  }
+  return groups.entries.map((entry) => (entry.key, entry.value)).toList();
+}
+
+String _dateLabel(DateTime? date) {
+  if (date == null) return 'Earlier';
+  const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  final year = date.year == DateTime.now().year ? '' : ', ${date.year}';
+  return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} '
+      '${date.day}$year';
 }
 
 // ─── Account switcher (new) ────────────────────────────────────────────────────
@@ -568,9 +300,8 @@ class _WalletAccountSwitcher extends StatelessWidget {
             color: account.color,
             icon: account.icon,
             active: active,
-            onTap: filterToken == null
-                ? null
-                : () => onTap(account, filterToken),
+            onTap:
+                filterToken == null ? null : () => onTap(account, filterToken),
           );
         },
       ),

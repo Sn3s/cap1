@@ -26,6 +26,7 @@ part 'core/app_state.dart';
 part 'features/auth/auth_screens.dart';
 part 'features/home/add_goal_screen.dart';
 part 'features/home/home_screens.dart';
+part 'features/home/recent_activity_page.dart';
 part 'features/home/wallet_screen.dart';
 part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
