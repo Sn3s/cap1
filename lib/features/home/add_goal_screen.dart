@@ -19,6 +19,7 @@ class AddGoalScreen extends StatefulWidget {
 
 class _AddGoalScreenState extends State<AddGoalScreen> {
   String? _chosenLayer;
+  String? _chosenGoalId;
   final Set<String> _chosenActionIds = {};
 
   @override
@@ -55,7 +56,9 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
             : _chosenLayer == null
                 ? _buildLayerPicker(state,
                     isDemo: isDemo, unlockedLayer: unlockedLayer)
-                : _buildActionPicker(state, _chosenLayer!),
+                : _chosenGoalId == null
+                    ? _buildGoalPicker(state, _chosenLayer!)
+                    : _buildActionPicker(state, _chosenGoalId!),
       ),
     );
   }
@@ -127,8 +130,44 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     );
   }
 
-  Widget _buildActionPicker(AppState state, String layer) {
-    final goalId = _layerCanonicalGoalId[layer]!;
+  /// Step 2, mirroring onboarding's own goal picker (`_editGoal` /
+  /// `_goalFocusOptions` in preparation_screens.dart): show the real goals
+  /// under the chosen layer and let the user pick exactly one, before
+  /// moving on to that goal's recommended actions.
+  Widget _buildGoalPicker(AppState state, String layer) {
+    final branch = _goalBranches.firstWhere((b) => b.layer == layer);
+    final goalIds = _motivationGoalIds[layer] ?? const <String>[];
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      children: [
+        ChatBubble(
+          fromUser: false,
+          text: '**$layer** — which goal fits best?',
+        ),
+        const SizedBox(height: 18),
+        for (final id in goalIds) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SelectableOption(
+              icon: branch.icon,
+              title: _d1GoalById(id).title,
+              body: _d1GoalById(id).description,
+              selected: false,
+              onTap: () => setState(() => _chosenGoalId = id),
+            ),
+          ),
+        ],
+        const SizedBox(height: 4),
+        TextButton(
+          onPressed: () => setState(() => _chosenLayer = null),
+          child: const Text('Back',
+              style: TextStyle(color: _body, fontWeight: FontWeight.w800)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionPicker(AppState state, String goalId) {
     final goal = _d1GoalById(goalId);
     final actionIds = _goalActionIds[goalId] ?? const <String>[];
     final canConfirm = _chosenActionIds.isNotEmpty;
@@ -172,7 +211,10 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
           child: Row(
             children: [
               TextButton(
-                onPressed: () => setState(() => _chosenLayer = null),
+                onPressed: () => setState(() {
+                  _chosenGoalId = null;
+                  _chosenActionIds.clear();
+                }),
                 child: const Text('Back',
                     style: TextStyle(color: _body, fontWeight: FontWeight.w800)),
               ),
@@ -191,7 +233,9 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   ),
                   onPressed: canConfirm
                       ? () async {
-                          state.addUnlockedGoal(goalId);
+                          final canonicalId =
+                              _layerCanonicalGoalId[_chosenLayer!]!;
+                          state.addUnlockedGoal(canonicalId);
                           state.addActionsForGoal(_chosenActionIds);
                           await state.saveProfile();
                           if (mounted) Navigator.of(context).pop();

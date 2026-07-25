@@ -110,14 +110,17 @@ void main() {
     expect(find.text('Bill readiness'), findsOneWidget);
     expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
     expect(
-        find.textContaining('Set aside income for essentials'), findsOneWidget);
-    expect(find.textContaining('Keep categories under cap'), findsOneWidget);
+        find.textContaining('Set aside X% of each income received'),
+        findsOneWidget);
+    expect(find.textContaining('Limit spending in selected categories'),
+        findsOneWidget);
     expect(find.textContaining('Cap discretionary spending'), findsNothing);
     expect(
         find.textContaining('Keep Everyday Fund days covered'), findsNothing);
-    expect(find.textContaining('Reach monthly cash-in target'), findsOneWidget);
     expect(
-        find.textContaining('Keep Everyday Fund above floor'), findsOneWidget);
+        find.textContaining('Bring in at least'), findsOneWidget);
+    expect(
+        find.textContaining('Keep at least'), findsOneWidget);
     expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
     expect(find.text('This is where you earn money'), findsNothing);
     expect(find.text('This is where you spend money'), findsNothing);
@@ -144,7 +147,8 @@ void main() {
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
 
-    final actionRow = find.textContaining('Set aside income for essentials');
+    final actionRow =
+        find.textContaining('Set aside X% of each income received');
     await tester.ensureVisible(actionRow);
     await tester.pumpAndSettle();
     await tester.tap(actionRow);

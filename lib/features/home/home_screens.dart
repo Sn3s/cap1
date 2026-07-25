@@ -2168,9 +2168,11 @@ class _ReflectionQuestion extends StatelessWidget {
 class _InsightsAiSummaryCard extends StatelessWidget {
   const _InsightsAiSummaryCard({
     required this.suggestionCount,
+    required this.summaryExcerpt,
     required this.onTap,
   });
   final int suggestionCount;
+  final String summaryExcerpt;
   final VoidCallback onTap;
 
   @override
@@ -2260,16 +2262,35 @@ class _InsightsAiSummaryCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                const Text(
-                  'Review where your money is moving and what stands out! '
-                  'Then inspect spending categories, funding sources, and '
-                  'recent transactions.',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12.5,
-                    height: 1.4,
-                    fontWeight: FontWeight.w600,
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withOpacity(0.22)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded,
+                          color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          summaryExcerpt,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12.5,
+                            height: 1.4,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -2352,6 +2373,7 @@ class _InsightsOverview extends StatelessWidget {
       children: [
         _InsightsAiSummaryCard(
           suggestionCount: suggestionCount,
+          summaryExcerpt: _moneyFlowInsight(inflow, outflow),
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -3903,13 +3925,34 @@ class _ActionMeasureCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              action.title,
-              style: const TextStyle(
-                color: _title,
-                fontSize: 12.5,
-                fontWeight: FontWeight.w900,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  margin: const EdgeInsets.only(top: 1),
+                  decoration: const BoxDecoration(
+                    color: _bellySoft,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.bolt_rounded,
+                      size: 13, color: _brand),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _d2Actions[action.id]?.text ?? action.title,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 3),
             Text(
@@ -4499,78 +4542,149 @@ Future<bool?> _confirmActionStageSuggestion(
   final optionLabel = _actionStageOptionReviewLabel(suggestion.option);
   return showDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Review action changes'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '$optionLabel for ${action?.text ?? suggestion.actionText}',
-              style: const TextStyle(
-                color: _title,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              action?.text ?? suggestion.actionText,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 12,
-                height: 1.35,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (suggestion.reason.trim().isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                suggestion.reason,
-                style: const TextStyle(
-                  color: _body,
-                  fontSize: 12,
-                  height: 1.35,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: _surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: const BoxDecoration(
+                        color: _bellySoft,
+                        borderRadius: BorderRadius.all(Radius.circular(13)),
+                      ),
+                      alignment: Alignment.center,
+                      child:
+                          const Icon(Icons.tune_rounded, color: _brand, size: 21),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Review Action Change',
+                            style: TextStyle(
+                              color: _title,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '$optionLabel for ${action?.text ?? suggestion.actionText}',
+                            style: const TextStyle(
+                              color: _body,
+                              fontSize: 11.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            const Text(
-              'Details to change',
-              style: TextStyle(
-                color: _title,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (changes.isEmpty)
-              const Text(
-                'No configurable values will change. This action will only be retained or added to the goal.',
-                style: TextStyle(color: _body, fontSize: 12, height: 1.35),
-              )
-            else
-              ...changes.map(
-                (row) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ActionStageChangeRow(row: row),
+                if (suggestion.reason.trim().isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _bg,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      suggestion.reason,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                const Text(
+                  'WHAT\'S CHANGING',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
+                  ),
                 ),
-              ),
-          ],
+                const SizedBox(height: 10),
+                if (changes.isEmpty)
+                  const Text(
+                    'No configurable values will change. This action will only be retained or added to the goal.',
+                    style: TextStyle(
+                        color: _body, fontSize: 12, height: 1.35),
+                  )
+                else
+                  ...changes.map(
+                    (row) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ActionStageChangeRow(row: row),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _body,
+                          side: const BorderSide(color: _border),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text('Reject',
+                            style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop(true),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _brand,
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text('Accept',
+                            style: TextStyle(fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Reject'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          style: FilledButton.styleFrom(backgroundColor: _purple),
-          child: const Text('Accept'),
-        ),
-      ],
     ),
   );
 }
@@ -4904,57 +5018,65 @@ class _ActionStageChangeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: _bellySoft,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: _border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            row.label,
-            style: const TextStyle(
-              color: _title,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          row.label,
+          style: const TextStyle(
+            color: _title,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: _ActionStageValueChip(value: row.current, isNew: false),
             ),
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.current,
-                  style: const TextStyle(
-                    color: _body,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child:
-                    Icon(Icons.arrow_forward_rounded, size: 16, color: _body),
-              ),
-              Expanded(
-                child: Text(
-                  row.next,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: _purple,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child:
+                  Icon(Icons.arrow_forward_rounded, size: 16, color: _body),
+            ),
+            Expanded(
+              child: _ActionStageValueChip(value: row.next, isNew: true),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionStageValueChip extends StatelessWidget {
+  const _ActionStageValueChip({required this.value, required this.isNew});
+
+  final String value;
+  final bool isNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isNew ? _brand : _red;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: .28)),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        value,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
@@ -17134,10 +17256,10 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
                 ),
                 Text(
                   '${_month.year} ${_monthLabel(_month.month)}',
-                  style: GoogleFonts.fredoka(
+                  style: const TextStyle(
                     color: _title,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 IconButton(
@@ -17152,10 +17274,10 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
               ] else
                 Text(
                   '${_month.year} ${_monthLabel(_month.month)}',
-                  style: GoogleFonts.fredoka(
+                  style: const TextStyle(
                     color: _title,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               const SizedBox(width: 10),
@@ -17540,6 +17662,8 @@ class _ActivityDateHeader extends StatelessWidget {
           Expanded(
             child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: _title,
                 fontSize: 15,
@@ -17548,6 +17672,7 @@ class _ActivityDateHeader extends StatelessWidget {
             ),
           ),
           if (income > 0) ...[
+            const SizedBox(width: 8),
             const Text('IN ',
                 style: TextStyle(
                     color: _green, fontSize: 12, fontWeight: FontWeight.w900)),
@@ -17557,6 +17682,7 @@ class _ActivityDateHeader extends StatelessWidget {
           ],
           if (income > 0 && expense > 0) const SizedBox(width: 10),
           if (expense > 0) ...[
+            if (income <= 0) const SizedBox(width: 8),
             const Text('OUT ',
                 style: TextStyle(
                     color: _red, fontSize: 12, fontWeight: FontWeight.w900)),
