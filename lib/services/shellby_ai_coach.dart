@@ -497,8 +497,17 @@ Return only JSON with keys reply, title, description, monthly_target.
       final type = income['stable'] == true ? 'stable' : 'variable';
       final scheduled = income['scheduled'] == true;
       final payDay = (income['payDay'] as num?)?.toInt();
+      final anchorDate = DateTime.tryParse(
+        income['scheduleAnchorDate']?.toString() ?? '',
+      );
+      final anchorType = income['scheduleAnchorType']?.toString() == 'last'
+          ? 'last received'
+          : 'next expected';
+      final repeat = income['repeatFrequency']?.toString() ?? 'Monthly';
       final timing = scheduled
-          ? 'scheduled${payDay == null ? '' : ' on day $payDay'}'
+          ? anchorDate == null
+              ? 'scheduled${payDay == null ? '' : ' on day $payDay'}'
+              : '$anchorType ${anchorDate.toIso8601String().split('T').first}, repeats $repeat'
           : 'unscheduled';
       return '- $name: ${money(amount)} ($type, $timing)';
     }).join('\n');
@@ -506,7 +515,21 @@ Return only JSON with keys reply, title, description, monthly_target.
       final name = expense['name'] ?? expense['label'] ?? 'Expense';
       final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
       final essential = expense['essential'] == true ? 'essential' : 'flex';
-      return '- $name: ${money(amount)} ($essential)';
+      final scheduled = expense['scheduled'] == true;
+      final dueDay = (expense['dueDay'] as num?)?.toInt();
+      final anchorDate = DateTime.tryParse(
+        expense['scheduleAnchorDate']?.toString() ?? '',
+      );
+      final anchorType = expense['scheduleAnchorType']?.toString() == 'last'
+          ? 'last paid'
+          : 'next due';
+      final repeat = expense['repeatFrequency']?.toString() ?? 'Monthly';
+      final timing = scheduled
+          ? anchorDate == null
+              ? 'scheduled${dueDay == null ? '' : ' on day $dueDay'}'
+              : '$anchorType ${anchorDate.toIso8601String().split('T').first}, repeats $repeat'
+          : 'unscheduled';
+      return '- $name: ${money(amount)} ($essential, $timing)';
     }).join('\n');
 
     return '''

@@ -4806,8 +4806,9 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
           amount: salary > 0 ? salary.toStringAsFixed(0) : '',
           stable: state.incomeType.toLowerCase().contains('fixed'),
           scheduled: state.incomeRhythm.toLowerCase().contains('monthly'),
-          payDay:
-              state.incomeRhythm.toLowerCase().contains('monthly') ? 15 : null,
+          repeatFrequency: state.incomeRhythm.toLowerCase().contains('week')
+              ? 'Weekly'
+              : 'Monthly',
         ),
       );
     }
@@ -4858,7 +4859,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
       phase: 4,
       title: 'Monthly income.',
       subtitle:
-          'List each expected monthly income source, mark whether it is stable, and add an expected pay day for scheduled income. This becomes Shellby’s starting income baseline.',
+          'List each expected monthly income source, mark whether it is stable, and add a known last or next date for scheduled income. Shellby uses that date to infer future paydays.',
       bottom: PrimaryButton(
         label: 'Continue to Expenses',
         icon: Icons.arrow_forward_rounded,
@@ -4873,11 +4874,12 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: _bellySoft,
+                color: _surface,
                 borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _border),
               ),
               child: const Text(
-                '✓ Stable = predictable income   •   📅 Scheduled = expected on a regular pay day',
+                'Stable marks predictable income. Scheduled adds a known date and repeat pattern.',
                 style: TextStyle(
                   color: _body,
                   fontSize: 11,
@@ -4916,38 +4918,346 @@ class _IncomeLedgerDraft {
     this.stable = false,
     this.scheduled = false,
     this.payDay,
+    this.scheduleAnchorType = 'next',
+    this.scheduleAnchorDate,
+    this.repeatFrequency = 'Monthly',
   })  : nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
 
-  factory _IncomeLedgerDraft.fromMap(Map<String, dynamic> value) =>
-      _IncomeLedgerDraft(
-        name: value['name']?.toString() ?? '',
-        amount: value['amount']?.toString() ?? '',
-        stable: value['stable'] as bool? ?? false,
-        scheduled: value['scheduled'] as bool? ?? false,
-        payDay: (value['payDay'] as num?)?.toInt(),
-      );
+  factory _IncomeLedgerDraft.fromMap(Map<String, dynamic> value) {
+    final anchorDate = DateTime.tryParse(
+      value['scheduleAnchorDate']?.toString() ?? '',
+    );
+    return _IncomeLedgerDraft(
+      name: value['name']?.toString() ?? '',
+      amount: value['amount']?.toString() ?? '',
+      stable: value['stable'] as bool? ?? false,
+      scheduled: value['scheduled'] as bool? ?? false,
+      payDay: (value['payDay'] as num?)?.toInt(),
+      scheduleAnchorType:
+          value['scheduleAnchorType']?.toString() == 'last' ? 'last' : 'next',
+      scheduleAnchorDate: anchorDate,
+      repeatFrequency:
+          _normalizedScheduleRepeat(value['repeatFrequency']?.toString()),
+    );
+  }
 
   final TextEditingController nameController;
   final TextEditingController amountController;
   bool stable;
   bool scheduled;
   int? payDay;
+  String scheduleAnchorType;
+  DateTime? scheduleAnchorDate;
+  String repeatFrequency;
 
   double get amountValue =>
       double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
+
+  int? get inferredPayDay => scheduleAnchorDate?.day ?? payDay;
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
         'amount': amountValue,
         'stable': stable,
         'scheduled': scheduled,
-        'payDay': scheduled ? payDay : null,
+        'payDay': scheduled ? inferredPayDay : null,
+        'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
+        'scheduleAnchorDate':
+            scheduled ? scheduleAnchorDate?.toIso8601String() : null,
+        'repeatFrequency': scheduled ? repeatFrequency : null,
       };
 
   void dispose() {
     nameController.dispose();
     amountController.dispose();
+  }
+}
+
+const _scheduleRepeatOptions = [
+  'Weekly',
+  'Every 2 weeks',
+  'Monthly',
+  'Every 2 months',
+  'Quarterly',
+  'Yearly',
+];
+
+String _normalizedScheduleRepeat(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed != null && _scheduleRepeatOptions.contains(trimmed)) {
+    return trimmed;
+  }
+  return 'Monthly';
+}
+
+String _shortScheduleDate(DateTime date) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
+}
+
+class _ScheduleEditor extends StatelessWidget {
+  const _ScheduleEditor({
+    required this.title,
+    required this.icon,
+    required this.anchorType,
+    required this.lastLabel,
+    required this.nextLabel,
+    required this.anchorDate,
+    required this.repeatFrequency,
+    required this.missingDateMessage,
+    required this.onAnchorTypeChanged,
+    required this.onPickDate,
+    required this.onRepeatChanged,
+  });
+
+  final String title;
+  final IconData icon;
+  final String anchorType;
+  final String lastLabel;
+  final String nextLabel;
+  final DateTime? anchorDate;
+  final String repeatFrequency;
+  final String missingDateMessage;
+  final ValueChanged<String> onAnchorTypeChanged;
+  final VoidCallback onPickDate;
+  final ValueChanged<String> onRepeatChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasDate = anchorDate != null;
+    final dateLabel = hasDate ? _shortScheduleDate(anchorDate!) : 'Choose date';
+    final selectedLabel = anchorType == 'last' ? lastLabel : nextLabel;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: _surface,
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: _border),
+                ),
+                child: Icon(icon, color: _brand, size: 17),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _ScheduleAnchorChoice(
+                  label: lastLabel,
+                  selected: anchorType == 'last',
+                  onTap: () => onAnchorTypeChanged('last'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ScheduleAnchorChoice(
+                  label: nextLabel,
+                  selected: anchorType == 'next',
+                  onTap: () => onAnchorTypeChanged('next'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stacked = constraints.maxWidth < 430;
+              final dateButton = OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  alignment: Alignment.centerLeft,
+                  backgroundColor: _surface,
+                  foregroundColor: _title,
+                  minimumSize: const Size.fromHeight(48),
+                  side: const BorderSide(color: _border),
+                ),
+                onPressed: onPickDate,
+                icon: const Icon(Icons.event_rounded, size: 17),
+                label: Text(
+                  dateLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+              final repeatField = DropdownButtonFormField<String>(
+                value: repeatFrequency,
+                isExpanded: true,
+                decoration: inputDecoration('Repeats').copyWith(
+                  labelText: 'Repeats',
+                  isDense: true,
+                ),
+                items: _scheduleRepeatOptions
+                    .map(
+                      (option) => DropdownMenuItem(
+                        value: option,
+                        child: Text(option),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  onRepeatChanged(value);
+                },
+                validator: (_) => hasDate ? null : missingDateMessage,
+              );
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    dateButton,
+                    const SizedBox(height: 8),
+                    repeatField,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: dateButton),
+                  const SizedBox(width: 10),
+                  Expanded(child: repeatField),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          if (hasDate)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _ScheduleSummaryPill(label: selectedLabel, highlighted: true),
+                _ScheduleSummaryPill(label: dateLabel),
+                _ScheduleSummaryPill(label: 'Repeats $repeatFrequency'),
+              ],
+            )
+          else
+            Text(
+              missingDateMessage,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.3,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScheduleAnchorChoice extends StatelessWidget {
+  const _ScheduleAnchorChoice({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? _sage : _surface,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          height: 38,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: selected ? _sage : _border),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: selected ? Colors.white : _body,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScheduleSummaryPill extends StatelessWidget {
+  const _ScheduleSummaryPill({
+    required this.label,
+    this.highlighted = false,
+  });
+
+  final String label;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlighted ? _sage.withValues(alpha: .1) : _surface,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: highlighted ? _sage.withValues(alpha: .28) : _border,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: highlighted ? _sage : _body,
+          fontSize: 11,
+          height: 1.15,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
   }
 }
 
@@ -4965,6 +5275,21 @@ class _IncomeLedgerCard extends StatelessWidget {
   final bool canRemove;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
+
+  Future<void> _pickAnchorDate(BuildContext context) async {
+    final now = DateTime.now();
+    final initial = income.scheduleAnchorDate ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked == null) return;
+    income.scheduleAnchorDate = picked;
+    income.payDay = picked.day;
+    onChanged();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5042,48 +5367,48 @@ class _IncomeLedgerCard extends StatelessWidget {
             children: [
               FilterChip(
                 selected: income.scheduled,
-                selectedColor: _purple.withValues(alpha: .12),
-                checkmarkColor: _purple,
+                selectedColor: _sage.withValues(alpha: .12),
+                checkmarkColor: _sage,
                 avatar: Icon(
                   Icons.event_available_rounded,
                   size: 17,
-                  color: income.scheduled ? _purple : _body,
+                  color: income.scheduled ? _sage : _body,
                 ),
                 label: const Text('Scheduled income'),
                 onSelected: (value) {
                   income.scheduled = value;
-                  if (value) income.payDay ??= 15;
+                  if (value) {
+                    income.repeatFrequency = income.repeatFrequency.isEmpty
+                        ? 'Monthly'
+                        : income.repeatFrequency;
+                  }
                   onChanged();
                 },
               ),
-              if (income.scheduled)
-                SizedBox(
-                  width: 170,
-                  child: DropdownButtonFormField<int>(
-                    value: income.payDay,
-                    isExpanded: true,
-                    decoration: inputDecoration('Pay day').copyWith(
-                      labelText: 'Expected pay day',
-                      isDense: true,
-                    ),
-                    items: [
-                      for (var day = 1; day <= 31; day++)
-                        DropdownMenuItem(
-                          value: day,
-                          child: Text('Day $day monthly'),
-                        ),
-                    ],
-                    onChanged: (value) {
-                      income.payDay = value;
-                      onChanged();
-                    },
-                    validator: (value) => income.scheduled && value == null
-                        ? 'Choose a pay day.'
-                        : null,
-                  ),
-                ),
             ],
           ),
+          if (income.scheduled) ...[
+            const SizedBox(height: 10),
+            _ScheduleEditor(
+              title: 'Income schedule',
+              icon: Icons.payments_rounded,
+              anchorType: income.scheduleAnchorType,
+              lastLabel: 'Last received',
+              nextLabel: 'Next expected',
+              anchorDate: income.scheduleAnchorDate,
+              repeatFrequency: income.repeatFrequency,
+              missingDateMessage: 'Choose a known income date.',
+              onAnchorTypeChanged: (value) {
+                income.scheduleAnchorType = value;
+                onChanged();
+              },
+              onPickDate: () => _pickAnchorDate(context),
+              onRepeatChanged: (value) {
+                income.repeatFrequency = value;
+                onChanged();
+              },
+            ),
+          ],
         ],
       ),
     );
@@ -5162,7 +5487,7 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
       phase: 5,
       title: 'Monthly expenses.',
       subtitle:
-          'List each expected monthly expense, choose its financial layer, and add an expected due day for scheduled bills. These values will change over time—this is just an initial baseline.',
+          'List each expected monthly expense, choose its financial layer, and add a known last or next bill date for scheduled bills. Shellby uses that date to infer future deadlines.',
       bottom: PrimaryButton(
           label: 'See How Shelby Helps',
           icon: Icons.arrow_forward_rounded,
@@ -5176,11 +5501,12 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: _bellySoft,
+                color: _surface,
                 borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _border),
               ),
               child: const Text(
-                'Choose the layer that best matches each expense. Scheduled bills can also include an expected due day.',
+                'Choose the layer that best matches each expense. Scheduled bills can use the last paid date or next known due date plus a repeat pattern.',
                 style: TextStyle(
                   color: _body,
                   fontSize: 11,
@@ -5218,29 +5544,46 @@ class _ExpenseLedgerDraft {
       String amount = '',
       this.layer,
       this.scheduled = false,
-      this.dueDay})
+      this.dueDay,
+      this.scheduleAnchorType = 'next',
+      this.scheduleAnchorDate,
+      this.repeatFrequency = 'Monthly'})
       : nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
 
-  factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) =>
-      _ExpenseLedgerDraft(
-        name: value['name']?.toString() ?? '',
-        amount: value['amount']?.toString() ?? '',
-        layer: expenseLayerForLedger(value),
-        scheduled: value['scheduled'] as bool? ?? false,
-        dueDay: (value['dueDay'] as num?)?.toInt(),
-      );
+  factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) {
+    final anchorDate = DateTime.tryParse(
+      value['scheduleAnchorDate']?.toString() ?? '',
+    );
+    return _ExpenseLedgerDraft(
+      name: value['name']?.toString() ?? '',
+      amount: value['amount']?.toString() ?? '',
+      layer: expenseLayerForLedger(value),
+      scheduled: value['scheduled'] as bool? ?? false,
+      dueDay: (value['dueDay'] as num?)?.toInt(),
+      scheduleAnchorType:
+          value['scheduleAnchorType']?.toString() == 'last' ? 'last' : 'next',
+      scheduleAnchorDate: anchorDate,
+      repeatFrequency:
+          _normalizedScheduleRepeat(value['repeatFrequency']?.toString()),
+    );
+  }
 
   final TextEditingController nameController;
   final TextEditingController amountController;
   ExpenseLayer? layer;
   bool scheduled;
   int? dueDay;
+  String scheduleAnchorType;
+  DateTime? scheduleAnchorDate;
+  String repeatFrequency;
 
   bool get essential => layer == ExpenseLayer.basicNeeds;
 
   double get amountValue =>
       double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
+
+  int? get inferredDueDay => scheduleAnchorDate?.day ?? dueDay;
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
@@ -5248,7 +5591,11 @@ class _ExpenseLedgerDraft {
         'essential': essential,
         'expenseType': layer?.name,
         'scheduled': scheduled,
-        'dueDay': scheduled ? dueDay : null,
+        'dueDay': scheduled ? inferredDueDay : null,
+        'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
+        'scheduleAnchorDate':
+            scheduled ? scheduleAnchorDate?.toIso8601String() : null,
+        'repeatFrequency': scheduled ? repeatFrequency : null,
       };
 
   void dispose() {
@@ -5269,6 +5616,21 @@ class _ExpenseLedgerCard extends StatelessWidget {
   final bool canRemove;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
+
+  Future<void> _pickAnchorDate(BuildContext context) async {
+    final now = DateTime.now();
+    final initial = expense.scheduleAnchorDate ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (picked == null) return;
+    expense.scheduleAnchorDate = picked;
+    expense.dueDay = picked.day;
+    onChanged();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5378,48 +5740,48 @@ class _ExpenseLedgerCard extends StatelessWidget {
             children: [
               FilterChip(
                 selected: expense.scheduled,
-                selectedColor: _purple.withValues(alpha: .12),
-                checkmarkColor: _purple,
+                selectedColor: _sage.withValues(alpha: .12),
+                checkmarkColor: _sage,
                 avatar: Icon(
                   Icons.calendar_month_rounded,
                   size: 17,
-                  color: expense.scheduled ? _purple : _body,
+                  color: expense.scheduled ? _sage : _body,
                 ),
                 label: const Text('Scheduled bill'),
                 onSelected: (value) {
                   expense.scheduled = value;
-                  if (value) expense.dueDay ??= 1;
+                  if (value) {
+                    expense.repeatFrequency = expense.repeatFrequency.isEmpty
+                        ? 'Monthly'
+                        : expense.repeatFrequency;
+                  }
                   onChanged();
                 },
               ),
-              if (expense.scheduled)
-                SizedBox(
-                  width: 170,
-                  child: DropdownButtonFormField<int>(
-                    value: expense.dueDay,
-                    isExpanded: true,
-                    decoration: inputDecoration('Due day').copyWith(
-                      labelText: 'Expected due day',
-                      isDense: true,
-                    ),
-                    items: [
-                      for (var day = 1; day <= 31; day++)
-                        DropdownMenuItem(
-                          value: day,
-                          child: Text('Day $day monthly'),
-                        ),
-                    ],
-                    onChanged: (value) {
-                      expense.dueDay = value;
-                      onChanged();
-                    },
-                    validator: (value) => expense.scheduled && value == null
-                        ? 'Choose a due day.'
-                        : null,
-                  ),
-                ),
             ],
           ),
+          if (expense.scheduled) ...[
+            const SizedBox(height: 10),
+            _ScheduleEditor(
+              title: 'Bill schedule',
+              icon: Icons.receipt_long_rounded,
+              anchorType: expense.scheduleAnchorType,
+              lastLabel: 'Last paid',
+              nextLabel: 'Next due',
+              anchorDate: expense.scheduleAnchorDate,
+              repeatFrequency: expense.repeatFrequency,
+              missingDateMessage: 'Choose a known bill date.',
+              onAnchorTypeChanged: (value) {
+                expense.scheduleAnchorType = value;
+                onChanged();
+              },
+              onPickDate: () => _pickAnchorDate(context),
+              onRepeatChanged: (value) {
+                expense.repeatFrequency = value;
+                onChanged();
+              },
+            ),
+          ],
         ],
       ),
     );
@@ -7225,10 +7587,19 @@ class PreparationCommitmentScreen extends StatelessWidget {
     final incomeRows = state.onboardingIncomeLedger.map((income) {
       final scheduled = income['scheduled'] as bool? ?? false;
       final payDay = (income['payDay'] as num?)?.toInt();
+      final anchorDate = DateTime.tryParse(
+        income['scheduleAnchorDate']?.toString() ?? '',
+      );
+      final anchorType = income['scheduleAnchorType']?.toString() == 'last'
+          ? 'Last received'
+          : 'Next expected';
+      final repeat = income['repeatFrequency']?.toString() ?? 'Monthly';
       final details = <String>[
         (income['stable'] as bool? ?? false) ? 'Stable' : 'Variable',
         if (scheduled)
-          'Scheduled monthly${payDay == null ? '' : ' on day $payDay'}',
+          anchorDate == null
+              ? 'Scheduled monthly${payDay == null ? '' : ' on day $payDay'}'
+              : '$anchorType ${_shortScheduleDate(anchorDate)} · $repeat',
       ];
       final amount = (income['amount'] as num?)?.toDouble() ?? 0;
       return (
@@ -7239,10 +7610,19 @@ class PreparationCommitmentScreen extends StatelessWidget {
     final expenseRows = state.onboardingExpenseLedger.map((expense) {
       final scheduled = expense['scheduled'] as bool? ?? false;
       final dueDay = (expense['dueDay'] as num?)?.toInt();
+      final anchorDate = DateTime.tryParse(
+        expense['scheduleAnchorDate']?.toString() ?? '',
+      );
+      final anchorType = expense['scheduleAnchorType']?.toString() == 'last'
+          ? 'Last paid'
+          : 'Next due';
+      final repeat = expense['repeatFrequency']?.toString() ?? 'Monthly';
       final details = <String>[
         expenseLayerForLedger(expense).label,
         if (scheduled)
-          'Scheduled monthly${dueDay == null ? '' : ' on day $dueDay'}',
+          anchorDate == null
+              ? 'Scheduled monthly${dueDay == null ? '' : ' on day $dueDay'}'
+              : '$anchorType ${_shortScheduleDate(anchorDate)} · $repeat',
       ];
       final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
       return (

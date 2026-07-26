@@ -1714,9 +1714,19 @@ _PyramidBaselineEntry _incomeBaselineEntry(
   final scheduled = data['scheduled'] == true;
   final stable = data['stable'] == true;
   final payDay = (data['payDay'] as num?)?.toInt();
+  final anchorDate =
+      DateTime.tryParse(data['scheduleAnchorDate']?.toString() ?? '');
+  final anchorType =
+      data['scheduleAnchorType']?.toString() == 'last' ? 'Last' : 'Next';
+  final repeat = data['repeatFrequency']?.toString() ?? 'Monthly';
   final tags = [
     stable ? 'Stable' : 'Variable',
-    if (scheduled) payDay == null ? 'Scheduled' : 'Day $payDay monthly',
+    if (scheduled)
+      anchorDate == null
+          ? payDay == null
+              ? 'Scheduled'
+              : 'Day $payDay monthly'
+          : '$anchorType ${_shortDate(anchorDate)} · $repeat',
   ];
   return _PyramidBaselineEntry(
     index: index,
@@ -1738,9 +1748,20 @@ _PyramidBaselineEntry _expenseBaselineEntry(
   final layer = expenseLayerFromValue(data['expenseType'] ?? data['layer']);
   final scheduled = data['scheduled'] == true;
   final dueDay = (data['dueDay'] as num?)?.toInt();
+  final anchorDate =
+      DateTime.tryParse(data['scheduleAnchorDate']?.toString() ?? '');
+  final anchorType = data['scheduleAnchorType']?.toString() == 'last'
+      ? 'Last paid'
+      : 'Next due';
+  final repeat = data['repeatFrequency']?.toString() ?? 'Monthly';
   final detail = [
     layer?.label ?? 'Expense',
-    if (scheduled) dueDay == null ? 'Scheduled bill' : 'Due day $dueDay',
+    if (scheduled)
+      anchorDate == null
+          ? dueDay == null
+              ? 'Scheduled bill'
+              : 'Due day $dueDay'
+          : '$anchorType ${_shortDate(anchorDate)} · $repeat',
   ].join(' · ');
   return _PyramidBaselineEntry(
     index: index,
@@ -5037,8 +5058,15 @@ class _CashMonthStatusSection extends StatelessWidget {
   }
 }
 
-/// A single measure shown as a circular gauge: (label, 0-100 score).
-typedef _ActionMeasure = (String label, int percent);
+class _ActionMeasure {
+  const _ActionMeasure(this.label, this.percent, {this.missingReason});
+
+  final String label;
+  final int? percent;
+  final String? missingReason;
+
+  bool get hasScore => percent != null;
+}
 
 /// Consistency, Resiliency, and Adherence, derived from the same weekly
 /// [_CashActionScore.pattern] data every action already computes:
@@ -5046,11 +5074,18 @@ typedef _ActionMeasure = (String label, int percent);
 ///   week to week, including partial misses) — always shown.
 /// - Adherence: % of weeks the target was fully met.
 /// - Consistency: % of weeks with any measurable activity at all.
-/// Adherence and Consistency only make sense across multiple periods, so
-/// single-point actions (pattern.length <= 1) show Resiliency alone.
+/// Single-point actions still show all three: Consistency marks whether any
+/// data exists, and Adherence marks whether that one point fully met target.
 List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
-  final resiliency = ('Resiliency', _scorePercent(action.score));
-  if (action.pattern.length <= 1) return [resiliency];
+  if (action.pattern.isEmpty) {
+    const reason = 'Not enough data to make a calculation';
+    return const [
+      _ActionMeasure('Consistency', null, missingReason: reason),
+      _ActionMeasure('Resiliency', null, missingReason: reason),
+      _ActionMeasure('Adherence', null, missingReason: reason),
+    ];
+  }
+  final resiliency = _ActionMeasure('Resiliency', _scorePercent(action.score));
   final adherence = _scorePercent(
     action.pattern.where((value) => value >= 1.0).length /
         action.pattern.length,
@@ -5059,20 +5094,20 @@ List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
     action.pattern.where((value) => value > 0).length / action.pattern.length,
   );
   return [
-    ('Consistency', consistency),
+    _ActionMeasure('Consistency', consistency),
     resiliency,
-    ('Adherence', adherence),
+    _ActionMeasure('Adherence', adherence),
   ];
 }
 
 class _CircularScoreGauge extends StatelessWidget {
-  const _CircularScoreGauge({required this.label, required this.percent});
-  final String label;
-  final int percent;
+  const _CircularScoreGauge({required this.measure});
+  final _ActionMeasure measure;
 
   @override
   Widget build(BuildContext context) {
-    final color = _resiliencyScoreColor(percent);
+    final percent = measure.percent;
+    final color = percent == null ? _body : _resiliencyScoreColor(percent);
     return Column(
       children: [
         SizedBox(
@@ -5085,14 +5120,14 @@ class _CircularScoreGauge extends StatelessWidget {
                 width: 60,
                 height: 60,
                 child: CircularProgressIndicator(
-                  value: percent / 100,
+                  value: percent == null ? 0 : percent / 100,
                   strokeWidth: 6,
                   color: color,
                   backgroundColor: _border,
                 ),
               ),
               Text(
-                '$percent',
+                percent == null ? 'N/A' : '$percent',
                 style: TextStyle(
                   color: color,
                   fontSize: 15,
@@ -5104,7 +5139,7 @@ class _CircularScoreGauge extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          label,
+          measure.label,
           style: const TextStyle(
             color: _title,
             fontSize: 10.5,
@@ -5127,7 +5162,7 @@ class _CashActionProgressSection extends StatelessWidget {
       eyebrow: 'MONTH · ACTION PROGRESS',
       title: 'Your actions, measured',
       subtitle:
-          "Tap an action for the full breakdown. Consistency, Resiliency, and Adherence — only shown when they're meaningful for that action.",
+          'Tap an action for the full breakdown. Consistency, Resiliency, and Adherence are shown for every action.',
       child: month.actionScores.isEmpty
           ? const _ReflectionEmpty(
               message: 'No action scores are available yet.')
@@ -5152,6 +5187,10 @@ class _ActionMeasureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final measures = _actionMeasures(action);
+    final missingReason = measures
+        .map((measure) => measure.missingReason)
+        .whereType<String>()
+        .firstOrNull;
     return InkWell(
       onTap: () => _showCashActionScoreDetails(context, action),
       borderRadius: BorderRadius.circular(18),
@@ -5211,11 +5250,22 @@ class _ActionMeasureCard extends StatelessWidget {
               children: [
                 for (final measure in measures)
                   _CircularScoreGauge(
-                    label: measure.$1,
-                    percent: measure.$2,
+                    measure: measure,
                   ),
               ],
             ),
+            if (missingReason != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                missingReason,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             _AiInsightNote(
               trend: _actionInsightTrend(measures),
@@ -5254,19 +5304,25 @@ class _ActionMeasureCard extends StatelessWidget {
 }
 
 _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
-  final lowest = measures.reduce((a, b) => a.$2 <= b.$2 ? a : b);
-  if (lowest.$2 >= 80) return _InsightTrend.up;
-  if (lowest.$2 >= 50) return _InsightTrend.neutral;
+  final scored = measures.where((measure) => measure.hasScore).toList();
+  if (scored.isEmpty) return _InsightTrend.neutral;
+  final lowest = scored.reduce((a, b) => a.percent! <= b.percent! ? a : b);
+  if (lowest.percent! >= 80) return _InsightTrend.up;
+  if (lowest.percent! >= 50) return _InsightTrend.neutral;
   return _InsightTrend.down;
 }
 
 String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
-  final lowest = measures.reduce((a, b) => a.$2 <= b.$2 ? a : b);
-  if (lowest.$2 >= 80) {
+  final scored = measures.where((measure) => measure.hasScore).toList();
+  if (scored.isEmpty) {
+    return 'Not enough data to make a calculation yet. Add or sync more labeled activity for this action.';
+  }
+  final lowest = scored.reduce((a, b) => a.percent! <= b.percent! ? a : b);
+  if (lowest.percent! >= 80) {
     return "Strong performance across the board for this action — keep it up.";
   }
-  final label = lowest.$1.toLowerCase();
-  final detail = switch (lowest.$1) {
+  final label = lowest.label.toLowerCase();
+  final detail = switch (lowest.label) {
     'Consistency' =>
       "you're not logging activity for this action every week — try to keep it up weekly.",
     'Adherence' =>
@@ -5326,8 +5382,7 @@ void _showCashActionScoreDetails(
                       children: [
                         for (final measure in measures)
                           _CircularScoreGauge(
-                            label: measure.$1,
-                            percent: measure.$2,
+                            measure: measure,
                           ),
                       ],
                     ),
