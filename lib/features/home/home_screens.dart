@@ -2020,10 +2020,16 @@ double _cashFlowMonthlySpent(AppState state) {
       .fold(0.0, (s, t) => s + t.amount.abs());
 }
 
+double _maintainAvailableCashExpectedSpend(AppState state) {
+  final basicNeeds = state.monthlyEssentialExpenseTotal;
+  if (basicNeeds > 0) return basicNeeds;
+  return state.cashFlowBudgetForLayer(ExpenseLayer.basicNeeds);
+}
+
 /// "Maintain Available Cash" goal is on track when this month's essentials
-/// spend hasn't exceeded the cash-flow baseline budget.
+/// spend hasn't exceeded the basic-needs baseline budget.
 bool isCashFlowGoalOnTrack(AppState state) {
-  final total = state.cashFlowPyramidBaseline;
+  final total = _maintainAvailableCashExpectedSpend(state);
   if (total <= 0) return false;
   return _cashFlowMonthlySpent(state) <= total;
 }
@@ -2068,7 +2074,7 @@ double cashFlowGoalPercent(AppState state) {
 }
 
 int maintainAvailableCashFeasibility(AppState state) {
-  final total = state.cashFlowPyramidBaseline;
+  final total = _maintainAvailableCashExpectedSpend(state);
   if (total <= 0) return 0;
   final now = DateTime.now();
   final spent = (state.fakeMayaLink?.summary.transactions ??
@@ -2083,7 +2089,7 @@ int maintainAvailableCashFeasibility(AppState state) {
       .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
   final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
   final remaining = math.max(0.0, total - spent);
-  final essentialExpected = state.monthlyEssentialExpenseTotal;
+  final essentialExpected = total;
   final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
   final coverageScore =
       (wallet / math.max(remaining, total * .1)).clamp(0.0, 1.0);
@@ -8793,6 +8799,8 @@ void _showExpectedSpendDetail(BuildContext context, AppState state) {
   final useLedger = ledger.isNotEmpty;
   final items = useLedger
       ? ledger
+          .where((expense) =>
+              expenseLayerForLedger(expense) == ExpenseLayer.basicNeeds)
           .map((e) => (
                 name: (e['name'] as String?)?.trim().isNotEmpty == true
                     ? e['name'] as String
@@ -8802,8 +8810,10 @@ void _showExpectedSpendDetail(BuildContext context, AppState state) {
               ))
           .toList()
       : state.cashFlowExpenses
+          .where((expense) => expense.layer == ExpenseLayer.basicNeeds)
           .map((e) => (name: e.name, amount: e.budget, essential: false))
           .toList();
+  final expected = _maintainAvailableCashExpectedSpend(state);
   items.sort((a, b) => b.amount.compareTo(a.amount));
 
   showModalBottomSheet<void>(
@@ -8818,7 +8828,7 @@ void _showExpectedSpendDetail(BuildContext context, AppState state) {
         shrinkWrap: true,
         children: [
           const Text(
-            'Expected spend this month',
+            'Expected basic-needs spend',
             style: TextStyle(
               color: _title,
               fontSize: 18,
@@ -8827,7 +8837,7 @@ void _showExpectedSpendDetail(BuildContext context, AppState state) {
           ),
           const SizedBox(height: 4),
           Text(
-            'What your ${money(state.cashFlowPyramidBaseline)} monthly baseline is made of.',
+            'What your ${money(expected)} basic-needs baseline is made of.',
             style: const TextStyle(color: _body, fontSize: 12),
           ),
           const SizedBox(height: 12),
@@ -12716,7 +12726,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
             _insightCategoryConfig(transaction.category ?? '').$1 == 1)
         .fold(0.0, (total, transaction) => total + transaction.amount.abs());
     final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
-    final expected = state.cashFlowPyramidBaseline;
+    final expected = _maintainAvailableCashExpectedSpend(state);
     final remaining = math.max(0.0, expected - spent);
     final feasibility = maintainAvailableCashFeasibility(state);
     final feasibilityColor = _feasibilityColor(feasibility);
@@ -12750,7 +12760,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
               Expanded(
                 child: _CashPositionMetric(
                   icon: Icons.receipt_long_rounded,
-                  label: 'Expected spend',
+                  label: 'Basic needs',
                   value: money(expected),
                   color: _purple,
                   onTap: () => _showExpectedSpendDetail(context, state),
