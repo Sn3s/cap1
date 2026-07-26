@@ -57,14 +57,34 @@ class FakeMayaService {
 
   static Future<FakeMayaSession> refreshSession(FakeMayaLink link) async {
     if (link.refreshToken.isEmpty) {
-      throw const FakeMayaException('Please log in to FakeMaya again.');
+      throw const FakeMayaException(
+        'Your FakeMaya session has expired. Please relink your account.',
+        sessionExpired: true,
+      );
     }
-    final response = await _request(
-      'POST',
-      '/auth/v1/token',
-      query: {'grant_type': 'refresh_token'},
-      body: {'refresh_token': link.refreshToken},
-    );
+    Object? response;
+    try {
+      response = await _request(
+        'POST',
+        '/auth/v1/token',
+        query: {'grant_type': 'refresh_token'},
+        body: {'refresh_token': link.refreshToken},
+      );
+    } on FakeMayaException catch (error) {
+      // Supabase returns messages like "Invalid Refresh Token: Refresh
+      // Token Not Found" (or "... Already Used") once a refresh token has
+      // expired or been rotated away by a previous session — shared demo
+      // accounts hit this constantly since many sessions reuse the same
+      // cached token. Surface a clear, actionable message instead of the
+      // raw auth error, and flag it so callers know to clear the link.
+      if (error.message.toLowerCase().contains('refresh token')) {
+        throw const FakeMayaException(
+          'Your FakeMaya session has expired. Please relink your account.',
+          sessionExpired: true,
+        );
+      }
+      rethrow;
+    }
     final auth = _mapFrom(response) ?? const <String, dynamic>{};
     final user = _mapFrom(auth['user']) ?? const <String, dynamic>{};
     final userId = user['id'] as String? ?? link.userId;
@@ -184,6 +204,59 @@ class FakeMayaService {
       savings: summary.savings - amount,
       wallet: summary.wallet + amount,
       transactions: [transaction, ...summary.transactions],
+      updatedAt: DateTime.now(),
+    );
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': nextSummary.wallet,
+        'savings': nextSummary.savings,
+        'time_deposit': nextSummary.timeDeposit,
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
+  /// Creates the named personal-goal bucket with a zero balance if it
+  /// doesn't already exist on this account — used when Shellby auto-creates
+  /// a FakeMaya bucket for a motivation, ahead of any actual deposit.
+  /// No-op (returns the current session unchanged) if the bucket is already
+  /// there, so this is safe to call repeatedly.
+  static Future<FakeMayaSession> ensurePersonalGoalBucket({
+    required FakeMayaLink link,
+    required String personalGoalId,
+  }) async {
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    if (summary.personalGoalById(personalGoalId) != null) return session;
+    final updatedGoals = [
+      ...summary.personalGoals,
+      FakeMayaPersonalGoal.defaultForId(personalGoalId),
+    ];
+    final totalGoalBalance = updatedGoals.fold<double>(
+      0,
+      (total, goal) => total + goal.balance,
+    );
+    final nextSummary = summary.copyWith(
+      personalGoals: updatedGoals,
+      goalBalance: totalGoalBalance,
       updatedAt: DateTime.now(),
     );
     await _request(
@@ -527,9 +600,15 @@ class FakeMayaService {
 }
 
 class FakeMayaException implements Exception {
-  const FakeMayaException(this.message);
+  const FakeMayaException(this.message, {this.sessionExpired = false});
 
   final String message;
+
+  /// True when this error means the stored FakeMaya refresh token is dead
+  /// (missing, expired, or already rotated away by another session) —
+  /// callers should clear the link and prompt the user to relink rather
+  /// than retry, since retrying with the same token will fail identically.
+  final bool sessionExpired;
 
   @override
   String toString() => message;
@@ -923,7 +1002,9 @@ class FakeMayaPersonalGoal {
   });
 
   static const essentialExpenseFundId = 'B1';
-  static const personalLifestyleFundId = 'B5';
+  static const emergencyFundId = 'B2';
+  static const investmentFundId = 'B3';
+  static const personalLifestyleFundId = 'B4';
 
   final String id;
   final String name;
@@ -988,13 +1069,14 @@ class FakeMayaPersonalGoal {
     );
   }
 
+  /// The 4 preset buckets, one per onboarding motivation (see
+  /// `fakeMayaBucketIdForMotivation`/`fakeMayaBucketNameForMotivation`).
   static List<FakeMayaPersonalGoal> defaultGoals() {
     return [
       defaultForId('B1'),
       defaultForId('B2'),
       defaultForId('B3'),
       defaultForId('B4'),
-      defaultForId('B5'),
     ];
   }
 
@@ -1002,9 +1084,9 @@ class FakeMayaPersonalGoal {
     return switch (id) {
       'B2' => const FakeMayaPersonalGoal(
           id: 'B2',
-          name: 'Upcoming bill and payment obligations',
+          name: 'Emergency Fund',
           label: 'Personal Goal 2',
-          emoji: '🧾',
+          emoji: '🛟',
           account: '8189 3753 6102',
           balance: 0,
           target: 25000,
@@ -1013,9 +1095,9 @@ class FakeMayaPersonalGoal {
         ),
       'B3' => const FakeMayaPersonalGoal(
           id: 'B3',
-          name: 'Emergency Fund',
+          name: 'Investment Fund',
           label: 'Personal Goal 3',
-          emoji: '🛟',
+          emoji: '📈',
           account: '8189 3753 6103',
           balance: 0,
           target: 25000,
@@ -1024,21 +1106,10 @@ class FakeMayaPersonalGoal {
         ),
       'B4' => const FakeMayaPersonalGoal(
           id: 'B4',
-          name: 'Goal-Based savings fund',
-          label: 'Personal Goal 4',
-          emoji: '🎯',
-          account: '8189 3753 6104',
-          balance: 0,
-          target: 25000,
-          daysLeft: 180,
-          rate: 8,
-        ),
-      'B5' => const FakeMayaPersonalGoal(
-          id: 'B5',
           name: 'Personal Lifestyle Fund',
-          label: 'Personal Goal 5',
+          label: 'Personal Goal 4',
           emoji: '✨',
-          account: '8189 3753 6105',
+          account: '8189 3753 6104',
           balance: 0,
           target: 25000,
           daysLeft: 180,
@@ -1072,6 +1143,24 @@ class FakeMayaPersonalGoal {
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? fallback : text;
   }
+}
+
+/// Which FakeMaya personal-goal bucket a Shellby motivation maps to. Kept as
+/// a plain switch (rather than a Map literal) so it reads as an explicit
+/// 1:1 rule set next to the bucket presets above.
+String? fakeMayaBucketIdForMotivation(String motivation) {
+  return switch (motivation) {
+    'Cash Flow & Basic Needs' => FakeMayaPersonalGoal.essentialExpenseFundId,
+    'Financial Safety' => FakeMayaPersonalGoal.emergencyFundId,
+    'Accumulating Wealth' => FakeMayaPersonalGoal.investmentFundId,
+    'Financial Freedom' => FakeMayaPersonalGoal.personalLifestyleFundId,
+    _ => null,
+  };
+}
+
+String? fakeMayaBucketNameForMotivation(String motivation) {
+  final id = fakeMayaBucketIdForMotivation(motivation);
+  return id == null ? null : FakeMayaPersonalGoal.defaultForId(id).name;
 }
 
 class FakeMayaTransaction {

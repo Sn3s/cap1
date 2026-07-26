@@ -148,6 +148,12 @@ void main() {
     await tester.tap(actionRow);
     await tester.pumpAndSettle();
 
+    final fullBreakdown = find.text('Full breakdown');
+    await tester.ensureVisible(fullBreakdown);
+    await tester.pumpAndSettle();
+    await tester.tap(fullBreakdown);
+    await tester.pumpAndSettle();
+
     expect(find.text('Set aside income for essentials resiliency'),
         findsOneWidget);
     expect(find.text('Data behind the score'), findsOneWidget);
@@ -180,15 +186,16 @@ void main() {
     expect(find.text('COVERAGE MILESTONES'), findsOneWidget);
     expect(find.text('3-Month Fund'), findsOneWidget);
     expect(find.text('6-Month Fund'), findsOneWidget);
+    expect(find.text('REFLECTION QUESTION'), findsOneWidget);
     expect(find.text('Emergency fund movement'), findsOneWidget);
-    expect(find.text('OVERVIEW · WEEKLY'), findsOneWidget);
+    expect(find.text('Contributions and Use'), findsNothing);
+    expect(find.text('DETAIL · SELECTED WEEK'), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('DETAIL · SELECTED WEEK'),
-      300,
+      find.text('MONTH · ACTION PROGRESS'),
+      400,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('DETAIL · SELECTED WEEK'), findsOneWidget);
-    expect(find.textContaining('data coverage'), findsOneWidget);
+    expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('ACTION STAGE · LATEST 14 DAYS'),
       400,

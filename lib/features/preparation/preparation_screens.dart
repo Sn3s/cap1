@@ -2623,13 +2623,27 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
                 title: branch.layer,
                 body: branch.layerDescription,
                 selected: state.primaryConcern == branch.layer,
-                onTap: () => setState(() {
-                  state.primaryConcern = branch.layer;
-                  state.choosePresetGoal(
-                    branch.defaultGoalTitle,
-                    branch.defaultGoalDescription,
+                onTap: () async {
+                  setState(() {
+                    state.primaryConcern = branch.layer;
+                    state.choosePresetGoal(
+                      branch.defaultGoalTitle,
+                      branch.defaultGoalDescription,
+                    );
+                  });
+                  if (state.confirmedFakeMayaBucketMotivations
+                      .contains(branch.layer)) {
+                    return;
+                  }
+                  final agreed = await confirmFakeMayaBucketCreation(
+                    context,
+                    motivation: branch.layer,
                   );
-                }),
+                  if (agreed) {
+                    await state.ensureFakeMayaBucketForMotivation(
+                        branch.layer);
+                  }
+                },
               ),
             ),
           ),
@@ -5817,6 +5831,8 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
         'goals':
             '${summary.goalName} | ${summary.goalBalance.toStringAsFixed(2)} | ${summary.goalTarget.toStringAsFixed(2)} | ${DateTime.now().add(const Duration(days: 180)).toIso8601String().split('T').first} | 1',
       });
+      state.fakeMayaBucketCreationAllowed = true;
+      await state.reconcileFakeMayaBuckets();
       await state.saveProfile();
     }
     if (mounted) setState(() {});
@@ -5893,6 +5909,19 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
                   : 'Relink FakeMaya Account',
               icon: Icons.account_balance_rounded,
               onPressed: _link,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Linking gives Shellby permission to automatically create '
+              "matching personal-goal buckets in your Maya account as you "
+              'add goals in Shellby. You can always undo this later.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),

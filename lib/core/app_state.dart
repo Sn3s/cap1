@@ -82,6 +82,15 @@ class AppState extends ChangeNotifier {
   final List<int> notificationReminderMinutes = [20 * 60];
   bool thirdPartyDataLinkingAllowed = false;
   bool automaticDataGatheringAllowed = false;
+  /// Granted the moment a user links FakeMaya — the blanket permission to
+  /// auto-create matching personal-goal buckets in their Maya account as
+  /// they add goals in Shellby. Individual bucket creations are still
+  /// reconfirmed per motivation (see [confirmedFakeMayaBucketMotivations]).
+  bool fakeMayaBucketCreationAllowed = false;
+  /// Motivations the user has already agreed to create a FakeMaya bucket
+  /// for, so we don't re-ask every time the same goal/motivation is
+  /// revisited. Populated by `ensureFakeMayaBucketForMotivation`.
+  final Set<String> confirmedFakeMayaBucketMotivations = {};
   bool personalDataConsent = false;
   bool dataRetentionConsent = false;
   bool emotionalLogsEnabled = false;
@@ -259,10 +268,10 @@ class AppState extends ChangeNotifier {
             essentialExpensesBalance -
             billsObligationsBalance,
       );
-  double get unallocatedFakeMayaSavings => math.max(
-        0,
-        accountBalance('Savings') - displayedEmergencyFundBalance,
-      );
+  // Emergency Fund deposits go straight into their own FakeMaya personal-goal
+  // bucket (see `depositIncomeToEmergencyFund`), not into Savings, so no
+  // Emergency Fund amount needs to be backed out here anymore.
+  double get unallocatedFakeMayaSavings => accountBalance('Savings');
 
   double get totalAssets =>
       accountBalance('Cash on Hand') +
@@ -1310,6 +1319,9 @@ class AppState extends ChangeNotifier {
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
       'selectedActionIds': selectedActionIds.toList()..sort(),
       'addedGoalIds': addedGoalIds.toList()..sort(),
+      'fakeMayaBucketCreationAllowed': fakeMayaBucketCreationAllowed,
+      'confirmedFakeMayaBucketMotivations':
+          confirmedFakeMayaBucketMotivations.toList()..sort(),
       'selectedGoalId': selectedGoalId,
       'actionFieldValues': actionFieldValues,
       'categorySpendingBudgets': categorySpendingBudgets,
@@ -1562,6 +1574,9 @@ class AppState extends ChangeNotifier {
     notificationsAllowed = data['notificationsAllowed'] as bool? ??
         permissionsAndConsent['notificationsAllowed'] as bool? ??
         notificationsAllowed;
+    fakeMayaBucketCreationAllowed =
+        data['fakeMayaBucketCreationAllowed'] as bool? ??
+            fakeMayaBucketCreationAllowed;
     final reminderData = data['notificationReminderMinutes'];
     if (reminderData is List) {
       notificationReminderMinutes
@@ -1756,6 +1771,10 @@ class AppState extends ChangeNotifier {
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
     );
     _replaceSet(addedGoalIds, data['addedGoalIds']);
+    _replaceSet(
+      confirmedFakeMayaBucketMotivations,
+      data['confirmedFakeMayaBucketMotivations'],
+    );
     backfillMissingOnboardingLedgers();
     backfillFeasibleActionDefaults();
   }
@@ -2609,7 +2628,11 @@ class AppState extends ChangeNotifier {
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+    );
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
@@ -2628,7 +2651,11 @@ class AppState extends ChangeNotifier {
   Future<void> depositMonthlyEmergencyFund(double amount) async {
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+    );
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
@@ -2708,7 +2735,11 @@ class AppState extends ChangeNotifier {
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.investmentFundId,
+    );
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_deposit',
@@ -2727,7 +2758,11 @@ class AppState extends ChangeNotifier {
   Future<void> depositMonthlyInvestment(double amount) async {
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.investmentFundId,
+    );
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_monthly',
@@ -3006,6 +3041,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Runs a FakeMaya call and, if it fails because the stored session/
+  /// refresh token is dead (expired, or already rotated away by another
+  /// session sharing this account), clears the stale link so the app
+  /// doesn't keep retrying with a token that will never work again — then
+  /// rethrows so the caller can still show an error to the user.
+  Future<T> _withFakeMayaSessionRecovery<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on FakeMayaException catch (error) {
+      if (error.sessionExpired) await unlinkFakeMayaAccount();
+      rethrow;
+    }
+  }
+
   Future<void> _moveFakeMayaWalletTo(
     double amount,
     FakeMayaGoalAccount account, {
@@ -3013,11 +3062,13 @@ class AppState extends ChangeNotifier {
   }) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
-    final session = await FakeMayaService.allocateFromWallet(
-      link: link,
-      amount: amount,
-      account: account,
-      personalGoalId: personalGoalId,
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.allocateFromWallet(
+        link: link,
+        amount: amount,
+        account: account,
+        personalGoalId: personalGoalId,
+      ),
     );
     final savedById = {
       for (final transaction in link.summary.transactions)
@@ -3049,10 +3100,12 @@ class AppState extends ChangeNotifier {
   }) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
-    final session = await FakeMayaService.withdrawFromPersonalGoal(
-      link: link,
-      amount: amount,
-      personalGoalId: personalGoalId,
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.withdrawFromPersonalGoal(
+        link: link,
+        amount: amount,
+        personalGoalId: personalGoalId,
+      ),
     );
     fakeMayaLink = FakeMayaLink.fromSession(session);
     _syncFakeMayaMoneyItems();
@@ -3061,9 +3114,11 @@ class AppState extends ChangeNotifier {
   Future<void> _withdrawFakeMayaSavingsToWallet(double amount) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
-    final session = await FakeMayaService.withdrawFromSavings(
-      link: link,
-      amount: amount,
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.withdrawFromSavings(
+        link: link,
+        amount: amount,
+      ),
     );
     fakeMayaLink = FakeMayaLink.fromSession(session);
     _syncFakeMayaMoneyItems();
@@ -3190,6 +3245,46 @@ class AppState extends ChangeNotifier {
   void addUnlockedGoal(String goalId) {
     addedGoalIds.add(goalId);
     notifyListeners();
+  }
+
+  /// Records that the user agreed to a FakeMaya bucket for [motivation] and,
+  /// if an account is already linked, creates the bucket right away. If no
+  /// account is linked yet (e.g. this runs during onboarding before the
+  /// FakeMaya linking step), the agreement is remembered and the bucket is
+  /// created later by [reconcileFakeMayaBuckets] once linking succeeds.
+  Future<void> ensureFakeMayaBucketForMotivation(String motivation) async {
+    confirmedFakeMayaBucketMotivations.add(motivation);
+    final bucketId = fakeMayaBucketIdForMotivation(motivation);
+    final link = fakeMayaLink;
+    if (bucketId != null && link != null) {
+      // Bucket creation is a best-effort side effect of adding a goal — if
+      // the FakeMaya session has expired, quietly unlink rather than
+      // blocking the goal-add flow the user is actually trying to complete.
+      try {
+        final session = await FakeMayaService.ensurePersonalGoalBucket(
+          link: link,
+          personalGoalId: bucketId,
+        );
+        fakeMayaLink = FakeMayaLink.fromSession(session);
+        _syncFakeMayaMoneyItems();
+      } on FakeMayaException catch (error) {
+        if (error.sessionExpired) await unlinkFakeMayaAccount();
+      }
+    }
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// Creates any FakeMaya buckets the user has already agreed to but that
+  /// couldn't be created yet because no FakeMaya account was linked at the
+  /// time — call this right after a successful link.
+  Future<void> reconcileFakeMayaBuckets() async {
+    if (fakeMayaLink == null || confirmedFakeMayaBucketMotivations.isEmpty) {
+      return;
+    }
+    for (final motivation in confirmedFakeMayaBucketMotivations.toList()) {
+      await ensureFakeMayaBucketForMotivation(motivation);
+    }
   }
 
   void toggleTrackingVariable(String value) {
@@ -3365,10 +3460,12 @@ class AppState extends ChangeNotifier {
     if (amount <= 0) return;
     final link = fakeMayaLink;
     if (link != null) {
-      final session = await FakeMayaService.allocateFromWallet(
-        link: link,
-        amount: amount,
-        account: FakeMayaGoalAccount.savings,
+      final session = await _withFakeMayaSessionRecovery(
+        () => FakeMayaService.allocateFromWallet(
+          link: link,
+          amount: amount,
+          account: FakeMayaGoalAccount.savings,
+        ),
       );
       final savedById = {
         for (final t in link.summary.transactions) t.transactionId: t,
@@ -3787,6 +3884,8 @@ class AppState extends ChangeNotifier {
             );
             fakeMayaLink = FakeMayaLink.fromSession(session);
             _syncFakeMayaMoneyItems();
+          } on FakeMayaException catch (error) {
+            if (error.sessionExpired) await unlinkFakeMayaAccount();
           } catch (_) {}
         }
         sentence =
@@ -3833,10 +3932,13 @@ class AppState extends ChangeNotifier {
       _ => null,
     };
     if (linkedAccount != null && fakeMayaLink != null) {
-      final session = await FakeMayaService.allocateFromWallet(
-        link: fakeMayaLink!,
-        amount: amount,
-        account: linkedAccount,
+      final link = fakeMayaLink!;
+      final session = await _withFakeMayaSessionRecovery(
+        () => FakeMayaService.allocateFromWallet(
+          link: link,
+          amount: amount,
+          account: linkedAccount,
+        ),
       );
       fakeMayaLink = FakeMayaLink.fromSession(session);
       _syncFakeMayaMoneyItems();
@@ -3873,7 +3975,9 @@ class AppState extends ChangeNotifier {
   Future<void> refreshFakeMayaAccount() async {
     final link = fakeMayaLink;
     if (link == null) return;
-    final session = await FakeMayaService.refreshSession(link);
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.refreshSession(link),
+    );
     final savedById = {
       for (final transaction in link.summary.transactions)
         transaction.transactionId: transaction,

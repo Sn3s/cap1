@@ -2109,7 +2109,7 @@ bool isEmergencyFundGoalOnTrack(AppState state) {
   final budget = state.safetyShieldMonthlyBase;
   if (budget <= 0) return false;
   final current = state.safetyShieldBalance +
-      (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+      state.displayedEmergencyFundBalance;
   return (current / budget) >= 3;
 }
 
@@ -2178,7 +2178,7 @@ double emergencyFundGoalPercent(AppState state) {
   final target = state.emergencyFundTarget;
   if (target <= 0) return 0;
   final current = state.safetyShieldBalance +
-      (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+      state.displayedEmergencyFundBalance;
   return _clampPercent((current / target) * 100);
 }
 
@@ -2434,7 +2434,7 @@ class _FinancialSafetyPyramidContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final budget = state.safetyShieldMonthlyBase;
     final current = state.safetyShieldBalance +
-        (state.hasFakeMayaLink ? 0 : state.displayedEmergencyFundBalance);
+        state.displayedEmergencyFundBalance;
     final max = budget * 6;
     final fill = max > 0 ? (current / max).clamp(0.0, 1.0) : 0.0;
     final months = budget > 0 ? current / budget : 0.0;
@@ -3453,10 +3453,19 @@ class _InsightsTabSwitcher extends StatelessWidget {
   }
 }
 
+/// A "reflection question" prompt card. When [child] is supplied, it's
+/// nested directly inside the same card (behind a divider) so it reads as
+/// the answer to the question above it, rather than a separate, seemingly
+/// unrelated card floating right below.
 class _ReflectionQuestion extends StatelessWidget {
-  const _ReflectionQuestion({required this.question, required this.detail});
+  const _ReflectionQuestion({
+    required this.question,
+    required this.detail,
+    this.child,
+  });
   final String question;
   final String detail;
+  final Widget? child;
 
   @override
   Widget build(BuildContext context) {
@@ -3467,22 +3476,38 @@ class _ReflectionQuestion extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: _purple.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: _purple.withValues(alpha: .18)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'REFLECTION QUESTION',
-              style: TextStyle(
-                color: _purple,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 1.1,
-              ),
+            Row(
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: _purple.withValues(alpha: .16),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  alignment: Alignment.center,
+                  child:
+                      const Icon(Icons.help_rounded, size: 13, color: _purple),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'REFLECTION QUESTION',
+                  style: TextStyle(
+                    color: _purple,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               question,
               style: const TextStyle(
@@ -3502,6 +3527,12 @@ class _ReflectionQuestion extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (child != null) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1, color: _border),
+              const SizedBox(height: 16),
+              child!,
+            ],
           ],
         ),
       ),
@@ -4291,6 +4322,8 @@ class _CashActionScore {
     required this.targetLabel,
     required this.formula,
     required this.evidence,
+    this.applicableMeasures = const ['Consistency', 'Resiliency', 'Adherence'],
+    this.emptyReason = 'Not enough data to make a calculation',
   });
 
   final String id;
@@ -4303,6 +4336,28 @@ class _CashActionScore {
   final String targetLabel;
   final String formula;
   final List<String> evidence;
+
+  /// Which of Consistency/Resiliency/Adherence make sense for this
+  /// particular action. Most actions are recurring weekly behaviors where
+  /// all three apply; event-triggered actions (e.g. "replenish within X
+  /// days of a withdrawal") don't have a meaningful weekly-activity
+  /// Consistency measure, so they can opt out of it here.
+  final List<String> applicableMeasures;
+
+  /// Shown instead of the measure gauges when there isn't enough data
+  /// (empty pattern) — lets an action explain *why* in its own terms
+  /// (e.g. "no withdrawals to replenish this month" vs. the generic
+  /// "not enough data").
+  final String emptyReason;
+}
+
+/// Average of whichever measures actually have a score for this action.
+/// Returns null only when every applicable measure is missing data.
+int? _overallActionScore(List<_ActionMeasure> measures) {
+  final scored = measures.where((measure) => measure.hasScore).toList();
+  if (scored.isEmpty) return null;
+  final total = scored.fold<int>(0, (sum, measure) => sum + measure.percent!);
+  return (total / scored.length).round();
 }
 
 int _scorePercent(double value) => (value * 100).round().clamp(0, 100);
@@ -4464,6 +4519,31 @@ List<_CashActionScore> _availableCashActionScores({
       .toList();
   final actionIds =
       configured.isEmpty ? _availableCashGoalActionIds : configured;
+  return [
+    for (final id in actionIds)
+      _cashActionScoreFor(
+        id: id,
+        state: state,
+        monthStart: monthStart,
+        weeks: weeks,
+        transactions: transactions,
+        income: income,
+      ),
+  ].whereType<_CashActionScore>().toList();
+}
+
+List<_CashActionScore> _emergencyFundActionScores({
+  required AppState state,
+  required DateTime monthStart,
+  required List<WeekRecord> weeks,
+  required List<FakeMayaTransaction> transactions,
+  required double income,
+}) {
+  final configured = state.selectedActionIds
+      .where(_emergencyFundGoalActionIds.contains)
+      .toList();
+  final actionIds =
+      configured.isEmpty ? _emergencyFundGoalActionIds : configured;
   return [
     for (final id in actionIds)
       _cashActionScoreFor(
@@ -4761,7 +4841,192 @@ _CashActionScore? _cashActionScoreFor({
       ],
     );
   }
+  if (id == 'A8') {
+    final recommended = action == null
+        ? 10.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final targetPct = configuredNumber('pct', recommended) / 100;
+    final allocated = _monthLedgerAmount(state, monthStart, 'emergency_deposit');
+    final targetAmount = income * targetPct;
+    final pattern = weeks
+        .map((week) => week.weekIncome <= 0
+            ? 0.0
+            : (_ledgerAmountInRange(
+                        state, week.start, week.end, const {'emergency_deposit'}) /
+                    (week.weekIncome * targetPct))
+                .clamp(0.0, 1.5))
+        .toList();
+    return _CashActionScore(
+      id: id,
+      title: 'Set aside income for Emergency Fund',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${money(allocated)} allocated toward a ${money(targetAmount)} monthly target.',
+      pattern: pattern,
+      weekLabels: _weekLabels(weeks),
+      actualLabel: money(allocated),
+      targetLabel: money(targetAmount),
+      formula:
+          'Resiliency = average of each available week: weekly Emergency Fund allocation ÷ configured ${(targetPct * 100).round()}% of weekly income.',
+      evidence: [
+        'Monthly income counted: ${money(income)}',
+        'Configured allocation: ${(targetPct * 100).round()}%',
+        'Emergency Fund allocation found: ${money(allocated)}',
+      ],
+    );
+  }
+  if (id == 'A9') {
+    final recommended = action == null
+        ? 1000.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final minDeposit = configuredNumber('amt', recommended);
+    const depositTypes = {'emergency_deposit', 'ef_replenish'};
+    final monthTotal = _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
+        _monthLedgerAmount(state, monthStart, 'ef_replenish');
+    final pattern = weeks.isEmpty
+        ? <double>[minDeposit <= 0 ? 0 : (monthTotal / minDeposit).clamp(0.0, 1.0)]
+        : weeks.map((week) {
+            final weeklyTotal =
+                _ledgerAmountInRange(state, week.start, week.end, depositTypes);
+            final weeklyTarget = minDeposit / weekCount;
+            return weeklyTarget <= 0
+                ? 0.0
+                : (weeklyTotal / weeklyTarget).clamp(0.0, 1.0);
+          }).toList();
+    return _CashActionScore(
+      id: id,
+      title: 'Deposit Emergency Fund minimum',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${money(monthTotal)} deposited toward a ${money(minDeposit)} monthly minimum.',
+      pattern: pattern,
+      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      actualLabel: money(monthTotal),
+      targetLabel: money(minDeposit),
+      formula:
+          'Progress = monthly Emergency Fund deposits ÷ configured ${money(minDeposit)} minimum, capped at 100%.',
+      evidence: [
+        'Configured minimum monthly deposit: ${money(minDeposit)}',
+        'Emergency Fund deposits found: ${money(monthTotal)}',
+      ],
+    );
+  }
+  if (id == 'A10') {
+    final recommended = action == null
+        ? 7.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final targetDays = configuredNumber('days', recommended);
+    final withdrawals = state.d1Ledger.where((entry) {
+      if (entry['type']?.toString() != 'use_emergency') return false;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      return date != null && _sameMonth(date, monthStart);
+    }).toList()
+      ..sort((a, b) => DateTime.parse(a['date'].toString())
+          .compareTo(DateTime.parse(b['date'].toString())));
+    final replenishDates = state.d1Ledger
+        .where((entry) => const {'ef_replenish', 'emergency_deposit'}
+            .contains(entry['type']?.toString()))
+        .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .toList()
+      ..sort();
+    final now = DateTime.now();
+    final pattern = <double>[];
+    final labels = <String>[];
+    final elapsedDays = <int>[];
+    final evidenceLines = <String>[];
+    for (final withdrawal in withdrawals) {
+      final withdrawDate = DateTime.parse(withdrawal['date'].toString());
+      final amount = (withdrawal['amount'] as num?)?.toDouble() ?? 0;
+      final nextReplenish =
+          replenishDates.where((date) => date.isAfter(withdrawDate)).firstOrNull;
+      final elapsed = (nextReplenish ?? now).difference(withdrawDate).inDays;
+      elapsedDays.add(elapsed);
+      pattern.add(
+          targetDays <= 0 ? 0.0 : (targetDays / math.max(1, elapsed)).clamp(0.0, 1.0));
+      labels.add(_shortDate(withdrawDate));
+      evidenceLines.add(nextReplenish == null
+          ? '${_shortDate(withdrawDate)}: withdrew ${money(amount)}, not yet replenished ($elapsed days so far)'
+          : '${_shortDate(withdrawDate)}: withdrew ${money(amount)}, replenished in $elapsed days');
+    }
+    final avgDays = elapsedDays.isEmpty
+        ? 0.0
+        : elapsedDays.fold(0, (sum, value) => sum + value) / elapsedDays.length;
+    return _CashActionScore(
+      id: id,
+      title: 'Replenish Emergency Fund withdrawals',
+      score: _averageWeeklyResiliency(pattern),
+      detail: withdrawals.isEmpty
+          ? 'No withdrawals were recorded this month.'
+          : '${withdrawals.length} withdrawal${withdrawals.length == 1 ? '' : 's'} checked against a ${targetDays.toStringAsFixed(0)}-day replenishment target.',
+      pattern: pattern,
+      weekLabels: labels,
+      actualLabel:
+          withdrawals.isEmpty ? 'No withdrawals' : '${avgDays.toStringAsFixed(1)}d avg',
+      targetLabel: '${targetDays.toStringAsFixed(0)}d',
+      formula:
+          'Resiliency = for each withdrawal this month, configured ${targetDays.toStringAsFixed(0)}-day target ÷ actual days to replenish, capped at 100%.',
+      evidence: evidenceLines.isEmpty
+          ? const ['No Emergency Fund withdrawals were recorded this month.']
+          : evidenceLines,
+      applicableMeasures: const ['Resiliency', 'Adherence'],
+      emptyReason: 'No withdrawals to replenish this month.',
+    );
+  }
+  if (id == 'A22') {
+    final recommended = action == null
+        ? 3.0
+        : double.parse(
+            _recommendationsForActionField(state, action, action.fields.first)
+                .first);
+    final months = configuredNumber('months', recommended);
+    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+    final target = monthlyEssentials > 0
+        ? monthlyEssentials * months
+        : math.max(30000.0, state.emergencyFundTarget);
+    final currentFund = state.displayedEmergencyFundBalance;
+    final ratio = target <= 0 ? 0.0 : (currentFund / target).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Build Emergency Fund coverage',
+      score: ratio,
+      detail:
+          '${money(currentFund)} saved toward a ${months.toStringAsFixed(0)}-month (${money(target)}) target.',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: money(currentFund),
+      targetLabel: money(target),
+      formula:
+          'Progress = current Emergency Fund balance ÷ configured ${months.toStringAsFixed(0)}-month essential-expense target.',
+      evidence: [
+        'Configured coverage target: ${months.toStringAsFixed(0)} months',
+        'Monthly essential expenses: ${money(monthlyEssentials)}',
+        'Emergency Fund balance counted: ${money(currentFund)}',
+      ],
+    );
+  }
   return null;
+}
+
+double _ledgerAmountInRange(
+  AppState state,
+  DateTime start,
+  DateTime end,
+  Set<String> types,
+) {
+  return state.d1Ledger.where((entry) {
+    if (!types.contains(entry['type']?.toString())) return false;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    return date != null &&
+        !date.isBefore(start) &&
+        date.isBefore(end.add(const Duration(days: 1)));
+  }).fold(0.0, (sum, entry) => sum + ((entry['amount'] as num?)?.toDouble() ?? 0));
 }
 
 bool _isEssentialCashCategory(String? rawCategory) {
@@ -5277,12 +5542,11 @@ class _ActionMeasure {
 /// Single-point actions still show all three: Consistency marks whether any
 /// data exists, and Adherence marks whether that one point fully met target.
 List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
+  final applicable = action.applicableMeasures;
   if (action.pattern.isEmpty) {
-    const reason = 'Not enough data to make a calculation';
-    return const [
-      _ActionMeasure('Consistency', null, missingReason: reason),
-      _ActionMeasure('Resiliency', null, missingReason: reason),
-      _ActionMeasure('Adherence', null, missingReason: reason),
+    return [
+      for (final label in applicable)
+        _ActionMeasure(label, null, missingReason: action.emptyReason),
     ];
   }
   final resiliency = _ActionMeasure('Resiliency', _scorePercent(action.score));
@@ -5293,35 +5557,49 @@ List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
   final consistency = _scorePercent(
     action.pattern.where((value) => value > 0).length / action.pattern.length,
   );
-  return [
-    _ActionMeasure('Consistency', consistency),
-    resiliency,
-    _ActionMeasure('Adherence', adherence),
-  ];
+  final byLabel = {
+    'Consistency': _ActionMeasure('Consistency', consistency),
+    'Resiliency': resiliency,
+    'Adherence': _ActionMeasure('Adherence', adherence),
+  };
+  return [for (final label in applicable) byLabel[label]!];
 }
 
 class _CircularScoreGauge extends StatelessWidget {
-  const _CircularScoreGauge({required this.measure});
-  final _ActionMeasure measure;
+  const _CircularScoreGauge({
+    required this.label,
+    required this.percent,
+    this.size = 60,
+    this.strokeWidth = 6,
+    this.valueFontSize = 15,
+  });
+
+  factory _CircularScoreGauge.forMeasure(_ActionMeasure measure) =>
+      _CircularScoreGauge(label: measure.label, percent: measure.percent);
+
+  final String label;
+  final int? percent;
+  final double size;
+  final double strokeWidth;
+  final double valueFontSize;
 
   @override
   Widget build(BuildContext context) {
-    final percent = measure.percent;
-    final color = percent == null ? _body : _resiliencyScoreColor(percent);
+    final color = percent == null ? _body : _resiliencyScoreColor(percent!);
     return Column(
       children: [
         SizedBox(
-          width: 60,
-          height: 60,
+          width: size,
+          height: size,
           child: Stack(
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 60,
-                height: 60,
+                width: size,
+                height: size,
                 child: CircularProgressIndicator(
-                  value: percent == null ? 0 : percent / 100,
-                  strokeWidth: 6,
+                  value: percent == null ? 0 : percent! / 100,
+                  strokeWidth: strokeWidth,
                   color: color,
                   backgroundColor: _border,
                 ),
@@ -5330,7 +5608,7 @@ class _CircularScoreGauge extends StatelessWidget {
                 percent == null ? 'N/A' : '$percent',
                 style: TextStyle(
                   color: color,
-                  fontSize: 15,
+                  fontSize: valueFontSize,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -5339,7 +5617,7 @@ class _CircularScoreGauge extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          measure.label,
+          label,
           style: const TextStyle(
             color: _title,
             fontSize: 10.5,
@@ -5351,24 +5629,32 @@ class _CircularScoreGauge extends StatelessWidget {
   }
 }
 
-class _CashActionProgressSection extends StatelessWidget {
-  const _CashActionProgressSection({required this.month});
+class _ActionProgressSection extends StatelessWidget {
+  const _ActionProgressSection({
+    required this.actionScores,
+    this.eyebrow = 'MONTH · ACTION PROGRESS',
+    this.title = 'Your actions, measured',
+    this.subtitle =
+        'Each action shows an overall score — tap it to see the Consistency, Resiliency, and Adherence behind it.',
+  });
 
-  final _CashMonthInsight month;
+  final List<_CashActionScore> actionScores;
+  final String eyebrow;
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
     return _ExplorerSection(
-      eyebrow: 'MONTH · ACTION PROGRESS',
-      title: 'Your actions, measured',
-      subtitle:
-          'Tap an action for the full breakdown. Consistency, Resiliency, and Adherence are shown for every action.',
-      child: month.actionScores.isEmpty
+      eyebrow: eyebrow,
+      title: title,
+      subtitle: subtitle,
+      child: actionScores.isEmpty
           ? const _ReflectionEmpty(
               message: 'No action scores are available yet.')
           : Column(
               children: [
-                for (final action in month.actionScores)
+                for (final action in actionScores)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 14),
                     child: _ActionMeasureCard(action: action),
@@ -5379,39 +5665,52 @@ class _CashActionProgressSection extends StatelessWidget {
   }
 }
 
-class _ActionMeasureCard extends StatelessWidget {
+/// One action's overall score (average of whichever measures apply) shown
+/// up front via a circular gauge on the right; tapping the card expands it
+/// in place to reveal the Consistency/Resiliency/Adherence breakdown — only
+/// the measures that are actually applicable to this action — plus a link
+/// into the full weekly-pattern dialog for a deeper dive.
+class _ActionMeasureCard extends StatefulWidget {
   const _ActionMeasureCard({required this.action});
 
   final _CashActionScore action;
 
   @override
+  State<_ActionMeasureCard> createState() => _ActionMeasureCardState();
+}
+
+class _ActionMeasureCardState extends State<_ActionMeasureCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final action = widget.action;
     final measures = _actionMeasures(action);
     final missingReason = measures
         .map((measure) => measure.missingReason)
         .whereType<String>()
         .firstOrNull;
-    return InkWell(
-      onTap: () => _showCashActionScoreDetails(context, action),
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final overall = _overallActionScore(measures);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
                   width: 22,
                   height: 22,
-                  margin: const EdgeInsets.only(top: 1),
                   decoration: const BoxDecoration(
                     color: _bellySoft,
                     shape: BoxShape.circle,
@@ -5422,36 +5721,63 @@ class _ActionMeasureCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    _d2Actions[action.id]?.text ?? action.title,
-                    style: const TextStyle(
-                      color: _title,
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w900,
-                      height: 1.3,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _d2Actions[action.id]?.text ?? action.title,
+                        style: const TextStyle(
+                          color: _title,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w900,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        action.detail,
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+                const SizedBox(width: 10),
+                _CircularScoreGauge(
+                  label: 'Score',
+                  percent: overall,
+                  size: 54,
+                  strokeWidth: 5,
+                  valueFontSize: 15,
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  _expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  color: _body,
                 ),
               ],
             ),
-            const SizedBox(height: 3),
-            Text(
-              action.detail,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                height: 1.3,
-              ),
-            ),
+          ),
+          const SizedBox(height: 12),
+          _AiInsightNote(
+            trend: _actionInsightTrend(measures),
+            text: _actionInsight(action, measures),
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: _border),
             const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 for (final measure in measures)
-                  _CircularScoreGauge(
-                    measure: measure,
-                  ),
+                  _CircularScoreGauge.forMeasure(measure),
               ],
             ),
             if (missingReason != null) ...[
@@ -5467,37 +5793,35 @@ class _ActionMeasureCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _AiInsightNote(
-              trend: _actionInsightTrend(measures),
-              text: _actionInsight(action, measures),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${action.actualLabel} of ${action.targetLabel} target',
-                    style: const TextStyle(
-                      color: _body,
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w700,
+            InkWell(
+              onTap: () => _showCashActionScoreDetails(context, action),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${action.actualLabel} of ${action.targetLabel} target',
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-                const Text(
-                  'View details',
-                  style: TextStyle(
-                    color: _purple,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
+                  const Text(
+                    'Full breakdown',
+                    style: TextStyle(
+                      color: _purple,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const Icon(Icons.chevron_right_rounded,
-                    color: _purple, size: 16),
-              ],
+                  const Icon(Icons.chevron_right_rounded,
+                      color: _purple, size: 16),
+                ],
+              ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -5542,6 +5866,149 @@ Widget _dialogSectionLabel(String text) => Text(
       ),
     );
 
+/// Reconfirms — once per motivation, at onboarding or via "+ Add Goal" —
+/// that Shellby will auto-create the matching FakeMaya personal-goal
+/// bucket. Returns false immediately (no dialog shown) if the motivation
+/// has no FakeMaya bucket mapping.
+Future<bool> confirmFakeMayaBucketCreation(
+  BuildContext context, {
+  required String motivation,
+}) async {
+  final bucketName = fakeMayaBucketNameForMotivation(motivation);
+  if (bucketName == null) return false;
+  final agreed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: _surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.savings_rounded,
+                      color: _brand, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'New Maya bucket',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'For $motivation',
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _bg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: RichText(
+                text: TextSpan(
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  children: [
+                    const TextSpan(
+                      text: 'Adding this goal will create a corresponding '
+                          'bucket on your Maya account called ',
+                    ),
+                    TextSpan(
+                      text: '"$bucketName"',
+                      style: const TextStyle(
+                        color: _title,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const TextSpan(
+                      text: '. Shellby actions for this goal will deposit '
+                          'into it automatically. Do you agree?',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _body,
+                      side: const BorderSide(color: _border),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text('Not now',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _brand,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text('Create bucket',
+                        style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return agreed ?? false;
+}
+
 void _showCashActionScoreDetails(
   BuildContext context,
   _CashActionScore action,
@@ -5581,9 +6048,7 @@ void _showCashActionScoreDetails(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         for (final measure in measures)
-                          _CircularScoreGauge(
-                            measure: measure,
-                          ),
+                          _CircularScoreGauge.forMeasure(measure),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -6989,7 +7454,7 @@ class _CashReflectionExplorer extends StatelessWidget {
             selectedMonth: activeMonth.start,
             onMonthSelected: onMonthSelected,
           ),
-          _CashActionProgressSection(month: activeMonth),
+          _ActionProgressSection(actionScores: activeMonth.actionScores),
           _GoalActionStageSection(
             key: actionStageKey,
             goalId: 'G1',
@@ -7458,6 +7923,21 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
     final target = monthlyEssentials > 0
         ? monthlyEssentials * 3
         : math.max(30000.0, state.emergencyFundTarget);
+    final monthStart = DateTime(DateTime.now().year, DateTime.now().month);
+    final monthIncome = state.allTransactions
+        .where((transaction) =>
+            transaction.amount > 0 &&
+            !transaction.isInternalFakeMayaTransfer &&
+            transaction.createdAt != null &&
+            _sameMonth(transaction.createdAt!, monthStart))
+        .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final efScores = _emergencyFundActionScores(
+      state: state,
+      monthStart: monthStart,
+      weeks: service.weekRecords,
+      transactions: state.allTransactions,
+      income: monthIncome,
+    );
 
     return Column(
       children: [
@@ -7488,39 +7968,53 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
         ),
         _EmergencyFundOverviewCard(state: state),
         _EmergencyMilestonesCard(state: state),
-        const _ReflectionQuestion(
+        _ReflectionQuestion(
           question:
               'When did my emergency fund change, and which events explain the change?',
           detail:
-              'Select a week to connect contributions and withdrawals with their underlying activity.',
-        ),
-        _ExplorerSection(
-          eyebrow: 'OVERVIEW · WEEKLY',
-          title: 'Emergency fund movement',
-          subtitle:
-              '${money(state.displayedEmergencyFundBalance)} saved toward ${money(target)} · additions and use are shown separately.',
-          child: _SelectableWeeklyChart(
-            weeks: weeks
-                .map((week) => _WeeklyChartItem(
-                      start: week.start,
-                      value: week.added,
-                      comparisonValue: week.used,
-                      coverage: week.coverage,
-                    ))
-                .toList(),
-            selected: selected?.start,
-            primaryLabel: 'Added',
-            comparisonLabel: 'Used',
-            primaryColor: _sage,
-            comparisonColor: _red,
-            onSelected: onWeekSelected,
+              'The chart below answers this: additions and use are broken out week by week so you can see exactly when the fund moved.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Emergency fund movement',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${money(state.displayedEmergencyFundBalance)} saved toward ${money(target)} · additions and use are shown separately.',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _SelectableWeeklyChart(
+                weeks: weeks
+                    .map((week) => _WeeklyChartItem(
+                          start: week.start,
+                          value: week.added,
+                          comparisonValue: week.used,
+                          coverage: week.coverage,
+                        ))
+                    .toList(),
+                selected: selected?.start,
+                primaryLabel: 'Added',
+                comparisonLabel: 'Used',
+                primaryColor: _sage,
+                comparisonColor: _red,
+                onSelected: onWeekSelected,
+              ),
+            ],
           ),
         ),
-        if (selected != null)
-          _EmergencyWeekDetail(week: selected)
-        else
-          const _ExplorerEmpty(),
-        _EmergencyActivityReflection(state: state),
+        _ActionProgressSection(actionScores: efScores),
         _GoalActionStageSection(
           key: actionStageKey,
           goalId: 'G3',
@@ -7976,7 +8470,7 @@ class _SelectableWeeklyChart extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Tap a week to update the detail list below.',
+          'Tap a week to highlight it.',
           style: TextStyle(
             color: _body,
             fontSize: 11,

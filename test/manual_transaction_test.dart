@@ -249,7 +249,7 @@ void main() {
       goalEmoji: '✨',
       goalBalance: 0,
       goalTarget: 25000,
-      selectedGoalId: 'B5',
+      selectedGoalId: 'B4',
       personalGoals: FakeMayaPersonalGoal.defaultGoals(),
       creditLimit: 0,
       creditUsed: 0,
@@ -257,9 +257,9 @@ void main() {
       updatedAt: null,
     );
 
-    final goals = summary.personalGoalsWithDeposit('B5', 1200);
-    final lifestyle = goals.firstWhere((goal) => goal.id == 'B5');
-    final otherGoals = goals.where((goal) => goal.id != 'B5');
+    final goals = summary.personalGoalsWithDeposit('B4', 1200);
+    final lifestyle = goals.firstWhere((goal) => goal.id == 'B4');
+    final otherGoals = goals.where((goal) => goal.id != 'B4');
 
     expect(lifestyle.name, 'Personal Lifestyle Fund');
     expect(lifestyle.balance, 1200);

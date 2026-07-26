@@ -233,8 +233,19 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                   ),
                   onPressed: canConfirm
                       ? () async {
-                          final canonicalId =
-                              _layerCanonicalGoalId[_chosenLayer!]!;
+                          final layer = _chosenLayer!;
+                          final canonicalId = _layerCanonicalGoalId[layer]!;
+                          if (!state.confirmedFakeMayaBucketMotivations
+                              .contains(layer)) {
+                            final agreed = await confirmFakeMayaBucketCreation(
+                              context,
+                              motivation: layer,
+                            );
+                            if (agreed) {
+                              await state.ensureFakeMayaBucketForMotivation(
+                                  layer);
+                            }
+                          }
                           state.addUnlockedGoal(canonicalId);
                           state.addActionsForGoal(_chosenActionIds);
                           await state.saveProfile();
