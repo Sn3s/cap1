@@ -3258,17 +3258,25 @@ class AppState extends ChangeNotifier {
     final link = fakeMayaLink;
     if (bucketId != null && link != null) {
       // Bucket creation is a best-effort side effect of adding a goal — if
-      // the FakeMaya session has expired, quietly unlink rather than
-      // blocking the goal-add flow the user is actually trying to complete.
+      // the FakeMaya session has expired (or the request otherwise fails,
+      // e.g. a refresh token already rotated away by another session
+      // sharing this demo account), don't block the goal-add flow the user
+      // is actually trying to complete. The motivation stays recorded in
+      // confirmedFakeMayaBucketMotivations either way, so the next
+      // successful link/refresh retries this automatically via
+      // reconcileFakeMayaBuckets — no manual reset or relink needed.
       try {
-        final session = await FakeMayaService.ensurePersonalGoalBucket(
-          link: link,
-          personalGoalId: bucketId,
+        final session = await _withFakeMayaSessionRecovery(
+          () => FakeMayaService.ensurePersonalGoalBucket(
+            link: link,
+            personalGoalId: bucketId,
+          ),
         );
         fakeMayaLink = FakeMayaLink.fromSession(session);
         _syncFakeMayaMoneyItems();
-      } on FakeMayaException catch (error) {
-        if (error.sessionExpired) await unlinkFakeMayaAccount();
+      } on FakeMayaException {
+        // Swallowed - see comment above. _withFakeMayaSessionRecovery
+        // already unlinked the account if the session was dead.
       }
     }
     await saveProfile();
@@ -3968,6 +3976,12 @@ class AppState extends ChangeNotifier {
     thirdPartyDataLinkingAllowed = true;
     automaticDataGatheringAllowed = true;
     _syncFakeMayaMoneyItems();
+    // Catch this account up on every motivation it already agreed to a
+    // bucket for (onboarding, "Add goal", etc.) but that couldn't be
+    // created earlier because no account was linked yet, or a prior
+    // attempt failed - not just when linking happens to go through the
+    // onboarding flow.
+    await reconcileFakeMayaBuckets();
     await saveProfile();
     notifyListeners();
   }
@@ -4001,6 +4015,11 @@ class AppState extends ChangeNotifier {
       summary: session.summary.copyWith(transactions: mergedTransactions),
     );
     _syncFakeMayaMoneyItems();
+    // Self-heal: retry creating any bucket that's been agreed to but is
+    // still missing, so a transiently-failed creation catches up the next
+    // time the session refreshes successfully, with no manual action
+    // needed from the user.
+    await reconcileFakeMayaBuckets();
     await saveProfile();
     notifyListeners();
   }
