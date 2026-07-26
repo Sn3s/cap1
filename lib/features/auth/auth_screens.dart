@@ -110,8 +110,17 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const _presetAccounts = [
+    (email: 'main@gmail.com', password: 'mainaccount'),
+    (email: 'cashflow@gmail.com', password: 'cashflow'),
+    (email: 'emergency@gmail.com', password: 'emergency'),
+    (email: 'accumulating@gmail.com', password: 'accumulating'),
+    (email: 'freedom@gmail.com', password: 'freedom'),
+  ];
+
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  String? selectedPresetEmail;
   bool busy = false;
 
   @override
@@ -270,6 +279,45 @@ class _LoginScreenState extends State<LoginScreen> {
                       onPressed: () => _runAuth(
                         (state) => state.seedReflectionDemoUser(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedPresetEmail,
+                      isExpanded: true,
+                      decoration:
+                          inputDecoration('Login saved account').copyWith(
+                        prefixIcon: const Icon(
+                          Icons.account_circle_rounded,
+                          color: _body,
+                        ),
+                      ),
+                      items: _presetAccounts
+                          .map(
+                            (account) => DropdownMenuItem(
+                              value: account.email,
+                              child: Text(account.email),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: busy
+                          ? null
+                          : (email) {
+                              if (email == null) return;
+                              final account = _presetAccounts.firstWhere(
+                                (account) => account.email == email,
+                              );
+                              setState(() {
+                                selectedPresetEmail = account.email;
+                                emailController.text = account.email;
+                                passwordController.text = account.password;
+                              });
+                              _runAuth(
+                                (state) => state.signInWithEmail(
+                                  email: account.email,
+                                  password: account.password,
+                                ),
+                              );
+                            },
                     ),
                   ],
                 ),

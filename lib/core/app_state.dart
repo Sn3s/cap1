@@ -2522,6 +2522,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setActionsForGoal({
+    required Iterable<String> allowedActionIds,
+    required Iterable<String> actionIds,
+    bool clearRemovedValues = true,
+  }) {
+    final allowed = allowedActionIds.toSet();
+    final selected = actionIds.where(allowed.contains).toSet();
+    final removed = selectedActionIds.where(allowed.contains).toSet()
+      ..removeAll(selected);
+    selectedActionIds
+      ..removeWhere(allowed.contains)
+      ..addAll(selected);
+    if (clearRemovedValues) {
+      for (final id in removed) {
+        actionFieldValues.remove(id);
+      }
+    }
+    notifyListeners();
+  }
+
   /// Explicitly marks a canonical goal as added via "+ Add Goal". Kept
   /// separate from action-selection overlap checks so that goals sharing
   /// an action id with another goal's catalog can't falsely appear added.

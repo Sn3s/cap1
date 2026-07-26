@@ -5233,7 +5233,11 @@ Future<String> _applyAvailableCashActionSuggestion(
   }
   _applyActionStageCategoryBudgets(state, targetActionId, targetValues);
 
-  state.configureGoalActions(actionIds: ids.where(allowed.contains));
+  state.setActionsForGoal(
+    allowedActionIds: _availableCashGoalActionIds,
+    actionIds: ids.where(allowed.contains),
+    clearRemovedValues: false,
+  );
   await state.saveProfile();
   final targetLabel = _d2Actions[targetActionId]?.text ?? targetActionId;
   return switch (option) {
@@ -10363,6 +10367,10 @@ class _D1GoalDetailScreen extends StatelessWidget {
                   letterSpacing: 1.2,
                 ),
               ),
+              if (goal.id == 'G1') ...[
+                const SizedBox(height: 10),
+                _MaintainCashActionPickerButton(color: goal.layerColor),
+              ],
               const SizedBox(height: 12),
               for (var i = 0; i < actions.length; i++) ...[
                 _D1ActionPanel(action: actions[i], goalColor: goal.layerColor),
@@ -10444,6 +10452,201 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   return [
     for (final id in ids) _availableCashD1ActionMeta(id, state),
   ].whereType<_D1ActionMeta>().toList();
+}
+
+class _MaintainCashActionPickerButton extends StatelessWidget {
+  const _MaintainCashActionPickerButton({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () => _showMaintainCashActionPicker(context),
+      icon: const Icon(Icons.tune_rounded, size: 18),
+      label: const Text('Edit actions'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withValues(alpha: .35)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+}
+
+Future<void> _showMaintainCashActionPicker(BuildContext context) {
+  final state = AppScope.of(context);
+  final explicit = state.selectedActionIds
+      .where(_availableCashGoalActionIds.contains)
+      .toSet();
+  final draft = <String>{
+    if (explicit.isEmpty) ..._availableCashGoalActionIds else ...explicit,
+  };
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (sheetContext, setSheetState) {
+        final canSave = draft.isNotEmpty;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Maintain Available Cash Actions',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (final id in _availableCashGoalActionIds) ...[
+                  _MaintainCashActionToggle(
+                    actionId: id,
+                    selected: draft.contains(id),
+                    onChanged: (selected) {
+                      setSheetState(() {
+                        if (selected) {
+                          draft.add(id);
+                        } else {
+                          draft.remove(id);
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                if (!canSave) ...[
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Keep at least one action active for this goal.',
+                    style: TextStyle(
+                      color: _red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                FilledButton.icon(
+                  onPressed: canSave
+                      ? () async {
+                          state.setActionsForGoal(
+                            allowedActionIds: _availableCashGoalActionIds,
+                            actionIds: draft,
+                          );
+                          await state.saveProfile();
+                          if (sheetContext.mounted) {
+                            Navigator.of(sheetContext).pop();
+                          }
+                        }
+                      : null,
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('Save actions'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _brand,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _MaintainCashActionToggle extends StatelessWidget {
+  const _MaintainCashActionToggle({
+    required this.actionId,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String actionId;
+  final bool selected;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final action = _d2Actions[actionId];
+    return InkWell(
+      onTap: () => onChanged(!selected),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? _brand.withValues(alpha: .08) : _bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? _brand.withValues(alpha: .4) : _border,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Checkbox(
+              value: selected,
+              activeColor: _brand,
+              onChanged: (value) => onChanged(value ?? false),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    actionId,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    action?.text ?? actionId,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 13,
+                      height: 1.3,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 _D1ActionMeta? _emergencyFundD1ActionMeta(String id, AppState state) {
