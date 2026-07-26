@@ -63,6 +63,16 @@ class FirebaseProfileService {
     return snapshot.data();
   }
 
+  static Future<void> deleteProfile(String uid) {
+    return _profileRef(uid).delete();
+  }
+
+  static Future<void> deleteCurrentUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    await user.delete();
+  }
+
   static Future<void> saveProfile({
     required User user,
     required Map<String, dynamic> profile,

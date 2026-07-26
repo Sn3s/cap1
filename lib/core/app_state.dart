@@ -10,6 +10,9 @@ class AppState extends ChangeNotifier {
   String? uid;
   String name = '';
   String email = '';
+  String? _pendingAccountEmail;
+  String? _pendingAccountPassword;
+  bool _pendingGoogleAccount = false;
   String? photoUrl;
   bool onboardingComplete = false;
   String age = '';
@@ -99,6 +102,7 @@ class AppState extends ChangeNotifier {
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
   final Set<String> selectedActionIds = {};
+
   /// Canonical goal ids explicitly added via the Goals page "+ Add Goal"
   /// flow (post-onboarding). The onboarding goal itself is NOT stored here
   /// — it's always derived live from `primaryConcern` — this only tracks
@@ -159,6 +163,10 @@ class AppState extends ChangeNotifier {
   ];
 
   bool get isSignedIn => uid != null;
+  bool get hasPendingEmailAccount =>
+      (_pendingAccountEmail ?? '').trim().isNotEmpty &&
+      (_pendingAccountPassword ?? '').isNotEmpty;
+  bool get hasPendingGoogleAccount => _pendingGoogleAccount;
   bool get hasFakeMayaLink => fakeMayaLink != null;
   List<FakeMayaTransaction> get allTransactions => [
         ...manualTransactions,
@@ -310,6 +318,8 @@ class AppState extends ChangeNotifier {
       return false;
     }
     _applyProfileMap(profile);
+    _applyFirebaseUser(user);
+    await saveProfile();
     notifyListeners();
     return true;
   }
@@ -342,6 +352,7 @@ class AppState extends ChangeNotifier {
     }
     if (profile != null) {
       _applyProfileMap(profile);
+      _applyFirebaseUser(user);
     }
     if (saveAfterSignIn) {
       await saveProfile();
@@ -375,6 +386,8 @@ class AppState extends ChangeNotifier {
       );
     }
     _applyProfileMap(profile);
+    _applyFirebaseUser(user);
+    await saveProfile();
     notifyListeners();
   }
 
@@ -382,10 +395,178 @@ class AppState extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    final credential = await FirebaseProfileService.createUserWithEmail(
-      email: email.trim(),
+    await stageEmailAccount(email: email, password: password);
+  }
+
+  Future<void> stageEmailAccount({
+    required String email,
+    required String password,
+  }) async {
+    final normalizedEmail = email.trim();
+    if (normalizedEmail.isEmpty || !normalizedEmail.contains('@')) {
+      throw FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'Enter a valid email address.',
+      );
+    }
+    if (password.length < 6) {
+      throw FirebaseAuthException(
+        code: 'weak-password',
+        message: 'Password should be at least 6 characters.',
+      );
+    }
+
+    await _voidMatchingIncompleteEmailAccount(
+      email: normalizedEmail,
       password: password,
     );
+
+    this.email = normalizedEmail;
+    _pendingAccountEmail = normalizedEmail;
+    _pendingAccountPassword = password;
+    _pendingGoogleAccount = false;
+    notifyListeners();
+  }
+
+  Future<void> stageGoogleAccount() async {
+    final credential = await FirebaseProfileService.signInWithGoogle(
+      forceFreshSession: true,
+    );
+    final user = credential.user;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'missing-user',
+        message: 'Google sign-in completed without a Firebase user.',
+      );
+    }
+    final profile = await FirebaseProfileService.loadProfile(user.uid);
+    if (profile != null && profile['onboardingComplete'] == true) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: 'email-already-in-use',
+        message:
+            'This Google account already finished onboarding. Please log in or use another account.',
+      );
+    }
+    await FirebaseProfileService.deleteProfile(user.uid);
+    _applyFirebaseUser(user);
+    _pendingAccountEmail = null;
+    _pendingAccountPassword = null;
+    _pendingGoogleAccount = true;
+    notifyListeners();
+  }
+
+  Future<void> _voidMatchingIncompleteEmailAccount({
+    required String email,
+    required String password,
+  }) async {
+    UserCredential credential;
+    try {
+      credential = await FirebaseProfileService.signInWithEmail(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (error.code == 'user-not-found' ||
+          error.code == 'wrong-password' ||
+          error.code == 'invalid-credential') {
+        return;
+      }
+      rethrow;
+    }
+
+    final user = credential.user;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'missing-user',
+        message: 'Sign-in completed without a Firebase user.',
+      );
+    }
+    final profile = await FirebaseProfileService.loadProfile(user.uid);
+    if (profile != null && profile['onboardingComplete'] == true) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: 'email-already-in-use',
+        message:
+            'This email already belongs to an account. Please log in or use another email.',
+      );
+    }
+    await FirebaseProfileService.deleteProfile(user.uid);
+    await FirebaseProfileService.deleteCurrentUser();
+    uid = null;
+    photoUrl = null;
+    onboardingComplete = false;
+  }
+
+  Future<void> completeOnboardingWithCurrentAccount() async {
+    if (isSignedIn) {
+      await _voidSignedInIncompleteProfileBeforeCompletion();
+    } else if (hasPendingEmailAccount) {
+      await _createOrResumePendingEmailAccount();
+    }
+    await saveProfile(markOnboardingComplete: true);
+    _pendingAccountEmail = null;
+    _pendingAccountPassword = null;
+    _pendingGoogleAccount = false;
+    notifyListeners();
+  }
+
+  Future<void> _voidSignedInIncompleteProfileBeforeCompletion() async {
+    final user = FirebaseProfileService.currentUser;
+    if (user == null) return;
+    final profile = await FirebaseProfileService.loadProfile(user.uid);
+    if (profile != null && profile['onboardingComplete'] == true) {
+      await signOut();
+      throw FirebaseAuthException(
+        code: 'email-already-in-use',
+        message:
+            'This account already finished onboarding. Please log in or use another account.',
+      );
+    }
+    await FirebaseProfileService.deleteProfile(user.uid);
+    _applyFirebaseUser(user);
+  }
+
+  Future<void> _createOrResumePendingEmailAccount() async {
+    final pendingEmail = _pendingAccountEmail!.trim();
+    final pendingPassword = _pendingAccountPassword!;
+    UserCredential credential;
+    try {
+      credential = await FirebaseProfileService.createUserWithEmail(
+        email: pendingEmail,
+        password: pendingPassword,
+      );
+    } on FirebaseAuthException catch (error) {
+      if (error.code != 'email-already-in-use') rethrow;
+      credential = await FirebaseProfileService.signInWithEmail(
+        email: pendingEmail,
+        password: pendingPassword,
+      );
+      final existingUser = credential.user;
+      if (existingUser == null) {
+        throw FirebaseAuthException(
+          code: 'missing-user',
+          message: 'Sign-in completed without a Firebase user.',
+        );
+      }
+      final profile = await FirebaseProfileService.loadProfile(
+        existingUser.uid,
+      );
+      if (profile != null && profile['onboardingComplete'] == true) {
+        await signOut();
+        throw FirebaseAuthException(
+          code: 'email-already-in-use',
+          message:
+              'This email already belongs to a completed account. Please log in instead.',
+        );
+      }
+      await FirebaseProfileService.deleteProfile(existingUser.uid);
+      await FirebaseProfileService.deleteCurrentUser();
+      credential = await FirebaseProfileService.createUserWithEmail(
+        email: pendingEmail,
+        password: pendingPassword,
+      );
+    }
     final user = credential.user;
     if (user == null) {
       throw FirebaseAuthException(
@@ -395,8 +576,6 @@ class AppState extends ChangeNotifier {
     }
     await user.updateDisplayName(name.trim().isEmpty ? null : name.trim());
     _applyFirebaseUser(user);
-    if (isSignedIn) await saveProfile();
-    notifyListeners();
   }
 
   Future<void> seedReflectionDemoUser() async {
@@ -445,6 +624,11 @@ class AppState extends ChangeNotifier {
   Future<void> signOut() async {
     await FirebaseProfileService.signOut();
     uid = null;
+    name = '';
+    email = '';
+    _pendingAccountEmail = null;
+    _pendingAccountPassword = null;
+    _pendingGoogleAccount = false;
     photoUrl = null;
     onboardingComplete = false;
     fakeMayaLink = null;
@@ -457,7 +641,7 @@ class AppState extends ChangeNotifier {
     if (name.trim().isEmpty && (user.displayName ?? '').trim().isNotEmpty) {
       name = user.displayName!.trim();
     }
-    if (email.trim().isEmpty && (user.email ?? '').trim().isNotEmpty) {
+    if ((user.email ?? '').trim().isNotEmpty) {
       email = user.email!.trim();
     }
     photoUrl = user.photoURL;
@@ -1006,7 +1190,9 @@ class AppState extends ChangeNotifier {
       'uid': user.uid,
       'onboardingComplete': onboardingComplete,
       'name': name.trim().isEmpty ? user.displayName ?? '' : name.trim(),
-      'email': email.trim().isEmpty ? user.email ?? '' : email.trim(),
+      'email': (user.email ?? '').trim().isNotEmpty
+          ? user.email!.trim()
+          : email.trim(),
       'photoUrl': photoUrl ?? user.photoURL,
       'age': age,
       'occupation': occupation,

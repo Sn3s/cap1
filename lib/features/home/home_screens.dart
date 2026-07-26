@@ -1891,6 +1891,22 @@ Set<String> _insightsAdoptedMotivations(AppState state) {
 bool _insightsIsReflectionDemoAccount(AppState state) =>
     state.email == 'reflection@test.com';
 
+bool _hasAnyInsightTransactionData(AppState state) {
+  return state.allTransactions.any(
+    (transaction) =>
+        !transaction.excludedFromInsights && transaction.createdAt != null,
+  );
+}
+
+bool _hasUsableInsightTransactionData(AppState state) {
+  return state.allTransactions.any(
+    (transaction) =>
+        transaction.isLabeled &&
+        !transaction.excludedFromInsights &&
+        transaction.createdAt != null,
+  );
+}
+
 class _InsightsPageState extends State<InsightsPage> {
   int _goal = 0;
   DateTime? _selectedWeek;
@@ -1914,6 +1930,9 @@ class _InsightsPageState extends State<InsightsPage> {
     final activeIndex = _goal < tabs.length ? _goal : 0;
     final activeMotivation =
         activeIndex == 0 ? null : visibleMotivations[activeIndex - 1].$1;
+    final hasAnyTransactions = _hasAnyInsightTransactionData(state);
+    final hasUsableTransactions = _insightsIsReflectionDemoAccount(state) ||
+        _hasUsableInsightTransactionData(state);
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
@@ -1929,7 +1948,8 @@ class _InsightsPageState extends State<InsightsPage> {
             _selectedMonth = null;
           }),
         ),
-        if (activeMotivation == 'Financial Safety') ...[
+        if (activeMotivation == 'Financial Safety' &&
+            hasUsableTransactions) ...[
           const SizedBox(height: 12),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
@@ -1958,30 +1978,83 @@ class _InsightsPageState extends State<InsightsPage> {
           ),
         ] else
           const SizedBox(height: 12),
-        switch (activeMotivation) {
-          null => _InsightsOverview(state: state, service: service),
-          'Cash Flow & Basic Needs' => _CashReflectionExplorer(
-              state: state,
-              service: service,
-              selectedMonth: _selectedMonth,
-              onMonthSelected: (month) => setState(() {
-                _selectedMonth = month;
-                _selectedWeek = null;
-              }),
-              actionStageKey: _actionStageKey,
-            ),
-          'Financial Safety' => _EmergencyReflectionExplorer(
-              state: state,
-              service: service,
-              selectedWeek: _selectedWeek,
-              onWeekSelected: (week) => setState(() => _selectedWeek = week),
-            ),
-          _ => _MotivationGoalsSummary(
-              state: state,
-              motivation: activeMotivation,
-            ),
-        },
+        if (!hasUsableTransactions)
+          _InsightsNoTransactionDataCard(hasAnyTransactions: hasAnyTransactions)
+        else
+          switch (activeMotivation) {
+            null => _InsightsOverview(state: state, service: service),
+            'Cash Flow & Basic Needs' => _CashReflectionExplorer(
+                state: state,
+                service: service,
+                selectedMonth: _selectedMonth,
+                onMonthSelected: (month) => setState(() {
+                  _selectedMonth = month;
+                  _selectedWeek = null;
+                }),
+                actionStageKey: _actionStageKey,
+              ),
+            'Financial Safety' => _EmergencyReflectionExplorer(
+                state: state,
+                service: service,
+                selectedWeek: _selectedWeek,
+                onWeekSelected: (week) => setState(() => _selectedWeek = week),
+              ),
+            _ => _MotivationGoalsSummary(
+                state: state,
+                motivation: activeMotivation,
+              ),
+          },
       ],
+    );
+  }
+}
+
+class _InsightsNoTransactionDataCard extends StatelessWidget {
+  const _InsightsNoTransactionDataCard({required this.hasAnyTransactions});
+
+  final bool hasAnyTransactions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: AppCard(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const IconBubble(Icons.insights_rounded),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasAnyTransactions
+                        ? 'Not enough transaction data yet'
+                        : 'No transaction data yet',
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    hasAnyTransactions
+                        ? 'Shellby needs more labeled transaction history before it can make reliable goal insights.'
+                        : 'Link a FakeMaya account or log transactions first. Once Shellby has enough activity, your goal insights will appear here.',
+                    style: const TextStyle(
+                      color: _body,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3937,8 +4010,8 @@ class _ActionMeasureCard extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: const Icon(Icons.bolt_rounded,
-                      size: 13, color: _brand),
+                  child:
+                      const Icon(Icons.bolt_rounded, size: 13, color: _brand),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -4566,8 +4639,8 @@ Future<bool?> _confirmActionStageSuggestion(
                         borderRadius: BorderRadius.all(Radius.circular(13)),
                       ),
                       alignment: Alignment.center,
-                      child:
-                          const Icon(Icons.tune_rounded, color: _brand, size: 21),
+                      child: const Icon(Icons.tune_rounded,
+                          color: _brand, size: 21),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -4631,8 +4704,7 @@ Future<bool?> _confirmActionStageSuggestion(
                 if (changes.isEmpty)
                   const Text(
                     'No configurable values will change. This action will only be retained or added to the goal.',
-                    style: TextStyle(
-                        color: _body, fontSize: 12, height: 1.35),
+                    style: TextStyle(color: _body, fontSize: 12, height: 1.35),
                   )
                 else
                   ...changes.map(
@@ -4646,13 +4718,11 @@ Future<bool?> _confirmActionStageSuggestion(
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.of(dialogContext).pop(false),
+                        onPressed: () => Navigator.of(dialogContext).pop(false),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _body,
                           side: const BorderSide(color: _border),
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 13),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -4664,12 +4734,10 @@ Future<bool?> _confirmActionStageSuggestion(
                     const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
-                        onPressed: () =>
-                            Navigator.of(dialogContext).pop(true),
+                        onPressed: () => Navigator.of(dialogContext).pop(true),
                         style: FilledButton.styleFrom(
                           backgroundColor: _brand,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 13),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -5037,8 +5105,7 @@ class _ActionStageChangeRow extends StatelessWidget {
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
-              child:
-                  Icon(Icons.arrow_forward_rounded, size: 16, color: _body),
+              child: Icon(Icons.arrow_forward_rounded, size: 16, color: _body),
             ),
             Expanded(
               child: _ActionStageValueChip(value: row.next, isNew: true),
@@ -9780,8 +9847,8 @@ class _D1GoalsMenu extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: _brand,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(999),
                 ),
@@ -15646,6 +15713,8 @@ class ProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final authEmail = FirebaseProfileService.currentUser?.email?.trim() ?? '';
+    final profileEmail = authEmail.isNotEmpty ? authEmail : state.email;
     final settings = [
       _SettingData(
         'User Selections',
@@ -15725,9 +15794,9 @@ class ProfilePage extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          state.email.isEmpty
+                          profileEmail.isEmpty
                               ? 'Profile saved securely'
-                              : state.email,
+                              : profileEmail,
                           style: TextStyle(
                             color: _body,
                             fontWeight: FontWeight.w600,
@@ -16679,6 +16748,8 @@ class UserSelectionsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final authEmail = FirebaseProfileService.currentUser?.email?.trim() ?? '';
+    final profileEmail = authEmail.isNotEmpty ? authEmail : state.email;
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -16700,7 +16771,7 @@ class UserSelectionsScreen extends StatelessWidget {
                     title: 'Account Details',
                     rows: [
                       ('Name', _fallback(state.name, 'Not provided')),
-                      ('Email', _fallback(state.email, 'Not provided')),
+                      ('Email', _fallback(profileEmail, 'Not provided')),
                     ],
                   ),
                   _SelectionSection(

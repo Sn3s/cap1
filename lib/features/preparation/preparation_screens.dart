@@ -2291,10 +2291,7 @@ class _PreparationCredentialsScreenState
           GoogleSignInButton(
             busy: busy,
             onPressed: () => _runAuth(
-              (state) => state.signInWithGoogle(
-                saveAfterSignIn: false,
-                forceFreshGoogleSession: true,
-              ),
+              (state) => state.stageGoogleAccount(),
             ),
           ),
         ],
@@ -7489,12 +7486,18 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
         onPressed: () async {
           try {
             if (!state.isSignedIn) {
-              await state.signInWithGoogle(
-                saveAfterSignIn: false,
-                forceFreshGoogleSession: true,
-              );
+              if (state.hasPendingEmailAccount) {
+                await state.completeOnboardingWithCurrentAccount();
+              } else {
+                await state.signInWithGoogle(
+                  saveAfterSignIn: false,
+                  forceFreshGoogleSession: true,
+                );
+                await state.completeOnboardingWithCurrentAccount();
+              }
+            } else {
+              await state.completeOnboardingWithCurrentAccount();
             }
-            await state.saveProfile(markOnboardingComplete: true);
             if (!context.mounted) return;
             _pushReplacement(context, const MainShell());
           } catch (error) {
