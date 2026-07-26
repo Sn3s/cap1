@@ -1140,6 +1140,39 @@ class AppState extends ChangeNotifier {
         source: 'Lifestyle Fund',
       ),
     ]);
+    // Emergency Fund: three weeks of recent weekly contributions, so the
+    // Emergency Fund insights page (weekly movement chart, coverage
+    // milestones, months-covered stat) has visible recent data to show.
+    final efWeek3 = today.subtract(const Duration(days: 20));
+    final efWeek2 = today.subtract(const Duration(days: 13));
+    final efWeek1 = today.subtract(const Duration(days: 6));
+    const efWeek3Amount = 1000.0;
+    const efWeek2Amount = 1400.0;
+    const efWeek1Amount = 1100.0;
+    emergencyFundBalance += efWeek3Amount + efWeek2Amount + efWeek1Amount;
+    d1Ledger.insertAll(0, [
+      {
+        'type': 'emergency_deposit',
+        'date': efWeek1.toIso8601String(),
+        'amount': efWeek1Amount,
+        'destination': 'Emergency Fund',
+        'label': 'Weekly Emergency Fund contribution',
+      },
+      {
+        'type': 'emergency_deposit',
+        'date': efWeek2.toIso8601String(),
+        'amount': efWeek2Amount,
+        'destination': 'Emergency Fund',
+        'label': 'Weekly Emergency Fund contribution',
+      },
+      {
+        'type': 'emergency_deposit',
+        'date': efWeek3.toIso8601String(),
+        'amount': efWeek3Amount,
+        'destination': 'Emergency Fund',
+        'label': 'Weekly Emergency Fund contribution',
+      },
+    ]);
     jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     d1Ledger.add({
       'type': 'emergency_deposit',

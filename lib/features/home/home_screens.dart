@@ -2199,6 +2199,26 @@ double lifestyleGoalPercent(AppState state) {
   return _clampPercent((1 - (spent / weeklyLimit)) * 100);
 }
 
+/// Investment Portfolio percent change over the latest 14 days, derived from
+/// `investment_gain`/`investment_loss` ledger entries against the balance
+/// they moved from. Used as the neutral "+/-X%" stat on the Accumulating
+/// Wealth insights header — intentionally not colored green/red there.
+double investmentChangeLast14Days(AppState state) {
+  final cutoff = DateTime.now().subtract(const Duration(days: 14));
+  var delta = 0.0;
+  for (final entry in state.d1Ledger) {
+    final type = entry['type']?.toString();
+    if (type != 'investment_gain' && type != 'investment_loss') continue;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null || date.isBefore(cutoff)) continue;
+    final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+    delta += type == 'investment_gain' ? amount : -amount;
+  }
+  final baseline = state.investmentBalance - delta;
+  if (baseline <= 0) return 0;
+  return (delta / baseline) * 100;
+}
+
 /// Layer -> canonical goal id shown on the Goals page (only these 4 goals
 /// have full `_D1GoalMeta` card content authored).
 const _layerCanonicalGoalId = <String, String>{
@@ -3173,6 +3193,7 @@ class _InsightsPageState extends State<InsightsPage> {
   DateTime? _selectedWeek;
   DateTime? _selectedMonth;
   final _actionStageKey = GlobalKey();
+  final _emergencyActionStageKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -3207,36 +3228,7 @@ class _InsightsPageState extends State<InsightsPage> {
             _selectedMonth = null;
           }),
         ),
-        if (activeMotivation == 'Financial Safety' &&
-            hasUsableTransactions) ...[
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: () {
-                  final analysis = (
-                    'Emergency fund',
-                    _emergencyAnalysisContext(state, service),
-                  );
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ShellbyChatPage(
-                        analysisTitle: analysis.$1,
-                        analysisContext: analysis.$2,
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-                label: const Text('AI Analyze'),
-                style: FilledButton.styleFrom(backgroundColor: _purple),
-              ),
-            ),
-          ),
-        ] else
-          const SizedBox(height: 12),
+        const SizedBox(height: 12),
         if (!hasUsableTransactions)
           _InsightsNoTransactionDataCard(hasAnyTransactions: hasAnyTransactions)
         else
@@ -3257,6 +3249,7 @@ class _InsightsPageState extends State<InsightsPage> {
                 service: service,
                 selectedWeek: _selectedWeek,
                 onWeekSelected: (week) => setState(() => _selectedWeek = week),
+                actionStageKey: _emergencyActionStageKey,
               ),
             _ => _MotivationGoalsSummary(
                 state: state,
@@ -3335,41 +3328,60 @@ class _MotivationGoalsSummary extends StatelessWidget {
         .where((goal) =>
             goalIds.contains(goal.id) && _insightsGoalAdopted(state, goal.id))
         .toList();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Full insights for this goal are on the way. Here's what you've set up so far.",
-            style: TextStyle(
-                color: _body,
-                fontSize: 12.5,
-                height: 1.4,
-                fontWeight: FontWeight.w700),
+    final isWealth = motivation == 'Accumulating Wealth';
+    final change = isWealth ? investmentChangeLast14Days(state) : 0.0;
+    final onTrack = !isWealth && isLifestyleGoalOnTrack(state);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _GoalInsightHeader(
+          icon: isWealth ? Icons.trending_up_rounded : Icons.flag_rounded,
+          title: isWealth ? 'Accumulating Wealth' : 'Financial Freedom',
+          color: isWealth ? _purple : const Color(0xFF6AA8F0),
+          subtitle: isWealth
+              ? 'Investment Portfolio'
+              : 'Steadily build wealth over time',
+          statText: isWealth
+              ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)}% · 14 days'
+              : (onTrack ? 'On track' : null),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Full insights for this goal are on the way. Here's what you've set up so far.",
+                style: TextStyle(
+                    color: _body,
+                    fontSize: 12.5,
+                    height: 1.4,
+                    fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              for (final goal in goals) ...[
+                _D1GoalCard(
+                  goal: goal,
+                  onTap: () {
+                    final shell =
+                        context.findAncestorStateOfType<_MainShellState>();
+                    if (shell != null) {
+                      shell.openGoal(goal.id);
+                    } else {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => GoalsPage(initialGoalId: goal.id),
+                        ),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 14),
+              ],
+            ],
           ),
-          const SizedBox(height: 14),
-          for (final goal in goals) ...[
-            _D1GoalCard(
-              goal: goal,
-              onTap: () {
-                final shell =
-                    context.findAncestorStateOfType<_MainShellState>();
-                if (shell != null) {
-                  shell.openGoal(goal.id);
-                } else {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => GoalsPage(initialGoalId: goal.id),
-                    ),
-                  );
-                }
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -5717,17 +5729,31 @@ void _showCashActionScoreDetails(
   );
 }
 
-class _AvailableCashSuggestionBanner extends StatefulWidget {
-  const _AvailableCashSuggestionBanner({required this.onViewSuggestions});
+/// Goal-agnostic "N suggestions for X" banner: runs the goal's action stage
+/// in the background and, once it resolves, shows a tappable pill that
+/// scrolls down to the Action Stage section. Shared by Available Cash and
+/// Emergency Fund (and any future goal with its own action stage).
+class _GoalSuggestionBanner extends StatefulWidget {
+  const _GoalSuggestionBanner({
+    required this.goalLabel,
+    required this.allowedActionIds,
+    required this.runStage,
+    required this.color,
+    required this.onViewSuggestions,
+  });
+
+  final String goalLabel;
+  final List<String> allowedActionIds;
+  final Future<ActionStageResult> Function(ShellbyAiCoach coach, AppState state)
+      runStage;
+  final Color color;
   final VoidCallback onViewSuggestions;
 
   @override
-  State<_AvailableCashSuggestionBanner> createState() =>
-      _AvailableCashSuggestionBannerState();
+  State<_GoalSuggestionBanner> createState() => _GoalSuggestionBannerState();
 }
 
-class _AvailableCashSuggestionBannerState
-    extends State<_AvailableCashSuggestionBanner> {
+class _GoalSuggestionBannerState extends State<_GoalSuggestionBanner> {
   final _coach = const ShellbyAiCoach();
   bool _started = false;
   bool _loading = true;
@@ -5745,12 +5771,14 @@ class _AvailableCashSuggestionBannerState
   Future<void> _load() async {
     final state = AppScope.of(context);
     try {
-      final result = await _coach.recommendAvailableCashActionStage(
-        state: state,
-      );
+      final result = await widget.runStage(_coach, state);
       if (!mounted) return;
       setState(() {
-        _count = _actionStageDisplaySuggestions(result, state).length;
+        _count = _actionStageDisplaySuggestions(
+          result,
+          state,
+          widget.allowedActionIds,
+        ).length;
         _loading = false;
       });
     } catch (_) {
@@ -5797,11 +5825,11 @@ class _AvailableCashSuggestionBannerState
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: _brand,
+            color: widget.color,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: _brand.withOpacity(0.28),
+                color: widget.color.withValues(alpha: 0.28),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -5814,7 +5842,7 @@ class _AvailableCashSuggestionBannerState
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '$count suggestion${count == 1 ? '' : 's'} for available cash',
+                  '$count suggestion${count == 1 ? '' : 's'} for ${widget.goalLabel}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -5832,16 +5860,35 @@ class _AvailableCashSuggestionBannerState
   }
 }
 
-class _AvailableCashActionStageSection extends StatefulWidget {
-  const _AvailableCashActionStageSection({super.key});
+/// Goal-agnostic Action Stage section: reviews the latest integration data
+/// against a specific goal's action set and lets the user apply the
+/// recommended change. Parameterized so it can drive both Maintain
+/// Available Cash (G1) and Build Emergency Fund (G3) with the same UI.
+class _GoalActionStageSection extends StatefulWidget {
+  const _GoalActionStageSection({
+    super.key,
+    required this.goalId,
+    required this.goalLabel,
+    required this.allowedActionIds,
+    required this.subtitle,
+    required this.emptyMessage,
+    required this.runStage,
+  });
+
+  final String goalId;
+  final String goalLabel;
+  final List<String> allowedActionIds;
+  final String subtitle;
+  final String emptyMessage;
+  final Future<ActionStageResult> Function(ShellbyAiCoach coach, AppState state)
+      runStage;
 
   @override
-  State<_AvailableCashActionStageSection> createState() =>
-      _AvailableCashActionStageSectionState();
+  State<_GoalActionStageSection> createState() =>
+      _GoalActionStageSectionState();
 }
 
-class _AvailableCashActionStageSectionState
-    extends State<_AvailableCashActionStageSection> {
+class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
   final _coach = const ShellbyAiCoach();
   ActionStageResult? _result;
   String? _error;
@@ -5864,9 +5911,7 @@ class _AvailableCashActionStageSectionState
       _error = null;
     });
     try {
-      final result = await _coach.recommendAvailableCashActionStage(
-        state: AppScope.of(context),
-      );
+      final result = await widget.runStage(_coach, AppScope.of(context));
       if (!mounted) return;
       setState(() => _result = result);
     } catch (error) {
@@ -5882,8 +5927,7 @@ class _AvailableCashActionStageSectionState
     return _ExplorerSection(
       eyebrow: 'ACTION STAGE · LATEST 14 DAYS',
       title: 'What should change first?',
-      subtitle:
-          'Shellby reviews the latest integration data against the Maintain Available Cash action set.',
+      subtitle: widget.subtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -5929,6 +5973,7 @@ class _AvailableCashActionStageSectionState
             for (final suggestion in _actionStageDisplaySuggestions(
               _result!,
               AppScope.of(context),
+              widget.allowedActionIds,
             )) ...[
               _ActionStageSuggestionCard(
                 suggestion: suggestion,
@@ -5938,9 +5983,9 @@ class _AvailableCashActionStageSectionState
             ],
           ] else if (!_loading) ...[
             const SizedBox(height: 12),
-            const Text(
-              'The stage will compare current actions with the Maintain Available Cash action set, then rank what to review first.',
-              style: TextStyle(
+            Text(
+              widget.emptyMessage,
+              style: const TextStyle(
                 color: _body,
                 fontSize: 11,
                 height: 1.35,
@@ -5959,12 +6004,16 @@ class _AvailableCashActionStageSectionState
       context,
       state,
       suggestion,
+      allowedActionIds: widget.allowedActionIds,
+      goalLabel: widget.goalLabel,
     );
     if (!mounted || accepted != true) return;
 
-    final message = await _applyAvailableCashActionSuggestion(
+    final message = await _applyActionStageSuggestion(
       state,
       suggestion,
+      allowedActionIds: widget.allowedActionIds,
+      goalLabel: widget.goalLabel,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -5972,11 +6021,11 @@ class _AvailableCashActionStageSectionState
     );
     final shell = context.findAncestorStateOfType<_MainShellState>();
     if (shell != null) {
-      shell.openGoal('G1');
+      shell.openGoal(widget.goalId);
     } else {
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => const GoalsPage(initialGoalId: 'G1'),
+          builder: (_) => GoalsPage(initialGoalId: widget.goalId),
         ),
       );
     }
@@ -5987,17 +6036,19 @@ class _AvailableCashActionStageSectionState
 Future<bool?> _confirmActionStageSuggestion(
   BuildContext context,
   AppState state,
-  ActionStageSuggestion suggestion,
-) {
-  final allowed = _availableCashGoalActionIds.toSet();
+  ActionStageSuggestion suggestion, {
+  required List<String> allowedActionIds,
+  required String goalLabel,
+}) {
+  final allowed = allowedActionIds.toSet();
   final actionId = _actionStageTargetActionId(suggestion);
   if (!allowed.contains(actionId)) {
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Cannot apply this recommendation'),
-        content: const Text(
-          'This recommendation is outside the Maintain Available Cash action set.',
+        content: Text(
+          'This recommendation is outside the $goalLabel action set.',
         ),
         actions: [
           TextButton(
@@ -6177,45 +6228,53 @@ class _ActionStageFirstChange extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: _purple.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: _purple.withValues(alpha: .16)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'First change',
-            style: TextStyle(
-              color: _title,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: _purple.withValues(alpha: .16),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(Icons.bolt_rounded, color: _purple, size: 17),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'First change',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  result.firstChange,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    height: 1.35,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            result.firstChange,
-            style: const TextStyle(
-              color: _body,
-              fontSize: 11,
-              height: 1.35,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (result.summary.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              result.summary,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 10.5,
-                height: 1.35,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -6235,96 +6294,93 @@ class _ActionStageSuggestionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = _actionStageOptionColor(suggestion.option);
     final target = _actionStageTargetText(suggestion.target);
+    final detail = [
+      if (target.isNotEmpty) target,
+      if (suggestion.replacementActionId?.isNotEmpty == true)
+        'Replace: ${suggestion.replacementActionId}',
+    ].join(' · ');
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
           color: _surface,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: _border),
         ),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _actionStageOptionLabel(suggestion.option),
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            detail,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: _title,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                  child: Text(
-                    _actionStageOptionLabel(suggestion.option),
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
+                  const SizedBox(height: 7),
+                  Text(
                     suggestion.actionText.isEmpty
                         ? (_d2Actions[suggestion.actionId]?.text ?? 'Action')
                         : suggestion.actionText,
                     style: const TextStyle(
                       color: _title,
-                      fontSize: 11.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.w900,
                       height: 1.25,
                     ),
                   ),
-                ),
-                const Icon(Icons.chevron_right_rounded, color: _body, size: 18),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              suggestion.reason,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 10.5,
-                height: 1.35,
-                fontWeight: FontWeight.w700,
+                  const SizedBox(height: 4),
+                  Text(
+                    suggestion.reason,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      height: 1.3,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
-            if (target.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Target: $target',
-                style: const TextStyle(
-                  color: _title,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-            if (suggestion.replacementActionId?.isNotEmpty == true) ...[
-              const SizedBox(height: 5),
-              Text(
-                'Replace with: ${suggestion.replacementActionId}',
-                style: const TextStyle(
-                  color: _title,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-            const SizedBox(height: 7),
-            Text(
-              'Tap to review changes.',
-              style: TextStyle(
-                color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded, color: _body, size: 20),
           ],
         ),
       ),
@@ -6408,6 +6464,7 @@ String _actionStageTargetText(Map<String, String> target) {
   final pct = target['pct']?.trim();
   final amount = target['amt']?.trim();
   final days = target['days']?.trim();
+  final months = target['months']?.trim();
   final categories = target['categories']?.trim();
   if (pct?.isNotEmpty == true) parts.add('$pct%');
   if (amount?.isNotEmpty == true) {
@@ -6415,6 +6472,7 @@ String _actionStageTargetText(Map<String, String> target) {
     parts.add(parsed == null ? '₱$amount' : money(parsed));
   }
   if (days?.isNotEmpty == true) parts.add('$days days');
+  if (months?.isNotEmpty == true) parts.add('$months mo.');
   if (categories?.isNotEmpty == true) parts.add(categories!);
   return parts.join(' · ');
 }
@@ -6447,6 +6505,12 @@ String _formatActionStageFieldValue(String key, String value) {
   final numeric = double.tryParse(trimmed.replaceAll(',', ''));
   if (key == 'pct' && numeric != null) return '${numeric.toStringAsFixed(0)}%';
   if (key == 'amt' && numeric != null) return money(numeric);
+  if (key == 'days' && numeric != null) {
+    return '${numeric.toStringAsFixed(0)} days';
+  }
+  if (key == 'months' && numeric != null) {
+    return '${numeric.toStringAsFixed(0)} mo.';
+  }
   return trimmed;
 }
 
@@ -6455,11 +6519,9 @@ List<_ActionStageChange> _actionStageChangeRows({
   required Map<String, String> current,
   required Map<String, String> next,
 }) {
-  final keys = <String>{...current.keys, ...next.keys}
-      .where((key) => key != 'days')
-      .toList();
+  final keys = <String>{...current.keys, ...next.keys}.toList();
   keys.sort((a, b) {
-    const order = ['pct', 'amt', 'categories'];
+    const order = ['pct', 'amt', 'months', 'days', 'categories'];
     final ai = order.indexOf(a);
     final bi = order.indexOf(b);
     if (ai != -1 || bi != -1) {
@@ -6563,15 +6625,16 @@ class _ActionStageValueChip extends StatelessWidget {
 List<ActionStageSuggestion> _actionStageDisplaySuggestions(
   ActionStageResult result,
   AppState state,
+  List<String> allowedActionIds,
 ) {
   final shown = <ActionStageSuggestion>[];
   final seen = <String>{};
   for (final suggestion in result.suggestions) {
-    if (!_availableCashGoalActionIds.contains(suggestion.actionId)) continue;
+    if (!allowedActionIds.contains(suggestion.actionId)) continue;
     final key = '${suggestion.option}:${suggestion.actionId}';
     if (seen.add(key)) shown.add(suggestion);
   }
-  for (final id in _availableCashGoalActionIds) {
+  for (final id in allowedActionIds) {
     if (shown.any((suggestion) => suggestion.actionId == id)) continue;
     final selected = state.selectedActionIds.contains(id);
     shown.add(
@@ -6581,8 +6644,8 @@ List<ActionStageSuggestion> _actionStageDisplaySuggestions(
         actionText: _d2Actions[id]?.text ?? id,
         priority: 50 + shown.length,
         reason: selected
-            ? 'This action is already part of the Maintain Available Cash plan and can be kept if it still matches the latest data.'
-            : 'This is one of the available Maintain Available Cash actions you can add if it fits the latest data.',
+            ? 'This action is already part of the plan and can be kept if it still matches the latest data.'
+            : 'This is one of the available actions you can add if it fits the latest data.',
         target: _defaultActionStageTarget(id, state),
         replacementActionId: null,
       ),
@@ -6603,18 +6666,20 @@ Map<String, String> _defaultActionStageTarget(String id, AppState state) {
   };
 }
 
-Future<String> _applyAvailableCashActionSuggestion(
+Future<String> _applyActionStageSuggestion(
   AppState state,
-  ActionStageSuggestion suggestion,
-) async {
-  final allowed = _availableCashGoalActionIds.toSet();
+  ActionStageSuggestion suggestion, {
+  required List<String> allowedActionIds,
+  required String goalLabel,
+}) async {
+  final allowed = allowedActionIds.toSet();
   final ids = state.selectedActionIds.where(allowed.contains).toList();
-  if (ids.isEmpty) ids.addAll(_availableCashGoalActionIds);
+  if (ids.isEmpty) ids.addAll(allowedActionIds);
 
   final option = suggestion.option;
   var targetActionId = suggestion.actionId;
   if (!allowed.contains(targetActionId)) {
-    return 'This recommendation is outside the Maintain Available Cash action set.';
+    return 'This recommendation is outside the $goalLabel action set.';
   }
 
   if (option == 'remove_and_replace_action') {
@@ -6645,7 +6710,7 @@ Future<String> _applyAvailableCashActionSuggestion(
   _applyActionStageCategoryBudgets(state, targetActionId, targetValues);
 
   state.setActionsForGoal(
-    allowedActionIds: _availableCashGoalActionIds,
+    allowedActionIds: allowedActionIds,
     actionIds: ids.where(allowed.contains),
     clearRemovedValues: false,
   );
@@ -6654,7 +6719,7 @@ Future<String> _applyAvailableCashActionSuggestion(
   return switch (option) {
     'retain_action' => 'Kept: $targetLabel',
     'change_parameterized_target' => 'Updated target for: $targetLabel',
-    'suggest_new_action' => 'Added to Maintain Available Cash: $targetLabel',
+    'suggest_new_action' => 'Added to $goalLabel: $targetLabel',
     'remove_and_replace_action' => 'Replaced with: $targetLabel',
     _ => 'Updated: $targetLabel',
   };
@@ -6711,6 +6776,167 @@ void _applyActionStageCategoryBudgets(
   }
 }
 
+/// Gradient "hero" header shown at the top of each individual goal insights
+/// page (Available Cash / Emergency Fund / Accumulating Wealth / Financial
+/// Freedom), tinted to that goal's assigned color with soft decorative
+/// bubbles. `statText` renders as a neutral pill under the title/subtitle
+/// (e.g. "2.4 mo. covered", "On track", "+3.1%") — intentionally never
+/// tinted green/red so it doesn't read as good/bad news on its own.
+class _GoalInsightHeader extends StatelessWidget {
+  const _GoalInsightHeader({
+    required this.icon,
+    required this.title,
+    required this.color,
+    this.subtitle,
+    this.statText,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+  final String? subtitle;
+  final String? statText;
+
+  @override
+  Widget build(BuildContext context) {
+    final deep = Color.lerp(color, Colors.black, .22)!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [color, deep],
+            ),
+          ),
+          // clipBehavior: none lets the bubbles paint past the content's own
+          // bounds; the sizing spacer below gives them a full-card canvas to
+          // do that on, and the outer ClipRRect trims everything to the
+          // rounded card shape so the bubbles reach every edge cleanly.
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const SizedBox(width: double.infinity, height: 118),
+              const Positioned(
+                left: -26,
+                top: -30,
+                child: _HeaderBubble(size: 90, alpha: .10),
+              ),
+              const Positioned(
+                left: 88,
+                bottom: -38,
+                child: _HeaderBubble(size: 62, alpha: .08),
+              ),
+              const Positioned(
+                right: -26,
+                top: -36,
+                child: _HeaderBubble(size: 104, alpha: .12),
+              ),
+              const Positioned(
+                right: 56,
+                bottom: -32,
+                child: _HeaderBubble(size: 58, alpha: .09),
+              ),
+              const Positioned(
+                right: -16,
+                bottom: -20,
+                child: _HeaderBubble(size: 52, alpha: .15),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .20),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(icon, color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          if (subtitle != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle!,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: .80),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (statText != null) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: .18),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          statText!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderBubble extends StatelessWidget {
+  const _HeaderBubble({required this.size, required this.alpha});
+  final double size;
+  final double alpha;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: alpha),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
 class _CashReflectionExplorer extends StatelessWidget {
   const _CashReflectionExplorer({
     required this.state,
@@ -6734,7 +6960,17 @@ class _CashReflectionExplorer extends StatelessWidget {
 
     return Column(
       children: [
-        _AvailableCashSuggestionBanner(
+        const _GoalInsightHeader(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Available Cash',
+          color: _brand,
+        ),
+        _GoalSuggestionBanner(
+          goalLabel: 'available cash',
+          allowedActionIds: _availableCashGoalActionIds,
+          color: _brand,
+          runStage: (coach, state) =>
+              coach.recommendAvailableCashActionStage(state: state),
           onViewSuggestions: () {
             final target = actionStageKey.currentContext;
             if (target != null) {
@@ -6754,30 +6990,19 @@ class _CashReflectionExplorer extends StatelessWidget {
             onMonthSelected: onMonthSelected,
           ),
           _CashActionProgressSection(month: activeMonth),
-          _AvailableCashActionStageSection(key: actionStageKey),
-        ],
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ShellbyChatPage(
-                      analysisTitle: 'Available cash',
-                      analysisContext:
-                          _availableCashAnalysisContext(state, service),
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.auto_awesome_rounded, size: 18),
-              label: const Text('AI Analyze'),
-              style: FilledButton.styleFrom(backgroundColor: _purple),
-            ),
+          _GoalActionStageSection(
+            key: actionStageKey,
+            goalId: 'G1',
+            goalLabel: 'Maintain Available Cash',
+            allowedActionIds: _availableCashGoalActionIds,
+            subtitle:
+                'Shellby reviews the latest integration data against the Maintain Available Cash action set.',
+            emptyMessage:
+                'The stage will compare current actions with the Maintain Available Cash action set, then rank what to review first.',
+            runStage: (coach, state) =>
+                coach.recommendAvailableCashActionStage(state: state),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -6849,17 +7074,355 @@ class _CashWeekDetail extends StatelessWidget {
   }
 }
 
+/// Suggested minimum monthly Emergency Fund contribution: the user's
+/// configured A9 amount if set, otherwise the same recommendation shown
+/// during onboarding for that action.
+double _emergencyMonthlyContribution(AppState state) {
+  final configured = double.tryParse(
+    (state.actionFieldValues['A9']?['amt'] ?? '').replaceAll(',', '').trim(),
+  );
+  if (configured != null && configured > 0) return configured;
+  return _emergencyMonthlyDepositBase(state);
+}
+
+/// First card on the Emergency Fund insights page: a circular "percent of
+/// target" ring on the left, key fund figures on the right.
+class _EmergencyFundOverviewCard extends StatelessWidget {
+  const _EmergencyFundOverviewCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = state.displayedEmergencyFundBalance;
+    final target = state.emergencyFundTarget;
+    final percent = emergencyFundGoalPercent(state);
+    final monthlyContribution = _emergencyMonthlyContribution(state);
+    final monthsCovered = state.emergencyMonthsCovered;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _CircularGoalRing(percent: percent, color: _red),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Current Fund',
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    money(current),
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 13),
+                  _EmergencyMetricLine(
+                    label: '3-Mo. Target',
+                    value: money(target),
+                  ),
+                  const SizedBox(height: 8),
+                  _EmergencyMetricLine(
+                    label: 'Monthly +',
+                    value: money(monthlyContribution),
+                  ),
+                  const SizedBox(height: 8),
+                  _EmergencyMetricLine(
+                    label: 'Mo. Covered',
+                    value: '${monthsCovered.toStringAsFixed(1)} mo',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmergencyMetricLine extends StatelessWidget {
+  const _EmergencyMetricLine({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Circular "percent of target" progress ring. The percent label stays
+/// black and the "of target" caption grey regardless of the ring color, so
+/// it reads as a neutral measurement rather than good/bad news.
+class _CircularGoalRing extends StatelessWidget {
+  const _CircularGoalRing({
+    required this.percent,
+    required this.color,
+    this.size = 128,
+    this.strokeWidth = 13,
+  });
+
+  final double percent;
+  final Color color;
+  final double size;
+  final double strokeWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = percent.clamp(0.0, 100.0);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: Size(size, size),
+            painter: _GoalRingPainter(
+              percent: clamped,
+              color: color,
+              strokeWidth: strokeWidth,
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${clamped.round()}%',
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'of target',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GoalRingPainter extends CustomPainter {
+  _GoalRingPainter({
+    required this.percent,
+    required this.color,
+    required this.strokeWidth,
+  });
+
+  final double percent;
+  final Color color;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final track = Paint()
+      ..color = _border
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, track);
+
+    if (percent > 0) {
+      final sweep = 2 * math.pi * (percent / 100);
+      final progress = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -math.pi / 2,
+        sweep,
+        false,
+        progress,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _GoalRingPainter oldDelegate) =>
+      oldDelegate.percent != percent || oldDelegate.color != color;
+}
+
+/// Coverage Milestones card: progress toward the 3-month minimum safety net
+/// and the 6-month recommended coverage, both measured against the same
+/// current fund balance.
+class _EmergencyMilestonesCard extends StatelessWidget {
+  const _EmergencyMilestonesCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = state.displayedEmergencyFundBalance;
+    final essentials = state.monthlyEssentialExpenseTotal;
+    final threeMonth =
+        essentials > 0 ? essentials * 3 : state.emergencyFundTarget;
+    final sixMonth =
+        essentials > 0 ? essentials * 6 : state.emergencyFundTarget * 2;
+    return _ExplorerSection(
+      eyebrow: 'COVERAGE MILESTONES',
+      title: 'How far does the fund stretch?',
+      subtitle:
+          'Progress toward the minimum safety net and the recommended full coverage.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CoverageMilestoneRow(
+            title: '3-Month Fund',
+            subtitle: 'Minimum safety net',
+            current: current,
+            target: threeMonth,
+          ),
+          const SizedBox(height: 18),
+          _CoverageMilestoneRow(
+            title: '6-Month Fund',
+            subtitle: 'Recommended coverage',
+            current: current,
+            target: sixMonth,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoverageMilestoneRow extends StatelessWidget {
+  const _CoverageMilestoneRow({
+    required this.title,
+    required this.subtitle,
+    required this.current,
+    required this.target,
+  });
+
+  final String title;
+  final String subtitle;
+  final double current;
+  final double target;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = target <= 0 ? 0.0 : (current / target).clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${(progress * 100).round()}%',
+              style: const TextStyle(
+                color: _title,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _ThinBar(value: progress, color: _red),
+        const SizedBox(height: 6),
+        Text(
+          '${money(current)} of ${money(target)}',
+          style: const TextStyle(
+            color: _body,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _EmergencyReflectionExplorer extends StatelessWidget {
   const _EmergencyReflectionExplorer({
     required this.state,
     required this.service,
     required this.selectedWeek,
     required this.onWeekSelected,
+    required this.actionStageKey,
   });
   final AppState state;
   final IntegrationService service;
   final DateTime? selectedWeek;
   final ValueChanged<DateTime> onWeekSelected;
+  final GlobalKey actionStageKey;
 
   @override
   Widget build(BuildContext context) {
@@ -6898,6 +7461,33 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
 
     return Column(
       children: [
+        _GoalInsightHeader(
+          icon: Icons.shield_rounded,
+          title: 'Emergency Fund',
+          color: _red,
+          subtitle: 'Build a safety net',
+          statText:
+              '${state.emergencyMonthsCovered.toStringAsFixed(1)} mo. covered',
+        ),
+        _GoalSuggestionBanner(
+          goalLabel: 'emergency fund',
+          allowedActionIds: _emergencyFundGoalActionIds,
+          color: _red,
+          runStage: (coach, state) =>
+              coach.recommendEmergencyFundActionStage(state: state),
+          onViewSuggestions: () {
+            final target = actionStageKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOut,
+              );
+            }
+          },
+        ),
+        _EmergencyFundOverviewCard(state: state),
+        _EmergencyMilestonesCard(state: state),
         const _ReflectionQuestion(
           question:
               'When did my emergency fund change, and which events explain the change?',
@@ -6930,6 +7520,19 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
           _EmergencyWeekDetail(week: selected)
         else
           const _ExplorerEmpty(),
+        _EmergencyActivityReflection(state: state),
+        _GoalActionStageSection(
+          key: actionStageKey,
+          goalId: 'G3',
+          goalLabel: 'Build Emergency Fund',
+          allowedActionIds: _emergencyFundGoalActionIds,
+          subtitle:
+              'Shellby reviews the latest Emergency Fund activity against the Build Emergency Fund action set.',
+          emptyMessage:
+              'The stage will compare current actions with the Build Emergency Fund action set, then rank what to review first.',
+          runStage: (coach, state) =>
+              coach.recommendEmergencyFundActionStage(state: state),
+        ),
       ],
     );
   }

@@ -169,6 +169,41 @@ class ShellbyAiCoach {
     );
   }
 
+  Future<ActionStageResult> recommendEmergencyFundActionStage({
+    required AppState state,
+  }) async {
+    if (!isConfigured) {
+      throw const AiSetupException();
+    }
+
+    final parsed = await _sendJson(
+      instructions: _emergencyFundActionStageInstructions,
+      input: _emergencyFundActionStageInput(state),
+      maxOutputTokens: 900,
+    );
+    final rawSuggestions = parsed['suggestions'];
+    final suggestions = rawSuggestions is List
+        ? rawSuggestions
+            .whereType<Map<String, dynamic>>()
+            .map(_actionStageSuggestionFromJson)
+            .where((item) => item.actionId.isNotEmpty)
+            .toList()
+        : <ActionStageSuggestion>[];
+    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
+    return ActionStageResult(
+      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
+          ? (parsed['summary'] as String).trim()
+          : 'Shellby reviewed the latest 14 days and prepared action updates.',
+      firstChange:
+          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
+              ? (parsed['first_change'] as String).trim()
+              : (suggestions.isEmpty
+                  ? 'No change is recommended yet.'
+                  : suggestions.first.reason),
+      suggestions: suggestions,
+    );
+  }
+
   Future<Map<String, dynamic>> _sendJson({
     required String instructions,
     required String input,
@@ -742,6 +777,71 @@ Analyze the integration data and recommend what to change first.
 ''';
   }
 
+  String _emergencyFundActionStageInput(AppState state) {
+    final now = DateTime.now();
+    final allTransactions = state.allTransactions
+        .where((transaction) => transaction.createdAt != null)
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now));
+    final latestDate = allTransactions.isEmpty
+        ? now
+        : allTransactions.first.createdAt!.toLocal();
+    final cutoff = DateTime(
+      latestDate.year,
+      latestDate.month,
+      latestDate.day,
+    ).subtract(const Duration(days: 13));
+    final activity = _emergencyReflectionActivity(state)
+        .where((item) => !item.date.isBefore(cutoff))
+        .toList();
+    final added = activity
+        .where((item) => item.add)
+        .fold(0.0, (sum, item) => sum + item.amount);
+    final used = activity
+        .where((item) => !item.add)
+        .fold(0.0, (sum, item) => sum + item.amount);
+    final currentActions = state.selectedActionIds
+        .where(_emergencyFundGoalActionIds.contains)
+        .map((id) {
+      final action = _d2Actions[id];
+      final values = state.actionFieldValues[id] ?? const <String, String>{};
+      return '- $id: ${action?.text ?? id}; current_target=${jsonEncode(values)}';
+    }).join('\n');
+    final candidateActions = _emergencyFundGoalActionIds
+        .map((id) => '- $id: ${_d2Actions[id]?.text ?? id}')
+        .join('\n');
+    final activityLines = activity.take(20).map((item) {
+      return '- ${_shortDate(item.date)}: ${item.title}; ${item.add ? 'added' : 'used'} ${money(item.amount)}; ${item.detail}';
+    }).join('\n');
+
+    return '''
+Goal: Build Emergency Fund.
+Action stage window: latest 14 days from ${_shortDate(cutoff)} to ${_shortDate(latestDate)}.
+
+Emergency Fund balances:
+- Current fund balance: ${money(state.displayedEmergencyFundBalance)}
+- Three-month target: ${money(state.emergencyFundTarget)}
+- Monthly essential expenses: ${money(state.monthlyEssentialExpenseTotal)}
+- Months currently covered: ${state.emergencyMonthsCovered.toStringAsFixed(1)}
+- Pending replenishment: ${money(state.pendingEmergencyReplenishment)}
+
+Latest 14-day totals:
+- Added to fund: ${money(added)}
+- Used from fund: ${money(used)}
+
+Current configured actions:
+${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentActions}
+
+Available action set:
+$candidateActions
+
+Emergency fund activity, latest 14 days:
+${activityLines.isEmpty ? 'No emergency fund activity recorded in the latest 14 days.' : activityLines}
+
+Analyze the integration data and recommend what to change first.
+''';
+  }
+
   String _fallbackGoalTitle(String concern) {
     return switch (concern) {
       'Managing debt' => 'Debt Reset',
@@ -1137,6 +1237,59 @@ Return only valid JSON:
         "pct": "number if A1 percentage is recommended",
         "amt": "number if A3 peso cap is recommended",
         "categories": "comma-separated categories if A3 is recommended"
+      },
+      "replacement_action_id": "action id only for remove_and_replace_action, otherwise null"
+    }
+  ]
+}
+''';
+
+const _emergencyFundActionStageInstructions = '''
+You are Shellby, the Action Stage AI for a Philippine personal finance app.
+Your job is to analyze the user's latest 14 days of Emergency Fund activity and recommend the first Build Emergency Fund action change.
+
+Allowed actions only:
+- A9: Deposit at least ₱X into the Emergency Fund each month.
+- A8: Set aside X% of each income for the Emergency Fund.
+- A22: Build your Emergency Fund to cover X months of essential expenses.
+- A10: Replenish withdrawn Emergency Fund amounts within X days after receiving income.
+
+Allowed recommendation option values only:
+- retain_action
+- change_parameterized_target
+- suggest_new_action
+- remove_and_replace_action
+
+Rules:
+- Use only the provided Emergency Fund balance, target, and activity data.
+- Prioritize the suggestion that should be changed first.
+- Return 1-2 suggestions when data is available, ordered by priority.
+- If a current action is working, retain it.
+- If the action is useful but the parameter looks too high/low for the target and months covered, choose change_parameterized_target.
+- If A9 or A8 is missing and the data shows contributions are inconsistent or behind target, choose suggest_new_action.
+- If there is a pending replenishment and no A10 configured, prioritize suggesting A10.
+- If an existing Build Emergency Fund action is less useful than another allowed action, choose remove_and_replace_action.
+- Do not mention available cash, essential expenses fund, or actions outside A8, A9, A10, and A22.
+- Do not recommend products, banks, securities, borrowing, or regulated financial advice.
+- Keep reasons concrete and cite a relevant amount, month count, or 14-day pattern.
+- Use PHP amounts.
+
+Return only valid JSON:
+{
+  "summary": "1 short paragraph interpreting the latest 14 days",
+  "first_change": "the first thing the user should review or change",
+  "suggestions": [
+    {
+      "priority": 1,
+      "option": "retain_action | change_parameterized_target | suggest_new_action | remove_and_replace_action",
+      "action_id": "A8 | A9 | A10 | A22",
+      "action_text": "short action label",
+      "reason": "specific reason grounded in the data",
+      "target": {
+        "pct": "number if A8 percentage is recommended",
+        "amt": "number if A9 peso minimum is recommended",
+        "days": "number if A10 replenish window is recommended",
+        "months": "number if A22 months of coverage is recommended"
       },
       "replacement_action_id": "action id only for remove_and_replace_action, otherwise null"
     }

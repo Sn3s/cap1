@@ -54,7 +54,7 @@ void main() {
       isTrue,
     );
     expect(state.emergencyFundTarget, 27000);
-    expect(state.emergencyMonths, closeTo(23000 / 9000, .001));
+    expect(state.emergencyMonths, closeTo(26500 / 9000, .001));
     expect(state.investmentBalance, 32000);
     expect(state.investmentEarningsThisMonth, 900);
     expect(state.investmentLossesThisMonth, 250);
