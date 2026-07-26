@@ -214,6 +214,78 @@ class FakeMayaService {
     );
   }
 
+  static Future<FakeMayaSession> withdrawFromPersonalGoal({
+    required FakeMayaLink link,
+    required double amount,
+    String? personalGoalId,
+  }) async {
+    if (amount <= 0) {
+      throw const FakeMayaException('Enter a valid withdrawal amount.');
+    }
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    final personalGoal = summary.personalGoalById(personalGoalId) ??
+        summary.personalGoalById(summary.selectedGoalId) ??
+        summary.personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId);
+    if (personalGoal == null) {
+      throw const FakeMayaException('Personal goal was not found.');
+    }
+    if (amount > personalGoal.balance) {
+      throw const FakeMayaException('Not enough in this FakeMaya goal.');
+    }
+    final nextPersonalGoals = summary.personalGoalsWithWithdrawal(
+      personalGoal.id,
+      amount,
+    );
+    final transaction = FakeMayaTransaction(
+      title: 'Withdrawn from goal',
+      detail: personalGoal.name,
+      age: 'Just now',
+      amountText: '- ${_formatPeso(amount)}',
+      createdAt: DateTime.now(),
+    );
+    final nextSummary = summary.copyWith(
+      wallet: summary.wallet + amount,
+      goalBalance: nextPersonalGoals.fold<double>(
+        0,
+        (total, goal) => total + goal.balance,
+      ),
+      goalName: personalGoal.name,
+      goalEmoji: personalGoal.emoji,
+      goalTarget: personalGoal.target,
+      selectedGoalId: personalGoal.id,
+      personalGoals: nextPersonalGoals,
+      transactions: [transaction, ...summary.transactions],
+      updatedAt: DateTime.now(),
+    );
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': nextSummary.wallet,
+        'savings': nextSummary.savings,
+        'time_deposit': nextSummary.timeDeposit,
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
   static Future<FakeMayaSession> allocateFromWallet({
     required FakeMayaLink link,
     required double amount,
@@ -755,6 +827,24 @@ class FakeMayaAccountSummary {
       );
     }
     return updated;
+  }
+
+  List<FakeMayaPersonalGoal> personalGoalsWithWithdrawal(
+    String? id,
+    double amount,
+  ) {
+    final targetId =
+        (id?.trim().isNotEmpty == true ? id!.trim() : selectedGoalId);
+    final goals = personalGoals.isEmpty
+        ? FakeMayaPersonalGoal.defaultGoals()
+        : personalGoals;
+    return [
+      for (final goal in goals)
+        if (goal.id == targetId)
+          goal.copyWith(balance: math.max(0, goal.balance - amount))
+        else
+          goal,
+    ];
   }
 
   FakeMayaPersonalGoal _legacyPersonalGoal() {

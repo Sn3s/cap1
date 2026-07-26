@@ -1403,6 +1403,14 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
   var stable = entry?.data['stable'] == true;
   var scheduled = entry?.data['scheduled'] == true;
   var payDay = (entry?.data['payDay'] as num?)?.toInt();
+  var scheduleAnchorType =
+      entry?.data['scheduleAnchorType']?.toString() == 'last' ? 'last' : 'next';
+  var scheduleAnchorDate = DateTime.tryParse(
+    entry?.data['scheduleAnchorDate']?.toString() ?? '',
+  );
+  var repeatFrequency = _normalizedScheduleRepeat(
+    entry?.data['repeatFrequency']?.toString(),
+  );
   return showDialog<Map<String, dynamic>>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -1441,16 +1449,37 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
                     setDialogState(() => scheduled = value ?? false),
                 title: const Text('Scheduled income'),
               ),
-              if (scheduled)
-                DropdownButtonFormField<int>(
-                  value: payDay,
-                  decoration: inputDecoration('Expected pay day'),
-                  items: [
-                    for (var day = 1; day <= 31; day++)
-                      DropdownMenuItem(value: day, child: Text('Day $day')),
-                  ],
-                  onChanged: (value) => setDialogState(() => payDay = value),
+              if (scheduled) ...[
+                const SizedBox(height: 8),
+                _ScheduleEditor(
+                  title: 'Income schedule',
+                  icon: Icons.payments_rounded,
+                  anchorType: scheduleAnchorType,
+                  lastLabel: 'Last received',
+                  nextLabel: 'Next expected',
+                  anchorDate: scheduleAnchorDate,
+                  repeatFrequency: repeatFrequency,
+                  missingDateMessage: 'Choose a known income date.',
+                  onAnchorTypeChanged: (value) =>
+                      setDialogState(() => scheduleAnchorType = value),
+                  onPickDate: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: scheduleAnchorDate ?? now,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 5),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() {
+                      scheduleAnchorDate = picked;
+                      payDay = picked.day;
+                    });
+                  },
+                  onRepeatChanged: (value) =>
+                      setDialogState(() => repeatFrequency = value),
                 ),
+              ],
             ],
           ),
         ),
@@ -1463,12 +1492,17 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
             onPressed: () {
               final parsed = _baselineAmount(amount.text);
               if (name.text.trim().isEmpty || parsed <= 0) return;
+              final inferredPayDay = scheduleAnchorDate?.day ?? payDay;
               Navigator.pop(context, {
                 'name': name.text.trim(),
                 'amount': parsed,
                 'stable': stable,
                 'scheduled': scheduled,
-                'payDay': scheduled ? payDay : null,
+                'payDay': scheduled ? inferredPayDay : null,
+                'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
+                'scheduleAnchorDate':
+                    scheduled ? scheduleAnchorDate?.toIso8601String() : null,
+                'repeatFrequency': scheduled ? repeatFrequency : null,
                 'layer': layer,
               });
             },
@@ -1500,6 +1534,14 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
   }
   var scheduled = entry?.data['scheduled'] == true;
   var dueDay = (entry?.data['dueDay'] as num?)?.toInt();
+  var scheduleAnchorType =
+      entry?.data['scheduleAnchorType']?.toString() == 'last' ? 'last' : 'next';
+  var scheduleAnchorDate = DateTime.tryParse(
+    entry?.data['scheduleAnchorDate']?.toString() ?? '',
+  );
+  var repeatFrequency = _normalizedScheduleRepeat(
+    entry?.data['repeatFrequency']?.toString(),
+  );
   return showDialog<Map<String, dynamic>>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -1543,16 +1585,37 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
                     setDialogState(() => scheduled = value ?? false),
                 title: const Text('Scheduled bill'),
               ),
-              if (scheduled)
-                DropdownButtonFormField<int>(
-                  value: dueDay,
-                  decoration: inputDecoration('Expected due day'),
-                  items: [
-                    for (var day = 1; day <= 31; day++)
-                      DropdownMenuItem(value: day, child: Text('Day $day')),
-                  ],
-                  onChanged: (value) => setDialogState(() => dueDay = value),
+              if (scheduled) ...[
+                const SizedBox(height: 8),
+                _ScheduleEditor(
+                  title: 'Bill schedule',
+                  icon: Icons.receipt_long_rounded,
+                  anchorType: scheduleAnchorType,
+                  lastLabel: 'Last paid',
+                  nextLabel: 'Next due',
+                  anchorDate: scheduleAnchorDate,
+                  repeatFrequency: repeatFrequency,
+                  missingDateMessage: 'Choose a known bill date.',
+                  onAnchorTypeChanged: (value) =>
+                      setDialogState(() => scheduleAnchorType = value),
+                  onPickDate: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: scheduleAnchorDate ?? now,
+                      firstDate: DateTime(now.year - 5),
+                      lastDate: DateTime(now.year + 5),
+                    );
+                    if (picked == null) return;
+                    setDialogState(() {
+                      scheduleAnchorDate = picked;
+                      dueDay = picked.day;
+                    });
+                  },
+                  onRepeatChanged: (value) =>
+                      setDialogState(() => repeatFrequency = value),
                 ),
+              ],
             ],
           ),
         ),
@@ -1565,13 +1628,18 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
             onPressed: () {
               final parsed = _baselineAmount(amount.text);
               if (name.text.trim().isEmpty || parsed <= 0) return;
+              final inferredDueDay = scheduleAnchorDate?.day ?? dueDay;
               Navigator.pop(context, {
                 'name': name.text.trim(),
                 'amount': parsed,
                 'essential': expenseLayer == ExpenseLayer.basicNeeds,
                 'expenseType': expenseLayer?.name,
                 'scheduled': scheduled,
-                'dueDay': scheduled ? dueDay : null,
+                'dueDay': scheduled ? inferredDueDay : null,
+                'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
+                'scheduleAnchorDate':
+                    scheduled ? scheduleAnchorDate?.toIso8601String() : null,
+                'repeatFrequency': scheduled ? repeatFrequency : null,
               });
             },
             child: const Text('Save'),
@@ -4009,6 +4077,8 @@ Selected category budgets:
 ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
 Monthly cash indexes:
 ${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, wallet available ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
+Open basic-needs bill obligations:
+${state.openBasicNeedsBillObligations.isEmpty ? 'No unpaid basic-needs bill obligations.' : state.openBasicNeedsBillObligations.map((bill) => '- ${bill['name']}: remaining ${money(_billRemaining(bill))}').join('\n')}
 Current month action evidence:
 - Essential deposits recorded: ${money(essentialDeposits)}
 ${actionScores.map((score) => '- ${score.id}: ${_scorePercent(score.score)}%, ${score.detail}; formula=${score.formula}').join('\n')}
@@ -4170,6 +4240,7 @@ class _CashMonthInsight {
     required this.spending,
     required this.billNeed,
     required this.walletAvailable,
+    required this.openObligations,
     required this.incomeSources,
     required this.spendingCategories,
     required this.actionScores,
@@ -4182,6 +4253,7 @@ class _CashMonthInsight {
   final double spending;
   final double billNeed;
   final double walletAvailable;
+  final List<Map<String, dynamic>> openObligations;
   final Map<String, double> incomeSources;
   final Map<String, double> spendingCategories;
   final List<_CashActionScore> actionScores;
@@ -4246,6 +4318,43 @@ List<String> _weekLabels(List<WeekRecord> weeks) {
   ];
 }
 
+bool _isScheduledBasicNeedsBill(Map<String, dynamic> expense) {
+  return expenseLayerForLedger(expense) == ExpenseLayer.basicNeeds &&
+      expense['scheduled'] == true &&
+      DateTime.tryParse(expense['scheduleAnchorDate']?.toString() ?? '') !=
+          null;
+}
+
+List<Map<String, dynamic>> _scheduledBasicNeedsBills(AppState state) {
+  return state.onboardingExpenseLedger
+      .where(_isScheduledBasicNeedsBill)
+      .map((expense) => Map<String, dynamic>.from(expense))
+      .toList();
+}
+
+DateTime? _scheduledBillDueDateForMonth(
+  Map<String, dynamic> expense,
+  DateTime month,
+) {
+  final anchor =
+      DateTime.tryParse(expense['scheduleAnchorDate']?.toString() ?? '');
+  if (anchor == null) return null;
+  final lastDay = DateTime(month.year, month.month + 1, 0).day;
+  return DateTime(
+      month.year, month.month, math.min(anchor.day, lastDay).toInt());
+}
+
+double _scheduledBasicNeedsBillNeedForMonth(
+  AppState state,
+  DateTime month,
+) {
+  return _scheduledBasicNeedsBills(state).fold<double>(0, (total, expense) {
+    final due = _scheduledBillDueDateForMonth(expense, month);
+    if (due == null || !_sameMonth(due, month)) return total;
+    return total + _doubleValue(expense['amount'], 0);
+  });
+}
+
 List<_CashMonthInsight> _cashMonthsFor(
   AppState state,
   IntegrationService service,
@@ -4259,6 +4368,15 @@ List<_CashMonthInsight> _cashMonthsFor(
   final starts = <DateTime>{
     ...service.weekRecords.map((week) => _monthStart(week.start)),
     ...transactions.map((transaction) => _monthStart(transaction.createdAt!)),
+    ...state.openBasicNeedsBillObligations
+        .map((bill) => DateTime.tryParse(bill['dueDate']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .map(_monthStart),
+    ..._scheduledBasicNeedsBills(state)
+        .map((bill) =>
+            DateTime.tryParse(bill['scheduleAnchorDate']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .map(_monthStart),
   }.toList()
     ..sort();
   return starts.map((month) {
@@ -4277,10 +4395,16 @@ List<_CashMonthInsight> _cashMonthsFor(
     final spending = monthTransactions
         .where((transaction) => transaction.amount < 0)
         .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-    final billSpend = monthTransactions
-        .where(_isBillLikeTransaction)
-        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-    final billNeed = math.max(billSpend, _monthlyBillBase(state));
+    final monthObligations = state.openBasicNeedsBillObligations.where((bill) {
+      final due = DateTime.tryParse(bill['dueDate']?.toString() ?? '');
+      return due == null || _sameMonth(due, month);
+    }).toList();
+    final obligationNeed = monthObligations.fold<double>(
+      0,
+      (total, bill) => total + _billRemaining(bill),
+    );
+    final billNeed =
+        _scheduledBasicNeedsBillNeedForMonth(state, month) + obligationNeed;
     final wallet = math.max(
       state.accountBalance('Wallet'),
       state.cashOnHandBalance,
@@ -4302,6 +4426,7 @@ List<_CashMonthInsight> _cashMonthsFor(
       spending: spending,
       billNeed: billNeed,
       walletAvailable: wallet,
+      openObligations: monthObligations,
       incomeSources: incomeSources,
       spendingCategories: spendingCategories,
       actionScores: _availableCashActionScores(
@@ -4881,6 +5006,63 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  if (month.openObligations.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: _amber.withValues(alpha: .08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _amber.withValues(alpha: .2),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Unpaid bills included',
+                            style: TextStyle(
+                              color: _title,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          for (final bill in month.openObligations.take(3))
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      bill['name']?.toString() ??
+                                          'Basic needs bill',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: _body,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    money(_billRemaining(bill)),
+                                    style: const TextStyle(
+                                      color: _amber,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -11616,10 +11798,8 @@ class _D1GoalDetailScreen extends StatelessWidget {
                   letterSpacing: 1.2,
                 ),
               ),
-              if (goal.id == 'G1') ...[
-                const SizedBox(height: 10),
-                _MaintainCashActionPickerButton(color: goal.layerColor),
-              ],
+              const SizedBox(height: 10),
+              _GoalActionPickerButton(goal: goal),
               const SizedBox(height: 12),
               for (var i = 0; i < actions.length; i++) ...[
                 _D1ActionPanel(action: actions[i], goalColor: goal.layerColor),
@@ -11629,6 +11809,11 @@ class _D1GoalDetailScreen extends StatelessWidget {
           ),
         ),
         if (goal.id == 'G1') ...[
+          const SizedBox(height: 24),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _BillObligationsPanel(),
+          ),
           const SizedBox(height: 24),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
@@ -11703,20 +11888,20 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   ].whereType<_D1ActionMeta>().toList();
 }
 
-class _MaintainCashActionPickerButton extends StatelessWidget {
-  const _MaintainCashActionPickerButton({required this.color});
+class _GoalActionPickerButton extends StatelessWidget {
+  const _GoalActionPickerButton({required this.goal});
 
-  final Color color;
+  final _D1GoalMeta goal;
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: () => _showMaintainCashActionPicker(context),
+      onPressed: () => _showGoalActionPicker(context, goal),
       icon: const Icon(Icons.tune_rounded, size: 18),
       label: const Text('Edit actions'),
       style: OutlinedButton.styleFrom(
-        foregroundColor: color,
-        side: BorderSide(color: color.withValues(alpha: .35)),
+        foregroundColor: goal.layerColor,
+        side: BorderSide(color: goal.layerColor.withValues(alpha: .35)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         textStyle: const TextStyle(fontWeight: FontWeight.w900),
@@ -11725,13 +11910,13 @@ class _MaintainCashActionPickerButton extends StatelessWidget {
   }
 }
 
-Future<void> _showMaintainCashActionPicker(BuildContext context) {
+Future<void> _showGoalActionPicker(BuildContext context, _D1GoalMeta goal) {
   final state = AppScope.of(context);
-  final explicit = state.selectedActionIds
-      .where(_availableCashGoalActionIds.contains)
-      .toSet();
+  final allowedActionIds = _goalActionIds[goal.id] ?? const <String>[];
+  final explicit =
+      state.selectedActionIds.where(allowedActionIds.contains).toSet();
   final draft = <String>{
-    if (explicit.isEmpty) ..._availableCashGoalActionIds else ...explicit,
+    if (explicit.isEmpty) ...allowedActionIds else ...explicit,
   };
   return showModalBottomSheet<void>(
     context: context,
@@ -11757,10 +11942,10 @@ Future<void> _showMaintainCashActionPicker(BuildContext context) {
               children: [
                 Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'Maintain Available Cash Actions',
-                        style: TextStyle(
+                        '${goal.title} Actions',
+                        style: const TextStyle(
                           color: _title,
                           fontSize: 18,
                           fontWeight: FontWeight.w900,
@@ -11774,10 +11959,11 @@ Future<void> _showMaintainCashActionPicker(BuildContext context) {
                   ],
                 ),
                 const SizedBox(height: 8),
-                for (final id in _availableCashGoalActionIds) ...[
-                  _MaintainCashActionToggle(
+                for (final id in allowedActionIds) ...[
+                  _GoalActionToggle(
                     actionId: id,
                     selected: draft.contains(id),
+                    color: goal.layerColor,
                     onChanged: (selected) {
                       setSheetState(() {
                         if (selected) {
@@ -11806,7 +11992,7 @@ Future<void> _showMaintainCashActionPicker(BuildContext context) {
                   onPressed: canSave
                       ? () async {
                           state.setActionsForGoal(
-                            allowedActionIds: _availableCashGoalActionIds,
+                            allowedActionIds: allowedActionIds,
                             actionIds: draft,
                           );
                           await state.saveProfile();
@@ -11818,7 +12004,7 @@ Future<void> _showMaintainCashActionPicker(BuildContext context) {
                   icon: const Icon(Icons.check_rounded),
                   label: const Text('Save actions'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: _brand,
+                    backgroundColor: goal.layerColor,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
@@ -11831,15 +12017,17 @@ Future<void> _showMaintainCashActionPicker(BuildContext context) {
   );
 }
 
-class _MaintainCashActionToggle extends StatelessWidget {
-  const _MaintainCashActionToggle({
+class _GoalActionToggle extends StatelessWidget {
+  const _GoalActionToggle({
     required this.actionId,
     required this.selected,
+    required this.color,
     required this.onChanged,
   });
 
   final String actionId;
   final bool selected;
+  final Color color;
   final ValueChanged<bool> onChanged;
 
   @override
@@ -11851,10 +12039,10 @@ class _MaintainCashActionToggle extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? _brand.withValues(alpha: .08) : _bg,
+          color: selected ? color.withValues(alpha: .08) : _bg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? _brand.withValues(alpha: .4) : _border,
+            color: selected ? color.withValues(alpha: .4) : _border,
           ),
         ),
         child: Row(
@@ -11862,7 +12050,7 @@ class _MaintainCashActionToggle extends StatelessWidget {
           children: [
             Checkbox(
               value: selected,
-              activeColor: _brand,
+              activeColor: color,
               onChanged: (value) => onChanged(value ?? false),
             ),
             const SizedBox(width: 8),
@@ -12848,6 +13036,491 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BillObligationsPanel extends StatelessWidget {
+  const _BillObligationsPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final openBills = state.openBasicNeedsBillObligations;
+    final totalNeed = state.openBasicNeedsBillNeed;
+    final scheduledCount = _scheduledBasicNeedsBills(state).length;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: _amber.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.receipt_long_rounded,
+                  color: _amber,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Basic Needs Bills',
+                      style: TextStyle(
+                        color: _title,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      totalNeed > 0
+                          ? '${money(totalNeed)} still needs to be covered'
+                          : scheduledCount > 0
+                              ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
+                              : 'Add a scheduled Basic Needs bill first',
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _showBillPlanSheet(context),
+                icon: const Icon(Icons.playlist_add_rounded, size: 18),
+                label: const Text('Check bill'),
+              ),
+            ],
+          ),
+          if (openBills.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final bill in openBills.take(3)) ...[
+              _BillObligationRow(bill: bill),
+              if (bill != openBills.take(3).last)
+                const Divider(height: 14, color: _border),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BillObligationRow extends StatelessWidget {
+  const _BillObligationRow({required this.bill});
+
+  final Map<String, dynamic> bill;
+
+  @override
+  Widget build(BuildContext context) {
+    final expected = _doubleValue(bill['expectedAmount'], 0);
+    final paid = _doubleValue(bill['paidAmount'], 0);
+    final remaining = math.max(0.0, expected - paid);
+    final dueDate = DateTime.tryParse(bill['dueDate']?.toString() ?? '');
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                bill['name']?.toString() ?? 'Basic needs bill',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                dueDate == null
+                    ? 'Paid ${money(paid)} of ${money(expected)}'
+                    : '${_shortDate(dueDate)} · Paid ${money(paid)} of ${money(expected)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: _red.withValues(alpha: .08),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: _red.withValues(alpha: .18)),
+          ),
+          child: Text(
+            money(remaining),
+            style: const TextStyle(
+              color: _red,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+Future<void> _showBillPlanSheet(BuildContext context) async {
+  final state = AppScope.of(context);
+  final openBills = state.openBasicNeedsBillObligations;
+  final scheduledBills = _scheduledBasicNeedsBills(state);
+  final currentMonth = _monthStart(DateTime.now());
+  final candidates = <({
+    String label,
+    String? obligationId,
+    String name,
+    double amount,
+    double paid,
+    DateTime? dueDate
+  })>[
+    for (final bill in openBills)
+      (
+        label:
+            '${bill['name'] ?? 'Bill'} · remaining ${money(_billRemaining(bill))}',
+        obligationId: bill['id']?.toString(),
+        name: bill['name']?.toString() ?? 'Basic needs bill',
+        amount: _doubleValue(bill['expectedAmount'], 0),
+        paid: _doubleValue(bill['paidAmount'], 0),
+        dueDate: DateTime.tryParse(bill['dueDate']?.toString() ?? ''),
+      ),
+    for (final expense in scheduledBills)
+      (
+        label:
+            '${expense['name']?.toString() ?? 'Basic needs bill'} · ${_shortDate(_scheduledBillDueDateForMonth(expense, currentMonth) ?? currentMonth)}',
+        obligationId: null,
+        name: expense['name']?.toString() ?? 'Basic needs bill',
+        amount: _doubleValue(expense['amount'], 0),
+        paid: 0.0,
+        dueDate: _scheduledBillDueDateForMonth(expense, currentMonth),
+      ),
+  ];
+  final hasBillCandidates = candidates.isNotEmpty;
+  final initial = candidates.isNotEmpty
+      ? candidates.first
+      : (
+          label: 'No scheduled bill',
+          obligationId: null,
+          name: '',
+          amount: 0.0,
+          paid: 0.0,
+          dueDate: null,
+        );
+  var selected = initial;
+  final nameController = TextEditingController(text: initial.name);
+  final amountController =
+      TextEditingController(text: initial.amount.toStringAsFixed(0));
+  final essentialController = TextEditingController();
+  final walletController = TextEditingController();
+  final savingsController = TextEditingController();
+  DateTime dueDate = initial.dueDate ?? DateTime.now();
+
+  void applyRecommendation() {
+    final amount = _moneyFieldValue(amountController);
+    var remaining = math.max(0, amount - selected.paid);
+    final essential = math.min(state.essentialExpensesBalance, remaining);
+    remaining -= essential;
+    final wallet = math.min(state.accountBalance('Wallet'), remaining);
+    remaining -= wallet;
+    final savings = math.min(state.safetyShieldBalance, remaining);
+    essentialController.text = essential.toStringAsFixed(0);
+    walletController.text = wallet.toStringAsFixed(0);
+    savingsController.text = savings.toStringAsFixed(0);
+  }
+
+  applyRecommendation();
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) {
+      return StatefulBuilder(
+        builder: (context, setSheetState) {
+          final amount = _moneyFieldValue(amountController);
+          final essential = _moneyFieldValue(essentialController);
+          final wallet = _moneyFieldValue(walletController);
+          final savings = _moneyFieldValue(savingsController);
+          final dueNow = math.max(0.0, amount - selected.paid);
+          final planned =
+              math.min(dueNow, essential + wallet + savings).toDouble();
+          final unpaid = math.max(0.0, dueNow - planned);
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                18,
+                20,
+                20 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Can I pay this bill?',
+                      style: TextStyle(
+                        color: _title,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasBillCandidates
+                          ? 'Choose a scheduled basic-needs bill, then adjust where the money will come from.'
+                          : 'Only Basic Needs expenses with a scheduled date can be checked as bills.',
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (!hasBillCandidates) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: _amber.withValues(alpha: .08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _amber.withValues(alpha: .2),
+                          ),
+                        ),
+                        child: const Text(
+                          'Unscheduled expenses are treated as monthly category estimates. Add a scheduled date to a Basic Needs expense before using bill readiness.',
+                          style: TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (hasBillCandidates) ...[
+                      DropdownButtonFormField<String>(
+                        value: selected.label,
+                        isExpanded: true,
+                        decoration: inputDecoration('Bill').copyWith(
+                          labelText: 'Bill',
+                        ),
+                        items: [
+                          for (final candidate in candidates)
+                            DropdownMenuItem(
+                              value: candidate.label,
+                              child: Text(
+                                candidate.label,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          final next = candidates.firstWhere(
+                            (candidate) => candidate.label == value,
+                            orElse: () => selected,
+                          );
+                          setSheetState(() {
+                            selected = next;
+                            nameController.text = next.name;
+                            amountController.text =
+                                next.amount.toStringAsFixed(0);
+                            dueDate = next.dueDate ?? DateTime.now();
+                            applyRecommendation();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: nameController,
+                            decoration: inputDecoration('Bill name').copyWith(
+                              labelText: 'Bill name',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        SizedBox(
+                          width: 120,
+                          child: TextField(
+                            controller: amountController,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: inputDecoration('Amount').copyWith(
+                              labelText: 'Amount',
+                              prefixText: '₱ ',
+                              helperText: selected.paid > 0
+                                  ? '${money(selected.paid)} already covered'
+                                  : null,
+                            ),
+                            onChanged: (_) =>
+                                setSheetState(applyRecommendation),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _BillSourceField(
+                          controller: essentialController,
+                          label: 'Essential fund',
+                          helper: money(state.essentialExpensesBalance),
+                          onChanged: () => setSheetState(() {}),
+                        ),
+                        _BillSourceField(
+                          controller: walletController,
+                          label: 'Wallet',
+                          helper: money(state.accountBalance('Wallet')),
+                          onChanged: () => setSheetState(() {}),
+                        ),
+                        _BillSourceField(
+                          controller: savingsController,
+                          label: 'Savings',
+                          helper: money(state.safetyShieldBalance),
+                          onChanged: () => setSheetState(() {}),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: unpaid > 0
+                            ? _red.withValues(alpha: .07)
+                            : _sage.withValues(alpha: .08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: unpaid > 0
+                              ? _red.withValues(alpha: .18)
+                              : _sage.withValues(alpha: .2),
+                        ),
+                      ),
+                      child: Text(
+                        unpaid > 0
+                            ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.'
+                            : '${money(planned)} covers this bill.',
+                        style: TextStyle(
+                          color: unpaid > 0 ? _red : _sage,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => setSheetState(applyRecommendation),
+                          child: const Text('Use recommendation'),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: !hasBillCandidates || amount <= 0
+                              ? null
+                              : () async {
+                                  await state.recordBasicNeedsBillPlan(
+                                    obligationId: selected.obligationId,
+                                    name: nameController.text,
+                                    expectedAmount: amount,
+                                    fromEssentialFund: essential,
+                                    fromWallet: wallet,
+                                    fromSavings: savings,
+                                    dueDate: dueDate,
+                                  );
+                                  if (sheetContext.mounted) {
+                                    Navigator.pop(sheetContext);
+                                  }
+                                },
+                          child: const Text('Record plan'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+
+  nameController.dispose();
+  amountController.dispose();
+  essentialController.dispose();
+  walletController.dispose();
+  savingsController.dispose();
+}
+
+double _moneyFieldValue(TextEditingController controller) {
+  return double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+}
+
+class _BillSourceField extends StatelessWidget {
+  const _BillSourceField({
+    required this.controller,
+    required this.label,
+    required this.helper,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String helper;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 154,
+      child: TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: inputDecoration(label).copyWith(
+          labelText: label,
+          helperText: helper,
+          prefixText: '₱ ',
+        ),
+        onChanged: (_) => onChanged(),
       ),
     );
   }
@@ -14113,6 +14786,12 @@ class _EssentialExpensesActionPanelState
     final totalIncome =
         incomes.fold<double>(0, (total, income) => total + income.amount);
     final allocation = totalIncome * confirmedPercentage / 100;
+    final billReserve = math
+        .min(
+          state.openBasicNeedsBillNeed,
+          math.max(0, totalIncome - allocation),
+        )
+        .toDouble();
     try {
       await state.depositPendingIncomeToEssentialFund(
         incomes: incomes,
@@ -14122,7 +14801,9 @@ class _EssentialExpensesActionPanelState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${money(allocation)} transferred to Essential Expense Fund.',
+            billReserve > 0
+                ? '${money(allocation)} transferred to Essential Expense Fund. ${money(billReserve)} reserved for unpaid bills.'
+                : '${money(allocation)} transferred to Essential Expense Fund.',
           ),
         ),
       );
@@ -14163,7 +14844,14 @@ class _EssentialExpensesActionPanelState
     final totalIncome =
         incomes.fold<double>(0, (total, income) => total + income.amount);
     final allocation = totalIncome * percentage / 100;
-    final remainingWallet = state.unallocatedFakeMayaWallet - allocation;
+    final billReserve = math
+        .min(
+          state.openBasicNeedsBillNeed,
+          math.max(0, totalIncome - allocation),
+        )
+        .toDouble();
+    final remainingWallet =
+        state.unallocatedFakeMayaWallet - allocation - billReserve;
     return showDialog<double>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -14184,8 +14872,13 @@ class _EssentialExpensesActionPanelState
               label: 'Allocation',
               value: '${percentage.toStringAsFixed(0)}% = ${money(allocation)}',
             ),
+            if (billReserve > 0)
+              _TransactionDetailLine(
+                label: 'Unpaid bills',
+                value: money(billReserve),
+              ),
             _TransactionDetailLine(
-              label: 'Wallet after transfer',
+              label: 'Wallet after plan',
               value: money(math.max(0, remainingWallet)),
             ),
             if (remainingWallet < 0) ...[

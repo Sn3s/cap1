@@ -123,6 +123,7 @@ class AppState extends ChangeNotifier {
   double lifestyleFundBalance = 0;
   double lifestyleActivityBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
+  final List<Map<String, dynamic>> billObligations = [];
 
   DateTime? get lastEfWithdrawal => _lastEfWithdrawalStr == null
       ? null
@@ -141,6 +142,25 @@ class AppState extends ChangeNotifier {
       : math.max(2000, cashFlowPyramidBaseline * 0.10);
   double get investmentPortfolioTarget =>
       math.max(20000, investmentMonthlyTarget * 12);
+  List<Map<String, dynamic>> get openBillObligations => billObligations
+      .where((bill) => _billRemaining(bill) > 0)
+      .toList()
+    ..sort((a, b) {
+      final aDue =
+          DateTime.tryParse(a['dueDate']?.toString() ?? '') ?? DateTime(9999);
+      final bDue =
+          DateTime.tryParse(b['dueDate']?.toString() ?? '') ?? DateTime(9999);
+      return aDue.compareTo(bDue);
+    });
+  List<Map<String, dynamic>> get openBasicNeedsBillObligations =>
+      openBillObligations
+          .where(
+              (bill) => expenseLayerForLedger(bill) == ExpenseLayer.basicNeeds)
+          .toList();
+  double get openBasicNeedsBillNeed => openBasicNeedsBillObligations.fold(
+        0,
+        (total, bill) => total + _billRemaining(bill),
+      );
 
   final List<Map<String, dynamic>> d1Ledger = [];
   final Set<String> trackingVariables = {
@@ -1269,6 +1289,7 @@ class AppState extends ChangeNotifier {
       'investmentBalance': investmentBalance,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
+      'billObligations': billObligations,
       'd1Ledger': d1Ledger,
       'onboardingSelections': _onboardingSelectionsMap(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1481,6 +1502,14 @@ class AppState extends ChangeNotifier {
       data['lifestyleActivityBalance'],
       lifestyleActivityBalance,
     );
+    final savedBillObligations = data['billObligations'];
+    if (savedBillObligations is Iterable) {
+      billObligations
+        ..clear()
+        ..addAll(savedBillObligations.whereType<Map>().map(
+              (entry) => Map<String, dynamic>.from(entry),
+            ));
+    }
     final savedD1Ledger = data['d1Ledger'];
     if (savedD1Ledger is Iterable) {
       d1Ledger
@@ -2212,6 +2241,84 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> recordBasicNeedsBillPlan({
+    String? obligationId,
+    required String name,
+    required double expectedAmount,
+    required double fromEssentialFund,
+    required double fromWallet,
+    required double fromSavings,
+    DateTime? dueDate,
+  }) async {
+    if (expectedAmount <= 0) return;
+    final essential = fromEssentialFund.clamp(0, expectedAmount).toDouble();
+    final wallet = fromWallet.clamp(0, expectedAmount).toDouble();
+    final savings = fromSavings.clamp(0, expectedAmount).toDouble();
+    final existingIndex = obligationId?.trim().isNotEmpty == true
+        ? billObligations.indexWhere((bill) => bill['id'] == obligationId)
+        : -1;
+    final existing = existingIndex >= 0
+        ? Map<String, dynamic>.from(billObligations[existingIndex])
+        : <String, dynamic>{};
+    final priorPaid = _doubleFrom(existing['paidAmount'], 0);
+    final paymentCapacity = math.max(0, expectedAmount - priorPaid);
+    final paidAmount = math.min(paymentCapacity, essential + wallet + savings);
+    if (essential > 0) {
+      await _withdrawFakeMayaPersonalGoalToWallet(
+        essential,
+        personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+      );
+      essentialExpensesBalance =
+          math.max(0, essentialExpensesBalance - essential);
+    }
+    if (savings > 0) {
+      await _withdrawFakeMayaSavingsToWallet(savings);
+    }
+
+    final now = DateTime.now();
+    final id = obligationId?.trim().isNotEmpty == true
+        ? obligationId!.trim()
+        : 'bill_${now.microsecondsSinceEpoch}';
+    final index = existingIndex >= 0
+        ? existingIndex
+        : billObligations.indexWhere((bill) => bill['id'] == id);
+    final totalPaid = math.min(expectedAmount, priorPaid + paidAmount);
+    final next = {
+      ...existing,
+      'id': id,
+      'name': name.trim().isEmpty ? 'Basic needs bill' : name.trim(),
+      'expectedAmount': expectedAmount,
+      'paidAmount': totalPaid,
+      'dueDate': (dueDate ??
+              DateTime.tryParse(existing['dueDate']?.toString() ?? '') ??
+              now)
+          .toIso8601String(),
+      'expenseType': ExpenseLayer.basicNeeds.name,
+      'status': totalPaid >= expectedAmount ? 'paid' : 'partial',
+      'updatedAt': now.toIso8601String(),
+      'createdAt': existing['createdAt'] ?? now.toIso8601String(),
+    };
+    if (index >= 0) {
+      billObligations[index] = next;
+    } else {
+      billObligations.insert(0, next);
+    }
+    d1Ledger.insert(0, {
+      'type': 'bill_plan',
+      'date': now.toIso8601String(),
+      'billId': id,
+      'billName': next['name'],
+      'expectedAmount': expectedAmount,
+      'paidAmount': paidAmount,
+      'remainingAmount': math.max(0, expectedAmount - totalPaid),
+      'fromEssentialFund': essential,
+      'fromWallet': wallet,
+      'fromSavings': savings,
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
   bool hasEssentialAllocationForIncome(String transactionId) =>
       d1Ledger.any((entry) =>
           entry['type'] == 'essential_deposit' &&
@@ -2383,17 +2490,28 @@ class AppState extends ChangeNotifier {
     final totalIncome =
         pending.fold<double>(0, (total, income) => total + income.amount);
     final totalAllocation = totalIncome * clampedPercentage / 100;
-    if (totalAllocation <= 0) return;
+    final obligationAmount = math
+        .min(
+          openBasicNeedsBillNeed,
+          math.max(0, totalIncome - totalAllocation),
+        )
+        .toDouble();
+    if (totalAllocation <= 0 && obligationAmount <= 0) return;
     if (fakeMayaLink != null && totalAllocation > unallocatedFakeMayaWallet) {
       throw const FakeMayaException(
           'Not enough in FakeMaya wallet for this transfer.');
     }
-    await _moveFakeMayaWalletTo(
-      totalAllocation,
-      FakeMayaGoalAccount.personalGoal,
-      personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
-    );
-    essentialExpensesBalance += totalAllocation;
+    if (totalAllocation > 0) {
+      await _moveFakeMayaWalletTo(
+        totalAllocation,
+        FakeMayaGoalAccount.personalGoal,
+        personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+      );
+      essentialExpensesBalance += totalAllocation;
+    }
+    if (obligationAmount > 0) {
+      _applyIncomeToOpenBasicNeedsBills(obligationAmount);
+    }
     for (final income in pending) {
       d1Ledger.insert(0, {
         'type': 'essential_deposit',
@@ -2404,10 +2522,38 @@ class AppState extends ChangeNotifier {
         'percentage': clampedPercentage,
         'amount': income.amount * clampedPercentage / 100,
         'destination': 'Essential Expenses Fund',
+        if (obligationAmount > 0) 'billShortfallReserved': obligationAmount,
       });
     }
     await _saveProfileAfterFakeMayaTransfer();
     notifyListeners();
+  }
+
+  void _applyIncomeToOpenBasicNeedsBills(double amount) {
+    var remaining = amount;
+    for (var i = 0; i < billObligations.length && remaining > 0; i++) {
+      final bill = billObligations[i];
+      if (expenseLayerForLedger(bill) != ExpenseLayer.basicNeeds) continue;
+      final billRemaining = _billRemaining(bill);
+      if (billRemaining <= 0) continue;
+      final applied = math.min(remaining, billRemaining);
+      final paid = _doubleFrom(bill['paidAmount'], 0) + applied;
+      billObligations[i] = {
+        ...bill,
+        'paidAmount': paid,
+        'status':
+            paid >= _doubleFrom(bill['expectedAmount'], 0) ? 'paid' : 'partial',
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+      d1Ledger.insert(0, {
+        'type': 'bill_shortfall_reserved',
+        'date': DateTime.now().toIso8601String(),
+        'billId': bill['id'],
+        'billName': bill['name'],
+        'amount': applied,
+      });
+      remaining -= applied;
+    }
   }
 
   Future<void> _saveProfileAfterFakeMayaTransfer() async {
@@ -2861,6 +3007,32 @@ class AppState extends ChangeNotifier {
       expiresAt: session.expiresAt,
       summary: session.summary.copyWith(transactions: transactions),
     ));
+    _syncFakeMayaMoneyItems();
+  }
+
+  Future<void> _withdrawFakeMayaPersonalGoalToWallet(
+    double amount, {
+    String? personalGoalId,
+  }) async {
+    final link = fakeMayaLink;
+    if (link == null || amount <= 0) return;
+    final session = await FakeMayaService.withdrawFromPersonalGoal(
+      link: link,
+      amount: amount,
+      personalGoalId: personalGoalId,
+    );
+    fakeMayaLink = FakeMayaLink.fromSession(session);
+    _syncFakeMayaMoneyItems();
+  }
+
+  Future<void> _withdrawFakeMayaSavingsToWallet(double amount) async {
+    final link = fakeMayaLink;
+    if (link == null || amount <= 0) return;
+    final session = await FakeMayaService.withdrawFromSavings(
+      link: link,
+      amount: amount,
+    );
+    fakeMayaLink = FakeMayaLink.fromSession(session);
     _syncFakeMayaMoneyItems();
   }
 
@@ -4184,6 +4356,17 @@ ExpenseLayer expenseLayerForLedger(Map<String, dynamic> expense) {
       ((expense['essential'] as bool? ?? false)
           ? ExpenseLayer.basicNeeds
           : ExpenseLayer.nonEssentials);
+}
+
+double _billRemaining(Map<String, dynamic> bill) {
+  final expected = _doubleValue(bill['expectedAmount'] ?? bill['amount'], 0);
+  final paid = _doubleValue(bill['paidAmount'], 0);
+  return math.max(0.0, expected - paid);
+}
+
+double _doubleValue(Object? value, double fallback) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? fallback;
 }
 
 class CashFlowExpense {
