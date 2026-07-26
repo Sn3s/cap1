@@ -72,6 +72,19 @@ void main() {
     expect(TransactionLabelRule.fromTransaction(labeled).source, 'E-wallet');
   });
 
+  test('FakeMaya goal deposits are internal transfers, not cash-in', () {
+    const transaction = FakeMayaTransaction(
+      title: 'Deposited to goal',
+      detail: 'Essential Expense Fund',
+      age: 'Just now',
+      amountText: '+ ₱300.00',
+    );
+
+    expect(transaction.isInternalFakeMayaTransfer, isTrue);
+    expect(transaction.isFakeMayaCashIn, isFalse);
+    expect(transaction.automaticDestination, isNull);
+  });
+
   test('legacy labels gain a source when loaded', () {
     final ordinary = FakeMayaTransaction.fromMap({
       'title': 'Paid merchant',

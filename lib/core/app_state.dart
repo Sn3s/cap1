@@ -1694,6 +1694,8 @@ class AppState extends ChangeNotifier {
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
     );
     _replaceSet(addedGoalIds, data['addedGoalIds']);
+    backfillMissingOnboardingLedgers();
+    backfillFeasibleActionDefaults();
   }
 
   double _doubleFrom(Object? value, double fallback) {
@@ -1711,6 +1713,364 @@ class AppState extends ChangeNotifier {
     target
       ..clear()
       ..addAll(value.whereType<String>());
+  }
+
+  bool backfillMissingOnboardingLedgers() {
+    var changed = false;
+    if (onboardingIncomeLedger.isEmpty) {
+      final fallback = _legacyIncomeLedger();
+      if (fallback.isNotEmpty) {
+        onboardingIncomeLedger.addAll(fallback);
+        changed = true;
+      }
+    }
+    if (onboardingExpenseLedger.isEmpty) {
+      final fallback = _legacyExpenseLedger();
+      if (fallback.isNotEmpty) {
+        onboardingExpenseLedger.addAll(fallback);
+        changed = true;
+      }
+    }
+    if (changed) {
+      _syncOnboardingBaselineTotals();
+    }
+    return changed;
+  }
+
+  bool backfillFeasibleActionDefaults() {
+    if (!selectedActionIds.contains('A19') &&
+        !actionFieldValues.containsKey('A19')) {
+      return false;
+    }
+    final fields = actionFieldValues['A19'] ?? const <String, String>{};
+    final current = _doubleFrom(fields['amt'], 0);
+    final oldExpenseBuffer = _roundMoney(
+        _monthlyExpenseBase(this) * _recommendedEverydayFundMonths(this));
+    final oldHardcodedDefaults = {12000.0, 20000.0, 30000.0};
+    final shouldUpdate = current <= 0 ||
+        (current - oldExpenseBuffer).abs() < 1 ||
+        oldHardcodedDefaults.any((value) => (current - value).abs() < 1);
+    if (!shouldUpdate) return false;
+
+    final recommended = _recommendedEssentialFundFloor(this).round().toString();
+    actionFieldValues['A19'] = {
+      ...fields,
+      'amt': recommended,
+    };
+    return true;
+  }
+
+  List<Map<String, dynamic>> _legacyIncomeLedger() {
+    final rows = <Map<String, dynamic>>[];
+    final stableAmount = monthlySalary > 0 ? monthlySalary : 0.0;
+    final variableAmount =
+        irregularIncomeFloor > 0 ? irregularIncomeFloor : 0.0;
+    final remainingIncome =
+        math.max(0.0, income - stableAmount - variableAmount);
+
+    if (stableAmount > 0) {
+      rows.add(_incomeLedgerRow(
+        name: 'Salary or main income',
+        amount: stableAmount,
+        stable: true,
+        scheduled: incomeRhythm.toLowerCase().contains('monthly'),
+      ));
+    }
+    if (variableAmount > 0) {
+      rows.add(_incomeLedgerRow(
+        name: 'Variable income baseline',
+        amount: variableAmount,
+        stable: false,
+      ));
+    }
+    if (remainingIncome > 0) {
+      rows.add(_incomeLedgerRow(
+        name: rows.isEmpty ? 'Monthly income baseline' : 'Other income',
+        amount: remainingIncome,
+        stable: incomeType.toLowerCase().contains('fixed'),
+        scheduled: incomeRhythm.toLowerCase().contains('monthly'),
+      ));
+    }
+    if (rows.isNotEmpty) return rows;
+    return _presetIncomeLedgerForEmail(email);
+  }
+
+  List<Map<String, dynamic>> _legacyExpenseLedger() {
+    if (cashFlowExpenses.isNotEmpty) {
+      return [
+        for (final expense in cashFlowExpenses)
+          _expenseLedgerRow(
+            name: expense.name,
+            amount: expense.budget,
+            layer: expense.layer,
+          ),
+      ];
+    }
+
+    final rows = <Map<String, dynamic>>[];
+    if (expenses > 0) {
+      rows.add(_expenseLedgerRow(
+        name: 'Fixed monthly expenses',
+        amount: expenses,
+        layer: ExpenseLayer.basicNeeds,
+      ));
+    }
+    if (debtPayments > 0) {
+      rows.add(_expenseLedgerRow(
+        name: 'Debt payments',
+        amount: debtPayments,
+        layer: ExpenseLayer.debtInvestments,
+      ));
+    }
+    if (variableExpenses > 0) {
+      rows.add(_expenseLedgerRow(
+        name: 'Variable monthly expenses',
+        amount: variableExpenses,
+        layer: ExpenseLayer.nonEssentials,
+      ));
+    }
+    if (rows.isNotEmpty) return rows;
+    return _presetExpenseLedgerForEmail(email);
+  }
+
+  Map<String, dynamic> _incomeLedgerRow({
+    required String name,
+    required double amount,
+    required bool stable,
+    bool scheduled = false,
+    int? payDay,
+  }) {
+    return {
+      'name': name,
+      'amount': amount,
+      'stable': stable,
+      'scheduled': scheduled,
+      'payDay': scheduled ? payDay ?? 15 : null,
+      'layer': ExpenseLayer.basicNeeds.label,
+    };
+  }
+
+  Map<String, dynamic> _expenseLedgerRow({
+    required String name,
+    required double amount,
+    required ExpenseLayer layer,
+    bool scheduled = false,
+    int? dueDay,
+  }) {
+    return {
+      'name': name,
+      'amount': amount,
+      'essential': layer == ExpenseLayer.basicNeeds,
+      'expenseType': layer.name,
+      'scheduled': scheduled,
+      'dueDay': scheduled ? dueDay : null,
+    };
+  }
+
+  List<Map<String, dynamic>> _presetIncomeLedgerForEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    final amount = switch (normalized) {
+      'cashflow@gmail.com' => 32000.0,
+      'emergency@gmail.com' => 42000.0,
+      'accumulating@gmail.com' => 58000.0,
+      'freedom@gmail.com' => 76000.0,
+      'main@gmail.com' => 50000.0,
+      _ => 0.0,
+    };
+    if (amount <= 0) return const [];
+    return [
+      _incomeLedgerRow(
+        name: normalized == 'cashflow@gmail.com'
+            ? 'Project client work'
+            : 'Salary or main income',
+        amount: amount,
+        stable: normalized != 'cashflow@gmail.com',
+        scheduled: normalized != 'cashflow@gmail.com',
+      ),
+    ];
+  }
+
+  List<Map<String, dynamic>> _presetExpenseLedgerForEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    final commonBasicNeeds = [
+      _expenseLedgerRow(
+        name: 'Rent share',
+        amount: 4500,
+        layer: ExpenseLayer.basicNeeds,
+        scheduled: true,
+        dueDay: 5,
+      ),
+      _expenseLedgerRow(
+        name: 'Utilities',
+        amount: 2200,
+        layer: ExpenseLayer.basicNeeds,
+        scheduled: true,
+        dueDay: 15,
+      ),
+      _expenseLedgerRow(
+        name: 'Food and drinks',
+        amount: 1500,
+        layer: ExpenseLayer.basicNeeds,
+      ),
+      _expenseLedgerRow(
+        name: 'Transport',
+        amount: 800,
+        layer: ExpenseLayer.basicNeeds,
+      ),
+    ];
+    return switch (normalized) {
+      'cashflow@gmail.com' => [
+          ...commonBasicNeeds,
+          _expenseLedgerRow(
+            name: 'Health insurance',
+            amount: 1200,
+            layer: ExpenseLayer.emergencyInsurance,
+            scheduled: true,
+            dueDay: 20,
+          ),
+          _expenseLedgerRow(
+            name: 'Student loan payment',
+            amount: 2000,
+            layer: ExpenseLayer.debtInvestments,
+            scheduled: true,
+            dueDay: 25,
+          ),
+          _expenseLedgerRow(
+            name: 'Streaming subscriptions',
+            amount: 700,
+            layer: ExpenseLayer.nonEssentials,
+            scheduled: true,
+            dueDay: 12,
+          ),
+          _expenseLedgerRow(
+            name: 'Gym membership',
+            amount: 800,
+            layer: ExpenseLayer.nonEssentials,
+            scheduled: true,
+            dueDay: 18,
+          ),
+          _expenseLedgerRow(
+            name: 'Everyday enjoyment',
+            amount: 1498,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+        ],
+      'emergency@gmail.com' => [
+          ...commonBasicNeeds,
+          _expenseLedgerRow(
+            name: 'Insurance premium',
+            amount: 2400,
+            layer: ExpenseLayer.emergencyInsurance,
+            scheduled: true,
+            dueDay: 20,
+          ),
+          _expenseLedgerRow(
+            name: 'Medical sinking fund',
+            amount: 1500,
+            layer: ExpenseLayer.emergencyInsurance,
+          ),
+          _expenseLedgerRow(
+            name: 'Subscriptions',
+            amount: 900,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+        ],
+      'accumulating@gmail.com' => [
+          ...commonBasicNeeds,
+          _expenseLedgerRow(
+            name: 'Investment contribution',
+            amount: 7000,
+            layer: ExpenseLayer.debtInvestments,
+            scheduled: true,
+            dueDay: 28,
+          ),
+          _expenseLedgerRow(
+            name: 'Credit card payment',
+            amount: 3500,
+            layer: ExpenseLayer.debtInvestments,
+            scheduled: true,
+            dueDay: 18,
+          ),
+          _expenseLedgerRow(
+            name: 'Dining out',
+            amount: 2200,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+        ],
+      'freedom@gmail.com' => [
+          ...commonBasicNeeds,
+          _expenseLedgerRow(
+            name: 'Investment contribution',
+            amount: 12000,
+            layer: ExpenseLayer.debtInvestments,
+            scheduled: true,
+            dueDay: 28,
+          ),
+          _expenseLedgerRow(
+            name: 'Travel fund',
+            amount: 6000,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+          _expenseLedgerRow(
+            name: 'Memberships',
+            amount: 2500,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+        ],
+      'main@gmail.com' => [
+          ...commonBasicNeeds,
+          _expenseLedgerRow(
+            name: 'Insurance premium',
+            amount: 1800,
+            layer: ExpenseLayer.emergencyInsurance,
+          ),
+          _expenseLedgerRow(
+            name: 'Investment contribution',
+            amount: 5000,
+            layer: ExpenseLayer.debtInvestments,
+          ),
+          _expenseLedgerRow(
+            name: 'Subscriptions and lifestyle',
+            amount: 2500,
+            layer: ExpenseLayer.nonEssentials,
+          ),
+        ],
+      _ => const [],
+    };
+  }
+
+  void _syncOnboardingBaselineTotals() {
+    final incomeTotal = onboardingIncomeLedger.fold<double>(
+      0,
+      (total, entry) => total + _doubleFrom(entry['amount'], 0),
+    );
+    final stableTotal = onboardingIncomeLedger
+        .where((entry) => entry['stable'] == true)
+        .fold<double>(
+          0,
+          (total, entry) => total + _doubleFrom(entry['amount'], 0),
+        );
+    final variableTotal = math.max(0.0, incomeTotal - stableTotal);
+    final expenseTotal = onboardingExpenseLedger.fold<double>(
+      0,
+      (total, entry) => total + _doubleFrom(entry['amount'], 0),
+    );
+    final essentialTotal = onboardingExpenseLedger
+        .where(
+            (entry) => expenseLayerForLedger(entry) == ExpenseLayer.basicNeeds)
+        .fold<double>(
+          0,
+          (total, entry) => total + _doubleFrom(entry['amount'], 0),
+        );
+    income = incomeTotal;
+    monthlySalary = stableTotal;
+    irregularIncomeFloor = variableTotal;
+    onboardingBaselines['income_baseline'] = incomeTotal.toStringAsFixed(2);
+    onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
+    onboardingBaselines['variable_income'] = variableTotal.toStringAsFixed(2);
+    onboardingBaselines['monthly_expenses'] = expenseTotal.toStringAsFixed(2);
+    onboardingBaselines['essential_expenses'] =
+        essentialTotal.toStringAsFixed(2);
   }
 
   void updateConfidence(double value) {
@@ -1804,6 +2164,42 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveOnboardingLedgerEdits() async {
+    final incomeTotal = onboardingIncomeLedger.fold<double>(
+      0,
+      (total, entry) => total + _doubleFrom(entry['amount'], 0),
+    );
+    final stableTotal = onboardingIncomeLedger
+        .where((entry) => entry['stable'] == true)
+        .fold<double>(
+          0,
+          (total, entry) => total + _doubleFrom(entry['amount'], 0),
+        );
+    final variableTotal = math.max(0.0, incomeTotal - stableTotal);
+    final expenseTotal = onboardingExpenseLedger.fold<double>(
+      0,
+      (total, entry) => total + _doubleFrom(entry['amount'], 0),
+    );
+    final essentialTotal = onboardingExpenseLedger
+        .where(
+            (entry) => expenseLayerForLedger(entry) == ExpenseLayer.basicNeeds)
+        .fold<double>(
+          0,
+          (total, entry) => total + _doubleFrom(entry['amount'], 0),
+        );
+    income = incomeTotal;
+    monthlySalary = stableTotal;
+    irregularIncomeFloor = variableTotal;
+    onboardingBaselines['income_baseline'] = incomeTotal.toStringAsFixed(2);
+    onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
+    onboardingBaselines['variable_income'] = variableTotal.toStringAsFixed(2);
+    onboardingBaselines['monthly_expenses'] = expenseTotal.toStringAsFixed(2);
+    onboardingBaselines['essential_expenses'] =
+        essentialTotal.toStringAsFixed(2);
+    await saveProfile();
+    notifyListeners();
+  }
+
   // ── D1 goal bucket actions ────────────────────────────────────────
 
   Future<void> updateCategorySpendingBudgets(
@@ -1824,6 +2220,7 @@ class AppState extends ChangeNotifier {
   bool _isEssentialIncomeCandidate(FakeMayaTransaction transaction) {
     if (transaction.amount <= 0 ||
         !transaction.isLabeled ||
+        transaction.isInternalFakeMayaTransfer ||
         transaction.excludedFromInsights) {
       return false;
     }
@@ -1946,7 +2343,15 @@ class AppState extends ChangeNotifier {
       return;
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) {
+      throw const FakeMayaException(
+          'Not enough in FakeMaya wallet for this transfer.');
+    }
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+    );
     essentialExpensesBalance += amount;
     d1Ledger.insert(0, {
       'type': 'essential_deposit',
@@ -1970,6 +2375,7 @@ class AppState extends ChangeNotifier {
         .where((income) =>
             income.createdAt != null &&
             income.amount > 0 &&
+            !income.isInternalFakeMayaTransfer &&
             !hasEssentialAllocationForIncome(income.transactionId))
         .toList();
     if (pending.isEmpty) return;
@@ -1979,8 +2385,14 @@ class AppState extends ChangeNotifier {
     final totalAllocation = totalIncome * clampedPercentage / 100;
     if (totalAllocation <= 0) return;
     if (fakeMayaLink != null && totalAllocation > unallocatedFakeMayaWallet) {
-      return;
+      throw const FakeMayaException(
+          'Not enough in FakeMaya wallet for this transfer.');
     }
+    await _moveFakeMayaWalletTo(
+      totalAllocation,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+    );
     essentialExpensesBalance += totalAllocation;
     for (final income in pending) {
       d1Ledger.insert(0, {
@@ -1994,8 +2406,17 @@ class AppState extends ChangeNotifier {
         'destination': 'Essential Expenses Fund',
       });
     }
-    if (isSignedIn) await saveProfile();
+    await _saveProfileAfterFakeMayaTransfer();
     notifyListeners();
+  }
+
+  Future<void> _saveProfileAfterFakeMayaTransfer() async {
+    if (!isSignedIn) return;
+    try {
+      await saveProfile();
+    } catch (error) {
+      debugPrint('Shellby profile save failed after FakeMaya transfer: $error');
+    }
   }
 
   Future<void> depositIncomeToEmergencyFund({
@@ -2282,7 +2703,11 @@ class AppState extends ChangeNotifier {
   Future<void> depositLifestyleSubscriptionReserve(double amount) async {
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
+    );
     lifestyleFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_subscription_reserve',
@@ -2302,7 +2727,11 @@ class AppState extends ChangeNotifier {
   }) async {
     if (amount <= 0 || hasLifestylePaydayAllocation(transactionId)) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
+    );
     lifestyleFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_payday',
@@ -2320,7 +2749,11 @@ class AppState extends ChangeNotifier {
   Future<void> depositLifestyleActivity(double amount) async {
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.personalGoal);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
+    );
     lifestyleActivityBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_activity_deposit',
@@ -2395,13 +2828,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _moveFakeMayaWalletTo(
-      double amount, FakeMayaGoalAccount account) async {
+    double amount,
+    FakeMayaGoalAccount account, {
+    String? personalGoalId,
+  }) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
     final session = await FakeMayaService.allocateFromWallet(
       link: link,
       amount: amount,
       account: account,
+      personalGoalId: personalGoalId,
     );
     final savedById = {
       for (final transaction in link.summary.transactions)

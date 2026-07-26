@@ -151,11 +151,13 @@ class FakeMayaService {
   static Future<FakeMayaSession> depositToPersonalGoal({
     required FakeMayaLink link,
     required double amount,
+    String? personalGoalId,
   }) {
     return allocateFromWallet(
       link: link,
       amount: amount,
       account: FakeMayaGoalAccount.personalGoal,
+      personalGoalId: personalGoalId,
     );
   }
 
@@ -216,6 +218,7 @@ class FakeMayaService {
     required FakeMayaLink link,
     required double amount,
     required FakeMayaGoalAccount account,
+    String? personalGoalId,
   }) async {
     if (amount <= 0) {
       throw const FakeMayaException('Enter a valid allocation amount.');
@@ -232,10 +235,17 @@ class FakeMayaService {
       FakeMayaGoalAccount.timeDeposit => 'Express deposit',
       FakeMayaGoalAccount.personalGoal => 'Deposited to goal',
     };
+    final personalGoal = account == FakeMayaGoalAccount.personalGoal
+        ? summary.personalGoalById(personalGoalId) ??
+            (personalGoalId?.trim().isNotEmpty == true
+                ? FakeMayaPersonalGoal.defaultForId(personalGoalId!.trim())
+                : summary.personalGoalById(summary.selectedGoalId))
+        : null;
     final transactionDetail = switch (account) {
       FakeMayaGoalAccount.savings => 'My Savings',
       FakeMayaGoalAccount.timeDeposit => 'Maya Black',
-      FakeMayaGoalAccount.personalGoal => summary.goalName,
+      FakeMayaGoalAccount.personalGoal =>
+        personalGoal?.name ?? summary.goalName,
     };
     final transaction = FakeMayaTransaction(
       title: transactionTitle,
@@ -244,6 +254,12 @@ class FakeMayaService {
       amountText: '+ ${_formatPeso(amount)}',
       createdAt: DateTime.now(),
     );
+    final nextPersonalGoals = account == FakeMayaGoalAccount.personalGoal
+        ? summary.personalGoalsWithDeposit(
+            personalGoal?.id ?? personalGoalId,
+            amount,
+          )
+        : summary.personalGoals;
     final nextSummary = summary.copyWith(
       wallet: summary.wallet - amount,
       savings: account == FakeMayaGoalAccount.savings
@@ -253,8 +269,24 @@ class FakeMayaService {
           ? summary.timeDeposit + amount
           : summary.timeDeposit,
       goalBalance: account == FakeMayaGoalAccount.personalGoal
-          ? summary.goalBalance + amount
+          ? nextPersonalGoals.fold<double>(
+              0,
+              (total, goal) => total + goal.balance,
+            )
           : summary.goalBalance,
+      goalName: account == FakeMayaGoalAccount.personalGoal
+          ? personalGoal?.name
+          : summary.goalName,
+      goalEmoji: account == FakeMayaGoalAccount.personalGoal
+          ? personalGoal?.emoji
+          : summary.goalEmoji,
+      goalTarget: account == FakeMayaGoalAccount.personalGoal
+          ? personalGoal?.target
+          : summary.goalTarget,
+      selectedGoalId: account == FakeMayaGoalAccount.personalGoal
+          ? personalGoal?.id ?? personalGoalId
+          : summary.selectedGoalId,
+      personalGoals: nextPersonalGoals,
       transactions: [transaction, ...summary.transactions],
       updatedAt: DateTime.now(),
     );
@@ -289,14 +321,18 @@ class FakeMayaService {
   }
 
   static FakeMayaAccountSummary _defaultWalletSummary() {
+    final personalGoals = FakeMayaPersonalGoal.defaultGoals();
+    final essentialGoal = personalGoals.first;
     return FakeMayaAccountSummary(
       wallet: 1000,
       savings: 0,
       timeDeposit: 0,
-      goalName: 'japan',
-      goalEmoji: '👠',
+      goalName: essentialGoal.name,
+      goalEmoji: essentialGoal.emoji,
       goalBalance: 0,
-      goalTarget: 25000,
+      goalTarget: essentialGoal.target,
+      selectedGoalId: essentialGoal.id,
+      personalGoals: personalGoals,
       creditLimit: 15000,
       creditUsed: 0,
       transactions: [
@@ -322,8 +358,11 @@ class FakeMayaService {
   }) async {
     final uri = Uri.parse('$_supabaseUrl$path').replace(queryParameters: query);
     final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.openUrl(method, uri);
+      final request = await client
+          .openUrl(method, uri)
+          .timeout(const Duration(seconds: 20));
       request.headers
         ..set('apikey', _publishableKey)
         ..set(HttpHeaders.contentTypeHeader, 'application/json');
@@ -335,10 +374,14 @@ class FakeMayaService {
         request.headers.set(entry.key, entry.value);
       }
       if (body != null) {
-        request.write(jsonEncode(body));
+        request.add(utf8.encode(jsonEncode(body)));
       }
-      final response = await request.close();
-      final payload = await response.transform(utf8.decoder).join();
+      final response =
+          await request.close().timeout(const Duration(seconds: 20));
+      final payload = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 20));
       final decoded = payload.isEmpty ? null : jsonDecode(payload);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final message = _mapFrom(decoded)?['msg'] ??
@@ -351,6 +394,9 @@ class FakeMayaService {
     } on SocketException {
       throw const FakeMayaException(
           'Could not reach FakeMaya. Check your connection.');
+    } on TimeoutException {
+      throw const FakeMayaException(
+          'FakeMaya took too long to respond. Please try again.');
     } on FormatException {
       throw const FakeMayaException(
           'FakeMaya returned an unreadable response.');
@@ -520,6 +566,8 @@ class FakeMayaAccountSummary {
     required this.goalEmoji,
     required this.goalBalance,
     required this.goalTarget,
+    this.selectedGoalId = FakeMayaPersonalGoal.essentialExpenseFundId,
+    this.personalGoals = const [],
     required this.creditLimit,
     required this.creditUsed,
     required this.transactions,
@@ -533,6 +581,8 @@ class FakeMayaAccountSummary {
   final String goalEmoji;
   final double goalBalance;
   final double goalTarget;
+  final String selectedGoalId;
+  final List<FakeMayaPersonalGoal> personalGoals;
   final double creditLimit;
   final double creditUsed;
   final List<FakeMayaTransaction> transactions;
@@ -540,6 +590,8 @@ class FakeMayaAccountSummary {
 
   double get totalBalance => wallet + savings + timeDeposit + goalBalance;
   double get availableCredit => math.max(0, creditLimit - creditUsed);
+  FakeMayaPersonalGoal? get essentialExpenseFund =>
+      personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId);
 
   FakeMayaAccountSummary copyWith({
     double? wallet,
@@ -549,6 +601,8 @@ class FakeMayaAccountSummary {
     String? goalEmoji,
     double? goalBalance,
     double? goalTarget,
+    String? selectedGoalId,
+    List<FakeMayaPersonalGoal>? personalGoals,
     double? creditLimit,
     double? creditUsed,
     List<FakeMayaTransaction>? transactions,
@@ -562,6 +616,8 @@ class FakeMayaAccountSummary {
       goalEmoji: goalEmoji ?? this.goalEmoji,
       goalBalance: goalBalance ?? this.goalBalance,
       goalTarget: goalTarget ?? this.goalTarget,
+      selectedGoalId: selectedGoalId ?? this.selectedGoalId,
+      personalGoals: personalGoals ?? this.personalGoals,
       creditLimit: creditLimit ?? this.creditLimit,
       creditUsed: creditUsed ?? this.creditUsed,
       transactions: transactions ?? this.transactions,
@@ -587,6 +643,8 @@ class FakeMayaAccountSummary {
       'goalEmoji': goalEmoji,
       'goalBalance': goalBalance,
       'goalTarget': goalTarget,
+      'selectedGoalId': selectedGoalId,
+      'personalGoals': personalGoals.map((goal) => goal.toMap()).toList(),
       'creditLimit': creditLimit,
       'creditUsed': creditUsed,
       'transactions':
@@ -600,15 +658,12 @@ class FakeMayaAccountSummary {
       'wallet': wallet,
       'savings': savings,
       'timeDeposit': timeDeposit,
-      'goal': {
-        'name': goalName,
-        'emoji': goalEmoji,
-        'balance': goalBalance,
-        'target': goalTarget,
-        'daysLeft': 180,
-        'rate': 8,
-        'account': '8189 3753 6162',
-      },
+      'selectedGoalId': selectedGoalId,
+      'personalGoals': personalGoals.map((goal) => goal.toMap()).toList(),
+      'goal': (personalGoalById(selectedGoalId) ??
+              personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId) ??
+              _legacyPersonalGoal())
+          .toMap(),
       'creditLimit': creditLimit,
       'creditUsed': creditUsed,
       'transactions':
@@ -621,21 +676,126 @@ class FakeMayaAccountSummary {
         Map<String, dynamic>.from(data['app_state'] as Map? ?? const {});
     final goal =
         Map<String, dynamic>.from(appState['goal'] as Map? ?? const {});
+    final personalGoals = _personalGoalsFrom(
+      appState['personalGoals'],
+      legacyGoal: goal,
+      legacyGoalBalance: data['goal_balance'],
+    );
+    final selectedGoalId = _stringFrom(appState['selectedGoalId'],
+        FakeMayaPersonalGoal.essentialExpenseFundId);
+    final selectedGoal =
+        personalGoals.where((goal) => goal.id == selectedGoalId).firstOrNull;
+    final displayGoal = selectedGoal ??
+        personalGoals
+            .where((goal) =>
+                goal.id == FakeMayaPersonalGoal.essentialExpenseFundId)
+            .firstOrNull;
+    final totalGoalBalance = personalGoals.fold<double>(
+      0,
+      (total, goal) => total + goal.balance,
+    );
     return FakeMayaAccountSummary(
       wallet: _doubleFrom(data['wallet'] ?? appState['wallet'], 1000),
       savings: _doubleFrom(data['savings'] ?? appState['savings'], 0),
       timeDeposit:
           _doubleFrom(data['time_deposit'] ?? appState['timeDeposit'], 0),
-      goalName: _stringFrom(data['goalName'] ?? goal['name'], 'Personal Goal'),
-      goalEmoji: _stringFrom(data['goalEmoji'] ?? goal['emoji'], '🎯'),
-      goalBalance: _doubleFrom(data['goal_balance'] ?? goal['balance'], 0),
-      goalTarget: _doubleFrom(data['goalTarget'] ?? goal['target'], 25000),
+      goalName: _stringFrom(
+          data['goalName'] ?? displayGoal?.name ?? goal['name'],
+          'Personal Goal'),
+      goalEmoji: _stringFrom(
+        data['goalEmoji'] ?? displayGoal?.emoji ?? goal['emoji'],
+        '🎯',
+      ),
+      goalBalance: personalGoals.isNotEmpty
+          ? totalGoalBalance
+          : _doubleFrom(data['goal_balance'] ?? goal['balance'], 0),
+      goalTarget: _doubleFrom(
+        data['goalTarget'] ?? displayGoal?.target ?? goal['target'],
+        25000,
+      ),
+      selectedGoalId: selectedGoalId,
+      personalGoals: personalGoals,
       creditLimit: _doubleFrom(appState['creditLimit'], 15000),
       creditUsed: _doubleFrom(appState['creditUsed'], 0),
       transactions:
           _transactionsFrom(appState['transactions'] ?? data['transactions']),
       updatedAt: DateTime.tryParse(data['updated_at'] as String? ?? ''),
     );
+  }
+
+  FakeMayaPersonalGoal? personalGoalById(String? id) {
+    if (id == null || id.trim().isEmpty) return null;
+    for (final goal in personalGoals) {
+      if (goal.id == id) return goal;
+    }
+    return null;
+  }
+
+  List<FakeMayaPersonalGoal> personalGoalsWithDeposit(
+    String? id,
+    double amount,
+  ) {
+    final targetId =
+        (id?.trim().isNotEmpty == true ? id!.trim() : selectedGoalId);
+    final goals = personalGoals.isEmpty
+        ? FakeMayaPersonalGoal.defaultGoals()
+        : personalGoals;
+    var found = false;
+    final updated = [
+      for (final goal in goals)
+        if (goal.id == targetId) ...[
+          goal.copyWith(balance: goal.balance + amount),
+        ] else
+          goal,
+    ];
+    found = updated.any((goal) => goal.id == targetId);
+    if (!found) {
+      updated.add(
+        FakeMayaPersonalGoal.defaultForId(targetId).copyWith(balance: amount),
+      );
+    }
+    return updated;
+  }
+
+  FakeMayaPersonalGoal _legacyPersonalGoal() {
+    return FakeMayaPersonalGoal(
+      id: selectedGoalId,
+      name: goalName,
+      label: 'Personal Goal',
+      emoji: goalEmoji,
+      account: '8189 3753 6162',
+      balance: goalBalance,
+      target: goalTarget,
+      daysLeft: 180,
+      rate: 8,
+    );
+  }
+
+  static List<FakeMayaPersonalGoal> _personalGoalsFrom(
+    Object? value, {
+    required Map<String, dynamic> legacyGoal,
+    required Object? legacyGoalBalance,
+  }) {
+    if (value is Iterable) {
+      final goals = value
+          .map((item) => item is Map
+              ? FakeMayaPersonalGoal.fromMap(Map<String, dynamic>.from(item))
+              : null)
+          .whereType<FakeMayaPersonalGoal>()
+          .toList();
+      if (goals.isNotEmpty) return goals;
+    }
+    if (legacyGoal.isEmpty && legacyGoalBalance == null) {
+      return FakeMayaPersonalGoal.defaultGoals();
+    }
+    final goals = FakeMayaPersonalGoal.defaultGoals();
+    goals[0] = goals[0].copyWith(
+      name: _stringFrom(legacyGoal['name'], goals[0].name),
+      emoji: _stringFrom(legacyGoal['emoji'], goals[0].emoji),
+      balance: _doubleFrom(legacyGoal['balance'] ?? legacyGoalBalance, 0),
+      target: _doubleFrom(legacyGoal['target'], goals[0].target),
+    );
+    return goals;
   }
 
   static List<FakeMayaTransaction> _transactionsFrom(Object? value) {
@@ -651,6 +811,171 @@ class FakeMayaAccountSummary {
   static double _doubleFrom(Object? value, double fallback) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  static String _stringFrom(Object? value, String fallback) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+}
+
+class FakeMayaPersonalGoal {
+  const FakeMayaPersonalGoal({
+    required this.id,
+    required this.name,
+    required this.label,
+    required this.emoji,
+    required this.account,
+    required this.balance,
+    required this.target,
+    required this.daysLeft,
+    required this.rate,
+  });
+
+  static const essentialExpenseFundId = 'B1';
+  static const personalLifestyleFundId = 'B5';
+
+  final String id;
+  final String name;
+  final String label;
+  final String emoji;
+  final String account;
+  final double balance;
+  final double target;
+  final int daysLeft;
+  final double rate;
+
+  FakeMayaPersonalGoal copyWith({
+    String? id,
+    String? name,
+    String? label,
+    String? emoji,
+    String? account,
+    double? balance,
+    double? target,
+    int? daysLeft,
+    double? rate,
+  }) {
+    return FakeMayaPersonalGoal(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      label: label ?? this.label,
+      emoji: emoji ?? this.emoji,
+      account: account ?? this.account,
+      balance: balance ?? this.balance,
+      target: target ?? this.target,
+      daysLeft: daysLeft ?? this.daysLeft,
+      rate: rate ?? this.rate,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'label': label,
+      'emoji': emoji,
+      'account': account,
+      'balance': balance,
+      'target': target,
+      'daysLeft': daysLeft,
+      'rate': rate,
+    };
+  }
+
+  factory FakeMayaPersonalGoal.fromMap(Map<String, dynamic> data) {
+    final defaults = defaultForId(data['id']?.toString() ?? '');
+    return FakeMayaPersonalGoal(
+      id: _stringFrom(data['id'], defaults.id),
+      name: _stringFrom(data['name'], defaults.name),
+      label: _stringFrom(data['label'], defaults.label),
+      emoji: _stringFrom(data['emoji'], defaults.emoji),
+      account: _stringFrom(data['account'], defaults.account),
+      balance: _doubleFrom(data['balance'], defaults.balance),
+      target: _doubleFrom(data['target'], defaults.target),
+      daysLeft: _intFrom(data['daysLeft'], defaults.daysLeft),
+      rate: _doubleFrom(data['rate'], defaults.rate),
+    );
+  }
+
+  static List<FakeMayaPersonalGoal> defaultGoals() {
+    return [
+      defaultForId('B1'),
+      defaultForId('B2'),
+      defaultForId('B3'),
+      defaultForId('B4'),
+      defaultForId('B5'),
+    ];
+  }
+
+  static FakeMayaPersonalGoal defaultForId(String id) {
+    return switch (id) {
+      'B2' => const FakeMayaPersonalGoal(
+          id: 'B2',
+          name: 'Upcoming bill and payment obligations',
+          label: 'Personal Goal 2',
+          emoji: '🧾',
+          account: '8189 3753 6102',
+          balance: 0,
+          target: 25000,
+          daysLeft: 180,
+          rate: 8,
+        ),
+      'B3' => const FakeMayaPersonalGoal(
+          id: 'B3',
+          name: 'Emergency Fund',
+          label: 'Personal Goal 3',
+          emoji: '🛟',
+          account: '8189 3753 6103',
+          balance: 0,
+          target: 25000,
+          daysLeft: 180,
+          rate: 8,
+        ),
+      'B4' => const FakeMayaPersonalGoal(
+          id: 'B4',
+          name: 'Goal-Based savings fund',
+          label: 'Personal Goal 4',
+          emoji: '🎯',
+          account: '8189 3753 6104',
+          balance: 0,
+          target: 25000,
+          daysLeft: 180,
+          rate: 8,
+        ),
+      'B5' => const FakeMayaPersonalGoal(
+          id: 'B5',
+          name: 'Personal Lifestyle Fund',
+          label: 'Personal Goal 5',
+          emoji: '✨',
+          account: '8189 3753 6105',
+          balance: 0,
+          target: 25000,
+          daysLeft: 180,
+          rate: 8,
+        ),
+      _ => const FakeMayaPersonalGoal(
+          id: 'B1',
+          name: 'Essential Expense Fund',
+          label: 'Personal Goal 1',
+          emoji: '🏠',
+          account: '8189 3753 6101',
+          balance: 0,
+          target: 25000,
+          daysLeft: 180,
+          rate: 8,
+        ),
+    };
+  }
+
+  static double _doubleFrom(Object? value, double fallback) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  static int _intFrom(Object? value, int fallback) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 
   static String _stringFrom(Object? value, String fallback) {
@@ -724,6 +1049,19 @@ class FakeMayaTransaction {
     return amount > 0 &&
         title.toLowerCase().contains('cash in') &&
         (accountName == null || accountName.isEmpty || accountName == 'Wallet');
+  }
+
+  bool get isInternalFakeMayaTransfer {
+    final normalizedTitle = title.trim().toLowerCase();
+    final normalizedDetail = detail.trim().toLowerCase();
+    return normalizedTitle == 'deposited to goal' ||
+        normalizedTitle == 'express deposit' ||
+        normalizedTitle == 'transferred from' ||
+        (normalizedTitle == 'deposited to' &&
+            (normalizedDetail == 'my savings' ||
+                normalizedDetail.contains('goal') ||
+                normalizedDetail.contains('fund') ||
+                normalizedDetail.contains('maya black')));
   }
 
   String? get automaticDestination => isFakeMayaCashIn ? 'E-wallet' : null;

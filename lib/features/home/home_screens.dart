@@ -478,7 +478,7 @@ class DashboardPage extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'Your Pyramid',
+                'Income & Expenses',
                 style: GoogleFonts.fredoka(
                   fontSize: 22,
                   fontWeight: FontWeight.w600,
@@ -487,42 +487,71 @@ class DashboardPage extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _PyramidCard(
-                icon: Icons.account_balance_wallet_rounded,
+                icon: Icons.home_filled,
                 color: _brand,
-                title: 'Cash Flow & Basic Needs',
-                onTap: () => Navigator.push(
+                title: 'Basic Needs',
+                onTap: () => _openBaselineLedgerPage(
                   context,
-                  MaterialPageRoute(builder: (_) => const _CashFlowPage()),
+                  state,
+                  'Basic Needs',
+                  _brand,
                 ),
-                child: _CashFlowPyramidContent(state: state),
+                child: _PyramidTransactionListContent(
+                  state: state,
+                  layer: 'Basic Needs',
+                  color: _brand,
+                ),
               ),
               const SizedBox(height: 10),
               _PyramidCard(
                 icon: Icons.shield_rounded,
                 color: _amber,
-                title: 'Financial Safety',
-                onTap: () => Navigator.push(
+                title: 'Emergency / Insurance',
+                onTap: () => _openBaselineLedgerPage(
                   context,
-                  MaterialPageRoute(
-                      builder: (_) => const _FinancialSafetyPage()),
+                  state,
+                  'Emergency / Insurance',
+                  _amber,
                 ),
-                child: _FinancialSafetyPyramidContent(state: state),
+                child: _PyramidTransactionListContent(
+                  state: state,
+                  layer: 'Emergency / Insurance',
+                  color: _amber,
+                ),
               ),
               const SizedBox(height: 10),
               _PyramidCard(
                 icon: Icons.trending_up_rounded,
                 color: _purple,
-                title: 'Accumulating Wealth',
-                onTap: () {},
-                child: const _BlankPyramidContent(),
+                title: 'Debt / Investments',
+                onTap: () => _openBaselineLedgerPage(
+                  context,
+                  state,
+                  'Debt / Investments',
+                  _purple,
+                ),
+                child: _PyramidTransactionListContent(
+                  state: state,
+                  layer: 'Debt / Investments',
+                  color: _purple,
+                ),
               ),
               const SizedBox(height: 10),
               _PyramidCard(
                 icon: Icons.flag_rounded,
                 color: const Color(0xFF6AA8F0),
-                title: 'Financial Freedom',
-                onTap: () {},
-                child: const _BlankPyramidContent(),
+                title: 'Non-Essentials',
+                onTap: () => _openBaselineLedgerPage(
+                  context,
+                  state,
+                  'Non-Essentials',
+                  const Color(0xFF6AA8F0),
+                ),
+                child: _PyramidTransactionListContent(
+                  state: state,
+                  layer: 'Non-Essentials',
+                  color: const Color(0xFF6AA8F0),
+                ),
               ),
             ],
           ),
@@ -867,6 +896,1096 @@ class _BlankPyramidContent extends StatelessWidget {
   }
 }
 
+class _PyramidTransactionListContent extends StatelessWidget {
+  const _PyramidTransactionListContent({
+    required this.state,
+    required this.layer,
+    required this.color,
+  });
+
+  final AppState state;
+  final String layer;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _onboardingEntriesForLayer(state, layer);
+    final income = entries.where((entry) => entry.isIncome).toList();
+    final expenses = entries.where((entry) => !entry.isIncome).toList();
+    final incomeTotal =
+        income.fold<double>(0, (total, entry) => total + entry.amount);
+    final expenseTotal =
+        expenses.fold<double>(0, (total, entry) => total + entry.amount);
+    return Row(
+      children: [
+        Expanded(
+          child: _PyramidSummaryTile(
+            label: 'Income',
+            count: income.length,
+            total: incomeTotal,
+            color: _sage,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _PyramidSummaryTile(
+            label: 'Expenses',
+            count: expenses.length,
+            total: expenseTotal,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PyramidSummaryTile extends StatelessWidget {
+  const _PyramidSummaryTile({
+    required this.label,
+    required this.count,
+    required this.total,
+    required this.color,
+  });
+
+  final String label;
+  final int count;
+  final double total;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: .16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            money(total),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$count item${count == 1 ? '' : 's'}',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PyramidLedgerSection extends StatelessWidget {
+  const _PyramidLedgerSection({
+    required this.entries,
+    required this.emptyText,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final List<_PyramidBaselineEntry> entries;
+  final String emptyText;
+  final ValueChanged<_PyramidBaselineEntry> onEdit;
+  final ValueChanged<_PyramidBaselineEntry> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(22),
+          child: Text(
+            emptyText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return AppCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(entry.icon, color: entry.isIncome ? _sage : _body),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.name,
+                      style: const TextStyle(
+                        color: _title,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.detail,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    money(entry.amount),
+                    style: TextStyle(
+                      color: entry.isIncome ? _sage : _red,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Edit',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.edit_rounded, size: 18),
+                        onPressed: () => onEdit(entry),
+                      ),
+                      IconButton(
+                        tooltip: 'Delete',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.delete_outline_rounded,
+                            size: 18, color: _red),
+                        onPressed: () => onDelete(entry),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemCount: entries.length,
+    );
+  }
+}
+
+class _PyramidBaselineLedgerPage extends StatefulWidget {
+  const _PyramidBaselineLedgerPage({required this.initialLayer});
+
+  final String initialLayer;
+
+  @override
+  State<_PyramidBaselineLedgerPage> createState() =>
+      _PyramidBaselineLedgerPageState();
+}
+
+class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
+    with SingleTickerProviderStateMixin {
+  static const layers = [
+    'Basic Needs',
+    'Emergency / Insurance',
+    'Debt / Investments',
+    'Non-Essentials',
+  ];
+
+  late final TabController _layerController;
+  int mode = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = layers.indexOf(widget.initialLayer);
+    _layerController = TabController(
+      length: layers.length,
+      vsync: this,
+      initialIndex: initial < 0 ? 0 : initial,
+    )..addListener(() {
+        if (!_layerController.indexIsChanging) setState(() {});
+      });
+  }
+
+  @override
+  void dispose() {
+    _layerController.dispose();
+    super.dispose();
+  }
+
+  String get currentLayer => layers[_layerController.index];
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final entries = _onboardingEntriesForLayer(state, currentLayer);
+    final income = entries.where((entry) => entry.isIncome).toList();
+    final expenses = entries.where((entry) => !entry.isIncome).toList();
+    final shown = mode == 0 ? income : expenses;
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        backgroundColor: _bg,
+        foregroundColor: _title,
+        elevation: 0,
+        title: const Text(
+          'Income & Expenses',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        bottom: TabBar(
+          controller: _layerController,
+          isScrollable: true,
+          labelColor: _brand,
+          unselectedLabelColor: _body,
+          indicatorColor: _brand,
+          tabs: const [
+            Tab(text: 'Basic Needs'),
+            Tab(text: 'Emergency / Insurance'),
+            Tab(text: 'Debt / Investments'),
+            Tab(text: 'Non-Essentials'),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: _brand,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: Text(mode == 0 ? 'Add income' : 'Add expense'),
+        onPressed: () => mode == 0
+            ? _editIncome(context, state, currentLayer)
+            : _editExpense(context, state, currentLayer),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Row(
+              children: [
+                _LedgerModeButton(
+                  label: 'Income',
+                  selected: mode == 0,
+                  color: _sage,
+                  onTap: () => setState(() => mode = 0),
+                ),
+                const SizedBox(width: 10),
+                _LedgerModeButton(
+                  label: 'Expenses',
+                  selected: mode == 1,
+                  color: _brand,
+                  onTap: () => setState(() => mode = 1),
+                ),
+              ],
+            ),
+          ),
+          _LedgerTotalsStrip(income: income, expenses: expenses),
+          Expanded(
+            child: _PyramidLedgerSection(
+              entries: shown,
+              emptyText: mode == 0
+                  ? 'No saved income in this type yet.'
+                  : 'No saved expenses in this type yet.',
+              onEdit: (entry) => entry.isIncome
+                  ? _editIncome(context, state, currentLayer, entry)
+                  : _editExpense(context, state, currentLayer, entry),
+              onDelete: (entry) => _deleteEntry(context, state, entry),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editIncome(
+    BuildContext context,
+    AppState state,
+    String layer, [
+    _PyramidBaselineEntry? entry,
+  ]) async {
+    final result = await _showIncomeLedgerDialog(context, layer, entry);
+    if (result == null) return;
+    if (entry == null || entry.index < 0) {
+      state.onboardingIncomeLedger.add(result);
+    } else {
+      state.onboardingIncomeLedger[entry.index] = result;
+    }
+    await state.saveOnboardingLedgerEdits();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _editExpense(
+    BuildContext context,
+    AppState state,
+    String layer, [
+    _PyramidBaselineEntry? entry,
+  ]) async {
+    final result = await _showExpenseLedgerDialog(context, layer, entry);
+    if (result == null) return;
+    if (entry == null || entry.index < 0) {
+      state.onboardingExpenseLedger.add(result);
+    } else {
+      state.onboardingExpenseLedger[entry.index] = result;
+    }
+    await state.saveOnboardingLedgerEdits();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _deleteEntry(
+    BuildContext context,
+    AppState state,
+    _PyramidBaselineEntry entry,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Delete ledger item?'),
+        content: Text(entry.name),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (entry.isIncome) {
+      if (entry.index < 0) return;
+      state.onboardingIncomeLedger.removeAt(entry.index);
+    } else {
+      if (entry.index < 0) return;
+      state.onboardingExpenseLedger.removeAt(entry.index);
+    }
+    await state.saveOnboardingLedgerEdits();
+    if (mounted) setState(() {});
+  }
+}
+
+class _LedgerModeButton extends StatelessWidget {
+  const _LedgerModeButton({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          height: 42,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? color.withValues(alpha: .14) : _surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? color : _border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? color : _body,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LedgerTotalsStrip extends StatelessWidget {
+  const _LedgerTotalsStrip({required this.income, required this.expenses});
+
+  final List<_PyramidBaselineEntry> income;
+  final List<_PyramidBaselineEntry> expenses;
+
+  @override
+  Widget build(BuildContext context) {
+    final incomeTotal =
+        income.fold<double>(0, (total, entry) => total + entry.amount);
+    final expenseTotal =
+        expenses.fold<double>(0, (total, entry) => total + entry.amount);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: _PyramidSummaryTile(
+              label: 'Income',
+              count: income.length,
+              total: incomeTotal,
+              color: _sage,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _PyramidSummaryTile(
+              label: 'Expenses',
+              count: expenses.length,
+              total: expenseTotal,
+              color: _red,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+void _openBaselineLedgerPage(
+  BuildContext context,
+  AppState state,
+  String layer,
+  Color color,
+) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _PyramidBaselineLedgerPage(initialLayer: layer),
+    ),
+  );
+}
+
+Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
+  BuildContext context,
+  String layer, [
+  _PyramidBaselineEntry? entry,
+]) {
+  final name = TextEditingController(text: entry?.name ?? '');
+  final amount = TextEditingController(
+    text: entry == null ? '' : entry.amount.toStringAsFixed(0),
+  );
+  var stable = entry?.data['stable'] == true;
+  var scheduled = entry?.data['scheduled'] == true;
+  var payDay = (entry?.data['payDay'] as num?)?.toInt();
+  return showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        backgroundColor: _surface,
+        title: Text(entry == null ? 'Add income' : 'Edit income'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                decoration: inputDecoration('Income source'),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: inputDecoration('Monthly amount')
+                    .copyWith(prefixText: '₱ '),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: stable,
+                onChanged: (value) =>
+                    setDialogState(() => stable = value ?? false),
+                title: const Text('Stable income'),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: scheduled,
+                onChanged: (value) =>
+                    setDialogState(() => scheduled = value ?? false),
+                title: const Text('Scheduled income'),
+              ),
+              if (scheduled)
+                DropdownButtonFormField<int>(
+                  value: payDay,
+                  decoration: inputDecoration('Expected pay day'),
+                  items: [
+                    for (var day = 1; day <= 31; day++)
+                      DropdownMenuItem(value: day, child: Text('Day $day')),
+                  ],
+                  onChanged: (value) => setDialogState(() => payDay = value),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final parsed = _baselineAmount(amount.text);
+              if (name.text.trim().isEmpty || parsed <= 0) return;
+              Navigator.pop(context, {
+                'name': name.text.trim(),
+                'amount': parsed,
+                'stable': stable,
+                'scheduled': scheduled,
+                'payDay': scheduled ? payDay : null,
+                'layer': layer,
+              });
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    ),
+  ).whenComplete(() {
+    name.dispose();
+    amount.dispose();
+  });
+}
+
+Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
+  BuildContext context,
+  String layer, [
+  _PyramidBaselineEntry? entry,
+]) {
+  final name = TextEditingController(text: entry?.name ?? '');
+  final amount = TextEditingController(
+    text: entry == null ? '' : entry.amount.toStringAsFixed(0),
+  );
+  var expenseLayer = _expenseLayerForType(layer);
+  if (entry?.data['expenseType'] != null || entry?.data['layer'] != null) {
+    expenseLayer = expenseLayerFromValue(
+            entry?.data['expenseType'] ?? entry?.data['layer']) ??
+        expenseLayer;
+  }
+  var scheduled = entry?.data['scheduled'] == true;
+  var dueDay = (entry?.data['dueDay'] as num?)?.toInt();
+  return showDialog<Map<String, dynamic>>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        backgroundColor: _surface,
+        title: Text(entry == null ? 'Add expense' : 'Edit expense'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                decoration: inputDecoration('Expense name'),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: inputDecoration('Monthly amount')
+                    .copyWith(prefixText: '₱ '),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<ExpenseLayer>(
+                value: expenseLayer,
+                decoration: inputDecoration('Expense type'),
+                items: ExpenseLayer.values
+                    .map((layer) => DropdownMenuItem(
+                          value: layer,
+                          child: Text(layer.label),
+                        ))
+                    .toList(),
+                onChanged: (value) =>
+                    setDialogState(() => expenseLayer = value),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: scheduled,
+                onChanged: (value) =>
+                    setDialogState(() => scheduled = value ?? false),
+                title: const Text('Scheduled bill'),
+              ),
+              if (scheduled)
+                DropdownButtonFormField<int>(
+                  value: dueDay,
+                  decoration: inputDecoration('Expected due day'),
+                  items: [
+                    for (var day = 1; day <= 31; day++)
+                      DropdownMenuItem(value: day, child: Text('Day $day')),
+                  ],
+                  onChanged: (value) => setDialogState(() => dueDay = value),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final parsed = _baselineAmount(amount.text);
+              if (name.text.trim().isEmpty || parsed <= 0) return;
+              Navigator.pop(context, {
+                'name': name.text.trim(),
+                'amount': parsed,
+                'essential': expenseLayer == ExpenseLayer.basicNeeds,
+                'expenseType': expenseLayer?.name,
+                'scheduled': scheduled,
+                'dueDay': scheduled ? dueDay : null,
+              });
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    ),
+  ).whenComplete(() {
+    name.dispose();
+    amount.dispose();
+  });
+}
+
+ExpenseLayer? _expenseLayerForType(String layer) {
+  return switch (layer) {
+    'Emergency / Insurance' => ExpenseLayer.emergencyInsurance,
+    'Debt / Investments' => ExpenseLayer.debtInvestments,
+    'Non-Essentials' => ExpenseLayer.nonEssentials,
+    _ => ExpenseLayer.basicNeeds,
+  };
+}
+
+class _PyramidBaselineEntry {
+  const _PyramidBaselineEntry({
+    required this.index,
+    required this.data,
+    required this.name,
+    required this.amount,
+    required this.isIncome,
+    required this.layer,
+    required this.detail,
+    required this.icon,
+  });
+
+  final int index;
+  final Map<String, dynamic> data;
+  final String name;
+  final double amount;
+  final bool isIncome;
+  final String layer;
+  final String detail;
+  final IconData icon;
+}
+
+List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
+  AppState state,
+  String layer,
+) {
+  final incomeLedger = state.onboardingIncomeLedger.isNotEmpty
+      ? state.onboardingIncomeLedger
+      : _fallbackIncomeLedger(state);
+  final expenseLedger = state.onboardingExpenseLedger.isNotEmpty
+      ? state.onboardingExpenseLedger
+      : _fallbackExpenseLedger(state);
+  final entries = <_PyramidBaselineEntry>[
+    for (var index = 0; index < incomeLedger.length; index++)
+      _incomeBaselineEntry(
+        index < state.onboardingIncomeLedger.length ? index : -1,
+        incomeLedger[index],
+      ),
+    for (var index = 0; index < expenseLedger.length; index++)
+      _expenseBaselineEntry(
+        index < state.onboardingExpenseLedger.length ? index : -1,
+        expenseLedger[index],
+      ),
+  ].where((entry) => entry.amount > 0 && entry.layer == layer).toList()
+    ..sort((a, b) {
+      if (a.isIncome != b.isIncome) return a.isIncome ? -1 : 1;
+      return b.amount.compareTo(a.amount);
+    });
+  return entries;
+}
+
+List<Map<String, dynamic>> _fallbackIncomeLedger(AppState state) {
+  if (state.income <= 0) return const [];
+  return [
+    {
+      'name': 'Monthly income baseline',
+      'amount': state.income,
+      'stable': state.monthlySalary > 0 && state.irregularIncomeFloor <= 0,
+      'scheduled': false,
+      'payDay': null,
+      'layer': 'Basic Needs',
+    },
+  ];
+}
+
+List<Map<String, dynamic>> _fallbackExpenseLedger(AppState state) {
+  if (state.cashFlowExpenses.isNotEmpty) {
+    return [
+      for (final expense in state.cashFlowExpenses)
+        {
+          'name': expense.name,
+          'amount': expense.budget,
+          'essential': expense.layer == ExpenseLayer.basicNeeds,
+          'expenseType': expense.layer.name,
+          'scheduled': false,
+          'dueDay': null,
+        },
+    ];
+  }
+  final entries = <Map<String, dynamic>>[];
+  if (state.expenses > 0) {
+    entries.add({
+      'name': 'Fixed monthly expenses',
+      'amount': state.expenses,
+      'essential': true,
+      'expenseType': ExpenseLayer.basicNeeds.name,
+      'scheduled': false,
+      'dueDay': null,
+    });
+  }
+  if (state.variableExpenses > 0) {
+    entries.add({
+      'name': 'Variable monthly expenses',
+      'amount': state.variableExpenses,
+      'essential': false,
+      'expenseType': ExpenseLayer.nonEssentials.name,
+      'scheduled': false,
+      'dueDay': null,
+    });
+  }
+  if (state.debtPayments > 0) {
+    entries.add({
+      'name': 'Debt payments',
+      'amount': state.debtPayments,
+      'essential': false,
+      'expenseType': ExpenseLayer.debtInvestments.name,
+      'scheduled': false,
+      'dueDay': null,
+    });
+  }
+  return entries;
+}
+
+_PyramidBaselineEntry _incomeBaselineEntry(
+  int index,
+  Map<String, dynamic> data,
+) {
+  final scheduled = data['scheduled'] == true;
+  final stable = data['stable'] == true;
+  final payDay = (data['payDay'] as num?)?.toInt();
+  final tags = [
+    stable ? 'Stable' : 'Variable',
+    if (scheduled) payDay == null ? 'Scheduled' : 'Day $payDay monthly',
+  ];
+  return _PyramidBaselineEntry(
+    index: index,
+    data: data,
+    name: _baselineText(data['name'], 'Income source'),
+    amount: _baselineAmount(data['amount']),
+    isIncome: true,
+    layer: _layerFromBaselineTag(data['layer'] ?? data['incomeType']) ??
+        'Basic Needs',
+    detail: tags.join(' · '),
+    icon: Icons.payments_rounded,
+  );
+}
+
+_PyramidBaselineEntry _expenseBaselineEntry(
+  int index,
+  Map<String, dynamic> data,
+) {
+  final layer = expenseLayerFromValue(data['expenseType'] ?? data['layer']);
+  final scheduled = data['scheduled'] == true;
+  final dueDay = (data['dueDay'] as num?)?.toInt();
+  final detail = [
+    layer?.label ?? 'Expense',
+    if (scheduled) dueDay == null ? 'Scheduled bill' : 'Due day $dueDay',
+  ].join(' · ');
+  return _PyramidBaselineEntry(
+    index: index,
+    data: data,
+    name: _baselineText(data['name'], 'Expense'),
+    amount: _baselineAmount(data['amount']),
+    isIncome: false,
+    layer: _pyramidLayerForExpenseLayer(layer),
+    detail: detail,
+    icon: layer == null ? Icons.receipt_long_rounded : _expenseLayerIcon(layer),
+  );
+}
+
+String _pyramidLayerForExpenseLayer(ExpenseLayer? layer) {
+  return switch (layer) {
+    ExpenseLayer.emergencyInsurance => 'Emergency / Insurance',
+    ExpenseLayer.debtInvestments => 'Debt / Investments',
+    ExpenseLayer.nonEssentials => 'Non-Essentials',
+    _ => 'Basic Needs',
+  };
+}
+
+String? _layerFromBaselineTag(Object? value) {
+  final tag = value?.toString().trim().toLowerCase() ?? '';
+  if (tag.isEmpty) return null;
+  if (tag.contains('cash') || tag.contains('basic')) {
+    return 'Basic Needs';
+  }
+  if (tag.contains('emergency') || tag.contains('safety')) {
+    return 'Emergency / Insurance';
+  }
+  if (tag.contains('investment') ||
+      tag.contains('debt') ||
+      tag.contains('wealth')) {
+    return 'Debt / Investments';
+  }
+  if (tag.contains('freedom') ||
+      tag.contains('nonessential') ||
+      tag.contains('lifestyle')) {
+    return 'Non-Essentials';
+  }
+  return null;
+}
+
+String _baselineText(Object? value, String fallback) {
+  final text = value?.toString().trim() ?? '';
+  return text.isEmpty ? fallback : text;
+}
+
+double _baselineAmount(Object? value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString().replaceAll(',', '') ?? '') ?? 0;
+}
+
+void _showPyramidBaselineSheet(
+  BuildContext context,
+  AppState state,
+  String layer,
+  Color color,
+) {
+  final entries = _onboardingEntriesForLayer(state, layer);
+  final income = entries.where((entry) => entry.isIncome).toList();
+  final expenses = entries.where((entry) => !entry.isIncome).toList();
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: _surface,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => SafeArea(
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.65,
+        minChildSize: 0.35,
+        maxChildSize: 0.9,
+        builder: (context, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(20),
+          children: [
+            Row(
+              children: [
+                IconBubble(Icons.layers_rounded,
+                    color: color, background: color.withValues(alpha: .12)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    layer,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Saved from onboarding monthly income and expenses.',
+              style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
+            _PyramidBaselineSheetSection(
+              title: 'Income',
+              entries: income,
+              color: _sage,
+              emptyText: 'No onboarding income is linked to this type.',
+            ),
+            const SizedBox(height: 16),
+            _PyramidBaselineSheetSection(
+              title: 'Expenses',
+              entries: expenses,
+              color: color,
+              emptyText: 'No onboarding expenses are linked to this type.',
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _PyramidBaselineSheetSection extends StatelessWidget {
+  const _PyramidBaselineSheetSection({
+    required this.title,
+    required this.entries,
+    required this.color,
+    required this.emptyText,
+  });
+
+  final String title;
+  final List<_PyramidBaselineEntry> entries;
+  final Color color;
+  final String emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = entries.fold<double>(0, (sum, entry) => sum + entry.amount);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              money(total),
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (entries.isEmpty)
+          Text(
+            emptyText,
+            style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+          )
+        else
+          for (final entry in entries) ...[
+            _PyramidBaselineSheetRow(entry: entry),
+            if (entry != entries.last) const Divider(height: 16),
+          ],
+      ],
+    );
+  }
+}
+
+class _PyramidBaselineSheetRow extends StatelessWidget {
+  const _PyramidBaselineSheetRow({required this.entry});
+
+  final _PyramidBaselineEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(entry.icon, color: entry.isIncome ? _sage : _body),
+      title: Text(
+        entry.name,
+        style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
+      ),
+      subtitle: Text(
+        entry.detail,
+        style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+      ),
+      trailing: Text(
+        money(entry.amount),
+        style: TextStyle(
+          color: entry.isIncome ? _sage : _red,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+String _pyramidLayerForTransaction(FakeMayaTransaction transaction) {
+  final source = transaction.source?.trim().toLowerCase() ?? '';
+  if (source.isNotEmpty) {
+    if (source == 'basic needs fund' ||
+        source == 'e-wallet' ||
+        source == 'wallet' ||
+        source == 'cash on hand' ||
+        source.contains('cash flow')) {
+      return 'Cash Flow & Basic Needs';
+    }
+    if (source == 'emergency fund' || source.contains('safety')) {
+      return 'Financial Safety';
+    }
+    if (source == 'investment' ||
+        source == 'time deposit' ||
+        source.contains('investment') ||
+        source.contains('wealth')) {
+      return 'Accumulating Wealth';
+    }
+    if (source == 'lifestyle fund' ||
+        source.contains('lifestyle') ||
+        source.contains('freedom')) {
+      return 'Financial Freedom';
+    }
+  }
+
+  if (transaction.amount > 0) return 'Cash Flow & Basic Needs';
+
+  return switch (_insightCategoryConfig(transaction.category ?? '').$1) {
+    2 => 'Financial Safety',
+    3 => 'Accumulating Wealth',
+    4 => 'Financial Freedom',
+    _ => 'Cash Flow & Basic Needs',
+  };
+}
+
 // Compute this-month layer-1 (essentials) spending from FakeMaya if available.
 double _cashFlowMonthlySpent(AppState state) {
   final now = DateTime.now();
@@ -924,10 +2043,40 @@ double _clampPercent(double value) => value.isFinite ? value.clamp(0, 100) : 0;
 /// separate from the on-track booleans above: a goal can be "on track" well
 /// before it reaches 100% (e.g. the emergency fund) or vice versa.
 double cashFlowGoalPercent(AppState state) {
+  return maintainAvailableCashFeasibility(state).toDouble();
+}
+
+int maintainAvailableCashFeasibility(AppState state) {
   final total = state.cashFlowPyramidBaseline;
   if (total <= 0) return 0;
-  final used = _cashFlowMonthlySpent(state);
-  return _clampPercent((1 - (used / total)) * 100);
+  final now = DateTime.now();
+  final spent = (state.fakeMayaLink?.summary.transactions ??
+          const <FakeMayaTransaction>[])
+      .where((transaction) =>
+          transaction.amount < 0 &&
+          transaction.isLabeled &&
+          !transaction.excludedFromInsights &&
+          transaction.createdAt?.year == now.year &&
+          transaction.createdAt?.month == now.month &&
+          _insightCategoryConfig(transaction.category ?? '').$1 == 1)
+      .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+  final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+  final remaining = math.max(0.0, total - spent);
+  final essentialExpected = state.monthlyEssentialExpenseTotal;
+  final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
+  final coverageScore =
+      (wallet / math.max(remaining, total * .1)).clamp(0.0, 1.0);
+  final essentialScore = essentialExpected <= 0
+      ? coverageScore
+      : (state.essentialExpensesBalance / essentialExpected).clamp(0.0, 1.0);
+  final spendingScore = spent <= total ? 1.0 : (total / spent).clamp(0.0, 1.0);
+  final incomeScore = (latestIncome / total).clamp(0.0, 1.0);
+  return ((coverageScore * .55 +
+              essentialScore * .20 +
+              spendingScore * .15 +
+              incomeScore * .10) *
+          100)
+      .round();
 }
 
 double emergencyFundGoalPercent(AppState state) {
@@ -1888,6 +3037,23 @@ Set<String> _insightsAdoptedMotivations(AppState state) {
   };
 }
 
+Set<String> _insightsVisibleMotivations(AppState state) {
+  if (_insightsIsReflectionDemoAccount(state)) {
+    return _insightsMotivationTabs.map((entry) => entry.$1).toSet();
+  }
+  final motivations = <String>{};
+  for (final goalId in _visibleGoalIds(state)) {
+    final layer = _layerForGoalId(goalId);
+    if (layer != null) motivations.add(layer);
+  }
+  final onboardingLayer =
+      _layerForGoalId(state.selectedGoalId) ?? state.primaryConcern;
+  if (_layerCanonicalGoalId.containsKey(onboardingLayer)) {
+    motivations.add(onboardingLayer);
+  }
+  return motivations;
+}
+
 bool _insightsIsReflectionDemoAccount(AppState state) =>
     state.email == 'reflection@test.com';
 
@@ -1917,14 +3083,12 @@ class _InsightsPageState extends State<InsightsPage> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final service = IntegrationService.fromState(state);
-    // The Reflection Demo account shows every motivation tab regardless of
-    // adoption, so it doubles as a showcase of what each one looks like.
-    final adopted = _insightsIsReflectionDemoAccount(state)
-        ? null
-        : _insightsAdoptedMotivations(state);
+    // The Reflection Demo account shows every motivation tab; real accounts
+    // only show the motivation layer they picked or explicitly added.
+    final adopted = _insightsVisibleMotivations(state);
     final visibleMotivations = [
       for (final entry in _insightsMotivationTabs)
-        if (adopted == null || adopted.contains(entry.$1)) entry,
+        if (adopted.contains(entry.$1)) entry,
     ];
     final tabs = ['Overview', for (final entry in visibleMotivations) entry.$2];
     final activeIndex = _goal < tabs.length ? _goal : 0;
@@ -2424,7 +3588,8 @@ class _InsightsOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final transactions = _last14DaysTransactions(state);
     final inflow = transactions
-        .where((transaction) => transaction.amount > 0)
+        .where((transaction) =>
+            transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final outflow = transactions
         .where((transaction) => transaction.amount < 0)
@@ -2748,7 +3913,8 @@ String _overviewAnalysisContext(
 ) {
   final labeled = _last14DaysTransactions(state);
   final inflow = labeled
-      .where((transaction) => transaction.amount > 0)
+      .where((transaction) =>
+          transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
       .fold(0.0, (sum, transaction) => sum + transaction.amount);
   final outflow = labeled
       .where((transaction) => transaction.amount < 0)
@@ -2811,7 +3977,7 @@ Configured Maintain Available Cash actions:
 - A1: Set aside a configured percent of each income into the Essential Expenses Fund.
 - A3: Limit spending in selected categories to configured monthly caps.
 - A20: Bring in at least the configured monthly cash-in target.
-- A19: Keep the Everyday Fund at or above the configured peso minimum.
+- A19: Keep the Essential Expenses Fund at or above the configured peso minimum.
 Selected category budgets:
 ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
 Monthly cash indexes:
@@ -3078,7 +4244,8 @@ List<_CashMonthInsight> _cashMonthsFor(
       ..sort((a, b) => (b.createdAt ?? DateTime(1970))
           .compareTo(a.createdAt ?? DateTime(1970)));
     final income = monthTransactions
-        .where((transaction) => transaction.amount > 0)
+        .where((transaction) =>
+            transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final spending = monthTransactions
         .where((transaction) => transaction.amount < 0)
@@ -3092,7 +4259,8 @@ List<_CashMonthInsight> _cashMonthsFor(
       state.cashOnHandBalance,
     );
     final incomeSources = _transactionTotals(
-      monthTransactions.where((transaction) => transaction.amount > 0),
+      monthTransactions.where((transaction) =>
+          transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer),
       (transaction) => transaction.category ?? 'Income',
     );
     final spendingCategories = _transactionTotals(
@@ -3326,6 +4494,7 @@ _CashActionScore? _cashActionScoreFor({
         ? income
         : transactions
             .where((transaction) => transaction.amount > 0)
+            .where((transaction) => !transaction.isInternalFakeMayaTransfer)
             .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final pattern = weeks.isEmpty
         ? <double>[target <= 0 ? 0 : (monthIncome / target).clamp(0.0, 1.0)]
@@ -3355,15 +4524,12 @@ _CashActionScore? _cashActionScoreFor({
   }
   if (id == 'A19') {
     final recommended = action == null
-        ? _monthlyExpenseBase(state) * _recommendedEverydayFundMonths(state)
+        ? _recommendedEssentialFundFloor(state)
         : double.parse(
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final floor = configuredNumber('amt', recommended);
-    final currentFund = math.max(
-      state.essentialExpensesBalance,
-      math.max(state.needsBalance, state.accountBalance('Wallet')),
-    );
+    final currentFund = state.essentialExpensesBalance;
     final pattern = weeks.isEmpty
         ? <double>[floor <= 0 ? 0 : (currentFund / floor).clamp(0.0, 1.0)]
         : weeks
@@ -3373,19 +4539,21 @@ _CashActionScore? _cashActionScoreFor({
             .toList();
     return _CashActionScore(
       id: id,
-      title: 'Keep Everyday Fund above floor',
+      title: 'Keep Essential Expenses Fund above floor',
       score: _averageWeeklyResiliency(pattern),
       detail:
-          '${money(currentFund)} available against a ${money(floor)} Everyday Fund minimum.',
+          '${money(currentFund)} saved against a ${money(floor)} Essential Expenses Fund minimum.',
       pattern: pattern,
       weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
       actualLabel: money(currentFund),
       targetLabel: money(floor),
       formula:
-          'Progress = Everyday Fund balance ÷ configured peso floor, with the floor shown as the minimum line.',
+          'Progress = Essential Expenses Fund balance ÷ configured peso floor. The recommended floor is based on essential expenses, monthly income, and surplus.',
       evidence: [
-        'Configured Everyday Fund floor: ${money(floor)}',
-        'Everyday Fund amount counted: ${money(currentFund)}',
+        'Configured Essential Expenses Fund floor: ${money(floor)}',
+        'Essential Expenses Fund amount counted: ${money(currentFund)}',
+        'Monthly essential expense baseline: ${money(_monthlyEssentialBase(state))}',
+        'Monthly income baseline: ${money(_monthlyIncomeBase(state))}',
       ],
     );
   }
@@ -6542,7 +7710,8 @@ class _SpendComparisonSection extends StatelessWidget {
                 transaction.category ?? 'Unclassified',
                 _shortDate(transaction.createdAt ?? DateTime.now()),
                 money(transaction.amount.abs()),
-                transaction.amount > 0,
+                transaction.amount > 0 &&
+                    !transaction.isInternalFakeMayaTransfer,
               ),
           ],
         ],
@@ -7681,7 +8850,8 @@ void _showWeekDetail(BuildContext context, WeekRecord week) {
                 transaction.category ?? 'Unclassified',
                 _shortDate(transaction.createdAt ?? week.start),
                 money(transaction.amount.abs()),
-                transaction.amount > 0,
+                transaction.amount > 0 &&
+                    !transaction.isInternalFakeMayaTransfer,
               ),
           ],
         ),
@@ -10022,7 +11192,7 @@ class _D1GoalCard extends StatelessWidget {
     final actionCount = _goalDetailActionsFor(context, goal).length;
     final onTrack = _isGoalOnTrack(goal.id, state);
     final percent = _goalPercent(goal.id, state);
-    const accent = _brand;
+    final accent = _goalProgressColor(goal.id, percent);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -10082,7 +11252,7 @@ class _D1GoalCard extends StatelessWidget {
                         color: accent.withValues(alpha: .12),
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: const Text(
+                      child: Text(
                         'On Track',
                         style: TextStyle(
                           color: accent,
@@ -10136,7 +11306,7 @@ class _D1GoalCard extends StatelessWidget {
                       value: percent / 100,
                       minHeight: 7,
                       backgroundColor: _border,
-                      valueColor: const AlwaysStoppedAnimation(accent),
+                      valueColor: AlwaysStoppedAnimation(accent),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -10157,7 +11327,7 @@ class _D1GoalCard extends StatelessWidget {
                         color: accent,
                       ),
                       const Spacer(),
-                      const Text(
+                      Text(
                         'View details',
                         style: TextStyle(
                           color: accent,
@@ -10166,7 +11336,7 @@ class _D1GoalCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 2),
-                      const Icon(Icons.arrow_forward_rounded,
+                      Icon(Icons.arrow_forward_rounded,
                           size: 16, color: accent),
                     ],
                   ),
@@ -10178,6 +11348,20 @@ class _D1GoalCard extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _goalProgressColor(String goalId, double percent) {
+  if (goalId == 'G1') {
+    return _feasibilityColor(percent.round());
+  }
+  return _brand;
+}
+
+Color _feasibilityColor(int score) {
+  if (score >= 80) return _sage;
+  if (score >= 60) return _brand;
+  if (score >= 40) return _amber;
+  return _red;
 }
 
 class _GoalPillChip extends StatelessWidget {
@@ -11340,21 +12524,20 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
   if (id == 'A19') {
     final monthlyExpenseBase = _monthlyExpenseBase(state);
     final recommended = d2 == null
-        ? monthlyExpenseBase * 2
+        ? _recommendedEssentialFundFloor(state)
         : double.parse(
             _recommendationsForActionField(state, d2, d2.fields.first).first);
     final amount = double.tryParse(values['amt'] ?? '') ?? recommended;
-    final currentFund =
-        math.max(state.essentialExpensesBalance, state.needsBalance);
+    final currentFund = state.essentialExpensesBalance;
     final monthlyExpenses = math.max(1.0, monthlyExpenseBase);
     final monthsCovered = currentFund / monthlyExpenses;
     return _D1ActionMeta(
       id: 'A19',
       text:
-          'Keep at least ${money(amount)} available in your Everyday Fund so essentials stay covered even before the next income arrives.',
-      configLabel: 'Everyday Fund minimum',
+          'Keep at least ${money(amount)} in your Essential Expenses Fund so essentials stay covered even before the next income arrives.',
+      configLabel: 'Essential Expenses Fund minimum',
       configValue: money(amount),
-      destBucket: 'Everyday Fund',
+      destBucket: 'Essential Expenses Fund',
       metrics: [
         (
           label: 'Minimum floor',
@@ -11362,7 +12545,7 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
           icon: Icons.horizontal_rule_rounded
         ),
         (
-          label: 'Everyday fund',
+          label: 'Essential fund',
           value: money(currentFund),
           icon: Icons.savings_rounded
         ),
@@ -11378,9 +12561,13 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
         ),
       ],
       dataPoints: [
-        (label: 'Everyday Fund floor', type: 'S', value: money(amount)),
         (
-          label: 'Current available cash balance',
+          label: 'Essential Expenses Fund floor',
+          type: 'S',
+          value: money(amount)
+        ),
+        (
+          label: 'Essential Expenses Fund balance',
           type: 'S',
           value: money(currentFund)
         ),
@@ -11476,36 +12663,8 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
     final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
     final expected = state.cashFlowPyramidBaseline;
     final remaining = math.max(0.0, expected - spent);
-    final essentialExpected = state.monthlyEssentialExpenseTotal;
-    final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
-    final coverageScore = expected <= 0
-        ? 0.0
-        : (wallet / math.max(remaining, expected * .1)).clamp(0.0, 1.0);
-    final essentialScore = essentialExpected <= 0
-        ? coverageScore
-        : (state.essentialExpensesBalance / essentialExpected).clamp(0.0, 1.0);
-    final spendingScore = expected <= 0
-        ? 0.0
-        : spent <= expected
-            ? 1.0
-            : (expected / spent).clamp(0.0, 1.0);
-    final incomeScore =
-        expected <= 0 ? 0.0 : (latestIncome / expected).clamp(0.0, 1.0);
-    final feasibility = expected <= 0
-        ? 0
-        : ((coverageScore * .55 +
-                    essentialScore * .20 +
-                    spendingScore * .15 +
-                    incomeScore * .10) *
-                100)
-            .round();
-    final feasibilityColor = feasibility >= 80
-        ? _sage
-        : feasibility >= 60
-            ? _brand
-            : feasibility >= 40
-                ? _amber
-                : _red;
+    final feasibility = maintainAvailableCashFeasibility(state);
+    final feasibilityColor = _feasibilityColor(feasibility);
     final feasibilityLabel = feasibility >= 80
         ? 'Strong'
         : feasibility >= 60
@@ -12840,7 +13999,9 @@ FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
   final transactions =
       state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
   final incoming = transactions.where((transaction) {
-    if (transaction.amount <= 0) return false;
+    if (transaction.amount <= 0 || transaction.isInternalFakeMayaTransfer) {
+      return false;
+    }
     final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
     return !text.contains('account opened') &&
         (text.contains('income') ||
@@ -12883,12 +14044,50 @@ class _EssentialExpensesActionPanelState
       percentage,
     );
     if (confirmedPercentage == null) return;
-    setState(() => busy = true);
-    await state.depositPendingIncomeToEssentialFund(
-      incomes: incomes,
-      percentage: confirmedPercentage,
-    );
-    if (mounted) setState(() => busy = false);
+    if (mounted) setState(() => busy = true);
+    final totalIncome =
+        incomes.fold<double>(0, (total, income) => total + income.amount);
+    final allocation = totalIncome * confirmedPercentage / 100;
+    try {
+      await state.depositPendingIncomeToEssentialFund(
+        incomes: incomes,
+        percentage: confirmedPercentage,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${money(allocation)} transferred to Essential Expense Fund.',
+          ),
+        ),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Essential Expense Fund transfer failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Transfer failed: ${_friendlyTransferError(error)}',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  String _friendlyTransferError(Object error) {
+    final message = error.toString().trim();
+    if (message.isEmpty) return 'Please try again.';
+    return message
+        .replaceFirst(RegExp(r'^(Exception|FirebaseException):\s*'), '')
+        .replaceFirst(RegExp(r'^\[[^\]]+\]\s*'), '');
   }
 
   Future<double?> _confirmDeposit(
@@ -14803,6 +16002,26 @@ class _CategoryBudgetActionPanel extends StatefulWidget {
 
 class _CategoryBudgetActionPanelState
     extends State<_CategoryBudgetActionPanel> {
+  static const _budgetCategories = [
+    'Food & drink',
+    'Transport',
+    'Bills & utilities',
+    'Housing',
+    'Groceries',
+    'Shopping',
+    'Education',
+    'Health',
+    'Insurance',
+    'Debt payment',
+    'Entertainment',
+    'Travel',
+    'Personal goal',
+    'Gifts & giving',
+    'Subscriptions',
+    'Dining',
+    'Other expense',
+  ];
+
   double _spentFor(AppState state, String budgetCategory) {
     final now = DateTime.now();
     return (state.fakeMayaLink?.summary.transactions ??
@@ -14824,81 +16043,204 @@ class _CategoryBudgetActionPanelState
   }
 
   Future<void> _configure(AppState state) async {
-    final categories = <String>{'Food & Drinks', 'Shopping'};
+    final categories = <String>{..._budgetCategories};
     for (final transaction in state.fakeMayaLink?.summary.transactions ??
         const <FakeMayaTransaction>[]) {
       final category = transaction.category?.trim() ?? '';
-      if (category.isNotEmpty && category.toLowerCase() != 'transfer')
+      if (category.isNotEmpty && category.toLowerCase() != 'transfer') {
         categories.add(category);
+      }
     }
     categories.addAll(state.categorySpendingBudgets.keys);
     final ordered = categories.toList()..sort();
-    final selected = state.categorySpendingBudgets.isEmpty
-        ? <String>{'Food & Drinks', 'Shopping'}
-        : state.categorySpendingBudgets.keys.toSet();
-    final controllers = {
-      for (final category in ordered)
-        category: TextEditingController(
-          text: state.categorySpendingBudgets[category]?.toStringAsFixed(0) ??
-              (category == 'Food & Drinks'
-                  ? '5000'
-                  : category == 'Shopping'
-                      ? '2500'
-                      : ''),
+    final rows = state.categorySpendingBudgets.entries
+        .map((entry) => (
+              category: entry.key,
+              customController: TextEditingController(
+                text: ordered.contains(entry.key) ? '' : entry.key,
+              ),
+              controller: TextEditingController(
+                text: entry.value.toStringAsFixed(0),
+              ),
+            ))
+        .toList();
+    if (rows.isEmpty) {
+      rows.addAll([
+        (
+          category: 'Food & drink',
+          customController: TextEditingController(),
+          controller: TextEditingController(text: '5000'),
         ),
-    };
+        (
+          category: 'Shopping',
+          customController: TextEditingController(),
+          controller: TextEditingController(text: '2500'),
+        ),
+      ]);
+    }
 
     final result = await showDialog<Map<String, double>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) {
-          final valid = selected.isNotEmpty &&
-              selected.every((category) {
-                final amount = double.tryParse(
-                        controllers[category]!.text.replaceAll(',', '')) ??
-                    0;
-                return amount > 0 && amount <= 1000000;
+          String rowCategory(int index) {
+            final row = rows[index];
+            if (row.category == 'Other expense') {
+              final custom = row.customController.text.trim();
+              if (custom.isNotEmpty) return custom;
+            }
+            return row.category.trim();
+          }
+
+          final chosen = [
+            for (var i = 0; i < rows.length; i++) rowCategory(i),
+          ];
+          final hasDuplicates = chosen.toSet().length != chosen.length;
+          final valid = rows.isNotEmpty &&
+              !hasDuplicates &&
+              rows.indexed.every((item) {
+                final row = item.$2;
+                final category = rowCategory(item.$1);
+                final amount =
+                    double.tryParse(row.controller.text.replaceAll(',', '')) ??
+                        0;
+                return category.isNotEmpty && amount > 0 && amount <= 1000000;
               });
+          void addRow() {
+            final used = rows.map((row) => row.category).toSet();
+            final category = ordered.firstWhere(
+              (category) => !used.contains(category),
+              orElse: () => 'Other expense',
+            );
+            rows.add((
+              category: category,
+              customController: TextEditingController(),
+              controller: TextEditingController(),
+            ));
+            setDialogState(() {});
+          }
+
           return AlertDialog(
             backgroundColor: _surface,
-            title: const Text('Set category budgets',
+            title: const Text('Category budget ledger',
                 style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
             content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final category in ordered)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        activeColor: _brand,
-                        value: selected.contains(category),
-                        title: Text(category,
-                            style: const TextStyle(
-                                color: _title, fontWeight: FontWeight.w800)),
-                        subtitle: selected.contains(category)
-                            ? Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: TextField(
-                                  controller: controllers[category],
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                          decimal: true),
-                                  decoration: inputDecoration('Monthly budget')
-                                      .copyWith(prefixText: '₱ '),
-                                  onChanged: (_) => setDialogState(() {}),
-                                ),
-                              )
-                            : null,
-                        onChanged: (value) => setDialogState(() {
-                          if (value ?? false) {
-                            selected.add(category);
-                          } else {
-                            selected.remove(category);
-                          }
-                        }),
+                    const Text(
+                      'Add one monthly cap per spending category.',
+                      style: TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (var index = 0; index < rows.length; index++) ...[
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 5,
+                            child: Column(
+                              children: [
+                                DropdownButtonFormField<String>(
+                                  value: rows[index].category,
+                                  isExpanded: true,
+                                  decoration:
+                                      inputDecoration('Category').copyWith(
+                                    isDense: true,
+                                  ),
+                                  items: [
+                                    for (final category in ordered)
+                                      DropdownMenuItem(
+                                        value: category,
+                                        child: Text(category),
+                                      ),
+                                  ],
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    rows[index] = (
+                                      category: value,
+                                      customController:
+                                          rows[index].customController,
+                                      controller: rows[index].controller,
+                                    );
+                                    setDialogState(() {});
+                                  },
+                                ),
+                                if (rows[index].category ==
+                                    'Other expense') ...[
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: rows[index].customController,
+                                    textCapitalization:
+                                        TextCapitalization.words,
+                                    decoration:
+                                        inputDecoration('Custom category')
+                                            .copyWith(isDense: true),
+                                    onChanged: (_) => setDialogState(() {}),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: rows[index].controller,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration:
+                                  inputDecoration('Monthly cap').copyWith(
+                                prefixText: '₱ ',
+                                isDense: true,
+                              ),
+                              onChanged: (_) => setDialogState(() {}),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove budget',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: rows.length == 1
+                                ? null
+                                : () {
+                                    final row = rows.removeAt(index);
+                                    row.controller.dispose();
+                                    row.customController.dispose();
+                                    setDialogState(() {});
+                                  },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      if (index < rows.length - 1) const SizedBox(height: 10),
+                    ],
+                    if (hasDuplicates) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Each budget needs a different category.',
+                        style: TextStyle(
+                          color: _red,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    OutlinedButton.icon(
+                      onPressed: addRow,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add another budget'),
+                    ),
                   ],
                 ),
               ),
@@ -14910,10 +16252,13 @@ class _CategoryBudgetActionPanelState
               FilledButton(
                 onPressed: valid
                     ? () => Navigator.of(dialogContext).pop({
-                          for (final category in selected)
-                            category: double.parse(controllers[category]!
-                                .text
-                                .replaceAll(',', '')),
+                          for (final row in rows)
+                            (row.category == 'Other expense' &&
+                                    row.customController.text.trim().isNotEmpty
+                                ? row.customController.text.trim()
+                                : row.category): double.parse(
+                              row.controller.text.replaceAll(',', ''),
+                            ),
                         })
                     : null,
                 child: const Text('Save budgets'),
@@ -14923,8 +16268,9 @@ class _CategoryBudgetActionPanelState
         },
       ),
     );
-    for (final controller in controllers.values) {
-      controller.dispose();
+    for (final row in rows) {
+      row.controller.dispose();
+      row.customController.dispose();
     }
     if (result == null) return;
     await state.updateCategorySpendingBudgets(result);
@@ -14935,6 +16281,16 @@ class _CategoryBudgetActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final budgets = state.categorySpendingBudgets;
+    final budgetRows = budgets.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final totalCap = budgetRows.fold<double>(
+      0,
+      (total, entry) => total + entry.value,
+    );
+    final totalSpent = budgetRows.fold<double>(
+      0,
+      (total, entry) => total + _spentFor(state, entry.key),
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -14977,26 +16333,255 @@ class _CategoryBudgetActionPanelState
             ],
           ),
           const SizedBox(height: 14),
-          if (budgets.isEmpty)
-            const Text(
-                'Choose the categories you want to control and give each one its own monthly budget.',
-                style: TextStyle(
-                    color: _body, height: 1.35, fontWeight: FontWeight.w700))
-          else
-            for (final entry in budgets.entries) ...[
-              _CategoryBudgetProgress(
-                category: entry.key,
-                spent: _spentFor(state, entry.key),
-                budget: entry.value,
+          if (budgets.isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _bg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _border),
               ),
-              const SizedBox(height: 13),
-            ],
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _MiniLedgerStat(
+                      label: 'Total cap',
+                      value: money(totalCap),
+                      color: widget.color,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MiniLedgerStat(
+                      label: 'Spent',
+                      value: money(totalSpent),
+                      color: totalSpent > totalCap ? _red : _body,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _MiniLedgerStat(
+                      label: 'Remaining',
+                      value: money(math.max(0, totalCap - totalSpent)),
+                      color: totalSpent > totalCap ? _red : _sage,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: _border),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 10, 12, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: Text(
+                            'Category',
+                            style: TextStyle(
+                              color: _body,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .6,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Budget',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: _body,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .6,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            'Spent',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: _body,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: .6,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  for (var index = 0; index < budgetRows.length; index++) ...[
+                    if (index > 0) const Divider(height: 1, color: _border),
+                    _CategoryBudgetLedgerRow(
+                      category: budgetRows[index].key,
+                      spent: _spentFor(state, budgetRows[index].key),
+                      budget: budgetRows[index].value,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: () => _configure(state),
-            icon: const Icon(Icons.tune_rounded),
+            icon:
+                Icon(budgets.isEmpty ? Icons.add_rounded : Icons.edit_rounded),
             label: Text(budgets.isEmpty
-                ? 'Choose category budgets'
-                : 'Edit category budgets'),
+                ? 'Add category budgets'
+                : 'Edit budget ledger'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniLedgerStat extends StatelessWidget {
+  const _MiniLedgerStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: _body,
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CategoryBudgetLedgerRow extends StatelessWidget {
+  const _CategoryBudgetLedgerRow({
+    required this.category,
+    required this.spent,
+    required this.budget,
+  });
+
+  final String category;
+  final double spent;
+  final double budget;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = budget <= 0 ? 0.0 : (spent / budget).clamp(0.0, 1.0);
+    final remaining = math.max(0.0, budget - spent);
+    final color = progress >= 1
+        ? _red
+        : progress >= .8
+            ? _amber
+            : _brand;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                flex: 4,
+                child: Text(
+                  category,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  money(budget),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  money(spent),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              color: color,
+              backgroundColor: color.withValues(alpha: .12),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Text(
+                '${(progress * 100).round()}% used',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${money(remaining)} remaining',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -15226,8 +16811,8 @@ class _EverydayFundFloorActionPanelState
   Future<void> _editFloor(AppState state, double current) async {
     final updated = await _showMoneyTargetDialog(
       context: context,
-      title: 'Set Everyday Fund minimum',
-      label: 'Everyday Fund minimum',
+      title: 'Set Essential Expenses Fund minimum',
+      label: 'Essential Expenses Fund minimum',
       initialAmount: current,
       color: widget.color,
     );
@@ -15240,17 +16825,16 @@ class _EverydayFundFloorActionPanelState
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final recommended =
-        _monthlyExpenseBase(state) * _recommendedEverydayFundMonths(state);
+    final recommended = _recommendedEssentialFundFloor(state);
     final floor = _configuredActionAmount(state, 'A19', recommended);
-    final everydayFund = _currentEverydayFundAmount(state);
+    final essentialFund = state.essentialExpensesBalance;
     final monthlyExpenses = math.max(1.0, _monthlyExpenseBase(state));
     final floorMonths = floor / monthlyExpenses;
-    final currentMonths = everydayFund / monthlyExpenses;
-    final shortfall = math.max(0.0, floor - everydayFund);
-    final safe = everydayFund >= floor && floor > 0;
-    final trackMax = math.max(floor * 1.25, everydayFund);
-    final progress = trackMax <= 0 ? 0.0 : (everydayFund / trackMax);
+    final currentMonths = essentialFund / monthlyExpenses;
+    final shortfall = math.max(0.0, floor - essentialFund);
+    final safe = essentialFund >= floor && floor > 0;
+    final trackMax = math.max(floor * 1.25, essentialFund);
+    final progress = trackMax <= 0 ? 0.0 : (essentialFund / trackMax);
     final marker = trackMax <= 0 ? 0.0 : (floor / trackMax);
     final barColor = safe ? _sage : _amber;
 
@@ -15262,13 +16846,13 @@ class _EverydayFundFloorActionPanelState
             id: 'A19',
             color: widget.color,
             text:
-                'Keep at least ${money(floor)} available in your Everyday Fund before spending below your cash floor.',
+                'Keep at least ${money(floor)} in your Essential Expenses Fund before spending below your essentials floor.',
           ),
           const SizedBox(height: 14),
           _ActionMetricTile(
             icon: Icons.savings_rounded,
-            label: 'Everyday Fund now',
-            value: money(everydayFund),
+            label: 'Essential Expenses Fund now',
+            value: money(essentialFund),
             color: barColor,
           ),
           const SizedBox(height: 10),
@@ -15311,7 +16895,7 @@ class _EverydayFundFloorActionPanelState
           const SizedBox(height: 8),
           Text(
             safe
-                ? 'Your Everyday Fund is above the minimum line.'
+                ? 'Your Essential Expenses Fund is above the minimum line.'
                 : '${money(shortfall)} more is needed to get back above the minimum line.',
             style: TextStyle(
               color: safe ? _sage : _amber,
@@ -15676,7 +17260,9 @@ bool _isInCurrentMonth(DateTime? date) {
 
 List<FakeMayaTransaction> _currentMonthPositiveTransactions(AppState state) {
   return state.allTransactions.where((transaction) {
-    if (transaction.amount <= 0 || !_isInCurrentMonth(transaction.createdAt)) {
+    if (transaction.amount <= 0 ||
+        transaction.isInternalFakeMayaTransfer ||
+        !_isInCurrentMonth(transaction.createdAt)) {
       return false;
     }
     final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
@@ -17448,7 +19034,7 @@ class _TxData {
   final FakeMayaTransaction? transaction;
 
   bool get countsAsIncome {
-    return amount > 0;
+    return amount > 0 && transaction?.isInternalFakeMayaTransfer != true;
   }
 
   bool get countsAsExpense {
@@ -17470,7 +19056,7 @@ class _TxData {
 
   bool matchesFilter(String filter) {
     if (filter == 'All') return true;
-    if (filter == 'Money in') return amount > 0;
+    if (filter == 'Money in') return countsAsIncome;
     if (filter == 'Money out') return amount < 0;
     return category.toLowerCase().contains(filter.toLowerCase()) ||
         name.toLowerCase().contains(filter.toLowerCase()) ||
@@ -17977,7 +19563,7 @@ class _ActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final positive = data.amount > 0;
+    final positive = data.countsAsIncome;
     final transaction = data.transaction;
     final needsLabel = transaction?.isWalletCashMovement == true &&
         transaction?.isLabeled == false;

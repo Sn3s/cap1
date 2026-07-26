@@ -102,25 +102,24 @@ void main() {
     expect(find.text('Goal Insights'), findsOneWidget);
     expect(find.text('Overview'), findsOneWidget);
     expect(find.text('Available cash'), findsOneWidget);
-    expect(find.text('Emergency fund'), findsOneWidget);
+    expect(find.text('Emergency fund'), findsNothing);
+    expect(find.text('Accumulating wealth'), findsNothing);
+    expect(find.text('Financial freedom'), findsNothing);
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
     expect(find.text('Can this month’s available cash cover bills?'),
         findsOneWidget);
     expect(find.text('Bill readiness'), findsOneWidget);
     expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
-    expect(
-        find.textContaining('Set aside X% of each income received'),
+    expect(find.textContaining('Set aside X% of each income received'),
         findsOneWidget);
     expect(find.textContaining('Limit spending in selected categories'),
         findsOneWidget);
     expect(find.textContaining('Cap discretionary spending'), findsNothing);
     expect(
         find.textContaining('Keep Everyday Fund days covered'), findsNothing);
-    expect(
-        find.textContaining('Bring in at least'), findsOneWidget);
-    expect(
-        find.textContaining('Keep at least'), findsOneWidget);
+    expect(find.textContaining('Bring in at least'), findsOneWidget);
+    expect(find.textContaining('Keep at least'), findsOneWidget);
     expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
     expect(find.text('This is where you earn money'), findsNothing);
     expect(find.text('This is where you spend money'), findsNothing);
@@ -165,6 +164,7 @@ void main() {
   testWidgets('emergency fund pairs movement overview with weekly detail',
       (tester) async {
     final state = _reflectionState()
+      ..addedGoalIds.add('G3')
       ..emergencyFundBalance = 12000
       ..expenses = 6000;
 
@@ -223,8 +223,8 @@ AppState _reflectionState() {
     ..needsPercent = 70
     ..needsBalance = 7800
     ..bufferBalance = 2400
-    // Adopt both Available Cash (G1) and Emergency Fund (G3) so their
-    // Insights tabs show up — mirrors what onboarding actually sets.
+    // These include overlapping action ids, but Insights tabs should follow
+    // the chosen/added goals rather than action overlap.
     ..selectedActionIds.addAll(
       ['A1', 'A3', 'A20', 'A19', 'A9', 'A8', 'A22', 'A10'],
     );

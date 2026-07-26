@@ -64,4 +64,94 @@ void main() {
       1500,
     );
   });
+
+  test('missing onboarding ledgers backfill from legacy profile fields', () {
+    final state = AppState()
+      ..income = 30000
+      ..monthlySalary = 20000
+      ..irregularIncomeFloor = 10000
+      ..cashFlowExpenses.addAll([
+        CashFlowExpense('Rent', 5000),
+        CashFlowExpense(
+          'Insurance',
+          1500,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+      ]);
+
+    expect(state.backfillMissingOnboardingLedgers(), isTrue);
+
+    expect(state.onboardingIncomeLedger, hasLength(2));
+    expect(state.onboardingExpenseLedger, hasLength(2));
+    expect(state.onboardingBaselines['income_baseline'], '30000.00');
+    expect(state.onboardingBaselines['monthly_expenses'], '6500.00');
+    expect(
+      state.onboardingExpenseLedger.map(expenseLayerForLedger),
+      containsAll([ExpenseLayer.basicNeeds, ExpenseLayer.emergencyInsurance]),
+    );
+  });
+
+  test('saved preset accounts get onboarding ledger fallbacks when blank', () {
+    final state = AppState()..email = 'cashflow@gmail.com';
+
+    expect(state.backfillMissingOnboardingLedgers(), isTrue);
+
+    expect(state.onboardingIncomeLedger.single['name'], 'Project client work');
+    expect(state.income, 32000);
+    expect(state.onboardingExpenseLedger, hasLength(9));
+    expect(state.monthlyExpenseLedgerTotal, 15198);
+    expect(
+      state.onboardingExpenseLedger.map(expenseLayerForLedger).toSet(),
+      ExpenseLayer.values.toSet(),
+    );
+  });
+
+  test('onboarding ledger backfill does not overwrite existing rows', () {
+    final state = AppState()
+      ..email = 'cashflow@gmail.com'
+      ..onboardingIncomeLedger.add({
+        'name': 'Existing income',
+        'amount': 12000.0,
+        'stable': true,
+        'scheduled': true,
+        'payDay': 15,
+      })
+      ..onboardingExpenseLedger.add({
+        'name': 'Existing expense',
+        'amount': 4000.0,
+        'essential': true,
+        'expenseType': ExpenseLayer.basicNeeds.name,
+        'scheduled': false,
+        'dueDay': null,
+      });
+
+    expect(state.backfillMissingOnboardingLedgers(), isFalse);
+
+    expect(state.onboardingIncomeLedger.single['name'], 'Existing income');
+    expect(state.onboardingExpenseLedger.single['name'], 'Existing expense');
+  });
+
+  test('saved automatic A19 floors migrate to feasible onboarding amount', () {
+    final state = AppState()
+      ..email = 'cashflow@gmail.com'
+      ..selectedActionIds.add('A19');
+    state.actionFieldValues['A19'] = {'amt': '12000'};
+
+    state.backfillMissingOnboardingLedgers();
+
+    expect(state.backfillFeasibleActionDefaults(), isTrue);
+    expect(state.actionFieldValues['A19']?['amt'], '8500');
+  });
+
+  test('custom A19 floors are preserved', () {
+    final state = AppState()
+      ..email = 'cashflow@gmail.com'
+      ..selectedActionIds.add('A19');
+    state.actionFieldValues['A19'] = {'amt': '5555'};
+
+    state.backfillMissingOnboardingLedgers();
+
+    expect(state.backfillFeasibleActionDefaults(), isFalse);
+    expect(state.actionFieldValues['A19']?['amt'], '5555');
+  });
 }

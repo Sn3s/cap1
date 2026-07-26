@@ -673,6 +673,49 @@ int _recommendedEverydayFundMonths(AppState state) {
   return 1;
 }
 
+double _recommendedEssentialFundFloor(AppState state) {
+  final income = _monthlyIncomeBase(state);
+  final essentials = math.max(1.0, _monthlyEssentialBase(state));
+  final surplus = _monthlySurplusBase(state);
+  final irregularIncome = state.irregularIncomeFloor > 0 ||
+      state.incomeType.toLowerCase().contains('irregular') ||
+      !state.incomeRhythm.toLowerCase().contains('monthly');
+
+  final expenseCoveragePct = irregularIncome
+      ? 0.90
+      : surplus <= 0
+          ? 0.45
+          : surplus < essentials * 0.20
+              ? 0.60
+              : 0.75;
+  final incomeCapPct = irregularIncome
+      ? 0.45
+      : surplus <= 0
+          ? 0.25
+          : surplus < essentials * 0.20
+              ? 0.35
+              : 0.40;
+  final expenseBased = essentials * expenseCoveragePct;
+  final incomeCap = income > 0 ? income * incomeCapPct : expenseBased;
+  final starterFloor = math.min(expenseBased, incomeCap);
+  final minimum = math.min(essentials * 0.25, math.max(1000.0, income * 0.10));
+  return _roundMoney(math.max(minimum, starterFloor), step: 500);
+}
+
+List<String> _essentialFundFloorOptions(AppState state) {
+  final recommended = _recommendedEssentialFundFloor(state);
+  final essentials = math.max(1.0, _monthlyEssentialBase(state));
+  final income = math.max(1.0, _monthlyIncomeBase(state));
+  return [
+    recommended,
+    math.max(500.0, math.min(recommended * 0.80, income * 0.35)),
+    math.max(recommended + 500, math.min(essentials, income * 0.50)),
+  ]
+      .map((value) => _roundMoney(value, step: 500).toStringAsFixed(0))
+      .toSet()
+      .toList();
+}
+
 double _recommendedMonthlyEarnings(AppState state) {
   final expenses = _monthlyExpenseBase(state);
   final currentIncome = _monthlyIncomeBase(state);
@@ -861,16 +904,7 @@ List<String> _recommendationsForActionField(
     return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 50);
   }
   if (action.id == 'A19' && field.key == 'amt') {
-    final expenses = _monthlyExpenseBase(state);
-    final recommended = expenses * _recommendedEverydayFundMonths(state);
-    return [
-      recommended,
-      recommended + expenses,
-      recommended + (expenses * 2),
-    ]
-        .map((value) => ((value / 500).ceil() * 500).toStringAsFixed(0))
-        .toSet()
-        .toList();
+    return _essentialFundFloorOptions(state);
   }
   if (action.id == 'A21' && field.key == 'days') {
     final essentials = _monthlyEssentialBase(state);
@@ -972,7 +1006,7 @@ String _recommendationFormulaForActionField(
     'A18' =>
       '$value: 30% when debt is above 3 months of income, otherwise 20%.',
     'A19' =>
-      '$value: monthly expenses multiplied by the recommended Everyday Fund buffer.',
+      '$value: a feasible floor from your essential expenses, monthly income, and surplus.',
     'A20' =>
       '$value: max(current income, expenses + max(10% expense cushion, Everyday Fund gap divided by 6)).',
     _ =>
@@ -1534,10 +1568,12 @@ const _d2Actions = <String, D2Action>{
   'A19': D2Action(
       id: 'A19',
       text:
-          'Keep at least ₱X available in your Everyday Fund so essentials stay covered even before the next income arrives.',
+          'Keep at least ₱X available in your Essential Expenses Fund so essentials stay covered even before the next income arrives.',
       fields: [
         ActionField(
-            key: 'amt', label: 'Everyday Fund minimum (₱)', hint: 'e.g. 30000')
+            key: 'amt',
+            label: 'Essential Expenses Fund minimum (₱)',
+            hint: 'e.g. 12000')
       ]),
   'A20': D2Action(
       id: 'A20',

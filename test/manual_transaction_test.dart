@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cap1/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,7 +54,8 @@ void main() {
   test('essential fund allocation batches unallocated labeled incomes',
       () async {
     final state = AppState();
-    final date = DateTime(2026, 7, 14, 8);
+    final now = DateTime.now();
+    final date = DateTime(now.year, now.month, now.day, 8);
 
     await state.addManualCashTransaction(
       title: 'Old salary',
@@ -94,7 +97,177 @@ void main() {
     );
   });
 
-  testWidgets('the global add-transaction button opens the manual transaction sheet',
+  test('essential fund allocation ignores FakeMaya goal transfers', () {
+    final now = DateTime.now();
+    final state = AppState()
+      ..fakeMayaLink = FakeMayaLink(
+        userId: 'user-1',
+        email: 'main@gmail.com',
+        name: 'Main',
+        phone: '+63 917 000 0000',
+        provider: 'email',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        expiresAt: now.add(const Duration(hours: 1)),
+        summary: FakeMayaAccountSummary(
+          wallet: 1700,
+          savings: 0,
+          timeDeposit: 0,
+          goalName: 'Essential Expense Fund',
+          goalEmoji: '🏠',
+          goalBalance: 300,
+          goalTarget: 25000,
+          selectedGoalId: 'B1',
+          personalGoals: FakeMayaPersonalGoal.defaultGoals(),
+          creditLimit: 0,
+          creditUsed: 0,
+          transactions: [
+            FakeMayaTransaction(
+              id: 'goal-transfer-1',
+              title: 'Deposited to goal',
+              detail: 'Essential Expense Fund',
+              age: 'Just now',
+              amountText: '+ ₱300.00',
+              createdAt: now,
+              category: 'Other income',
+              source: 'E-wallet',
+            ),
+          ],
+          updatedAt: now,
+        ),
+      );
+
+    expect(state.pendingEssentialIncomeTransactions, isEmpty);
+  });
+
+  test('FakeMaya summary preserves personal goal balances', () {
+    final summary = FakeMayaAccountSummary.fromMap({
+      'wallet': 12500,
+      'savings': 0,
+      'time_deposit': 0,
+      'goal_balance': 7250,
+      'app_state': {
+        'selectedGoalId': 'B1',
+        'personalGoals': [
+          {
+            'id': 'B1',
+            'name': 'Essential Expense Fund',
+            'label': 'Personal Goal 1',
+            'emoji': '🏠',
+            'account': '8189 3753 6101',
+            'balance': 6250,
+            'target': 25000,
+            'daysLeft': 180,
+            'rate': 8,
+          },
+          {
+            'id': 'B2',
+            'name': 'Upcoming bill and payment obligations',
+            'label': 'Personal Goal 2',
+            'emoji': '🧾',
+            'account': '8189 3753 6102',
+            'balance': 1000,
+            'target': 25000,
+            'daysLeft': 180,
+            'rate': 8,
+          },
+        ],
+        'transactions': [],
+      },
+    });
+
+    expect(summary.goalBalance, 7250);
+    expect(summary.essentialExpenseFund?.balance, 6250);
+    expect(summary.personalGoalById('B2')?.balance, 1000);
+    expect(
+      summary.toFakeMayaAppState()['personalGoals'],
+      isA<List<Map<String, dynamic>>>(),
+    );
+  });
+
+  test('FakeMaya personal goal deposit targets essential fund bucket', () {
+    final summary = FakeMayaAccountSummary(
+      wallet: 12500,
+      savings: 0,
+      timeDeposit: 0,
+      goalName: 'Essential Expense Fund',
+      goalEmoji: '🏠',
+      goalBalance: 0,
+      goalTarget: 25000,
+      selectedGoalId: 'B1',
+      personalGoals: FakeMayaPersonalGoal.defaultGoals(),
+      creditLimit: 0,
+      creditUsed: 0,
+      transactions: const [],
+      updatedAt: null,
+    );
+
+    final goals = summary.personalGoalsWithDeposit('B1', 6250);
+    final essential = goals.firstWhere((goal) => goal.id == 'B1');
+    final otherGoals = goals.where((goal) => goal.id != 'B1');
+
+    expect(essential.name, 'Essential Expense Fund');
+    expect(essential.balance, 6250);
+    expect(otherGoals.every((goal) => goal.balance == 0), isTrue);
+  });
+
+  test('FakeMaya personal goal payload with emojis is UTF-8 encodable', () {
+    final summary = FakeMayaAccountSummary(
+      wallet: 1700,
+      savings: 0,
+      timeDeposit: 0,
+      goalName: 'Essential Expense Fund',
+      goalEmoji: '🏠',
+      goalBalance: 300,
+      goalTarget: 25000,
+      selectedGoalId: 'B1',
+      personalGoals: FakeMayaPersonalGoal.defaultGoals()
+          .map((goal) => goal.id == 'B1' ? goal.copyWith(balance: 300) : goal)
+          .toList(),
+      creditLimit: 0,
+      creditUsed: 0,
+      transactions: const [],
+      updatedAt: null,
+    );
+    final body = {
+      'wallet': summary.wallet,
+      'savings': summary.savings,
+      'time_deposit': summary.timeDeposit,
+      'goal_balance': summary.goalBalance,
+      'app_state': summary.toFakeMayaAppState(),
+    };
+
+    expect(utf8.encode(jsonEncode(body)), isNotEmpty);
+  });
+
+  test('FakeMaya personal goal deposit can target lifestyle bucket', () {
+    final summary = FakeMayaAccountSummary(
+      wallet: 5000,
+      savings: 0,
+      timeDeposit: 0,
+      goalName: 'Personal Lifestyle Fund',
+      goalEmoji: '✨',
+      goalBalance: 0,
+      goalTarget: 25000,
+      selectedGoalId: 'B5',
+      personalGoals: FakeMayaPersonalGoal.defaultGoals(),
+      creditLimit: 0,
+      creditUsed: 0,
+      transactions: const [],
+      updatedAt: null,
+    );
+
+    final goals = summary.personalGoalsWithDeposit('B5', 1200);
+    final lifestyle = goals.firstWhere((goal) => goal.id == 'B5');
+    final otherGoals = goals.where((goal) => goal.id != 'B5');
+
+    expect(lifestyle.name, 'Personal Lifestyle Fund');
+    expect(lifestyle.balance, 1200);
+    expect(otherGoals.every((goal) => goal.balance == 0), isTrue);
+  });
+
+  testWidgets(
+      'the global add-transaction button opens the manual transaction sheet',
       (tester) async {
     await tester.pumpWidget(
       AppScope(

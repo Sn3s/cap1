@@ -209,7 +209,8 @@ List<DayRecord> _buildDayRecords(AppState state) {
             transaction.source?.toLowerCase() == 'basic needs fund')
         .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
     final income = labeled
-        .where((transaction) => transaction.amount > 0)
+        .where((transaction) =>
+            transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final feeTotal = labeled
         .where((transaction) =>
