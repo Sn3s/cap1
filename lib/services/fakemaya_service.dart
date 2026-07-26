@@ -466,8 +466,14 @@ class FakeMayaService {
   }
 
   static FakeMayaAccountSummary _defaultWalletSummary() {
-    final personalGoals = FakeMayaPersonalGoal.defaultGoals();
-    final essentialGoal = personalGoals.first;
+    // A brand-new account has no buckets yet - they're only created when
+    // Shellby's goal-creation flow (or FakeMaya's own "Create a new
+    // Personal Goal" sheet) actually creates one. `essentialGoal` here is
+    // just a template for the legacy goalName/goalEmoji/goalTarget fields,
+    // not an actual bucket.
+    final essentialGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
+    );
     return FakeMayaAccountSummary(
       wallet: 1000,
       savings: 0,
@@ -477,7 +483,7 @@ class FakeMayaService {
       goalBalance: 0,
       goalTarget: essentialGoal.target,
       selectedGoalId: essentialGoal.id,
-      personalGoals: personalGoals,
+      personalGoals: const [],
       creditLimit: 15000,
       creditUsed: 0,
       transactions: [
@@ -888,9 +894,7 @@ class FakeMayaAccountSummary {
   ) {
     final targetId =
         (id?.trim().isNotEmpty == true ? id!.trim() : selectedGoalId);
-    final goals = personalGoals.isEmpty
-        ? FakeMayaPersonalGoal.defaultGoals()
-        : personalGoals;
+    final goals = personalGoals;
     var found = false;
     final updated = [
       for (final goal in goals)
@@ -914,9 +918,7 @@ class FakeMayaAccountSummary {
   ) {
     final targetId =
         (id?.trim().isNotEmpty == true ? id!.trim() : selectedGoalId);
-    final goals = personalGoals.isEmpty
-        ? FakeMayaPersonalGoal.defaultGoals()
-        : personalGoals;
+    final goals = personalGoals;
     return [
       for (final goal in goals)
         if (goal.id == targetId)
@@ -945,25 +947,36 @@ class FakeMayaAccountSummary {
     required Map<String, dynamic> legacyGoal,
     required Object? legacyGoalBalance,
   }) {
+    // An explicit `personalGoals` array - even an empty one - is
+    // authoritative: it means this account genuinely has no buckets yet
+    // (or exactly the buckets listed). Never widen it back out to the
+    // full default set just because it's short.
     if (value is Iterable) {
-      final goals = value
+      return value
           .map((item) => item is Map
               ? FakeMayaPersonalGoal.fromMap(Map<String, dynamic>.from(item))
               : null)
           .whereType<FakeMayaPersonalGoal>()
           .toList();
-      if (goals.isNotEmpty) return goals;
     }
+    // No `personalGoals` array at all - this is a pre-migration row from
+    // when FakeMaya only stored a single `goal` object. Migrate that one
+    // goal into the Essential Expense Fund bucket if it has any data;
+    // otherwise this account has no buckets yet.
     if (legacyGoal.isEmpty && legacyGoalBalance == null) {
-      return FakeMayaPersonalGoal.defaultGoals();
+      return const [];
     }
-    final goals = FakeMayaPersonalGoal.defaultGoals();
-    goals[0] = goals[0].copyWith(
-      name: _stringFrom(legacyGoal['name'], goals[0].name),
-      emoji: _stringFrom(legacyGoal['emoji'], goals[0].emoji),
-      balance: _doubleFrom(legacyGoal['balance'] ?? legacyGoalBalance, 0),
-      target: _doubleFrom(legacyGoal['target'], goals[0].target),
+    final migrated = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
     );
+    final goals = [
+      migrated.copyWith(
+        name: _stringFrom(legacyGoal['name'], migrated.name),
+        emoji: _stringFrom(legacyGoal['emoji'], migrated.emoji),
+        balance: _doubleFrom(legacyGoal['balance'] ?? legacyGoalBalance, 0),
+        target: _doubleFrom(legacyGoal['target'], migrated.target),
+      ),
+    ];
     return goals;
   }
 
