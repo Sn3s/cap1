@@ -2358,10 +2358,9 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
   final bucketMissing = bucketId != null &&
       link != null &&
       link.summary.personalGoalById(bucketId) == null;
-  if (state.confirmedFakeMayaBucketMotivations.contains(motivation)) {
-    if (bucketMissing) {
-      await state.ensureFakeMayaBucketForMotivation(motivation);
-    }
+  final needsConfirmation = bucketMissing ||
+      !state.confirmedFakeMayaBucketMotivations.contains(motivation);
+  if (!needsConfirmation) {
     return;
   }
   final agreed = await confirmFakeMayaBucketCreation(
