@@ -1409,10 +1409,12 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'FakeMaya asset values update only when refreshed.',
-                      style: TextStyle(
+                      _refreshingAssets
+                          ? 'Updating assets. Showing the last synced values.'
+                          : 'Showing the last synced FakeMaya asset values.',
+                      style: const TextStyle(
                         color: _body,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -1439,10 +1441,12 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'FakeMaya credit debt updates when refreshed.',
-                      style: TextStyle(
+                      _refreshingLiabilities
+                          ? 'Updating liabilities. Showing the last synced values.'
+                          : 'Showing the last synced FakeMaya liabilities.',
+                      style: const TextStyle(
                         color: _body,
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -2002,37 +2006,55 @@ bool _isFakeMayaCreditPlaceholder(Map<String, dynamic> row) {
 }
 
 List<_PyramidBaselineEntry> _pyramidAssetEntries(AppState state) {
+  final seen = <String>{};
+  _PyramidBaselineEntry entryFromMoneyItem(MoneyItem asset) {
+    seen.add(asset.name);
+    return _PyramidBaselineEntry(
+      index: -1,
+      data: const {},
+      name: asset.name,
+      amount: asset.value,
+      isIncome: true,
+      layer: _pyramidWealthLayer,
+      detail: asset.description,
+      icon: Icons.trending_up_rounded,
+      editable: false,
+    );
+  }
+
   return [
     for (final asset in state.assets)
-      if (!_isCashLikeFakeMayaAsset(asset))
-        _PyramidBaselineEntry(
-          index: -1,
-          data: const {},
-          name: asset.name,
-          amount: asset.value,
-          isIncome: true,
-          layer: _pyramidWealthLayer,
-          detail: asset.description,
-          icon: Icons.trending_up_rounded,
-          editable: false,
-        ),
+      if (!_isCashLikeFakeMayaAsset(asset)) entryFromMoneyItem(asset),
+    for (final holding in state.fakeMayaLink?.summary.investmentHoldings ??
+        const <FakeMayaInvestmentHolding>[])
+      if (holding.price > 0 &&
+          !seen.contains('${holding.name} (${holding.symbol})'))
+        entryFromMoneyItem(holding.toMoneyItem()),
   ];
 }
 
 List<_PyramidBaselineEntry> _pyramidLiabilityEntries(AppState state) {
+  final seen = <String>{};
+  _PyramidBaselineEntry entryFromMoneyItem(MoneyItem liability) {
+    seen.add(liability.name);
+    return _PyramidBaselineEntry(
+      index: -1,
+      data: const {},
+      name: liability.name,
+      amount: liability.value,
+      isIncome: false,
+      layer: _pyramidWealthLayer,
+      detail: liability.description,
+      icon: Icons.account_balance_rounded,
+      editable: false,
+    );
+  }
+
+  final linkedCredit = state.fakeMayaLink?.summary.creditLiability;
   return [
-    for (final liability in state.liabilities)
-      _PyramidBaselineEntry(
-        index: -1,
-        data: const {},
-        name: liability.name,
-        amount: liability.value,
-        isIncome: false,
-        layer: _pyramidWealthLayer,
-        detail: liability.description,
-        icon: Icons.account_balance_rounded,
-        editable: false,
-      ),
+    for (final liability in state.liabilities) entryFromMoneyItem(liability),
+    if (linkedCredit != null && !seen.contains(linkedCredit.name))
+      entryFromMoneyItem(linkedCredit),
   ];
 }
 
