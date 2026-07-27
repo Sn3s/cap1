@@ -2881,7 +2881,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     _scrollToBottom();
   }
 
-  void _finishGuidedFlow() {
+  Future<void> _finishGuidedFlow() async {
     flowComplete = true;
     final state = AppScope.of(context);
     final goalId = _selectedGoalId ?? 'G1';
@@ -2920,6 +2920,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       situations: _summaryList(answers[4] ?? <GuidedOption>[]),
       challenges: _summaryList(answers[5] ?? <GuidedOption>[]),
     );
+    await _confirmAndEnsureFakeMayaBucketForGoal(context, state, goalId);
     messages.add(ChatMessage(false,
         "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
     unawaited(state.saveProfile());
@@ -6508,6 +6509,12 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
         ..addAll(initialValues);
       state.updateGuidedChatSummary(goalFocus: selected.title);
     });
+    if (!mounted) return;
+    await _confirmAndEnsureFakeMayaBucketForGoal(
+      this.context,
+      state,
+      selected.id,
+    );
     await state.saveProfile();
   }
 
