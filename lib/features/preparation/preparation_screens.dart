@@ -2255,6 +2255,11 @@ class _PreparationCredentialsScreenState
   final passwordController = TextEditingController();
   bool busy = false;
 
+  bool get _canCreateAccount =>
+      !busy &&
+      emailController.text.trim().isNotEmpty &&
+      passwordController.text.length >= 6;
+
   @override
   void dispose() {
     emailController.dispose();
@@ -2296,6 +2301,7 @@ class _PreparationCredentialsScreenState
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               decoration: inputDecoration('you@example.com'),
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: 18),
@@ -2307,13 +2313,14 @@ class _PreparationCredentialsScreenState
               obscureText: true,
               textInputAction: TextInputAction.done,
               decoration: inputDecoration('At least 6 characters'),
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: 18),
           PrimaryButton(
             label: 'Create account',
             icon: Icons.person_add_alt_1_rounded,
-            enabled: !busy,
+            enabled: _canCreateAccount,
             onPressed: () => _runAuth(
               (state) => state.createAccountWithEmail(
                 email: emailController.text,
@@ -2355,7 +2362,9 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final canContinue = state.age.isNotEmpty && state.occupation.isNotEmpty;
+    final canContinue = state.age.trim().isNotEmpty &&
+        state.occupation.trim().isNotEmpty &&
+        state.industry.trim().isNotEmpty;
     return OnboardingScaffold(
       phase: 2,
       title: 'What are you doing now?',
@@ -2407,7 +2416,7 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
             label: 'Industry',
             icon: Icons.business_center_rounded,
             child: DropdownButtonFormField<String>(
-              value: state.industry,
+              value: state.industry.isEmpty ? null : state.industry,
               decoration: inputDecoration('Select your industry'),
               items: const [
                 'Technology',
@@ -2426,7 +2435,7 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
                 return DropdownMenuItem(value: value, child: Text(value));
               }).toList(),
               onChanged: (value) =>
-                  setState(() => state.industry = value ?? state.industry),
+                  setState(() => state.industry = value ?? ''),
             ),
           ),
         ],
@@ -2446,6 +2455,12 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final canContinue = state.employmentStatus.trim().isNotEmpty &&
+        state.incomeType.trim().isNotEmpty &&
+        state.incomeRhythm.trim().isNotEmpty &&
+        state.billsRhythm.trim().isNotEmpty &&
+        state.responsibility.trim().isNotEmpty &&
+        state.checkInRhythm.trim().isNotEmpty;
     return OnboardingScaffold(
       phase: 3,
       title: 'How does money move for you?',
@@ -2454,6 +2469,7 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
       bottom: PrimaryButton(
         label: 'Add Monthly Income',
         icon: Icons.arrow_forward_rounded,
+        enabled: canContinue,
         onPressed: () => _push(context, const MonthlyIncomeScreen()),
       ),
       child: Column(
@@ -2611,6 +2627,7 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
       bottom: PrimaryButton(
         label: 'Tell Shelby Why',
         icon: Icons.arrow_forward_rounded,
+        enabled: state.primaryConcern.trim().isNotEmpty,
         onPressed: () => _push(context, const MotivationSurfaceScreen()),
       ),
       child: Column(
@@ -2640,8 +2657,7 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
                     motivation: branch.layer,
                   );
                   if (agreed) {
-                    await state.ensureFakeMayaBucketForMotivation(
-                        branch.layer);
+                    await state.ensureFakeMayaBucketForMotivation(branch.layer);
                   }
                 },
               ),
@@ -2860,9 +2876,9 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
             false, 'Specify: Which goal would you like to focus on first?'));
       case 1:
         stepIndex = 2;
-        answers[2] = _actionSelectOptions();
-        messages.add(ChatMessage(false,
-            'Here are the recommended actions for your goal. Unselect any you want to skip, then confirm.'));
+        answers[2] = <GuidedOption>[];
+        messages.add(ChatMessage(
+            false, 'Choose at least one action for your goal, then confirm.'));
       case 4:
         stepIndex = 5;
         messages.add(ChatMessage(false, pathway.steps[2].question));
@@ -3175,7 +3191,7 @@ class ActionFieldSelector extends StatefulWidget {
 class _ActionFieldSelectorState extends State<ActionFieldSelector> {
   late final List<String> recommendations;
   late final TextEditingController customController;
-  late int selectedIndex;
+  late int? selectedIndex;
 
   @override
   void initState() {
@@ -3185,15 +3201,10 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
     final recommendedIndex = recommendations.indexOf(widget.initialValue);
     selectedIndex = recommendedIndex >= 0
         ? recommendedIndex
-        : (widget.initialValue.isEmpty ? 0 : recommendations.length);
+        : (widget.initialValue.isEmpty ? null : recommendations.length);
     customController = TextEditingController(
       text: selectedIndex == recommendations.length ? widget.initialValue : '',
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.initialValue.isEmpty) {
-        widget.onChanged(recommendations.first);
-      }
-    });
   }
 
   @override
@@ -3212,7 +3223,7 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
   @override
   Widget build(BuildContext context) {
     final customValue = customController.text.trim();
-    final error = selectedIndex == 3
+    final error = selectedIndex == recommendations.length
         ? _actionFieldError(widget.field, customValue)
         : null;
     return Column(
@@ -3247,9 +3258,9 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
           title: const Text('Enter my own',
               style: TextStyle(
                   color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
-          onChanged: (_) => _select(3),
+          onChanged: (_) => _select(recommendations.length),
         ),
-        if (selectedIndex == 3)
+        if (selectedIndex == recommendations.length)
           TextField(
             controller: customController,
             keyboardType: widget.field.key == 'freq'
@@ -3290,6 +3301,18 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   var _values = <Map<String, String>>[];
   bool _seeded = false;
 
+  bool get _canAdvance {
+    if (widget.actions.isEmpty) return true;
+    final action = widget.actions[_page];
+    if (!action.hasFields) return true;
+    for (final field in action.fields) {
+      if (_actionFieldError(field, _values[_page][field.key] ?? '') != null) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3303,7 +3326,10 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
     final state = AppScope.of(context);
     _values = [
       for (final action in widget.actions)
-        _initialActionFieldValues(state, action),
+        {
+          for (final field in action.fields)
+            field.key: state.actionFieldValues[action.id]?[field.key] ?? '',
+        },
     ];
     _seeded = true;
   }
@@ -3315,6 +3341,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   }
 
   void _goNext() {
+    if (!_canAdvance) return;
     if (_page < widget.actions.length - 1) {
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
@@ -3419,6 +3446,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
           icon: _page < total - 1
               ? Icons.arrow_forward_rounded
               : Icons.check_rounded,
+          enabled: _canAdvance,
           onPressed: _goNext,
         ),
       ],
@@ -4068,6 +4096,8 @@ class _TrackingVariablesScreenState extends State<TrackingVariablesScreen> {
       bottom: PrimaryButton(
         label: 'Check Feasibility',
         icon: Icons.arrow_forward_rounded,
+        enabled: state.trackingVariables.isNotEmpty &&
+            state.interferingVariables.isNotEmpty,
         onPressed: () => _push(context, const GoalFeasibilityScreen()),
       ),
       child: Column(
@@ -4804,6 +4834,9 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
   final incomes = <_IncomeLedgerDraft>[];
   bool seeded = false;
 
+  bool get _canContinue =>
+      incomes.isNotEmpty && incomes.every((income) => income.isComplete);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -4812,20 +4845,6 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
     if (state.onboardingIncomeLedger.isNotEmpty) {
       incomes
           .addAll(state.onboardingIncomeLedger.map(_IncomeLedgerDraft.fromMap));
-    } else {
-      final salary =
-          state.monthlySalary > 0 ? state.monthlySalary : state.income;
-      incomes.add(
-        _IncomeLedgerDraft(
-          name: 'Salary or main income',
-          amount: salary > 0 ? salary.toStringAsFixed(0) : '',
-          stable: state.incomeType.toLowerCase().contains('fixed'),
-          scheduled: state.incomeRhythm.toLowerCase().contains('monthly'),
-          repeatFrequency: state.incomeRhythm.toLowerCase().contains('week')
-              ? 'Weekly'
-              : 'Monthly',
-        ),
-      );
     }
     if (incomes.isEmpty) incomes.add(_IncomeLedgerDraft());
     seeded = true;
@@ -4878,6 +4897,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
       bottom: PrimaryButton(
         label: 'Continue to Expenses',
         icon: Icons.arrow_forward_rounded,
+        enabled: _canContinue,
         onPressed: _continue,
       ),
       child: Form(
@@ -4970,6 +4990,11 @@ class _IncomeLedgerDraft {
       double.tryParse(amountController.text.replaceAll(',', '')) ?? 0;
 
   int? get inferredPayDay => scheduleAnchorDate?.day ?? payDay;
+
+  bool get isComplete =>
+      nameController.text.trim().isNotEmpty &&
+      amountValue > 0 &&
+      (!scheduled || scheduleAnchorDate != null);
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
@@ -5335,6 +5360,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                     labelText: 'Income',
                     isDense: true,
                   ),
+                  onChanged: (_) => onChanged(),
                   validator: (value) =>
                       (value ?? '').trim().isEmpty ? 'Enter a source.' : null,
                 ),
@@ -5351,6 +5377,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                     prefixText: '₱ ',
                     isDense: true,
                   ),
+                  onChanged: (_) => onChanged(),
                   validator: (value) {
                     final amount = double.tryParse(
                       (value ?? '').replaceAll(',', ''),
@@ -5442,6 +5469,9 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
   final expenses = <_ExpenseLedgerDraft>[];
   bool seeded = false;
 
+  bool get _canContinue =>
+      expenses.isNotEmpty && expenses.every((expense) => expense.isComplete);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -5450,15 +5480,6 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
     if (state.onboardingExpenseLedger.isNotEmpty) {
       expenses.addAll(
           state.onboardingExpenseLedger.map(_ExpenseLedgerDraft.fromMap));
-    } else {
-      expenses.addAll([
-        _ExpenseLedgerDraft(
-            name: 'Electric Bill', layer: ExpenseLayer.basicNeeds),
-        _ExpenseLedgerDraft(name: 'Water Bill', layer: ExpenseLayer.basicNeeds),
-        _ExpenseLedgerDraft(
-            name: 'Food and Drinks', layer: ExpenseLayer.basicNeeds),
-        _ExpenseLedgerDraft(name: 'Transport', layer: ExpenseLayer.basicNeeds),
-      ]);
     }
     if (expenses.isEmpty) expenses.add(_ExpenseLedgerDraft());
     seeded = true;
@@ -5506,6 +5527,7 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
       bottom: PrimaryButton(
           label: 'See How Shelby Helps',
           icon: Icons.arrow_forward_rounded,
+          enabled: _canContinue,
           onPressed: _continue),
       child: Form(
         key: formKey,
@@ -5600,6 +5622,12 @@ class _ExpenseLedgerDraft {
 
   int? get inferredDueDay => scheduleAnchorDate?.day ?? dueDay;
 
+  bool get isComplete =>
+      nameController.text.trim().isNotEmpty &&
+      amountValue > 0 &&
+      layer != null &&
+      (!scheduled || scheduleAnchorDate != null);
+
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
         'amount': amountValue,
@@ -5664,6 +5692,7 @@ class _ExpenseLedgerCard extends StatelessWidget {
                     labelText: 'Expense',
                     isDense: true,
                   ),
+                  onChanged: (_) => onChanged(),
                   validator: (value) =>
                       (value ?? '').trim().isEmpty ? 'Enter a name.' : null,
                 ),
@@ -5680,6 +5709,7 @@ class _ExpenseLedgerCard extends StatelessWidget {
                     prefixText: '₱ ',
                     isDense: true,
                   ),
+                  onChanged: (_) => onChanged(),
                   validator: (value) {
                     final amount = double.tryParse(
                       (value ?? '').replaceAll(',', ''),
@@ -7566,6 +7596,7 @@ class _SocialStructureScreenState extends State<SocialStructureScreen> {
       bottom: PrimaryButton(
         label: 'Review Preparation Contract',
         icon: Icons.arrow_forward_rounded,
+        enabled: state.socialStructure.trim().isNotEmpty,
         onPressed: () => _push(context, const PreparationCommitmentScreen()),
       ),
       child: Column(

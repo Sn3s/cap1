@@ -17,15 +17,15 @@ class AppState extends ChangeNotifier {
   bool onboardingComplete = false;
   String age = '';
   String occupation = '';
-  String industry = 'Technology';
-  String employmentStatus = 'Full-time';
-  String incomeType = 'Fixed';
-  String incomeRhythm = 'Monthly';
-  String billsRhythm = 'Predictable dates';
-  String checkInRhythm = 'Weekly';
-  String location = 'Urban';
-  String responsibility = 'Mostly myself';
-  String primaryConcern = 'Cash Flow & Basic Needs';
+  String industry = '';
+  String employmentStatus = '';
+  String incomeType = '';
+  String incomeRhythm = '';
+  String billsRhythm = '';
+  String checkInRhythm = '';
+  String location = '';
+  String responsibility = '';
+  String primaryConcern = '';
   String motivation = '';
   String reflectedMotivation = '';
   String chatSurfaceSummary = '';
@@ -35,11 +35,10 @@ class AppState extends ChangeNotifier {
   String chatSituationsSummary = '';
   String chatChallengesSummary = '';
   String selectedGoalId = '';
-  String selectedGoal = 'Cash Flow Stability Plan';
-  String selectedGoalDescription =
-      'Map income, fixed costs, and spending patterns so your monthly budget has a clear baseline.';
+  String selectedGoal = '';
+  String selectedGoalDescription = '';
   double selectedGoalMonthlyTarget = 0;
-  String socialStructure = 'Private only';
+  String socialStructure = '';
   double confidence = 5;
   double anxiety = 5;
   double avoidance = 5;
@@ -74,7 +73,7 @@ class AppState extends ChangeNotifier {
   int salaryWeekOfMonth = 1;
   int salaryWeekday = DateTime.friday;
   bool consentBaseline = true;
-  bool consentAi = true;
+  bool consentAi = false;
   bool consentBenchmarking = false;
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
@@ -174,16 +173,8 @@ class AppState extends ChangeNotifier {
       );
 
   final List<Map<String, dynamic>> d1Ledger = [];
-  final Set<String> trackingVariables = {
-    'Income',
-    'Expenses',
-    'Savings progress',
-    'Assets and liabilities',
-  };
-  final Set<String> interferingVariables = {
-    'Family obligations',
-    'Debt due dates',
-  };
+  final Set<String> trackingVariables = {};
+  final Set<String> interferingVariables = {};
   final List<MoneyItem> assets = [];
   final List<MoneyItem> liabilities = [];
   final List<ChatMessage> messages = [
