@@ -224,6 +224,21 @@ class AppState extends ChangeNotifier {
 
   bool isAccountSynced(String account) =>
       fakeMayaLink != null && fakeMayaSyncedAccounts.contains(account);
+  bool accountExistsInFakeMaya(String account) {
+    final summary = fakeMayaLink?.summary;
+    if (summary == null) return true;
+    return switch (account) {
+      'Goal Savings' => summary.personalGoals.isNotEmpty,
+      _ => true,
+    };
+  }
+
+  bool fakeMayaBucketExists(String bucketId) {
+    final summary = fakeMayaLink?.summary;
+    if (summary == null) return true;
+    return summary.personalGoalById(bucketId) != null;
+  }
+
   bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
   double get bufferMonthsCovered =>
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
@@ -3328,8 +3343,63 @@ class AppState extends ChangeNotifier {
     if (fakeMayaLink == null || confirmedFakeMayaBucketMotivations.isEmpty) {
       return;
     }
+    final allowedMotivations = _activeFakeMayaBucketMotivations();
+    confirmedFakeMayaBucketMotivations.removeWhere(
+      (motivation) => !allowedMotivations.contains(motivation),
+    );
+    await _pruneFakeMayaBucketsToActiveGoals();
     for (final motivation in confirmedFakeMayaBucketMotivations.toList()) {
       await ensureFakeMayaBucketForMotivation(motivation);
+    }
+  }
+
+  Set<String> _activeFakeMayaBucketMotivations() {
+    final motivations = <String>{};
+    final onboardingMotivation =
+        _fakeMayaBucketMotivationForGoalId(selectedGoalId) ?? primaryConcern;
+    if (fakeMayaBucketIdForMotivation(onboardingMotivation) != null) {
+      motivations.add(onboardingMotivation);
+    }
+    for (final goalId in addedGoalIds) {
+      final motivation = _fakeMayaBucketMotivationForGoalId(goalId);
+      if (motivation != null) motivations.add(motivation);
+    }
+    return motivations;
+  }
+
+  String? _fakeMayaBucketMotivationForGoalId(String goalId) {
+    return switch (goalId.trim()) {
+      'G1' || 'G2' => 'Cash Flow & Basic Needs',
+      'G3' || 'G4' => 'Financial Safety',
+      'G5' || 'G6' => 'Accumulating Wealth',
+      'G7' || 'G8' => 'Financial Freedom',
+      _ => null,
+    };
+  }
+
+  Set<String> _activeFakeMayaBucketIds() {
+    return {
+      for (final motivation in _activeFakeMayaBucketMotivations())
+        if (fakeMayaBucketIdForMotivation(motivation) case final id?) id,
+    };
+  }
+
+  Future<void> _pruneFakeMayaBucketsToActiveGoals() async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final allowedIds = _activeFakeMayaBucketIds();
+    if (allowedIds.isEmpty) return;
+    try {
+      final session = await _withFakeMayaSessionRecovery(
+        () => FakeMayaService.pruneZeroBalancePersonalGoals(
+          link: link,
+          allowedPersonalGoalIds: allowedIds,
+        ),
+      );
+      fakeMayaLink = FakeMayaLink.fromSession(session);
+      _syncFakeMayaMoneyItems();
+    } on FakeMayaException {
+      // Keep refresh/link flows usable even if a stale bucket cleanup fails.
     }
   }
 
@@ -4011,6 +4081,7 @@ class AppState extends ChangeNotifier {
     thirdPartyDataLinkingAllowed = true;
     automaticDataGatheringAllowed = true;
     _syncFakeMayaMoneyItems();
+    await _pruneFakeMayaBucketsToActiveGoals();
     // Catch this account up on every motivation it already agreed to a
     // bucket for (onboarding, "Add goal", etc.) but that couldn't be
     // created earlier because no account was linked yet, or a prior
@@ -4021,7 +4092,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refreshFakeMayaAccount() async {
+  Future<void> refreshFakeMayaAccount({bool reconcileBuckets = true}) async {
     final link = fakeMayaLink;
     if (link == null) return;
     final session = await _withFakeMayaSessionRecovery(
@@ -4043,11 +4114,14 @@ class AppState extends ChangeNotifier {
       summary: session.summary.copyWith(transactions: mergedTransactions),
     );
     _syncFakeMayaMoneyItems();
-    // Self-heal: retry creating any bucket that's been agreed to but is
-    // still missing, so a transiently-failed creation catches up the next
-    // time the session refreshes successfully, with no manual action
-    // needed from the user.
-    await reconcileFakeMayaBuckets();
+    if (reconcileBuckets) {
+      await _pruneFakeMayaBucketsToActiveGoals();
+      // Self-heal: retry creating any bucket that's been agreed to but is
+      // still missing, so a transiently-failed creation catches up the next
+      // time the session refreshes successfully, with no manual action
+      // needed from the user.
+      await reconcileFakeMayaBuckets();
+    }
     await saveProfile();
     notifyListeners();
   }
@@ -4243,6 +4317,9 @@ class AppState extends ChangeNotifier {
     _removeFakeMayaMoneyItems();
     final link = fakeMayaLink;
     if (link == null) return;
+    if (link.summary.creditLimit > 0) {
+      _removeStaleFakeMayaCreditPlaceholders();
+    }
     assets.addAll(
       link.summary
           .toMoneyItems()
@@ -4263,6 +4340,20 @@ class AppState extends ChangeNotifier {
   void _removeFakeMayaMoneyItems() {
     assets.removeWhere((item) => item.description.contains('FakeMaya'));
     liabilities.removeWhere((item) => item.description.contains('FakeMaya'));
+  }
+
+  void _removeStaleFakeMayaCreditPlaceholders() {
+    bool isCreditPlaceholder(String value) {
+      final name = value.trim().toLowerCase();
+      return name == 'credit card payment' ||
+          name == 'maya easy credit' ||
+          (name.contains('credit') && name.contains('payment'));
+    }
+
+    onboardingExpenseLedger.removeWhere(
+      (row) => isCreditPlaceholder(row['name']?.toString() ?? ''),
+    );
+    liabilities.removeWhere((item) => isCreditPlaceholder(item.name));
   }
 }
 

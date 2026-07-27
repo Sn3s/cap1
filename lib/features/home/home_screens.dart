@@ -322,10 +322,10 @@ class _DashboardPageState extends State<DashboardPage> {
     if (_refreshingFakeMaya) return;
     setState(() => _refreshingFakeMaya = true);
     try {
-      await AppScope.of(context).refreshFakeMayaAssetPrices();
+      await AppScope.of(context).refreshFakeMayaAccount();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('FakeMaya asset prices refreshed.')),
+        const SnackBar(content: Text('FakeMaya account refreshed.')),
       );
     } on FakeMayaException catch (error) {
       if (!mounted) return;
@@ -520,7 +520,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   if (state.hasFakeMayaLink)
                     IconButton(
                       onPressed: _refreshingFakeMaya ? null : _refreshFakeMaya,
-                      tooltip: 'Refresh FakeMaya assets',
+                      tooltip: 'Refresh FakeMaya account',
                       icon: _refreshingFakeMaya
                           ? const SizedBox(
                               width: 18,
@@ -1265,6 +1265,7 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
   late final TabController _layerController;
   int mode = 1;
   bool _refreshingAssets = false;
+  bool _refreshingLiabilities = false;
 
   @override
   void initState() {
@@ -1312,6 +1313,27 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     }
   }
 
+  Future<void> _refreshFakeMayaLiabilities() async {
+    if (_refreshingLiabilities) return;
+    setState(() => _refreshingLiabilities = true);
+    try {
+      await AppScope.of(context).refreshFakeMayaAccount();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya liabilities refreshed.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _refreshingLiabilities = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -1322,6 +1344,8 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     final shown = mode == 0 && allowsIncome ? income : expenses;
     final showingWealthAssets =
         currentLayer == _pyramidWealthLayer && mode == 0 && allowsIncome;
+    final showingWealthLiabilities =
+        currentLayer == _pyramidWealthLayer && (mode == 1 || !allowsIncome);
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
@@ -1406,6 +1430,37 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
                           )
                         : const Icon(Icons.sync_rounded, size: 17),
                     label: const Text('Refresh assets'),
+                  ),
+                ],
+              ),
+            ),
+          if (showingWealthLiabilities && state.hasFakeMayaLink)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'FakeMaya credit debt updates when refreshed.',
+                      style: TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _refreshingLiabilities
+                        ? null
+                        : _refreshFakeMayaLiabilities,
+                    icon: _refreshingLiabilities
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync_rounded, size: 17),
+                    label: const Text('Refresh liabilities'),
                   ),
                 ],
               ),
@@ -1896,9 +1951,13 @@ List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
   final incomeLedger = state.onboardingIncomeLedger.isNotEmpty
       ? state.onboardingIncomeLedger
       : _fallbackIncomeLedger(state);
-  final expenseLedger = state.onboardingExpenseLedger.isNotEmpty
+  final rawExpenseLedger = state.onboardingExpenseLedger.isNotEmpty
       ? state.onboardingExpenseLedger
       : _fallbackExpenseLedger(state);
+  final expenseLedger = _expenseLedgerWithoutStaleFakeMayaCredit(
+    state,
+    rawExpenseLedger,
+  );
   final entries = <_PyramidBaselineEntry>[
     for (var index = 0; index < incomeLedger.length; index++)
       _incomeBaselineEntry(
@@ -1920,6 +1979,26 @@ List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
       return b.amount.compareTo(a.amount);
     });
   return entries;
+}
+
+List<Map<String, dynamic>> _expenseLedgerWithoutStaleFakeMayaCredit(
+  AppState state,
+  List<Map<String, dynamic>> ledger,
+) {
+  final summary = state.fakeMayaLink?.summary;
+  if (summary == null || summary.creditLimit <= 0) return ledger;
+  return [
+    for (final row in ledger)
+      if (!_isFakeMayaCreditPlaceholder(row)) row,
+  ];
+}
+
+bool _isFakeMayaCreditPlaceholder(Map<String, dynamic> row) {
+  final name = row['name']?.toString().trim().toLowerCase() ?? '';
+  if (name.isEmpty) return false;
+  return name == 'credit card payment' ||
+      name == 'maya easy credit' ||
+      (name.contains('credit') && name.contains('payment'));
 }
 
 List<_PyramidBaselineEntry> _pyramidAssetEntries(AppState state) {
@@ -2548,12 +2627,27 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
     return;
   }
   final bucketId = fakeMayaBucketIdForMotivation(motivation);
-  final link = state.fakeMayaLink;
+  var link = state.fakeMayaLink;
+  if (bucketId != null && link != null) {
+    try {
+      await state.refreshFakeMayaAccount(reconcileBuckets: false);
+      link = state.fakeMayaLink;
+    } on FakeMayaException {
+      link = state.fakeMayaLink;
+    }
+  }
+  final bucketExists = bucketId != null &&
+      link != null &&
+      link.summary.personalGoalById(bucketId) != null;
+  if (bucketExists) {
+    return;
+  }
   final bucketMissing = bucketId != null &&
       link != null &&
       link.summary.personalGoalById(bucketId) == null;
   final needsConfirmation = bucketMissing ||
-      !state.confirmedFakeMayaBucketMotivations.contains(motivation);
+      (link == null &&
+          !state.confirmedFakeMayaBucketMotivations.contains(motivation));
   if (!needsConfirmation) {
     return;
   }
@@ -3386,14 +3480,15 @@ List<_WealthAccount> _buildWealthAccounts(AppState state) {
       icon: Icons.lock_clock_rounded,
       layer: 3,
     ),
-    _WealthAccount(
-      name: 'Goal Savings',
-      sub: state.isAccountSynced('Goal Savings') ? 'Synced' : 'Manual',
-      balance: state.accountBalance('Goal Savings'),
-      color: const Color(0xFF6AA8F0),
-      icon: Icons.flag_rounded,
-      layer: 4,
-    ),
+    if (state.accountExistsInFakeMaya('Goal Savings'))
+      _WealthAccount(
+        name: 'Goal Savings',
+        sub: state.isAccountSynced('Goal Savings') ? 'Synced' : 'Manual',
+        balance: state.accountBalance('Goal Savings'),
+        color: const Color(0xFF6AA8F0),
+        icon: Icons.flag_rounded,
+        layer: 4,
+      ),
   ];
   for (final asset
       in state.assets.where((item) => !item.description.contains('FakeMaya'))) {
@@ -10756,8 +10851,14 @@ class _WalletAllocationsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wallet = state.accountBalance('Wallet');
+    final hasEssentialExpenseBucket = state.fakeMayaBucketExists(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
+    );
+    final hasEmergencyBucket = state.fakeMayaBucketExists(
+      FakeMayaPersonalGoal.emergencyFundId,
+    );
     final walletAllocations = <(String, double, Color, IconData)>[
-      if (state.essentialExpensesBalance > 0)
+      if (hasEssentialExpenseBucket && state.essentialExpensesBalance > 0)
         (
           'Essential Expenses Fund',
           state.essentialExpensesBalance,
@@ -10897,7 +10998,7 @@ class _WalletAllocationsCard extends StatelessWidget {
                 style: TextStyle(
                     color: _body, fontSize: 12, fontWeight: FontWeight.w700),
               )
-            else
+            else if (hasEmergencyBucket)
               Row(
                 children: [
                   const Icon(Icons.shield_rounded, color: _amber, size: 17),
@@ -11358,9 +11459,12 @@ class _PyramidMayaBucketRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final bucketId = fakeMayaBucketIdForMotivation(_layerNames[layerNum - 1]);
     if (bucketId == null) return const SizedBox.shrink();
+    final bucket = state.fakeMayaLink?.summary.personalGoalById(bucketId);
+    if (state.fakeMayaLink != null && bucket == null) {
+      return const SizedBox.shrink();
+    }
     final bucketTemplate = FakeMayaPersonalGoal.defaultForId(bucketId);
-    final bucketBalance =
-        state.fakeMayaLink?.summary.personalGoalById(bucketId)?.balance ?? 0.0;
+    final bucketBalance = bucket?.balance ?? 0.0;
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 8),
       child: _PyramidMayaBucketTile(
@@ -20202,7 +20306,7 @@ class LinkedAccountsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    const accounts = [
+    const allAccounts = [
       (
         'Cash on Hand',
         Icons.payments_rounded,
@@ -20218,6 +20322,10 @@ class LinkedAccountsScreen extends StatelessWidget {
       ('Savings', Icons.savings_rounded, _amber, 'Savings balance'),
       ('Time Deposit', Icons.lock_clock_rounded, _purple, 'Locked savings'),
       ('Goal Savings', Icons.flag_rounded, Color(0xFF6AA8F0), 'Goal balance'),
+    ];
+    final accounts = [
+      for (final account in allAccounts)
+        if (state.accountExistsInFakeMaya(account.$1)) account,
     ];
     return Scaffold(
       backgroundColor: _bg,

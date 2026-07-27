@@ -347,6 +347,60 @@ class FakeMayaService {
     );
   }
 
+  static Future<FakeMayaSession> pruneZeroBalancePersonalGoals({
+    required FakeMayaLink link,
+    required Set<String> allowedPersonalGoalIds,
+  }) async {
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    final keptGoals = summary.personalGoals
+        .where((goal) =>
+            allowedPersonalGoalIds.contains(goal.id) || goal.balance > 0)
+        .toList();
+    if (keptGoals.length == summary.personalGoals.length) return session;
+    final totalGoalBalance = keptGoals.fold<double>(
+      0,
+      (total, goal) => total + goal.balance,
+    );
+    final selectedGoalId =
+        keptGoals.any((goal) => goal.id == summary.selectedGoalId)
+            ? summary.selectedGoalId
+            : keptGoals.firstOrNull?.id ??
+                FakeMayaPersonalGoal.essentialExpenseFundId;
+    final nextSummary = summary.copyWith(
+      selectedGoalId: selectedGoalId,
+      personalGoals: keptGoals,
+      goalBalance: totalGoalBalance,
+      updatedAt: DateTime.now(),
+    );
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': nextSummary.wallet,
+        'savings': nextSummary.savings,
+        'time_deposit': nextSummary.timeDeposit,
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
   static Future<FakeMayaSession> withdrawFromPersonalGoal({
     required FakeMayaLink link,
     required double amount,
@@ -815,43 +869,43 @@ class FakeMayaAccountSummary {
         (total, holding) => total + holding.value,
       );
   double get availableCredit => math.max(0, creditLimit - creditUsed);
-  DateTime? get nextCreditDueDate {
+  DateTime? get nextCreditCycleBillDate {
     if (creditUsed <= 0) return null;
     final billingDay = (creditBillingDay ?? 15).clamp(1, 27).toInt();
     final now = DateTime.now();
-    var cutoff = DateTime(now.year, now.month, billingDay);
-    var dueDate = cutoff.add(const Duration(days: 15));
-    if (!dueDate.isAfter(now)) {
-      cutoff = DateTime(now.year, now.month + 1, billingDay);
-      dueDate = cutoff.add(const Duration(days: 15));
+    var cycleDate = DateTime(now.year, now.month, billingDay);
+    final today = DateTime(now.year, now.month, now.day);
+    if (cycleDate.isBefore(today)) {
+      cycleDate = DateTime(now.year, now.month + 1, billingDay);
     }
-    return dueDate;
+    return cycleDate;
   }
 
-  String get creditDueDateLabel {
-    final dueDate = nextCreditDueDate;
-    return dueDate == null ? 'No active bill' : _formatDate(dueDate);
+  String get creditCycleBillDateLabel {
+    final cycleDate = nextCreditCycleBillDate;
+    return cycleDate == null ? 'No active bill' : _formatDate(cycleDate);
   }
 
   MoneyItem? get creditLiability {
     if (creditUsed <= 0) return null;
+    final billingDay = (creditBillingDay ?? 15).clamp(1, 27).toInt();
     return MoneyItem(
       'Maya Easy Credit',
-      'Synced with FakeMaya · Due $creditDueDateLabel',
+      'Synced with FakeMaya · Next cycle bill $creditCycleBillDateLabel · Every $billingDay${_ordinalSuffix(billingDay)}',
       creditUsed,
     );
   }
 
   FakeMayaTransaction? get creditBillTransaction {
     if (creditUsed <= 0) return null;
-    final dueDate = nextCreditDueDate;
+    final cycleDate = nextCreditCycleBillDate;
     return FakeMayaTransaction(
       id: 'fakemaya-credit-bill',
       title: 'Maya Easy Credit bill',
-      detail: dueDate == null
+      detail: cycleDate == null
           ? 'Outstanding credit balance'
-          : 'Due ${_formatDate(dueDate)}',
-      age: dueDate == null ? 'Pending' : 'Due ${_formatDate(dueDate)}',
+          : 'Next cycle bill $creditCycleBillDateLabel',
+      age: cycleDate == null ? 'Pending' : 'Cycle ${_formatDate(cycleDate)}',
       amountText: '- ${_moneyText(creditUsed)}',
       createdAt: updatedAt ?? DateTime.now(),
       category: 'Liability',
@@ -1010,8 +1064,14 @@ class FakeMayaAccountSummary {
             appState['investmentHoldings'] ??
             appState['stockHoldings'],
       ),
-      creditLimit: _doubleFrom(appState['creditLimit'], 5000),
-      creditUsed: _doubleFrom(appState['creditUsed'], 0),
+      creditLimit: _doubleFrom(
+        appState['creditLimit'] ?? data['creditLimit'] ?? data['credit_limit'],
+        5000,
+      ),
+      creditUsed: _doubleFrom(
+        appState['creditUsed'] ?? data['creditUsed'] ?? data['credit_used'],
+        0,
+      ),
       creditBillingDay:
           _intFrom(appState['creditBillingDay'] ?? creditForm['billingDay']),
       transactions:
@@ -1189,6 +1249,17 @@ class FakeMayaAccountSummary {
     final local = value.toLocal();
     final year = local.year == DateTime.now().year ? '' : ', ${local.year}';
     return '${months[local.month - 1]} ${local.day}$year';
+  }
+
+  static String _ordinalSuffix(int value) {
+    final tens = value % 100;
+    if (tens >= 11 && tens <= 13) return 'th';
+    return switch (value % 10) {
+      1 => 'st',
+      2 => 'nd',
+      3 => 'rd',
+      _ => 'th',
+    };
   }
 
   static String _moneyText(double value) {
