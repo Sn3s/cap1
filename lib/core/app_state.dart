@@ -1327,6 +1327,123 @@ class AppState extends ChangeNotifier {
     bufferBalance = buffer;
     emergencyMonths =
         emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
+    // Accumulating Wealth: a 6-month annual-return tracking window (started
+    // behind the configured 12% target, so both the "ahead" and "behind"
+    // states are explorable) plus BTC/NVDA holdings with enough buy/sell
+    // history for cost-basis and unrealized-gain math to have real data to
+    // work with on the Accumulating Wealth insights page.
+    actionFieldValues['A30'] = {'pct': '12'};
+    d1Ledger.addAll([
+      {
+        'type': 'investment_return_baseline',
+        'date': today.subtract(const Duration(days: 180)).toIso8601String(),
+        'balance': 27500.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Started annual return tracking',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 150)).toIso8601String(),
+        'amount': 800.0,
+        'balance': 28300.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+      {
+        'type': 'investment_loss',
+        'date': today.subtract(const Duration(days: 120)).toIso8601String(),
+        'amount': 400.0,
+        'balance': 27900.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment loss',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 90)).toIso8601String(),
+        'amount': 600.0,
+        'balance': 28500.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+      {
+        'type': 'investment_loss',
+        'date': today.subtract(const Duration(days: 60)).toIso8601String(),
+        'amount': 900.0,
+        'balance': 27600.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment loss',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 30)).toIso8601String(),
+        'amount': 500.0,
+        'balance': 28100.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+    ]);
+    const demoInvestmentHoldings = [
+      FakeMayaInvestmentHolding(
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        type: 'crypto',
+        units: 0.007,
+        price: 3785577.87,
+        unitLabel: 'coins',
+        costBasis: 23000,
+      ),
+      FakeMayaInvestmentHolding(
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        type: 'stock',
+        units: 2,
+        price: 7350.00,
+        unitLabel: 'shares',
+        costBasis: 13000,
+      ),
+    ];
+    final demoInvestmentTransactions = [
+      FakeMayaStockTransaction(
+        side: 'Sold',
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        shares: 1,
+        unitLabel: 'shares',
+        type: 'stock',
+        amount: 7000,
+        createdAt: today.subtract(const Duration(days: 30)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        shares: 3,
+        unitLabel: 'shares',
+        type: 'stock',
+        amount: 19500,
+        createdAt: today.subtract(const Duration(days: 120)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        shares: 0.002,
+        unitLabel: 'coins',
+        type: 'crypto',
+        amount: 7000,
+        createdAt: today.subtract(const Duration(days: 60)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        shares: 0.005,
+        unitLabel: 'coins',
+        type: 'crypto',
+        amount: 16000,
+        createdAt: today.subtract(const Duration(days: 150)),
+      ),
+    ];
     fakeMayaLink = FakeMayaLink(
       userId: 'reflection-demo-fakemaya',
       email: 'reflection@test.com',
@@ -1344,6 +1461,8 @@ class AppState extends ChangeNotifier {
         goalEmoji: '🎨',
         goalBalance: lifestyleFundBalance + lifestyleActivityBalance,
         goalTarget: 12000,
+        investmentHoldings: demoInvestmentHoldings,
+        investmentTransactions: demoInvestmentTransactions,
         creditLimit: 0,
         creditUsed: 0,
         transactions: transactions
@@ -2981,6 +3100,95 @@ class AppState extends ChangeNotifier {
       'balance': investmentBalance,
       'destination': 'Investment Portfolio',
       'label': 'Portfolio reviewed',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// A30: keep the investment portfolio on track to meet a target annual
+  /// return. There's no natural "day one" for a return calculation, so
+  /// tracking starts explicitly and is anchored to the most recent
+  /// 'investment_return_baseline' ledger entry - mirroring how
+  /// [lastInvestmentReviewDate] reads its own marker entries rather than a
+  /// separate persisted field.
+  Map<String, dynamic>? get _investmentReturnBaselineEntry {
+    for (final entry in d1Ledger) {
+      if (entry['type'] == 'investment_return_baseline') return entry;
+    }
+    return null;
+  }
+
+  DateTime? get investmentReturnBaselineDate {
+    final date = _investmentReturnBaselineEntry?['date']?.toString();
+    return date == null ? null : DateTime.tryParse(date);
+  }
+
+  double get investmentReturnBaselineValue =>
+      (_investmentReturnBaselineEntry?['balance'] as num?)?.toDouble() ?? 0;
+
+  /// Sum of investment_gain/investment_loss ledger entries recorded since
+  /// tracking started. Contributions (investment_deposit/monthly/windfall)
+  /// are deliberately excluded so this reflects market performance only,
+  /// not money the user added.
+  double get investmentNetReturnSinceBaseline {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null) return 0;
+    var total = 0.0;
+    for (final entry in d1Ledger) {
+      final type = entry['type'];
+      if (type != 'investment_gain' && type != 'investment_loss') continue;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date == null || date.isBefore(baseline)) continue;
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      total += type == 'investment_gain' ? amount : -amount;
+    }
+    return total;
+  }
+
+  double get investmentReturnPercentSinceBaseline {
+    final baselineValue = investmentReturnBaselineValue;
+    if (baselineValue <= 0) return 0;
+    return investmentNetReturnSinceBaseline / baselineValue * 100;
+  }
+
+  /// Projects the return-to-date to a full year, so a tracking window
+  /// shorter than 12 months can still be compared fairly against an annual
+  /// target (e.g. +2% after 2 months reads as +12% annualized).
+  double get investmentAnnualizedReturnPercent {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null || investmentReturnBaselineValue <= 0) return 0;
+    final elapsedDays = math.max(1, DateTime.now().difference(baseline).inDays);
+    return investmentReturnPercentSinceBaseline * (365 / elapsedDays);
+  }
+
+  double get investmentTargetAnnualReturnPercent {
+    final configured = double.tryParse(actionFieldValues['A30']?['pct'] ?? '');
+    return configured ?? 8.0;
+  }
+
+  bool get isInvestmentAnnualReturnOnTrack {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null) return true;
+    // A brand-new tracking window sits at 0% return by definition - flagging
+    // that as "behind target" on day one would be misleading, so give it a
+    // week before judging performance.
+    if (DateTime.now().difference(baseline).inDays < 7) return true;
+    return investmentAnnualizedReturnPercent >=
+        investmentTargetAnnualReturnPercent;
+  }
+
+  /// Marks "now" as the start of a new annual-return tracking window,
+  /// anchored to the current portfolio balance - call the first time the
+  /// user sets this action's target, or whenever they want to restart
+  /// tracking (e.g. after a large one-off deposit that isn't investment
+  /// return).
+  Future<void> startInvestmentReturnTracking() async {
+    d1Ledger.insert(0, {
+      'type': 'investment_return_baseline',
+      'date': DateTime.now().toIso8601String(),
+      'balance': investmentBalance,
+      'destination': 'Investment Portfolio',
+      'label': 'Started annual return tracking',
     });
     await saveProfile();
     notifyListeners();

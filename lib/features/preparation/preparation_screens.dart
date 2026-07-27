@@ -834,19 +834,8 @@ List<String> _recommendationsForActionField(
       _baselineMoney(state, 'investment_balance') * 1.25,
     ));
   }
-  if (action.id == 'A24' && field.key == 'amt') {
-    final balance = math.max(
-      state.investmentBalance,
-      _baselineMoney(state, 'investment_balance'),
-    );
-    return _moneyOptions(math.max(500, balance * 0.01));
-  }
-  if (action.id == 'A25' && field.key == 'amt') {
-    final balance = math.max(
-      state.investmentBalance,
-      _baselineMoney(state, 'investment_balance'),
-    );
-    return _moneyOptions(math.max(500, balance * 0.03));
+  if (action.id == 'A30' && field.key == 'pct') {
+    return _percentOptions(8, spread: 3, minimum: 3, maximum: 20);
   }
   if (action.id == 'A26' && field.key == 'amt') {
     return _moneyOptions(_monthlySubscriptionBase(state), step: 100);
@@ -980,10 +969,8 @@ String _recommendationFormulaForActionField(
       '$value: based on a sustainable share of monthly income and available surplus.',
     'A23' =>
       '$value: a meaningful next portfolio milestone above your current investment balance.',
-    'A24' =>
-      '$value: about 1% of your current portfolio balance as a monthly earnings target.',
-    'A25' =>
-      '$value: about 3% of your current portfolio balance as a monthly loss limit.',
+    'A30' =>
+      '$value: a realistic annual return to hold your portfolio to, based on typical steady-growth targets.',
     'A26' =>
       '$value: based on the subscriptions, memberships, and scheduled non-essential expenses you listed.',
     'A27' =>
@@ -1319,8 +1306,7 @@ const _d1Goals = <D1Goal>[
   D1Goal(
       id: 'G5',
       title: 'Grow Investments',
-      description:
-          'Have a growing investment portfolio that steadily builds wealth over time.'),
+      description: 'Build a growing investment portfolio.'),
   D1Goal(
       id: 'G6',
       title: 'Reduce Debt',
@@ -1481,19 +1467,16 @@ const _d2Actions = <String, D2Action>{
         ActionField(
             key: 'amt', label: 'Portfolio value target (₱)', hint: 'e.g. 50000')
       ]),
-  'A24': D2Action(
-      id: 'A24',
-      text: 'Earn at least ₱X from investments this month.',
+  'A30': D2Action(
+      id: 'A30',
+      text:
+          'Keep your investment portfolio on track to meet your target annual return on investment of X%.',
       fields: [
         ActionField(
-            key: 'amt', label: 'Monthly earnings target (₱)', hint: 'e.g. 1000')
-      ]),
-  'A25': D2Action(
-      id: 'A25',
-      text: 'Keep investment losses below ₱X this month.',
-      fields: [
-        ActionField(
-            key: 'amt', label: 'Monthly loss limit (₱)', hint: 'e.g. 1000')
+            key: 'pct',
+            label: 'Target annual return',
+            hint: 'e.g. 8',
+            isPercent: true)
       ]),
   'A26': D2Action(
       id: 'A26',
@@ -1601,7 +1584,7 @@ const _d2Actions = <String, D2Action>{
 
 const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
 const _emergencyFundGoalActionIds = ['A9', 'A8', 'A22', 'A10'];
-const _investmentGoalActionIds = ['A12', 'A23', 'A24', 'A25'];
+const _investmentGoalActionIds = ['A12', 'A23', 'A30'];
 const _lifestyleGoalActionIds = ['A26', 'A27', 'A28', 'A29'];
 
 // D2: goal → action IDs matrix
@@ -1700,8 +1683,7 @@ const _actionDataMatrix = <String, List<String>>{
   ],
   'A15': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20', 'D22'],
   'A23': ['D1', 'D7', 'D8', 'D9', 'D10', 'D14', 'D16', 'D20'],
-  'A24': ['D1', 'D16', 'D20', 'D25'],
-  'A25': ['D1', 'D16', 'D20', 'D26'],
+  'A30': ['D1', 'D16', 'D20', 'D21', 'D25', 'D26'],
   'A26': ['D1', 'D7', 'D8', 'D9', 'D10', 'D27', 'D29', 'D22'],
   'A27': ['D1', 'D4', 'D7', 'D8', 'D9', 'D10', 'D27', 'D29', 'D22'],
   'A28': ['D1', 'D5', 'D6', 'D10', 'D28', 'D23'],
@@ -1841,8 +1823,7 @@ const _actionBaselineMatrix = <String, List<String>>{
   ],
   'A15': ['income_baseline', 'investment_balance'],
   'A23': ['investment_balance'],
-  'A24': ['investment_balance'],
-  'A25': ['investment_balance'],
+  'A30': ['investment_balance'],
   'A26': ['monthly_expenses', 'cash_balance'],
   'A27': ['income_baseline', 'cash_balance'],
   'A28': ['monthly_expenses', 'cash_balance'],
@@ -4508,8 +4489,7 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A15' ||
     'A23' =>
       'Connect or enter the investment account and confirm contributions that are not imported automatically.',
-    'A24' ||
-    'A25' =>
+    'A30' =>
       'Keep the investment account connected or record portfolio gains and losses that Shellby cannot import automatically.',
     'A26' =>
       'Keep subscription and membership expenses updated, then confirm Lifestyle Fund transfers Shellby cannot detect.',
@@ -4552,10 +4532,8 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
       'When income arrives, Shellby calculates the configured investment contribution, records the transfer to the Investment Portfolio, and updates $indicatorText.',
     'A23' =>
       'Shellby compares the current Investment Portfolio value with the configured target, tracks the remaining gap, and updates $indicatorText.',
-    'A24' =>
-      'Shellby totals investment gains recorded this month, compares them with the configured earnings target, and updates $indicatorText.',
-    'A25' =>
-      'Shellby totals investment losses recorded this month, shows how much of the configured loss limit remains, and warns when it is reached.',
+    'A30' =>
+      'Shellby compares the portfolio\'s annualized return since tracking started with the configured target and shows whether it is ahead or behind.',
     'A26' =>
       'Shellby totals monthly Lifestyle Fund reserves against the configured subscription and membership amount and updates $indicatorText.',
     'A27' =>
