@@ -3300,6 +3300,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   int _page = 0;
   var _values = <Map<String, String>>[];
   bool _seeded = false;
+  bool _animatingPage = false;
 
   bool get _canAdvance {
     if (widget.actions.isEmpty) return true;
@@ -3341,12 +3342,23 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   }
 
   void _goNext() {
-    if (!_canAdvance) return;
+    if (!_canAdvance || _animatingPage) return;
     if (_page < widget.actions.length - 1) {
-      _pageController.nextPage(
+      final nextPage = _page + 1;
+      setState(() {
+        _page = nextPage;
+        _animatingPage = true;
+      });
+      _pageController
+          .animateToPage(
+        nextPage,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
-      );
+      )
+          .whenComplete(() {
+        if (!mounted) return;
+        setState(() => _animatingPage = false);
+      });
     } else {
       _confirm();
     }
@@ -3389,6 +3401,7 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
           height: 360,
           child: PageView.builder(
             controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
             onPageChanged: (i) => setState(() => _page = i),
             itemCount: total,
             itemBuilder: (context, i) {
@@ -3418,8 +3431,11 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
                                 initialValue: _values[i][field.key] ?? '',
                                 recommendations: _recommendationsForActionField(
                                     state, action, field),
-                                onChanged: (value) =>
-                                    _values[i][field.key] = value,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _values[i][field.key] = value;
+                                  });
+                                },
                               );
                             },
                           ),
@@ -3442,11 +3458,12 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
         ),
         const SizedBox(height: 12),
         PrimaryButton(
-          label: _page < total - 1 ? 'Next' : 'Confirm All',
+          label:
+              _page < total - 1 ? 'Next (${_page + 1}/$total)' : 'Confirm All',
           icon: _page < total - 1
               ? Icons.arrow_forward_rounded
               : Icons.check_rounded,
-          enabled: _canAdvance,
+          enabled: _canAdvance && !_animatingPage,
           onPressed: _goNext,
         ),
       ],
