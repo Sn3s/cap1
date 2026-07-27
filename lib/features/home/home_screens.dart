@@ -22533,6 +22533,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
 
   List<String> _categoriesForLayer(bool isIncome) {
     final base = isIncome ? _incomeCategories : _expenseCategories;
+    if (isIncome) return base;
     final layer = _financialLayer;
     if (layer == null) return base;
     final allowed = {..._genericCategories, ...?_layerCategories[layer]};
@@ -22547,7 +22548,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final categories = _categoriesForLayer(isIncome);
     final automaticDestination = transaction.automaticDestination;
     final state = AppScope.of(context);
-    final bucketId = _financialLayer == null
+    final bucketId = isIncome || _financialLayer == null
         ? null
         : fakeMayaBucketIdForMotivation(
             _financialLayerMotivations[_financialLayer]!);
@@ -22627,32 +22628,34 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _financialLayers.contains(_financialLayer)
-                ? _financialLayer
-                : null,
-            decoration: inputDecoration('Choose a financial layer').copyWith(
-              labelText: 'Financial layer',
+          if (!isIncome) ...[
+            DropdownButtonFormField<String>(
+              value: _financialLayers.contains(_financialLayer)
+                  ? _financialLayer
+                  : null,
+              decoration: inputDecoration('Choose a financial layer').copyWith(
+                labelText: 'Financial layer',
+              ),
+              items: _financialLayers
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  _financialLayer = value;
+                  if (value != null) _source = _financialLayerSources[value];
+                  if (!_categoriesForLayer(isIncome).contains(_category)) {
+                    _category = null;
+                  }
+                  _pullFromBucket = null;
+                });
+                _maybePromptBucketFunding();
+              },
             ),
-            items: _financialLayers
-                .map((value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(value),
-                    ))
-                .toList(),
-            onChanged: (value) {
-              setState(() {
-                _financialLayer = value;
-                if (value != null) _source = _financialLayerSources[value];
-                if (!_categoriesForLayer(isIncome).contains(_category)) {
-                  _category = null;
-                }
-                _pullFromBucket = null;
-              });
-              _maybePromptBucketFunding();
-            },
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           DropdownButtonFormField<String>(
             value: categories.contains(_category) ? _category : null,
             decoration: inputDecoration('Choose a category').copyWith(
@@ -22676,7 +22679,10 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
           if (automaticDestination == null)
             _TransactionDetailLine(
               label: 'Fund',
-              value: _source ?? 'Choose a financial layer first',
+              value: _source ??
+                  (isIncome
+                      ? transaction.account ?? 'Wallet'
+                      : 'Choose a financial layer first'),
             )
           else
             _TransactionDetailLine(
@@ -22741,7 +22747,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             label: _saving ? 'Saving…' : 'Save label',
             icon: Icons.check_rounded,
             enabled: _category != null &&
-                _financialLayer != null &&
+                (isIncome || _financialLayer != null) &&
                 _source != null &&
                 !_saving,
             onPressed: _save,
@@ -22811,9 +22817,12 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   Future<void> _save() async {
     final category = _category;
     final financialLayer = _financialLayer;
-    final source = widget.transaction.automaticDestination ?? _source;
+    final isIncome = widget.transaction.amount >= 0;
+    final source = widget.transaction.automaticDestination ??
+        _source ??
+        (isIncome ? widget.transaction.account ?? 'Wallet' : null);
     if (category == null ||
-        financialLayer == null ||
+        (!isIncome && financialLayer == null) ||
         source == null ||
         _saving) {
       return;
@@ -22821,6 +22830,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     setState(() => _saving = true);
     final state = AppScope.of(context);
     if (_pullFromBucket == true) {
+      if (financialLayer == null) return;
       try {
         await state.fundTransactionFromBucket(
           motivation: _financialLayerMotivations[financialLayer]!,
@@ -22857,6 +22867,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   }
 
   static String? _initialFinancialLayer(FakeMayaTransaction transaction) {
+    if (transaction.amount >= 0) return null;
     return switch (transaction.source?.trim().toLowerCase()) {
       'basic needs fund' => 'Cash Flow & Basic Needs',
       'emergency fund' => 'Emergency Fund',
@@ -22870,6 +22881,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final automaticDestination = transaction.automaticDestination;
     if (automaticDestination != null) return automaticDestination;
     if (transaction.source != null) return transaction.source;
+    if (transaction.amount >= 0) return transaction.account ?? 'Wallet';
     return switch (transaction.category?.trim().toLowerCase()) {
       'basic needs' => 'Basic Needs Fund',
       'emergency fund' => 'Emergency Fund',
