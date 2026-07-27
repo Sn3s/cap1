@@ -63,6 +63,74 @@ void main() {
     expect(state.assets.map((item) => item.name), ['Wallet']);
   });
 
+  test('FakeMaya investments do not use sample prices as balances', () async {
+    final unfetchedBtc = FakeMayaInvestmentHolding.fromSymbolUnits('BTC', .01)!;
+    final state = AppState()
+      ..fakeMayaLink = FakeMayaLink(
+        userId: 'demo',
+        email: 'demo@example.com',
+        name: 'Demo',
+        phone: '',
+        provider: 'email',
+        accessToken: '',
+        refreshToken: '',
+        expiresAt: null,
+        summary: FakeMayaAccountSummary(
+          wallet: 5000,
+          savings: 0,
+          timeDeposit: 0,
+          goalName: 'Personal Goal',
+          goalEmoji: '',
+          goalBalance: 0,
+          goalTarget: 10000,
+          investmentHoldings: [unfetchedBtc],
+          creditLimit: 0,
+          creditUsed: 0,
+          transactions: const [],
+          updatedAt: null,
+        ),
+      );
+
+    await state.setAccountFakeMayaSync('Wallet', true);
+
+    expect(unfetchedBtc.price, 0);
+    expect(
+        state.assets.where((item) => item.name.contains('Bitcoin')), isEmpty);
+
+    state.fakeMayaLink = FakeMayaLink(
+      userId: 'demo',
+      email: 'demo@example.com',
+      name: 'Demo',
+      phone: '',
+      provider: 'email',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: 5000,
+        savings: 0,
+        timeDeposit: 0,
+        goalName: 'Personal Goal',
+        goalEmoji: '',
+        goalBalance: 0,
+        goalTarget: 10000,
+        investmentHoldings: [
+          unfetchedBtc.copyWith(price: 4000000),
+        ],
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: const [],
+        updatedAt: null,
+      ),
+    );
+    await state.setAccountFakeMayaSync('Wallet', true);
+
+    final bitcoin = state.assets.singleWhere(
+      (item) => item.name == 'Bitcoin (BTC)',
+    );
+    expect(bitcoin.value, 40000);
+  });
+
   test('FakeMaya goal savings account only exists when buckets exist', () {
     final state = AppState()
       ..fakeMayaLink = FakeMayaLink(

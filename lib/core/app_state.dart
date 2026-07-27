@@ -4234,6 +4234,10 @@ class AppState extends ChangeNotifier {
       savedTransactions: link.summary.transactions,
       freshTransactions: session.summary.transactions,
     );
+    final investmentHoldings = _withLastKnownInvestmentPrices(
+      session.summary.investmentHoldings,
+      link.summary.investmentHoldings,
+    );
     fakeMayaLink = FakeMayaLink(
       userId: session.userId,
       email: session.email,
@@ -4243,7 +4247,10 @@ class AppState extends ChangeNotifier {
       accessToken: session.accessToken,
       refreshToken: session.refreshToken,
       expiresAt: session.expiresAt,
-      summary: session.summary.copyWith(transactions: mergedTransactions),
+      summary: session.summary.copyWith(
+        investmentHoldings: investmentHoldings,
+        transactions: mergedTransactions,
+      ),
     );
     _syncFakeMayaMoneyItems();
     if (reconcileBuckets) {
@@ -4295,6 +4302,21 @@ class AppState extends ChangeNotifier {
     _syncFakeMayaMoneyItems();
     await saveProfile();
     notifyListeners();
+  }
+
+  List<FakeMayaInvestmentHolding> _withLastKnownInvestmentPrices(
+    List<FakeMayaInvestmentHolding> fresh,
+    List<FakeMayaInvestmentHolding> previous,
+  ) {
+    final previousPrices = {
+      for (final holding in previous)
+        if (holding.price > 0) holding.symbol.toUpperCase(): holding.price,
+    };
+    return fresh.map((holding) {
+      if (holding.price > 0) return holding;
+      final lastPrice = previousPrices[holding.symbol.toUpperCase()];
+      return lastPrice == null ? holding : holding.copyWith(price: lastPrice);
+    }).toList();
   }
 
   Future<void> labelFakeMayaTransaction({
@@ -4458,7 +4480,9 @@ class AppState extends ChangeNotifier {
           .where((item) => fakeMayaSyncedAccounts.contains(item.name)),
     );
     assets.addAll(
-      link.summary.investmentHoldings.map((holding) => holding.toMoneyItem()),
+      link.summary.investmentHoldings
+          .where((holding) => holding.price > 0)
+          .map((holding) => holding.toMoneyItem()),
     );
     final creditLiability = link.summary.creditLiability;
     if (creditLiability != null) {

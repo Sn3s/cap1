@@ -1063,6 +1063,7 @@ class FakeMayaAccountSummary {
         data['investmentHoldings'] ??
             appState['investmentHoldings'] ??
             appState['stockHoldings'],
+        marketPrices: appState['marketPrices'],
       ),
       creditLimit: _doubleFrom(
         appState['creditLimit'] ?? data['creditLimit'] ?? data['credit_limit'],
@@ -1191,13 +1192,18 @@ class FakeMayaAccountSummary {
   }
 
   static List<FakeMayaInvestmentHolding> _investmentHoldingsFrom(
-    Object? value,
-  ) {
+    Object? value, {
+    Object? marketPrices,
+  }) {
     if (value is Map) {
       return value.entries
           .map((entry) => FakeMayaInvestmentHolding.fromSymbolUnits(
                 entry.key.toString(),
                 _doubleFrom(entry.value, 0),
+                price: _investmentPriceFromMarketPrices(
+                  marketPrices,
+                  entry.key.toString(),
+                ),
               ))
           .whereType<FakeMayaInvestmentHolding>()
           .toList();
@@ -1213,6 +1219,14 @@ class FakeMayaAccountSummary {
           .toList();
     }
     return const [];
+  }
+
+  static double _investmentPriceFromMarketPrices(Object? value, String symbol) {
+    if (value is! Map) return 0;
+    final raw = value[symbol.trim().toUpperCase()];
+    if (raw is num) return raw.toDouble();
+    if (raw is Map) return _doubleFrom(raw['price'], 0);
+    return 0;
   }
 
   static double _doubleFrom(Object? value, double fallback) {
@@ -1335,6 +1349,7 @@ class FakeMayaInvestmentHolding {
   factory FakeMayaInvestmentHolding.fromMap(Map<String, dynamic> data) {
     final symbol = data['symbol']?.toString() ?? '';
     final template = _fakeMayaInvestmentTemplate(symbol);
+    final parsedPrice = FakeMayaAccountSummary._doubleFrom(data['price'], 0);
     return FakeMayaInvestmentHolding(
       symbol: template.symbol,
       name: data['name']?.toString() ?? template.name,
@@ -1343,15 +1358,18 @@ class FakeMayaInvestmentHolding {
         data['units'] ?? data['shares'] ?? data['quantity'],
         0,
       ),
-      price: FakeMayaAccountSummary._doubleFrom(data['price'], template.price),
+      price: _isSampleInvestmentPrice(template.symbol, parsedPrice)
+          ? 0
+          : parsedPrice,
       unitLabel: data['unitLabel']?.toString() ?? template.unitLabel,
     );
   }
 
   static FakeMayaInvestmentHolding? fromSymbolUnits(
     String symbol,
-    double units,
-  ) {
+    double units, {
+    double price = 0,
+  }) {
     if (units <= 0) return null;
     final template = _fakeMayaInvestmentTemplate(symbol);
     return FakeMayaInvestmentHolding(
@@ -1359,10 +1377,19 @@ class FakeMayaInvestmentHolding {
       name: template.name,
       type: template.type,
       units: units,
-      price: template.price,
+      price: price,
       unitLabel: template.unitLabel,
     );
   }
+}
+
+bool _isSampleInvestmentPrice(String symbol, double price) {
+  final sample = switch (symbol.trim().toUpperCase()) {
+    'BTC' => 3785577.87,
+    'NVDA' => 7350.00,
+    _ => 0.0,
+  };
+  return sample > 0 && (price - sample).abs() < .01;
 }
 
 FakeMayaInvestmentHolding _fakeMayaInvestmentTemplate(String symbol) {
@@ -1372,7 +1399,7 @@ FakeMayaInvestmentHolding _fakeMayaInvestmentTemplate(String symbol) {
         name: 'Bitcoin',
         type: 'crypto',
         units: 0,
-        price: 3785577.87,
+        price: 0,
         unitLabel: 'coins',
       ),
     'NVDA' => const FakeMayaInvestmentHolding(
@@ -1380,7 +1407,7 @@ FakeMayaInvestmentHolding _fakeMayaInvestmentTemplate(String symbol) {
         name: 'NVIDIA',
         type: 'stock',
         units: 0,
-        price: 7350.00,
+        price: 0,
         unitLabel: 'shares',
       ),
     final value => FakeMayaInvestmentHolding(
