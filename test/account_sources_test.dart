@@ -63,6 +63,56 @@ void main() {
     expect(state.assets.map((item) => item.name), ['Wallet']);
   });
 
+  test('FakeMaya credit used is tracked as a liability and bill transaction',
+      () async {
+    final state = AppState()
+      ..fakeMayaLink = FakeMayaLink(
+        userId: 'demo',
+        email: 'demo@example.com',
+        name: 'Demo',
+        phone: '',
+        provider: 'email',
+        accessToken: '',
+        refreshToken: '',
+        expiresAt: null,
+        summary: FakeMayaAccountSummary(
+          wallet: 5000,
+          savings: 0,
+          timeDeposit: 0,
+          goalName: 'Trip',
+          goalEmoji: '',
+          goalBalance: 0,
+          goalTarget: 10000,
+          creditLimit: 5000,
+          creditUsed: 1250,
+          creditBillingDay: 15,
+          transactions: const [],
+          updatedAt: DateTime(2026, 7, 9),
+        ),
+      );
+
+    await state.setAccountFakeMayaSync('Savings', true);
+
+    expect(state.liabilities.map((item) => item.name),
+        contains('Maya Easy Credit'));
+    expect(
+      state.liabilities
+          .singleWhere((item) => item.name == 'Maya Easy Credit')
+          .value,
+      1250,
+    );
+    expect(
+      state.liabilities
+          .singleWhere((item) => item.name == 'Maya Easy Credit')
+          .description,
+      contains('Due'),
+    );
+    expect(state.allTransactions, hasLength(1));
+    expect(state.allTransactions.single.title, 'Maya Easy Credit bill');
+    expect(state.allTransactions.single.amount, -1250);
+    expect(state.allTransactions.single.excludedFromInsights, isTrue);
+  });
+
   test('manual transactions update the selected manual account', () async {
     final state = AppState();
 

@@ -192,7 +192,7 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
                                           onTap: tx.transaction == null
                                               ? null
                                               : () =>
-                                                  _showTransactionLabelSheet(
+                                                  _showWalletTransactionLabelSheet(
                                                     context,
                                                     tx.transaction!,
                                                   ),
@@ -248,80 +248,5 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
         SnackBar(content: Text(error.message)),
       );
     }
-  }
-
-  Future<void> _showTransactionLabelSheet(
-    BuildContext context,
-    FakeMayaTransaction transaction,
-  ) async {
-    final state = AppScope.of(context);
-    final rule = state.transactionLabelRules[transaction.patternKey];
-    if (rule != null && !transaction.isLabeled) {
-      final useRule = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: _surface,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: Text(
-            'Similar transaction',
-            style: GoogleFonts.fredoka(
-              color: _title,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                  'A similar transaction happened before. Is this the same?'),
-              const SizedBox(height: 10),
-              _TransactionDetailLine(label: 'Category', value: rule.category),
-              _TransactionDetailLine(
-                label: transaction.automaticDestination == null
-                    ? 'Source'
-                    : 'Destination',
-                value: transaction.automaticDestination ?? rule.source,
-              ),
-              if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
-                _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
-              if (rule.tag != null && rule.tag!.isNotEmpty)
-                _TransactionDetailLine(label: 'Tag', value: rule.tag!),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No, I\'ll edit'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _brand),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Yes, same'),
-            ),
-          ],
-        ),
-      );
-      if (useRule == true && context.mounted) {
-        await state.labelFakeMayaTransaction(
-          transactionId: transaction.transactionId,
-          category: rule.category,
-          source: transaction.automaticDestination ?? rule.source,
-          subcategory: rule.subcategory,
-          tag: rule.tag,
-          note: rule.note,
-        );
-        return;
-      }
-      if (!context.mounted) return;
-    }
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _TransactionLabelSheet(transaction: transaction),
-    );
   }
 }

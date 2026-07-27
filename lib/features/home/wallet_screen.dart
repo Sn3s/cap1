@@ -10,28 +10,48 @@ class WalletPage extends StatefulWidget {
 }
 
 class _WalletPageState extends State<WalletPage> {
-  // 0=Pyramid, 1=Goals, 2=Spending
+  // 0=Accounts, 1=Goals, 2=Spending
   int _secondaryTab = 0;
   int _spendPeriod = 1;
   String _filter = 'All';
   String? _expandedAccount;
+  bool _autoRefreshingFakeMaya = false;
 
-  static const _secondaryTabs = ['Pyramid', 'Goals', 'Spending'];
+  static const _secondaryTabs = ['Accounts', 'Goals', 'Spending'];
+
+  Future<void> _refreshFakeMaya() async {
+    if (_autoRefreshingFakeMaya) return;
+    setState(() => _autoRefreshingFakeMaya = true);
+    try {
+      await AppScope.of(context).refreshFakeMayaAccount();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya wallet refreshed.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _autoRefreshingFakeMaya = false);
+      }
+    }
+  }
 
   void _handleAccountTap(_WealthAccount? account, String filterToken) {
     setState(() {
       _filter = filterToken;
-      if (account != null &&
-          (account.name == 'Wallet' || account.name == 'Savings')) {
+      if (account == null) {
+        _expandedAccount = null;
+      } else if (account.name == 'Wallet' || account.name == 'Savings') {
         _expandedAccount =
             _expandedAccount == account.name ? null : account.name;
+      } else {
+        _expandedAccount = null;
       }
     });
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => RecentActivityPage(initialFilter: filterToken),
-      ),
-    );
   }
 
   @override
@@ -40,12 +60,24 @@ class _WalletPageState extends State<WalletPage> {
     final accounts = _buildWealthAccounts(state);
 
     final allTransactions = state.allTransactions.map(_txFromFakeMaya).toList();
+    allTransactions.sort((a, b) {
+      final aTime = a.occurredAt;
+      final bTime = b.occurredAt;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
 
     final now = DateTime.now();
-    final monthTransactions = allTransactions.where((t) =>
-        t.occurredAt != null &&
-        t.occurredAt!.year == now.year &&
-        t.occurredAt!.month == now.month);
+    final monthTransactions = allTransactions.where((t) {
+      final occurredAt = t.occurredAt;
+      return occurredAt != null &&
+          occurredAt.year == now.year &&
+          occurredAt.month == now.month &&
+          t.transaction?.isInternalFakeMayaTransfer != true &&
+          t.transaction?.excludedFromInsights != true;
+    });
     final moneyIn = monthTransactions
         .where((t) => t.amount > 0)
         .fold(0.0, (s, t) => s + t.amount);
@@ -57,6 +89,43 @@ class _WalletPageState extends State<WalletPage> {
       padding: const EdgeInsets.only(bottom: 96),
       children: [
         const PageHeader(eyebrow: 'WALLET', title: 'My Money'),
+        if (state.hasFakeMayaLink) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Synced with ${state.fakeMayaLink!.email}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _autoRefreshingFakeMaya ? null : _refreshFakeMaya,
+                  tooltip: 'Refresh FakeMaya',
+                  icon: _autoRefreshingFakeMaya
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync_rounded, size: 20),
+                  color: _brand,
+                  style: IconButton.styleFrom(
+                    backgroundColor: _brand.withValues(alpha: .10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         _WalletAccountSwitcher(
           accounts: accounts,
@@ -99,36 +168,21 @@ class _WalletPageState extends State<WalletPage> {
           ),
         ),
         const SizedBox(height: 10),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const RecentActivityPage(initialFilter: 'All'),
-                ),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: _brand,
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                minimumSize: Size.zero,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 4,
-                ),
-              ),
-              icon: const Text('See Recent Activity',
-                  style:
-                      TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
-              label: const Icon(Icons.arrow_forward_rounded, size: 14),
-              iconAlignment: IconAlignment.end,
+        _WalletRecentActivityPreview(
+          transactions: allTransactions,
+          filter: _filter,
+          linked: state.hasFakeMayaLink,
+          onTransactionTap: (transaction) => _showWalletTransactionLabelSheet(
+            context,
+            transaction,
+          ),
+          onMore: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => RecentActivityPage(initialFilter: _filter),
             ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 18),
         const _WalletSectionDivider(label: 'BREAKDOWN'),
         const SizedBox(height: 12),
         _InsightsFilterBar(
@@ -247,6 +301,222 @@ String _dateLabel(DateTime? date) {
   final year = date.year == DateTime.now().year ? '' : ', ${date.year}';
   return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} '
       '${date.day}$year';
+}
+
+Future<void> _showWalletTransactionLabelSheet(
+  BuildContext context,
+  FakeMayaTransaction transaction,
+) async {
+  final state = AppScope.of(context);
+  final rule = state.transactionLabelRules[transaction.patternKey];
+  if (rule != null && !transaction.isLabeled) {
+    final useRule = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Similar transaction',
+          style: GoogleFonts.fredoka(
+            color: _title,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+                'A similar transaction happened before. Is this the same?'),
+            const SizedBox(height: 10),
+            _TransactionDetailLine(label: 'Category', value: rule.category),
+            _TransactionDetailLine(
+              label: transaction.automaticDestination == null
+                  ? 'Source'
+                  : 'Destination',
+              value: transaction.automaticDestination ?? rule.source,
+            ),
+            if (rule.subcategory != null && rule.subcategory!.isNotEmpty)
+              _TransactionDetailLine(label: 'Sub', value: rule.subcategory!),
+            if (rule.tag != null && rule.tag!.isNotEmpty)
+              _TransactionDetailLine(label: 'Tag', value: rule.tag!),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No, I\'ll edit'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _brand),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes, same'),
+          ),
+        ],
+      ),
+    );
+    if (useRule == true && context.mounted) {
+      await state.labelFakeMayaTransaction(
+        transactionId: transaction.transactionId,
+        category: rule.category,
+        source: transaction.automaticDestination ?? rule.source,
+        subcategory: rule.subcategory,
+        tag: rule.tag,
+        note: rule.note,
+      );
+      return;
+    }
+    if (!context.mounted) return;
+  }
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _TransactionLabelSheet(transaction: transaction),
+  );
+}
+
+class _WalletRecentActivityPreview extends StatelessWidget {
+  const _WalletRecentActivityPreview({
+    required this.transactions,
+    required this.filter,
+    required this.linked,
+    required this.onTransactionTap,
+    required this.onMore,
+  });
+
+  final List<_TxData> transactions;
+  final String filter;
+  final bool linked;
+  final ValueChanged<FakeMayaTransaction> onTransactionTap;
+  final VoidCallback onMore;
+
+  static const _previewLimit = 5;
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = transactions
+        .where((transaction) => transaction.matchesFilter(filter))
+        .toList();
+    final preview = filtered.take(_previewLimit).toList();
+    final hasMore = filtered.length > _previewLimit;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: AppCard(
+        padding: EdgeInsets.zero,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Recent Activity',
+                          style: TextStyle(
+                            color: _title,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          filter == 'All'
+                              ? 'Latest money movement'
+                              : 'Latest $filter movement',
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: onMore,
+                    style: TextButton.styleFrom(
+                      foregroundColor: _brand,
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: Text(
+                      hasMore ? 'More' : 'See all',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    label: const Icon(Icons.arrow_forward_rounded, size: 14),
+                    iconAlignment: IconAlignment.end,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: _border),
+            if (preview.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.receipt_long_rounded,
+                      color: _purple,
+                      size: 30,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      linked
+                          ? 'No matching FakeMaya activity yet.'
+                          : 'No activity yet.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: _title,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      linked
+                          ? 'Make a movement in FakeMaya, then refresh.'
+                          : 'Log a transaction or link FakeMaya for synced activity.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...preview.asMap().entries.map((entry) {
+                final tx = entry.value;
+                final isLast = entry.key == preview.length - 1;
+                return Column(
+                  children: [
+                    _ActivityRow(
+                      data: tx,
+                      onTap: tx.transaction == null
+                          ? null
+                          : () => onTransactionTap(tx.transaction!),
+                    ),
+                    if (!isLast)
+                      const Divider(height: 1, color: _border, indent: 70),
+                  ],
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Account switcher (new) ────────────────────────────────────────────────────

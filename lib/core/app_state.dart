@@ -82,11 +82,13 @@ class AppState extends ChangeNotifier {
   final List<int> notificationReminderMinutes = [20 * 60];
   bool thirdPartyDataLinkingAllowed = false;
   bool automaticDataGatheringAllowed = false;
+
   /// Granted the moment a user links FakeMaya — the blanket permission to
   /// auto-create matching personal-goal buckets in their Maya account as
   /// they add goals in Shellby. Individual bucket creations are still
   /// reconfirmed per motivation (see [confirmedFakeMayaBucketMotivations]).
   bool fakeMayaBucketCreationAllowed = false;
+
   /// Motivations the user has already agreed to create a FakeMaya bucket
   /// for, so we don't re-ask every time the same goal/motivation is
   /// revisited. Populated by `ensureFakeMayaBucketForMotivation`.
@@ -201,6 +203,8 @@ class AppState extends ChangeNotifier {
         ...manualTransactions,
         if (fakeMayaSyncedAccounts.contains('Wallet'))
           ...?fakeMayaLink?.summary.transactions,
+        if (fakeMayaLink?.summary.creditBillTransaction != null)
+          fakeMayaLink!.summary.creditBillTransaction!,
       ];
 
   double accountBalance(String account) {
@@ -3055,6 +3059,46 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  List<FakeMayaTransaction> _mergeFakeMayaTransactionLabels({
+    required Iterable<FakeMayaTransaction> savedTransactions,
+    required Iterable<FakeMayaTransaction> freshTransactions,
+  }) {
+    final savedById = {
+      for (final transaction in savedTransactions)
+        if (transaction.isLabeled) transaction.transactionId: transaction,
+    };
+    final savedByStableKey = <String, List<FakeMayaTransaction>>{};
+    for (final transaction in savedTransactions) {
+      if (!transaction.isLabeled) continue;
+      final key = _fakeMayaTransactionStableKey(transaction);
+      savedByStableKey.putIfAbsent(key, () => []).add(transaction);
+    }
+    return freshTransactions.map((transaction) {
+      final savedByExactId = savedById[transaction.transactionId];
+      if (savedByExactId != null) {
+        return transaction.withLabelFrom(savedByExactId);
+      }
+      final stableKey = _fakeMayaTransactionStableKey(transaction);
+      final savedMatches = savedByStableKey[stableKey];
+      if (savedMatches == null || savedMatches.isEmpty) return transaction;
+      return transaction.withLabelFrom(savedMatches.removeAt(0));
+    }).toList();
+  }
+
+  String _fakeMayaTransactionStableKey(FakeMayaTransaction transaction) {
+    String clean(String value) {
+      return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    }
+
+    return [
+      clean(transaction.title),
+      clean(transaction.detail),
+      clean(transaction.amountText),
+      transaction.createdAt?.toUtc().toIso8601String() ?? '',
+      clean(transaction.account ?? ''),
+    ].join('|');
+  }
+
   Future<void> _moveFakeMayaWalletTo(
     double amount,
     FakeMayaGoalAccount account, {
@@ -3070,16 +3114,10 @@ class AppState extends ChangeNotifier {
         personalGoalId: personalGoalId,
       ),
     );
-    final savedById = {
-      for (final transaction in link.summary.transactions)
-        transaction.transactionId: transaction,
-    };
-    final transactions = session.summary.transactions.map((transaction) {
-      final saved = savedById[transaction.transactionId];
-      return saved != null && saved.isLabeled
-          ? transaction.withLabelFrom(saved)
-          : transaction;
-    }).toList();
+    final transactions = _mergeFakeMayaTransactionLabels(
+      savedTransactions: link.summary.transactions,
+      freshTransactions: session.summary.transactions,
+    );
     fakeMayaLink = FakeMayaLink.fromSession(FakeMayaSession(
       userId: session.userId,
       email: session.email,
@@ -3475,13 +3513,10 @@ class AppState extends ChangeNotifier {
           account: FakeMayaGoalAccount.savings,
         ),
       );
-      final savedById = {
-        for (final t in link.summary.transactions) t.transactionId: t,
-      };
-      final merged = session.summary.transactions.map((t) {
-        final saved = savedById[t.transactionId];
-        return (saved != null && saved.isLabeled) ? t.withLabelFrom(saved) : t;
-      }).toList();
+      final merged = _mergeFakeMayaTransactionLabels(
+        savedTransactions: link.summary.transactions,
+        freshTransactions: session.summary.transactions,
+      );
       fakeMayaLink = FakeMayaLink.fromSession(FakeMayaSession(
         userId: session.userId,
         email: session.email,
@@ -3992,17 +4027,10 @@ class AppState extends ChangeNotifier {
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.refreshSession(link),
     );
-    final savedById = {
-      for (final transaction in link.summary.transactions)
-        transaction.transactionId: transaction,
-    };
-    final mergedTransactions = session.summary.transactions.map((transaction) {
-      final saved = savedById[transaction.transactionId];
-      if (saved != null && saved.isLabeled) {
-        return transaction.withLabelFrom(saved);
-      }
-      return transaction;
-    }).toList();
+    final mergedTransactions = _mergeFakeMayaTransactionLabels(
+      savedTransactions: link.summary.transactions,
+      freshTransactions: session.summary.transactions,
+    );
     fakeMayaLink = FakeMayaLink(
       userId: session.userId,
       email: session.email,
@@ -4020,6 +4048,45 @@ class AppState extends ChangeNotifier {
     // time the session refreshes successfully, with no manual action
     // needed from the user.
     await reconcileFakeMayaBuckets();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> refreshFakeMayaAssetPrices() async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    if (!link.canRefresh) {
+      throw const FakeMayaException(
+        'Unavailable to refresh assets. Please relink FakeMaya first.',
+      );
+    }
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.refreshSession(link),
+    );
+    final prices = await FakeMayaService.loadLiveInvestmentPrices();
+    final updatedHoldings = session.summary.investmentHoldings.map((holding) {
+      final price = prices[holding.symbol.toUpperCase()];
+      return price == null ? holding : holding.copyWith(price: price);
+    }).toList();
+    final mergedTransactions = _mergeFakeMayaTransactionLabels(
+      savedTransactions: link.summary.transactions,
+      freshTransactions: session.summary.transactions,
+    );
+    fakeMayaLink = FakeMayaLink(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: session.summary.copyWith(
+        investmentHoldings: updatedHoldings,
+        transactions: mergedTransactions,
+      ),
+    );
+    _syncFakeMayaMoneyItems();
     await saveProfile();
     notifyListeners();
   }
@@ -4181,6 +4248,13 @@ class AppState extends ChangeNotifier {
           .toMoneyItems()
           .where((item) => fakeMayaSyncedAccounts.contains(item.name)),
     );
+    assets.addAll(
+      link.summary.investmentHoldings.map((holding) => holding.toMoneyItem()),
+    );
+    final creditLiability = link.summary.creditLiability;
+    if (creditLiability != null) {
+      liabilities.add(creditLiability);
+    }
     savings = accountBalance('Savings') +
         accountBalance('Time Deposit') +
         accountBalance('Goal Savings');
@@ -4188,6 +4262,7 @@ class AppState extends ChangeNotifier {
 
   void _removeFakeMayaMoneyItems() {
     assets.removeWhere((item) => item.description.contains('FakeMaya'));
+    liabilities.removeWhere((item) => item.description.contains('FakeMaya'));
   }
 }
 
@@ -4485,26 +4560,56 @@ enum ExpenseLayer {
 
 extension ExpenseLayerDetails on ExpenseLayer {
   String get label => switch (this) {
-        ExpenseLayer.basicNeeds => 'Basic Needs',
-        ExpenseLayer.emergencyInsurance => 'Emergency / Insurance',
-        ExpenseLayer.debtInvestments => 'Debt / Investments',
-        ExpenseLayer.nonEssentials => 'Non-Essentials',
+        ExpenseLayer.basicNeeds => 'Cash Flow & Basic Needs',
+        ExpenseLayer.emergencyInsurance => 'Emergency Fund / Insurance',
+        ExpenseLayer.debtInvestments => 'Assets / Liabilities',
+        ExpenseLayer.nonEssentials => 'Financial Freedom expenses',
       };
 
   String get examples => switch (this) {
-        ExpenseLayer.basicNeeds => 'Electricity, water, rent, food, transport',
+        ExpenseLayer.basicNeeds =>
+          'Income, electricity, water, rent, food, transport',
         ExpenseLayer.emergencyInsurance =>
-          'Insurance premiums, hospital and medical bills',
+          'Emergency fund contributions, insurance premiums, medical bills',
         ExpenseLayer.debtInvestments =>
-          'Credit card, loan payments, investment contributions',
+          'Assets, investments, credit card balances, loan payments',
         ExpenseLayer.nonEssentials =>
-          'Subscriptions, memberships, entertainment',
+          'Freedom-related travel, memberships, hobbies, optional lifestyle',
       };
 }
 
 ExpenseLayer? expenseLayerFromValue(Object? value) {
-  final name = value?.toString();
-  return ExpenseLayer.values.where((layer) => layer.name == name).firstOrNull;
+  final name = value?.toString().trim();
+  if (name == null || name.isEmpty) return null;
+  final byEnumName =
+      ExpenseLayer.values.where((layer) => layer.name == name).firstOrNull;
+  if (byEnumName != null) return byEnumName;
+  final normalized = name.toLowerCase();
+  if (normalized.contains('cash') ||
+      normalized.contains('basic') ||
+      normalized == 'income' ||
+      normalized == 'expenses') {
+    return ExpenseLayer.basicNeeds;
+  }
+  if (normalized.contains('emergency') ||
+      normalized.contains('insurance') ||
+      normalized.contains('safety')) {
+    return ExpenseLayer.emergencyInsurance;
+  }
+  if (normalized.contains('asset') ||
+      normalized.contains('liabil') ||
+      normalized.contains('debt') ||
+      normalized.contains('investment') ||
+      normalized.contains('wealth')) {
+    return ExpenseLayer.debtInvestments;
+  }
+  if (normalized.contains('freedom') ||
+      normalized.contains('non-essential') ||
+      normalized.contains('nonessential') ||
+      normalized.contains('lifestyle')) {
+    return ExpenseLayer.nonEssentials;
+  }
+  return null;
 }
 
 ExpenseLayer expenseLayerForLedger(Map<String, dynamic> expense) {

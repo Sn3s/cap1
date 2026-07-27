@@ -308,8 +308,36 @@ String _homeInsightGlimpse(AppState state) {
   return 'Every transaction you log helps me find smarter ways to help you save. Small steps add up fast!';
 }
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  bool _refreshingFakeMaya = false;
+
+  Future<void> _refreshFakeMaya() async {
+    if (_refreshingFakeMaya) return;
+    setState(() => _refreshingFakeMaya = true);
+    try {
+      await AppScope.of(context).refreshFakeMayaAssetPrices();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya asset prices refreshed.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _refreshingFakeMaya = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -477,28 +505,50 @@ class DashboardPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              Text(
-                'Income & Expenses',
-                style: GoogleFonts.fredoka(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: _title,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Pyramid',
+                      style: GoogleFonts.fredoka(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: _title,
+                      ),
+                    ),
+                  ),
+                  if (state.hasFakeMayaLink)
+                    IconButton(
+                      onPressed: _refreshingFakeMaya ? null : _refreshFakeMaya,
+                      tooltip: 'Refresh FakeMaya assets',
+                      icon: _refreshingFakeMaya
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync_rounded, size: 20),
+                      color: _brand,
+                      style: IconButton.styleFrom(
+                        backgroundColor: _brand.withValues(alpha: .10),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
               _PyramidCard(
                 icon: Icons.home_filled,
                 color: _brand,
-                title: 'Basic Needs',
+                title: _pyramidCashFlowLayer,
                 onTap: () => _openBaselineLedgerPage(
                   context,
                   state,
-                  'Basic Needs',
+                  _pyramidCashFlowLayer,
                   _brand,
                 ),
                 child: _PyramidTransactionListContent(
                   state: state,
-                  layer: 'Basic Needs',
+                  layer: _pyramidCashFlowLayer,
                   color: _brand,
                 ),
               ),
@@ -506,16 +556,16 @@ class DashboardPage extends StatelessWidget {
               _PyramidCard(
                 icon: Icons.shield_rounded,
                 color: _amber,
-                title: 'Emergency / Insurance',
+                title: _pyramidEmergencyLayer,
                 onTap: () => _openBaselineLedgerPage(
                   context,
                   state,
-                  'Emergency / Insurance',
+                  _pyramidEmergencyLayer,
                   _amber,
                 ),
                 child: _PyramidTransactionListContent(
                   state: state,
-                  layer: 'Emergency / Insurance',
+                  layer: _pyramidEmergencyLayer,
                   color: _amber,
                 ),
               ),
@@ -523,16 +573,16 @@ class DashboardPage extends StatelessWidget {
               _PyramidCard(
                 icon: Icons.trending_up_rounded,
                 color: _purple,
-                title: 'Debt / Investments',
+                title: _pyramidWealthLayer,
                 onTap: () => _openBaselineLedgerPage(
                   context,
                   state,
-                  'Debt / Investments',
+                  _pyramidWealthLayer,
                   _purple,
                 ),
                 child: _PyramidTransactionListContent(
                   state: state,
-                  layer: 'Debt / Investments',
+                  layer: _pyramidWealthLayer,
                   color: _purple,
                 ),
               ),
@@ -540,16 +590,16 @@ class DashboardPage extends StatelessWidget {
               _PyramidCard(
                 icon: Icons.flag_rounded,
                 color: const Color(0xFF6AA8F0),
-                title: 'Non-Essentials',
+                title: _pyramidFreedomLayer,
                 onTap: () => _openBaselineLedgerPage(
                   context,
                   state,
-                  'Non-Essentials',
+                  _pyramidFreedomLayer,
                   const Color(0xFF6AA8F0),
                 ),
                 child: _PyramidTransactionListContent(
                   state: state,
-                  layer: 'Non-Essentials',
+                  layer: _pyramidFreedomLayer,
                   color: const Color(0xFF6AA8F0),
                 ),
               ),
@@ -836,6 +886,11 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
 
 // ─── Pyramid widgets ───────────────────────────────────────────────────────────
 
+const _pyramidCashFlowLayer = 'Cash Flow & Basic Needs';
+const _pyramidEmergencyLayer = 'Emergency Fund';
+const _pyramidWealthLayer = 'Accumulating Wealth';
+const _pyramidFreedomLayer = 'Financial Freedom';
+
 class _PyramidCard extends StatelessWidget {
   const _PyramidCard({
     required this.icon,
@@ -916,11 +971,20 @@ class _PyramidTransactionListContent extends StatelessWidget {
         income.fold<double>(0, (total, entry) => total + entry.amount);
     final expenseTotal =
         expenses.fold<double>(0, (total, entry) => total + entry.amount);
+    final labels = _pyramidSummaryLabelsForLayer(layer);
+    if (!_pyramidLayerAllowsIncome(layer)) {
+      return _PyramidSummaryTile(
+        label: labels.$2,
+        count: expenses.length,
+        total: expenseTotal,
+        color: color,
+      );
+    }
     return Row(
       children: [
         Expanded(
           child: _PyramidSummaryTile(
-            label: 'Income',
+            label: labels.$1,
             count: income.length,
             total: incomeTotal,
             color: _sage,
@@ -929,7 +993,7 @@ class _PyramidTransactionListContent extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _PyramidSummaryTile(
-            label: 'Expenses',
+            label: labels.$2,
             count: expenses.length,
             total: expenseTotal,
             color: color,
@@ -939,6 +1003,17 @@ class _PyramidTransactionListContent extends StatelessWidget {
     );
   }
 }
+
+(String, String) _pyramidSummaryLabelsForLayer(String layer) {
+  return switch (layer) {
+    _pyramidEmergencyLayer => ('Emergency fund', 'Insurance payments'),
+    _pyramidWealthLayer => ('Assets', 'Liabilities'),
+    _pyramidFreedomLayer => ('', 'Freedom expenses'),
+    _ => ('Income', 'Expenses'),
+  };
+}
+
+bool _pyramidLayerAllowsIncome(String layer) => layer != _pyramidFreedomLayer;
 
 /// Shows the FakeMaya bucket tied to this pyramid layer and its current
 /// balance — 0 until a transaction or goal action has actually moved money
@@ -1137,24 +1212,25 @@ class _PyramidLedgerSection extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: 'Edit',
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.edit_rounded, size: 18),
-                        onPressed: () => onEdit(entry),
-                      ),
-                      IconButton(
-                        tooltip: 'Delete',
-                        visualDensity: VisualDensity.compact,
-                        icon: const Icon(Icons.delete_outline_rounded,
-                            size: 18, color: _red),
-                        onPressed: () => onDelete(entry),
-                      ),
-                    ],
-                  ),
+                  if (entry.editable)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Edit',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.edit_rounded, size: 18),
+                          onPressed: () => onEdit(entry),
+                        ),
+                        IconButton(
+                          tooltip: 'Delete',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.delete_outline_rounded,
+                              size: 18, color: _red),
+                          onPressed: () => onDelete(entry),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ],
@@ -1180,14 +1256,15 @@ class _PyramidBaselineLedgerPage extends StatefulWidget {
 class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     with SingleTickerProviderStateMixin {
   static const layers = [
-    'Basic Needs',
-    'Emergency / Insurance',
-    'Debt / Investments',
-    'Non-Essentials',
+    _pyramidCashFlowLayer,
+    _pyramidEmergencyLayer,
+    _pyramidWealthLayer,
+    _pyramidFreedomLayer,
   ];
 
   late final TabController _layerController;
   int mode = 1;
+  bool _refreshingAssets = false;
 
   @override
   void initState() {
@@ -1198,7 +1275,11 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
       vsync: this,
       initialIndex: initial < 0 ? 0 : initial,
     )..addListener(() {
-        if (!_layerController.indexIsChanging) setState(() {});
+        if (!_layerController.indexIsChanging) {
+          setState(() {
+            if (!_pyramidLayerAllowsIncome(currentLayer)) mode = 1;
+          });
+        }
       });
   }
 
@@ -1210,13 +1291,37 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
 
   String get currentLayer => layers[_layerController.index];
 
+  Future<void> _refreshFakeMayaAssets() async {
+    if (_refreshingAssets) return;
+    setState(() => _refreshingAssets = true);
+    try {
+      await AppScope.of(context).refreshFakeMayaAssetPrices();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('FakeMaya asset prices refreshed.')),
+      );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _refreshingAssets = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final entries = _onboardingEntriesForLayer(state, currentLayer);
     final income = entries.where((entry) => entry.isIncome).toList();
     final expenses = entries.where((entry) => !entry.isIncome).toList();
-    final shown = mode == 0 ? income : expenses;
+    final allowsIncome = _pyramidLayerAllowsIncome(currentLayer);
+    final shown = mode == 0 && allowsIncome ? income : expenses;
+    final showingWealthAssets =
+        currentLayer == _pyramidWealthLayer && mode == 0 && allowsIncome;
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
@@ -1224,7 +1329,7 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
         foregroundColor: _title,
         elevation: 0,
         title: const Text(
-          'Income & Expenses',
+          'Pyramid',
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
         bottom: TabBar(
@@ -1234,10 +1339,10 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
           unselectedLabelColor: _body,
           indicatorColor: _brand,
           tabs: const [
-            Tab(text: 'Basic Needs'),
-            Tab(text: 'Emergency / Insurance'),
-            Tab(text: 'Debt / Investments'),
-            Tab(text: 'Non-Essentials'),
+            Tab(text: _pyramidCashFlowLayer),
+            Tab(text: _pyramidEmergencyLayer),
+            Tab(text: _pyramidWealthLayer),
+            Tab(text: _pyramidFreedomLayer),
           ],
         ),
       ),
@@ -1245,8 +1350,8 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
         backgroundColor: _brand,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add_rounded),
-        label: Text(mode == 0 ? 'Add income' : 'Add expense'),
-        onPressed: () => mode == 0
+        label: Text(mode == 0 && allowsIncome ? 'Add income' : 'Add expense'),
+        onPressed: () => mode == 0 && allowsIncome
             ? _editIncome(context, state, currentLayer)
             : _editExpense(context, state, currentLayer),
       ),
@@ -1256,16 +1361,18 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
             child: Row(
               children: [
+                if (allowsIncome) ...[
+                  _LedgerModeButton(
+                    label: _pyramidSummaryLabelsForLayer(currentLayer).$1,
+                    selected: mode == 0,
+                    color: _sage,
+                    onTap: () => setState(() => mode = 0),
+                  ),
+                  const SizedBox(width: 10),
+                ],
                 _LedgerModeButton(
-                  label: 'Income',
-                  selected: mode == 0,
-                  color: _sage,
-                  onTap: () => setState(() => mode = 0),
-                ),
-                const SizedBox(width: 10),
-                _LedgerModeButton(
-                  label: 'Expenses',
-                  selected: mode == 1,
+                  label: _pyramidSummaryLabelsForLayer(currentLayer).$2,
+                  selected: mode == 1 || !allowsIncome,
                   color: _brand,
                   onTap: () => setState(() => mode = 1),
                 ),
@@ -1273,12 +1380,42 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
             ),
           ),
           _LedgerTotalsStrip(income: income, expenses: expenses),
+          if (showingWealthAssets && state.hasFakeMayaLink)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'FakeMaya asset values update only when refreshed.',
+                      style: TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed:
+                        _refreshingAssets ? null : _refreshFakeMayaAssets,
+                    icon: _refreshingAssets
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync_rounded, size: 17),
+                    label: const Text('Refresh assets'),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: _PyramidLedgerSection(
               entries: shown,
-              emptyText: mode == 0
-                  ? 'No saved income in this type yet.'
-                  : 'No saved expenses in this type yet.',
+              emptyText: mode == 0 && allowsIncome
+                  ? 'No saved ${_pyramidSummaryLabelsForLayer(currentLayer).$1.toLowerCase()} in this layer yet.'
+                  : 'No saved ${_pyramidSummaryLabelsForLayer(currentLayer).$2.toLowerCase()} in this layer yet.',
               onEdit: (entry) => entry.isIncome
                   ? _editIncome(context, state, currentLayer, entry)
                   : _editExpense(context, state, currentLayer, entry),
@@ -1719,9 +1856,11 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
 
 ExpenseLayer? _expenseLayerForType(String layer) {
   return switch (layer) {
-    'Emergency / Insurance' => ExpenseLayer.emergencyInsurance,
-    'Debt / Investments' => ExpenseLayer.debtInvestments,
-    'Non-Essentials' => ExpenseLayer.nonEssentials,
+    _pyramidEmergencyLayer ||
+    'Emergency / Insurance' =>
+      ExpenseLayer.emergencyInsurance,
+    _pyramidWealthLayer || 'Debt / Investments' => ExpenseLayer.debtInvestments,
+    _pyramidFreedomLayer || 'Non-Essentials' => ExpenseLayer.nonEssentials,
     _ => ExpenseLayer.basicNeeds,
   };
 }
@@ -1736,6 +1875,7 @@ class _PyramidBaselineEntry {
     required this.layer,
     required this.detail,
     required this.icon,
+    this.editable = true,
   });
 
   final int index;
@@ -1746,6 +1886,7 @@ class _PyramidBaselineEntry {
   final String layer;
   final String detail;
   final IconData icon;
+  final bool editable;
 }
 
 List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
@@ -1769,12 +1910,61 @@ List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
         index < state.onboardingExpenseLedger.length ? index : -1,
         expenseLedger[index],
       ),
+    if (layer == _pyramidWealthLayer) ...[
+      ..._pyramidAssetEntries(state),
+      ..._pyramidLiabilityEntries(state),
+    ],
   ].where((entry) => entry.amount > 0 && entry.layer == layer).toList()
     ..sort((a, b) {
       if (a.isIncome != b.isIncome) return a.isIncome ? -1 : 1;
       return b.amount.compareTo(a.amount);
     });
   return entries;
+}
+
+List<_PyramidBaselineEntry> _pyramidAssetEntries(AppState state) {
+  return [
+    for (final asset in state.assets)
+      if (!_isCashLikeFakeMayaAsset(asset))
+        _PyramidBaselineEntry(
+          index: -1,
+          data: const {},
+          name: asset.name,
+          amount: asset.value,
+          isIncome: true,
+          layer: _pyramidWealthLayer,
+          detail: asset.description,
+          icon: Icons.trending_up_rounded,
+          editable: false,
+        ),
+  ];
+}
+
+List<_PyramidBaselineEntry> _pyramidLiabilityEntries(AppState state) {
+  return [
+    for (final liability in state.liabilities)
+      _PyramidBaselineEntry(
+        index: -1,
+        data: const {},
+        name: liability.name,
+        amount: liability.value,
+        isIncome: false,
+        layer: _pyramidWealthLayer,
+        detail: liability.description,
+        icon: Icons.account_balance_rounded,
+        editable: false,
+      ),
+  ];
+}
+
+bool _isCashLikeFakeMayaAsset(MoneyItem item) {
+  if (!item.description.contains('FakeMaya')) return false;
+  return const {
+    'Wallet',
+    'Savings',
+    'Time Deposit',
+    'Goal Savings',
+  }.contains(item.name);
 }
 
 List<Map<String, dynamic>> _fallbackIncomeLedger(AppState state) {
@@ -1786,7 +1976,7 @@ List<Map<String, dynamic>> _fallbackIncomeLedger(AppState state) {
       'stable': state.monthlySalary > 0 && state.irregularIncomeFloor <= 0,
       'scheduled': false,
       'payDay': null,
-      'layer': 'Basic Needs',
+      'layer': _pyramidCashFlowLayer,
     },
   ];
 }
@@ -1867,7 +2057,7 @@ _PyramidBaselineEntry _incomeBaselineEntry(
     amount: _baselineAmount(data['amount']),
     isIncome: true,
     layer: _layerFromBaselineTag(data['layer'] ?? data['incomeType']) ??
-        'Basic Needs',
+        _pyramidCashFlowLayer,
     detail: tags.join(' · '),
     icon: Icons.payments_rounded,
   );
@@ -1909,10 +2099,10 @@ _PyramidBaselineEntry _expenseBaselineEntry(
 
 String _pyramidLayerForExpenseLayer(ExpenseLayer? layer) {
   return switch (layer) {
-    ExpenseLayer.emergencyInsurance => 'Emergency / Insurance',
-    ExpenseLayer.debtInvestments => 'Debt / Investments',
-    ExpenseLayer.nonEssentials => 'Non-Essentials',
-    _ => 'Basic Needs',
+    ExpenseLayer.emergencyInsurance => _pyramidEmergencyLayer,
+    ExpenseLayer.debtInvestments => _pyramidWealthLayer,
+    ExpenseLayer.nonEssentials => _pyramidFreedomLayer,
+    _ => _pyramidCashFlowLayer,
   };
 }
 
@@ -1920,20 +2110,24 @@ String? _layerFromBaselineTag(Object? value) {
   final tag = value?.toString().trim().toLowerCase() ?? '';
   if (tag.isEmpty) return null;
   if (tag.contains('cash') || tag.contains('basic')) {
-    return 'Basic Needs';
+    return _pyramidCashFlowLayer;
   }
-  if (tag.contains('emergency') || tag.contains('safety')) {
-    return 'Emergency / Insurance';
+  if (tag.contains('emergency') ||
+      tag.contains('insurance') ||
+      tag.contains('safety')) {
+    return _pyramidEmergencyLayer;
   }
-  if (tag.contains('investment') ||
+  if (tag.contains('asset') ||
+      tag.contains('liabil') ||
+      tag.contains('investment') ||
       tag.contains('debt') ||
       tag.contains('wealth')) {
-    return 'Debt / Investments';
+    return _pyramidWealthLayer;
   }
   if (tag.contains('freedom') ||
       tag.contains('nonessential') ||
       tag.contains('lifestyle')) {
-    return 'Non-Essentials';
+    return _pyramidFreedomLayer;
   }
   return null;
 }
@@ -2172,8 +2366,8 @@ bool isCashFlowGoalOnTrack(AppState state) {
 bool isEmergencyFundGoalOnTrack(AppState state) {
   final budget = state.safetyShieldMonthlyBase;
   if (budget <= 0) return false;
-  final current = state.safetyShieldBalance +
-      state.displayedEmergencyFundBalance;
+  final current =
+      state.safetyShieldBalance + state.displayedEmergencyFundBalance;
   return (current / budget) >= 3;
 }
 
@@ -2241,8 +2435,8 @@ int maintainAvailableCashFeasibility(AppState state) {
 double emergencyFundGoalPercent(AppState state) {
   final target = state.emergencyFundTarget;
   if (target <= 0) return 0;
-  final current = state.safetyShieldBalance +
-      state.displayedEmergencyFundBalance;
+  final current =
+      state.safetyShieldBalance + state.displayedEmergencyFundBalance;
   return _clampPercent((current / target) * 100);
 }
 
@@ -2527,8 +2721,8 @@ class _FinancialSafetyPyramidContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final budget = state.safetyShieldMonthlyBase;
-    final current = state.safetyShieldBalance +
-        state.displayedEmergencyFundBalance;
+    final current =
+        state.safetyShieldBalance + state.displayedEmergencyFundBalance;
     final max = budget * 6;
     final fill = max > 0 ? (current / max).clamp(0.0, 1.0) : 0.0;
     final months = budget > 0 ? current / budget : 0.0;
@@ -4949,13 +5143,14 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final targetPct = configuredNumber('pct', recommended) / 100;
-    final allocated = _monthLedgerAmount(state, monthStart, 'emergency_deposit');
+    final allocated =
+        _monthLedgerAmount(state, monthStart, 'emergency_deposit');
     final targetAmount = income * targetPct;
     final pattern = weeks
         .map((week) => week.weekIncome <= 0
             ? 0.0
-            : (_ledgerAmountInRange(
-                        state, week.start, week.end, const {'emergency_deposit'}) /
+            : (_ledgerAmountInRange(state, week.start, week.end,
+                        const {'emergency_deposit'}) /
                     (week.weekIncome * targetPct))
                 .clamp(0.0, 1.5))
         .toList();
@@ -4986,10 +5181,13 @@ _CashActionScore? _cashActionScoreFor({
                 .first);
     final minDeposit = configuredNumber('amt', recommended);
     const depositTypes = {'emergency_deposit', 'ef_replenish'};
-    final monthTotal = _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
-        _monthLedgerAmount(state, monthStart, 'ef_replenish');
+    final monthTotal =
+        _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
+            _monthLedgerAmount(state, monthStart, 'ef_replenish');
     final pattern = weeks.isEmpty
-        ? <double>[minDeposit <= 0 ? 0 : (monthTotal / minDeposit).clamp(0.0, 1.0)]
+        ? <double>[
+            minDeposit <= 0 ? 0 : (monthTotal / minDeposit).clamp(0.0, 1.0)
+          ]
         : weeks.map((week) {
             final weeklyTotal =
                 _ledgerAmountInRange(state, week.start, week.end, depositTypes);
@@ -5045,12 +5243,14 @@ _CashActionScore? _cashActionScoreFor({
     for (final withdrawal in withdrawals) {
       final withdrawDate = DateTime.parse(withdrawal['date'].toString());
       final amount = (withdrawal['amount'] as num?)?.toDouble() ?? 0;
-      final nextReplenish =
-          replenishDates.where((date) => date.isAfter(withdrawDate)).firstOrNull;
+      final nextReplenish = replenishDates
+          .where((date) => date.isAfter(withdrawDate))
+          .firstOrNull;
       final elapsed = (nextReplenish ?? now).difference(withdrawDate).inDays;
       elapsedDays.add(elapsed);
-      pattern.add(
-          targetDays <= 0 ? 0.0 : (targetDays / math.max(1, elapsed)).clamp(0.0, 1.0));
+      pattern.add(targetDays <= 0
+          ? 0.0
+          : (targetDays / math.max(1, elapsed)).clamp(0.0, 1.0));
       labels.add(_shortDate(withdrawDate));
       evidenceLines.add(nextReplenish == null
           ? '${_shortDate(withdrawDate)}: withdrew ${money(amount)}, not yet replenished ($elapsed days so far)'
@@ -5068,8 +5268,9 @@ _CashActionScore? _cashActionScoreFor({
           : '${withdrawals.length} withdrawal${withdrawals.length == 1 ? '' : 's'} checked against a ${targetDays.toStringAsFixed(0)}-day replenishment target.',
       pattern: pattern,
       weekLabels: labels,
-      actualLabel:
-          withdrawals.isEmpty ? 'No withdrawals' : '${avgDays.toStringAsFixed(1)}d avg',
+      actualLabel: withdrawals.isEmpty
+          ? 'No withdrawals'
+          : '${avgDays.toStringAsFixed(1)}d avg',
       targetLabel: '${targetDays.toStringAsFixed(0)}d',
       formula:
           'Resiliency = for each withdrawal this month, configured ${targetDays.toStringAsFixed(0)}-day target ÷ actual days to replenish, capped at 100%.',
@@ -5127,7 +5328,8 @@ double _ledgerAmountInRange(
     return date != null &&
         !date.isBefore(start) &&
         date.isBefore(end.add(const Duration(days: 1)));
-  }).fold(0.0, (sum, entry) => sum + ((entry['amount'] as num?)?.toDouble() ?? 0));
+  }).fold(
+      0.0, (sum, entry) => sum + ((entry['amount'] as num?)?.toDouble() ?? 0));
 }
 
 bool _isEssentialCashCategory(String? rawCategory) {
@@ -5812,8 +6014,8 @@ class _ActionMeasureCard extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.bolt_rounded,
-                        size: 13, color: _brand),
+                    child:
+                        const Icon(Icons.bolt_rounded, size: 13, color: _brand),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -10927,7 +11129,7 @@ class _PyramidBreakdownSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionHeader(label: 'PYRAMID', total: null),
+          const _SectionHeader(label: 'ACCOUNTS', total: null),
           const SizedBox(height: 12),
           ...List.generate(4, (i) {
             final layerNum = i + 1;
@@ -11158,8 +11360,7 @@ class _PyramidMayaBucketRow extends StatelessWidget {
     if (bucketId == null) return const SizedBox.shrink();
     final bucketTemplate = FakeMayaPersonalGoal.defaultForId(bucketId);
     final bucketBalance =
-        state.fakeMayaLink?.summary.personalGoalById(bucketId)?.balance ??
-            0.0;
+        state.fakeMayaLink?.summary.personalGoalById(bucketId)?.balance ?? 0.0;
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 8),
       child: _PyramidMayaBucketTile(

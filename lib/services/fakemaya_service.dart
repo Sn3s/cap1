@@ -111,6 +111,66 @@ class FakeMayaService {
     );
   }
 
+  static Future<Map<String, double>> loadLiveInvestmentPrices() async {
+    final uri = Uri.parse(
+      'https://api.coingecko.com/api/v3/simple/price',
+    ).replace(queryParameters: {
+      'ids': 'bitcoin,nvidia-xstock',
+      'vs_currencies': 'php',
+    });
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 10));
+      final response =
+          await request.close().timeout(const Duration(seconds: 10));
+      final payload = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == HttpStatus.tooManyRequests) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now. Market price tokens are limited, so try again later.',
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now.',
+        );
+      }
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final btc = FakeMayaAccountSummary._doubleFrom(
+          _mapFrom(data['bitcoin'])?['php'], 0);
+      final nvda = FakeMayaAccountSummary._doubleFrom(
+        _mapFrom(data['nvidia-xstock'])?['php'],
+        0,
+      );
+      if (btc <= 0 || nvda <= 0) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now.',
+        );
+      }
+      return {'BTC': btc, 'NVDA': nvda};
+    } on FakeMayaException {
+      rethrow;
+    } on SocketException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices. Check your connection.',
+      );
+    } on TimeoutException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices right now.',
+      );
+    } on FormatException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices right now.',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   static Future<FakeMayaAccountSummary> loadWalletSummary({
     required String userId,
     required String accessToken,
@@ -484,7 +544,7 @@ class FakeMayaService {
       goalTarget: essentialGoal.target,
       selectedGoalId: essentialGoal.id,
       personalGoals: const [],
-      creditLimit: 15000,
+      creditLimit: 5000,
       creditUsed: 0,
       transactions: [
         FakeMayaTransaction(
@@ -725,8 +785,10 @@ class FakeMayaAccountSummary {
     required this.goalTarget,
     this.selectedGoalId = FakeMayaPersonalGoal.essentialExpenseFundId,
     this.personalGoals = const [],
+    this.investmentHoldings = const [],
     required this.creditLimit,
     required this.creditUsed,
+    this.creditBillingDay,
     required this.transactions,
     required this.updatedAt,
   });
@@ -740,13 +802,68 @@ class FakeMayaAccountSummary {
   final double goalTarget;
   final String selectedGoalId;
   final List<FakeMayaPersonalGoal> personalGoals;
+  final List<FakeMayaInvestmentHolding> investmentHoldings;
   final double creditLimit;
   final double creditUsed;
+  final int? creditBillingDay;
   final List<FakeMayaTransaction> transactions;
   final DateTime? updatedAt;
 
   double get totalBalance => wallet + savings + timeDeposit + goalBalance;
+  double get investmentHoldingsValue => investmentHoldings.fold<double>(
+        0,
+        (total, holding) => total + holding.value,
+      );
   double get availableCredit => math.max(0, creditLimit - creditUsed);
+  DateTime? get nextCreditDueDate {
+    if (creditUsed <= 0) return null;
+    final billingDay = (creditBillingDay ?? 15).clamp(1, 27).toInt();
+    final now = DateTime.now();
+    var cutoff = DateTime(now.year, now.month, billingDay);
+    var dueDate = cutoff.add(const Duration(days: 15));
+    if (!dueDate.isAfter(now)) {
+      cutoff = DateTime(now.year, now.month + 1, billingDay);
+      dueDate = cutoff.add(const Duration(days: 15));
+    }
+    return dueDate;
+  }
+
+  String get creditDueDateLabel {
+    final dueDate = nextCreditDueDate;
+    return dueDate == null ? 'No active bill' : _formatDate(dueDate);
+  }
+
+  MoneyItem? get creditLiability {
+    if (creditUsed <= 0) return null;
+    return MoneyItem(
+      'Maya Easy Credit',
+      'Synced with FakeMaya · Due $creditDueDateLabel',
+      creditUsed,
+    );
+  }
+
+  FakeMayaTransaction? get creditBillTransaction {
+    if (creditUsed <= 0) return null;
+    final dueDate = nextCreditDueDate;
+    return FakeMayaTransaction(
+      id: 'fakemaya-credit-bill',
+      title: 'Maya Easy Credit bill',
+      detail: dueDate == null
+          ? 'Outstanding credit balance'
+          : 'Due ${_formatDate(dueDate)}',
+      age: dueDate == null ? 'Pending' : 'Due ${_formatDate(dueDate)}',
+      amountText: '- ${_moneyText(creditUsed)}',
+      createdAt: updatedAt ?? DateTime.now(),
+      category: 'Liability',
+      source: 'FakeMaya Credit',
+      account: 'Credit',
+      subcategory: 'Credit bill',
+      note:
+          'Outstanding balance from Maya Easy Credit. This is tracked as a liability, not a wallet cash-out.',
+      excludedFromInsights: true,
+    );
+  }
+
   FakeMayaPersonalGoal? get essentialExpenseFund =>
       personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId);
 
@@ -760,8 +877,10 @@ class FakeMayaAccountSummary {
     double? goalTarget,
     String? selectedGoalId,
     List<FakeMayaPersonalGoal>? personalGoals,
+    List<FakeMayaInvestmentHolding>? investmentHoldings,
     double? creditLimit,
     double? creditUsed,
+    int? creditBillingDay,
     List<FakeMayaTransaction>? transactions,
     DateTime? updatedAt,
   }) {
@@ -775,8 +894,10 @@ class FakeMayaAccountSummary {
       goalTarget: goalTarget ?? this.goalTarget,
       selectedGoalId: selectedGoalId ?? this.selectedGoalId,
       personalGoals: personalGoals ?? this.personalGoals,
+      investmentHoldings: investmentHoldings ?? this.investmentHoldings,
       creditLimit: creditLimit ?? this.creditLimit,
       creditUsed: creditUsed ?? this.creditUsed,
+      creditBillingDay: creditBillingDay ?? this.creditBillingDay,
       transactions: transactions ?? this.transactions,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -788,6 +909,7 @@ class FakeMayaAccountSummary {
       MoneyItem('Savings', 'Synced with FakeMaya', savings),
       MoneyItem('Time Deposit', 'Synced with FakeMaya', timeDeposit),
       MoneyItem('Goal Savings', 'Synced with FakeMaya', goalBalance),
+      ...investmentHoldings.map((holding) => holding.toMoneyItem()),
     ];
   }
 
@@ -802,8 +924,11 @@ class FakeMayaAccountSummary {
       'goalTarget': goalTarget,
       'selectedGoalId': selectedGoalId,
       'personalGoals': personalGoals.map((goal) => goal.toMap()).toList(),
+      'investmentHoldings':
+          investmentHoldings.map((holding) => holding.toMap()).toList(),
       'creditLimit': creditLimit,
       'creditUsed': creditUsed,
+      'creditBillingDay': creditBillingDay,
       'transactions':
           transactions.map((transaction) => transaction.toMap()).toList(),
       'updatedAt': updatedAt?.toIso8601String(),
@@ -817,12 +942,18 @@ class FakeMayaAccountSummary {
       'timeDeposit': timeDeposit,
       'selectedGoalId': selectedGoalId,
       'personalGoals': personalGoals.map((goal) => goal.toMap()).toList(),
+      'stockHoldings': {
+        for (final holding in investmentHoldings) holding.symbol: holding.units,
+      },
       'goal': (personalGoalById(selectedGoalId) ??
               personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId) ??
               _legacyPersonalGoal())
           .toMap(),
       'creditLimit': creditLimit,
       'creditUsed': creditUsed,
+      'creditForm': {
+        'billingDay': creditBillingDay,
+      },
       'transactions':
           transactions.map((transaction) => transaction.toMap()).toList(),
     };
@@ -831,6 +962,8 @@ class FakeMayaAccountSummary {
   factory FakeMayaAccountSummary.fromMap(Map<String, dynamic> data) {
     final appState =
         Map<String, dynamic>.from(data['app_state'] as Map? ?? const {});
+    final creditForm =
+        Map<String, dynamic>.from(appState['creditForm'] as Map? ?? const {});
     final goal =
         Map<String, dynamic>.from(appState['goal'] as Map? ?? const {});
     final personalGoals = _personalGoalsFrom(
@@ -872,8 +1005,15 @@ class FakeMayaAccountSummary {
       ),
       selectedGoalId: selectedGoalId,
       personalGoals: personalGoals,
-      creditLimit: _doubleFrom(appState['creditLimit'], 15000),
+      investmentHoldings: _investmentHoldingsFrom(
+        data['investmentHoldings'] ??
+            appState['investmentHoldings'] ??
+            appState['stockHoldings'],
+      ),
+      creditLimit: _doubleFrom(appState['creditLimit'], 5000),
       creditUsed: _doubleFrom(appState['creditUsed'], 0),
+      creditBillingDay:
+          _intFrom(appState['creditBillingDay'] ?? creditForm['billingDay']),
       transactions:
           _transactionsFrom(appState['transactions'] ?? data['transactions']),
       updatedAt: DateTime.tryParse(data['updated_at'] as String? ?? ''),
@@ -990,15 +1130,197 @@ class FakeMayaAccountSummary {
         .toList();
   }
 
+  static List<FakeMayaInvestmentHolding> _investmentHoldingsFrom(
+    Object? value,
+  ) {
+    if (value is Map) {
+      return value.entries
+          .map((entry) => FakeMayaInvestmentHolding.fromSymbolUnits(
+                entry.key.toString(),
+                _doubleFrom(entry.value, 0),
+              ))
+          .whereType<FakeMayaInvestmentHolding>()
+          .toList();
+    }
+    if (value is Iterable) {
+      return value
+          .map((item) => item is Map
+              ? FakeMayaInvestmentHolding.fromMap(
+                  Map<String, dynamic>.from(item),
+                )
+              : null)
+          .whereType<FakeMayaInvestmentHolding>()
+          .toList();
+    }
+    return const [];
+  }
+
   static double _doubleFrom(Object? value, double fallback) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  static int? _intFrom(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   static String _stringFrom(Object? value, String fallback) {
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? fallback : text;
   }
+
+  static String _formatDate(DateTime value) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = value.toLocal();
+    final year = local.year == DateTime.now().year ? '' : ', ${local.year}';
+    return '${months[local.month - 1]} ${local.day}$year';
+  }
+
+  static String _moneyText(double value) {
+    final fixed = value.toStringAsFixed(2);
+    final parts = fixed.split('.');
+    final whole = parts.first;
+    final buffer = StringBuffer();
+    for (var i = 0; i < whole.length; i++) {
+      final positionFromEnd = whole.length - i;
+      buffer.write(whole[i]);
+      if (positionFromEnd > 1 && positionFromEnd % 3 == 1) {
+        buffer.write(',');
+      }
+    }
+    return '₱$buffer.${parts.last}';
+  }
+}
+
+class FakeMayaInvestmentHolding {
+  const FakeMayaInvestmentHolding({
+    required this.symbol,
+    required this.name,
+    required this.type,
+    required this.units,
+    required this.price,
+    required this.unitLabel,
+  });
+
+  final String symbol;
+  final String name;
+  final String type;
+  final double units;
+  final double price;
+  final String unitLabel;
+
+  double get value => units * price;
+
+  FakeMayaInvestmentHolding copyWith({
+    double? price,
+    double? units,
+  }) {
+    return FakeMayaInvestmentHolding(
+      symbol: symbol,
+      name: name,
+      type: type,
+      units: units ?? this.units,
+      price: price ?? this.price,
+      unitLabel: unitLabel,
+    );
+  }
+
+  MoneyItem toMoneyItem() {
+    final unitText = units.toStringAsFixed(type == 'stock' ? 4 : 8);
+    return MoneyItem(
+      '$name ($symbol)',
+      'FakeMaya ${type == 'stock' ? 'stock' : 'crypto'} · $unitText $unitLabel · current ${money(price)} each · worth ${money(value)}',
+      value,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'symbol': symbol,
+      'name': name,
+      'type': type,
+      'units': units,
+      'price': price,
+      'unitLabel': unitLabel,
+      'value': value,
+    };
+  }
+
+  factory FakeMayaInvestmentHolding.fromMap(Map<String, dynamic> data) {
+    final symbol = data['symbol']?.toString() ?? '';
+    final template = _fakeMayaInvestmentTemplate(symbol);
+    return FakeMayaInvestmentHolding(
+      symbol: template.symbol,
+      name: data['name']?.toString() ?? template.name,
+      type: data['type']?.toString() ?? template.type,
+      units: FakeMayaAccountSummary._doubleFrom(
+        data['units'] ?? data['shares'] ?? data['quantity'],
+        0,
+      ),
+      price: FakeMayaAccountSummary._doubleFrom(data['price'], template.price),
+      unitLabel: data['unitLabel']?.toString() ?? template.unitLabel,
+    );
+  }
+
+  static FakeMayaInvestmentHolding? fromSymbolUnits(
+    String symbol,
+    double units,
+  ) {
+    if (units <= 0) return null;
+    final template = _fakeMayaInvestmentTemplate(symbol);
+    return FakeMayaInvestmentHolding(
+      symbol: template.symbol,
+      name: template.name,
+      type: template.type,
+      units: units,
+      price: template.price,
+      unitLabel: template.unitLabel,
+    );
+  }
+}
+
+FakeMayaInvestmentHolding _fakeMayaInvestmentTemplate(String symbol) {
+  return switch (symbol.trim().toUpperCase()) {
+    'BTC' => const FakeMayaInvestmentHolding(
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        type: 'crypto',
+        units: 0,
+        price: 3785577.87,
+        unitLabel: 'coins',
+      ),
+    'NVDA' => const FakeMayaInvestmentHolding(
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        type: 'stock',
+        units: 0,
+        price: 7350.00,
+        unitLabel: 'shares',
+      ),
+    final value => FakeMayaInvestmentHolding(
+        symbol: value.isEmpty ? 'ASSET' : value,
+        name: value.isEmpty ? 'Investment asset' : value,
+        type: 'asset',
+        units: 0,
+        price: 0,
+        unitLabel: 'units',
+      ),
+  };
 }
 
 class FakeMayaPersonalGoal {
@@ -1249,6 +1571,8 @@ class FakeMayaTransaction {
     return normalizedTitle == 'deposited to goal' ||
         normalizedTitle == 'express deposit' ||
         normalizedTitle == 'transferred from' ||
+        normalizedTitle == 'withdrawn from goal' ||
+        normalizedTitle == 'emergency withdrawal' ||
         (normalizedTitle == 'deposited to' &&
             (normalizedDetail == 'my savings' ||
                 normalizedDetail.contains('goal') ||
