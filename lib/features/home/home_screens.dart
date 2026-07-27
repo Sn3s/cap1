@@ -2645,9 +2645,7 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
   final bucketMissing = bucketId != null &&
       link != null &&
       link.summary.personalGoalById(bucketId) == null;
-  final needsConfirmation = bucketMissing ||
-      (link == null &&
-          !state.confirmedFakeMayaBucketMotivations.contains(motivation));
+  final needsConfirmation = bucketMissing || link == null;
   if (!needsConfirmation) {
     return;
   }
@@ -2655,9 +2653,14 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
     context,
     motivation: motivation,
   );
-  if (agreed) {
-    await state.ensureFakeMayaBucketForMotivation(motivation);
+  if (!agreed || !context.mounted) {
+    return;
   }
+  if (state.fakeMayaLink == null) {
+    await showFakeMayaLinkRequiredForBucket(context);
+    return;
+  }
+  await state.ensureFakeMayaBucketForMotivation(motivation);
 }
 
 /// Which canonical goal cards should render on the Goals page. The
@@ -6363,6 +6366,105 @@ Future<bool> confirmFakeMayaBucketCreation(
     ),
   );
   return agreed ?? false;
+}
+
+Future<void> showFakeMayaLinkRequiredForBucket(BuildContext context) async {
+  final shouldLink = await showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) => Dialog(
+      backgroundColor: _surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child:
+                      const Icon(Icons.link_rounded, color: _brand, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Link FakeMaya first',
+                    style: GoogleFonts.fredoka(
+                      color: _title,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Shellby needs a linked FakeMaya account before it can create a Maya bucket for this goal.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 13,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _body,
+                      side: const BorderSide(color: _border),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text('Not now',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _brand,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text('Link account',
+                        style: TextStyle(fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (shouldLink == true && context.mounted) {
+    _push(
+      context,
+      const LinkedAccountsScreen(openFakeMayaLoginOnStart: true),
+    );
+  }
 }
 
 void _showCashActionScoreDetails(
@@ -20303,8 +20405,35 @@ class _SettingsRow extends StatelessWidget {
   }
 }
 
-class LinkedAccountsScreen extends StatelessWidget {
-  const LinkedAccountsScreen({super.key});
+class LinkedAccountsScreen extends StatefulWidget {
+  const LinkedAccountsScreen({
+    super.key,
+    this.openFakeMayaLoginOnStart = false,
+  });
+
+  final bool openFakeMayaLoginOnStart;
+
+  @override
+  State<LinkedAccountsScreen> createState() => _LinkedAccountsScreenState();
+}
+
+class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
+  bool _openedFakeMayaLogin = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_openedFakeMayaLogin ||
+        !widget.openFakeMayaLoginOnStart ||
+        AppScope.of(context).fakeMayaLink != null) {
+      return;
+    }
+    _openedFakeMayaLogin = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showFakeMayaLogin();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20410,17 +20539,22 @@ class LinkedAccountsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _showFakeMayaLogin({String? syncOnlyAccount}) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FakeMayaLoginSheet(syncOnlyAccount: syncOnlyAccount),
+    );
+  }
+
   Future<void> _syncAccount(BuildContext context, String account) async {
     final state = AppScope.of(context);
     if (state.fakeMayaLink != null) {
       await state.setAccountFakeMayaSync(account, true);
       return;
     }
-    await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _FakeMayaLoginSheet(syncOnlyAccount: account));
+    await _showFakeMayaLogin(syncOnlyAccount: account);
   }
 
   Future<void> _refreshFakeMaya(BuildContext context) async {

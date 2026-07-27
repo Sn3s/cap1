@@ -84,8 +84,12 @@ class WelcomeScreen extends StatelessWidget {
               PrimaryButton(
                 label: 'Create an account',
                 icon: Icons.person_add_alt_1_rounded,
-                onPressed: () =>
-                    _push(context, const PreparationContextScreen()),
+                onPressed: () async {
+                  final state = AppScope.of(context);
+                  await state.beginFreshOnboardingDraft();
+                  if (!context.mounted) return;
+                  _push(context, const PreparationContextScreen());
+                },
               ),
               const SizedBox(height: 14),
               SecondaryButton(
@@ -334,8 +338,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () =>
-                        _push(context, const PreparationContextScreen()),
+                    onPressed: () async {
+                      final state = AppScope.of(context);
+                      await state.beginFreshOnboardingDraft();
+                      if (!context.mounted) return;
+                      _push(context, const PreparationContextScreen());
+                    },
                     child: const Text(
                       'Create an account',
                       style: TextStyle(

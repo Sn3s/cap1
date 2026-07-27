@@ -610,7 +610,7 @@ class OnboardingSummary extends StatelessWidget {
               const Spacer(),
               PrimaryButton(
                 label: 'Start My Journey',
-                onPressed: () => _pushReplacement(context, const MainShell()),
+                onPressed: () => _pushAndRemoveAll(context, const MainShell()),
               ),
               const SizedBox(height: 16),
               const Text(

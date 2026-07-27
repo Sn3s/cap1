@@ -2640,7 +2640,7 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
                 title: branch.layer,
                 body: branch.layerDescription,
                 selected: state.primaryConcern == branch.layer,
-                onTap: () async {
+                onTap: () {
                   setState(() {
                     state.primaryConcern = branch.layer;
                     state.choosePresetGoal(
@@ -2648,17 +2648,6 @@ class _FinancialConcernScreenState extends State<FinancialConcernScreen> {
                       branch.defaultGoalDescription,
                     );
                   });
-                  if (state.confirmedFakeMayaBucketMotivations
-                      .contains(branch.layer)) {
-                    return;
-                  }
-                  final agreed = await confirmFakeMayaBucketCreation(
-                    context,
-                    motivation: branch.layer,
-                  );
-                  if (agreed) {
-                    await state.ensureFakeMayaBucketForMotivation(branch.layer);
-                  }
                 },
               ),
             ),
@@ -2936,7 +2925,6 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       situations: _summaryList(answers[4] ?? <GuidedOption>[]),
       challenges: _summaryList(answers[5] ?? <GuidedOption>[]),
     );
-    await _confirmAndEnsureFakeMayaBucketForGoal(context, state, goalId);
     messages.add(ChatMessage(false,
         "Great, I have enough to shape this with you. Let's turn it into a clear first plan that fits your rhythm."));
     unawaited(state.saveProfile());
@@ -5958,19 +5946,6 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
               icon: Icons.account_balance_rounded,
               onPressed: _link,
             ),
-            const SizedBox(height: 10),
-            const Text(
-              'Linking gives Shellby permission to automatically create '
-              "matching personal-goal buckets in your Maya account as you "
-              'add goals in Shellby. You can always undo this later.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _body,
-                fontSize: 11,
-                height: 1.35,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ],
         ),
       ),
@@ -6556,12 +6531,6 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
         ..addAll(initialValues);
       state.updateGuidedChatSummary(goalFocus: selected.title);
     });
-    if (!mounted) return;
-    await _confirmAndEnsureFakeMayaBucketForGoal(
-      this.context,
-      state,
-      selected.id,
-    );
     await state.saveProfile();
   }
 
@@ -7999,7 +7968,7 @@ class FirstCollectionHandoffScreen extends StatelessWidget {
               await state.completeOnboardingWithCurrentAccount();
             }
             if (!context.mounted) return;
-            _pushReplacement(context, const MainShell());
+            _pushAndRemoveAll(context, const MainShell());
           } catch (error) {
             if (!context.mounted) return;
             _showAuthError(context, error);

@@ -647,9 +647,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> beginFreshOnboardingDraft() async {
+    if (isSignedIn && !onboardingComplete) {
+      await FirebaseProfileService.signOut();
+    }
+    _resetOnboardingDraftState();
+    notifyListeners();
+  }
+
   Future<void> saveProfile({bool markOnboardingComplete = false}) async {
     final user = FirebaseProfileService.currentUser;
     if (user == null) return;
+    if (!markOnboardingComplete && !onboardingComplete) return;
     uid = user.uid;
     if (markOnboardingComplete) {
       onboardingComplete = true;
@@ -662,6 +671,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> signOut() async {
     await FirebaseProfileService.signOut();
+    _resetOnboardingDraftState();
+    _removeFakeMayaMoneyItems();
+    notifyListeners();
+  }
+
+  void _resetOnboardingDraftState() {
     uid = null;
     name = '';
     email = '';
@@ -670,9 +685,117 @@ class AppState extends ChangeNotifier {
     _pendingGoogleAccount = false;
     photoUrl = null;
     onboardingComplete = false;
+    age = '';
+    occupation = '';
+    industry = '';
+    employmentStatus = '';
+    incomeType = '';
+    incomeRhythm = '';
+    billsRhythm = '';
+    checkInRhythm = '';
+    location = '';
+    responsibility = '';
+    primaryConcern = '';
+    motivation = '';
+    reflectedMotivation = '';
+    chatSurfaceSummary = '';
+    chatGoalFocusSummary = '';
+    chatTimeframeSummary = '';
+    chatDifficultySummary = '';
+    chatSituationsSummary = '';
+    chatChallengesSummary = '';
+    selectedGoalId = '';
+    selectedGoal = '';
+    selectedGoalDescription = '';
+    selectedGoalMonthlyTarget = 0;
+    socialStructure = '';
+    confidence = 5;
+    anxiety = 5;
+    avoidance = 5;
+    peerPressure = 5;
+    income = 0;
+    expenses = 0;
+    variableExpenses = 0;
+    savings = 0;
+    emergencyMonths = 0;
+    debtPayments = 0;
+    investments = 0;
+    subscriptions = 0;
+    monthlySalary = 0;
+    irregularIncomeFloor = 0;
+    basicNeedsMonthlyTarget = 0;
+    basicNeedsAllocationPercent = 0.50;
+    bufferAllocationPercent = 0.20;
+    needsTarget = 0;
+    needsBalance = 0;
+    bufferBalance = 0;
+    needsPercent = 70;
+    jarLedger.clear();
+    cashFlowExpenses.clear();
+    financialSafetyBalance = 0;
+    safetyShieldAllocationPercent = 0;
+    safetyShieldTargetMonths = 0;
+    shieldTrackedBalance = 0;
+    shieldLedger.clear();
+    salaryWeekOfMonth = 1;
+    salaryWeekday = DateTime.friday;
+    consentBaseline = true;
+    consentAi = false;
+    consentBenchmarking = false;
+    consentCommunity = false;
+    consentTrustedCircle = false;
+    notificationsAllowed = false;
+    notificationReminderMinutes
+      ..clear()
+      ..add(20 * 60);
+    thirdPartyDataLinkingAllowed = false;
+    automaticDataGatheringAllowed = false;
+    fakeMayaBucketCreationAllowed = false;
+    confirmedFakeMayaBucketMotivations.clear();
+    personalDataConsent = false;
+    dataRetentionConsent = false;
+    emotionalLogsEnabled = false;
+    stressIndicatorsEnabled = false;
     fakeMayaLink = null;
-    _removeFakeMayaMoneyItems();
-    notifyListeners();
+    cashOnHandBalance = 0;
+    manualAccountBalances
+      ..clear()
+      ..addAll({
+        'Wallet': 0,
+        'Savings': 0,
+        'Time Deposit': 0,
+        'Goal Savings': 0,
+      });
+    fakeMayaSyncedAccounts.clear();
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns.clear();
+    allocatedThisCycle = 0;
+    goalBucketOverrides.clear();
+    selectedActionIds.clear();
+    addedGoalIds.clear();
+    actionFieldValues.clear();
+    categorySpendingBudgets.clear();
+    onboardingBaselines.clear();
+    onboardingIncomeLedger.clear();
+    onboardingExpenseLedger.clear();
+    essentialExpensesBalance = 0;
+    billsObligationsBalance = 0;
+    emergencyFundBalance = 0;
+    investmentBalance = 0;
+    lifestyleFundBalance = 0;
+    lifestyleActivityBalance = 0;
+    _lastEfWithdrawalStr = null;
+    billObligations.clear();
+    messages
+      ..clear()
+      ..add(
+        ChatMessage(
+          false,
+          "I'm Shellby. If you could achieve one financial milestone in the next 12 months, what would it be?",
+        ),
+      );
   }
 
   void _applyFirebaseUser(User user) {

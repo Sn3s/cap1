@@ -18,7 +18,8 @@ Future<void> showAppNotice(
     pageBuilder: (context, animation, secondaryAnimation) =>
         _AppNoticeCard(message: message, icon: icon),
     transitionBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+      final curved =
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return FadeTransition(
         opacity: curved,
         child: ScaleTransition(
@@ -2166,4 +2167,10 @@ void _pushReplacement(BuildContext context, Widget page) {
   Navigator.of(
     context,
   ).pushReplacement(MaterialPageRoute(builder: (_) => page));
+}
+
+void _pushAndRemoveAll(BuildContext context, Widget page) {
+  Navigator.of(
+    context,
+  ).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => page), (_) => false);
 }

@@ -106,6 +106,41 @@ void main() {
     );
   });
 
+  test('fresh onboarding draft clears previous selections', () async {
+    final state = AppState()
+      ..name = 'Old Name'
+      ..email = 'old@example.com'
+      ..age = 'Early Career'
+      ..employmentStatus = 'Full-time'
+      ..primaryConcern = 'Financial Safety'
+      ..selectedGoalId = 'G3'
+      ..selectedGoal = 'Emergency Fund'
+      ..selectedActionIds.add('A9')
+      ..actionFieldValues['A9'] = {'amt': '5000'}
+      ..onboardingBaselines['income_baseline'] = '30000'
+      ..onboardingIncomeLedger.add({'name': 'Old income', 'amount': 30000})
+      ..onboardingExpenseLedger.add({'name': 'Old rent', 'amount': 8000})
+      ..personalDataConsent = true
+      ..dataRetentionConsent = true;
+
+    await state.beginFreshOnboardingDraft();
+
+    expect(state.name, isEmpty);
+    expect(state.email, isEmpty);
+    expect(state.age, isEmpty);
+    expect(state.employmentStatus, isEmpty);
+    expect(state.primaryConcern, isEmpty);
+    expect(state.selectedGoalId, isEmpty);
+    expect(state.selectedGoal, isEmpty);
+    expect(state.selectedActionIds, isEmpty);
+    expect(state.actionFieldValues, isEmpty);
+    expect(state.onboardingBaselines, isEmpty);
+    expect(state.onboardingIncomeLedger, isEmpty);
+    expect(state.onboardingExpenseLedger, isEmpty);
+    expect(state.personalDataConsent, isFalse);
+    expect(state.dataRetentionConsent, isFalse);
+  });
+
   test('onboarding ledger backfill does not overwrite existing rows', () {
     final state = AppState()
       ..email = 'cashflow@gmail.com'
