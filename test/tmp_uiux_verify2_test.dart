@@ -1,5 +1,4 @@
 // TEMPORARY verification test - not part of the permanent suite.
-// Captures screenshots of the 4 UI/UX changes for manual visual review.
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -16,14 +15,14 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  final output = Directory('/tmp/uiux-verify');
-
+  final output = Directory('/tmp/uiux-verify2');
   setUpAll(() {
     if (output.existsSync()) output.deleteSync(recursive: true);
     output.createSync(recursive: true);
   });
 
-  testWidgets('available cash insight page', (tester) async {
+  testWidgets('available cash action cards - no gauges on main card',
+      (tester) async {
     final view = tester.view;
     view.physicalSize = const Size(1179, 4200);
     view.devicePixelRatio = 3;
@@ -35,7 +34,7 @@ void main() {
     final state = _reflectionState();
     await tester.pumpWidget(
       RepaintBoundary(
-        key: const ValueKey('cash'),
+        key: const ValueKey('cards'),
         child: AppScope(
           state: state,
           child: MaterialApp(home: Scaffold(body: InsightsPage())),
@@ -45,40 +44,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
-    await _capture(tester, 'cash', output);
+    await _capture(tester, 'cards', output);
   });
 
-  testWidgets('emergency fund insight page', (tester) async {
+  testWidgets('action full breakdown popup - not cropped', (tester) async {
     final view = tester.view;
-    view.physicalSize = const Size(1179, 5200);
-    view.devicePixelRatio = 3;
-    addTearDown(() {
-      view.resetPhysicalSize();
-      view.resetDevicePixelRatio();
-    });
-
-    final state = _reflectionState()
-      ..addedGoalIds.add('G3')
-      ..emergencyFundBalance = 12000
-      ..expenses = 6000;
-    await tester.pumpWidget(
-      RepaintBoundary(
-        key: const ValueKey('emergency'),
-        child: AppScope(
-          state: state,
-          child: MaterialApp(home: Scaffold(body: InsightsPage())),
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.tap(find.text('Emergency fund'));
-    await tester.pumpAndSettle();
-    await _capture(tester, 'emergency', output);
-  });
-
-  testWidgets('action measure card full breakdown popup', (tester) async {
-    final view = tester.view;
-    view.physicalSize = const Size(1179, 4200);
+    view.physicalSize = const Size(1179, 2600);
     view.devicePixelRatio = 3;
     addTearDown(() {
       view.resetPhysicalSize();
@@ -88,7 +59,7 @@ void main() {
     final state = _reflectionState();
     await tester.pumpWidget(
       RepaintBoundary(
-        key: const ValueKey('popup'),
+        key: const ValueKey('popup2'),
         child: AppScope(
           state: state,
           child: MaterialApp(home: Scaffold(body: InsightsPage())),
@@ -104,12 +75,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(actionRow);
     await tester.pumpAndSettle();
-    await _capture(tester, 'popup', output);
+    await _capture(tester, 'popup2', output);
   });
 
-  testWidgets('wallet page pyramid buckets', (tester) async {
+  testWidgets('label transaction sheet alignment', (tester) async {
     final view = tester.view;
-    view.physicalSize = const Size(1179, 4600);
+    view.physicalSize = const Size(1179, 3200);
     view.devicePixelRatio = 3;
     addTearDown(() {
       view.resetPhysicalSize();
@@ -119,32 +90,17 @@ void main() {
     final state = _reflectionState();
     await tester.pumpWidget(
       RepaintBoundary(
-        key: const ValueKey('wallet'),
+        key: const ValueKey('label'),
         child: AppScope(
           state: state,
-          child: MaterialApp(home: Scaffold(body: WalletPage())),
+          child: const MaterialApp(home: RecentActivityPage()),
         ),
       ),
     );
     await tester.pump();
-    await tester.scrollUntilVisible(
-      find.text('PYRAMID'),
-      400,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump();
-    // Expand every layer card so all 4 Maya bucket tiles are visible.
-    for (final layer in [
-      'Cash Flow & Basic Needs',
-      'Financial Safety',
-      'Accumulating Wealth',
-      'Financial Freedom',
-    ]) {
-      await tester.tap(find.text(layer));
-      await tester.pump();
-    }
-    await tester.pump(const Duration(milliseconds: 300));
-    await _capture(tester, 'wallet', output);
+    await tester.tap(find.text('Emergency payment'));
+    await tester.pumpAndSettle();
+    await _capture(tester, 'label', output);
   });
 }
 

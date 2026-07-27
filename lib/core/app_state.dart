@@ -3155,6 +3155,24 @@ class AppState extends ChangeNotifier {
     _syncFakeMayaMoneyItems();
   }
 
+  /// Pulls [amount] out of the FakeMaya bucket tied to [motivation] and
+  /// tops the wallet back up by the same amount, so the bucket balance
+  /// reflects the spend without double-counting the wallet's own already-
+  /// recorded outflow for the transaction being labeled. Throws
+  /// [FakeMayaException] if no account is linked, the bucket doesn't exist,
+  /// or the bucket doesn't have enough balance to cover [amount].
+  Future<void> fundTransactionFromBucket({
+    required String motivation,
+    required double amount,
+  }) async {
+    final bucketId = fakeMayaBucketIdForMotivation(motivation);
+    if (bucketId == null) return;
+    await _withdrawFakeMayaPersonalGoalToWallet(
+      amount,
+      personalGoalId: bucketId,
+    );
+  }
+
   Future<void> _withdrawFakeMayaSavingsToWallet(double amount) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;

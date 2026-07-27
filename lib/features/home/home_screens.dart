@@ -6077,10 +6077,6 @@ class _ActionMeasureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final measures = _actionMeasures(action);
-    final missingReason = measures
-        .map((measure) => measure.missingReason)
-        .whereType<String>()
-        .firstOrNull;
     final overall = _overallActionScore(measures);
     return Material(
       color: _surface,
@@ -6154,28 +6150,6 @@ class _ActionMeasureCard extends StatelessWidget {
                 trend: _actionInsightTrend(measures),
                 text: _actionInsight(action, measures),
               ),
-              const SizedBox(height: 14),
-              const Divider(height: 1, color: _border),
-              const SizedBox(height: 14),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  for (final measure in measures)
-                    _CircularScoreGauge.forMeasure(measure),
-                ],
-              ),
-              if (missingReason != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  missingReason,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _body,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -6396,6 +6370,10 @@ void _showCashActionScoreDetails(
   _CashActionScore action,
 ) {
   final measures = _actionMeasures(action);
+  final missingReason = measures
+      .map((measure) => measure.missingReason)
+      .whereType<String>()
+      .firstOrNull;
   final patternStats = _distributionStats(
     action.pattern.map((value) => value.clamp(0.0, 1.0) * 100).toList(),
   );
@@ -6403,173 +6381,198 @@ void _showCashActionScoreDetails(
     context: context,
     builder: (dialogContext) => Dialog(
       backgroundColor: _surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${action.title} resiliency',
-              style: const TextStyle(
-                color: _title,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                height: 1.25,
+      child: ConstrainedBox(
+        // Bounding this explicitly (rather than leaving it to Dialog's
+        // implicit sizing) guarantees the scrollable body below always
+        // gets real, non-zero height to work with, so long action lists
+        // (lots of evidence/weekly bars) scroll instead of overflowing
+        // and clipping the gauges at the top.
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(dialogContext).size.height * 0.85,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${action.title} resiliency',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  height: 1.25,
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        for (final measure in measures)
-                          _CircularScoreGauge.forMeasure(measure),
+              const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          for (final measure in measures)
+                            _CircularScoreGauge.forMeasure(measure),
+                        ],
+                      ),
+                      if (missingReason != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          missingReason,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _bellySoft,
-                        borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: _bellySoft,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${action.actualLabel} of ${action.targetLabel} target',
+                          style: const TextStyle(
+                            color: _purple,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
-                      child: Text(
-                        '${action.actualLabel} of ${action.targetLabel} target',
+                      const SizedBox(height: 16),
+                      Text(
+                        action.formula,
                         style: const TextStyle(
-                          color: _purple,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
+                          color: _body,
+                          fontSize: 11.5,
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      action.formula,
-                      style: const TextStyle(
-                        color: _body,
-                        fontSize: 11.5,
-                        height: 1.4,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Divider(height: 1, color: _border),
-                    const SizedBox(height: 16),
-                    _dialogSectionLabel('Data behind the score'),
-                    const SizedBox(height: 8),
-                    for (final item in action.evidence)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 7),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 5),
-                              child:
-                                  Icon(Icons.circle, color: _purple, size: 5),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                item,
-                                style: const TextStyle(
-                                  color: _body,
-                                  fontSize: 11.5,
-                                  height: 1.35,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (action.pattern.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 18),
                       const Divider(height: 1, color: _border),
                       const SizedBox(height: 16),
-                      if (patternStats != null) ...[
-                        _dialogSectionLabel('Score measures'),
-                        const SizedBox(height: 10),
-                        _StatsGrid(
-                          stats: patternStats,
-                          valueFormatter: (value) => '${value.round()}%',
-                          modeEmptyLabel: 'No repeat',
-                        ),
-                        const SizedBox(height: 18),
-                      ],
-                      _dialogSectionLabel('Percentage rate per week'),
-                      const SizedBox(height: 10),
-                      for (var i = 0; i < action.pattern.length; i++)
+                      _dialogSectionLabel('Data behind the score'),
+                      const SizedBox(height: 8),
+                      for (final item in action.evidence)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Builder(builder: (context) {
-                            final weekColor =
-                                _resiliencyValueColor(action.pattern[i]);
-                            return Row(
-                              children: [
-                                SizedBox(
-                                  width: 54,
-                                  child: Text(
-                                    i < action.weekLabels.length
-                                        ? action.weekLabels[i]
-                                        : 'Week ${i + 1}',
-                                    style: const TextStyle(
-                                      color: _body,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                          padding: const EdgeInsets.only(bottom: 7),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(top: 5),
+                                child:
+                                    Icon(Icons.circle, color: _purple, size: 5),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  item,
+                                  style: const TextStyle(
+                                    color: _body,
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                Expanded(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: LinearProgressIndicator(
-                                      value: action.pattern[i].clamp(0.0, 1.0),
-                                      minHeight: 8,
-                                      color: weekColor,
-                                      backgroundColor:
-                                          _border.withValues(alpha: .5),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '${_scorePercent(action.pattern[i])}%',
-                                  style: TextStyle(
-                                    color: weekColor,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
-                            );
-                          }),
+                              ),
+                            ],
+                          ),
                         ),
+                      if (action.pattern.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1, color: _border),
+                        const SizedBox(height: 16),
+                        if (patternStats != null) ...[
+                          _dialogSectionLabel('Score measures'),
+                          const SizedBox(height: 10),
+                          _StatsGrid(
+                            stats: patternStats,
+                            valueFormatter: (value) => '${value.round()}%',
+                            modeEmptyLabel: 'No repeat',
+                          ),
+                          const SizedBox(height: 18),
+                        ],
+                        _dialogSectionLabel('Percentage rate per week'),
+                        const SizedBox(height: 10),
+                        for (var i = 0; i < action.pattern.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Builder(builder: (context) {
+                              final weekColor =
+                                  _resiliencyValueColor(action.pattern[i]);
+                              return Row(
+                                children: [
+                                  SizedBox(
+                                    width: 54,
+                                    child: Text(
+                                      i < action.weekLabels.length
+                                          ? action.weekLabels[i]
+                                          : 'Week ${i + 1}',
+                                      style: const TextStyle(
+                                        color: _body,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(999),
+                                      child: LinearProgressIndicator(
+                                        value:
+                                            action.pattern[i].clamp(0.0, 1.0),
+                                        minHeight: 8,
+                                        color: weekColor,
+                                        backgroundColor:
+                                            _border.withValues(alpha: .5),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${_scorePercent(action.pattern[i])}%',
+                                    style: TextStyle(
+                                      color: weekColor,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }),
+                          ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text(
-                  'Close',
-                  style: TextStyle(color: _purple, fontWeight: FontWeight.w800),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text(
+                    'Close',
+                    style:
+                        TextStyle(color: _purple, fontWeight: FontWeight.w800),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
@@ -22286,12 +22289,6 @@ class _TransactionLabelSheet extends StatefulWidget {
 }
 
 class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
-  static const _sources = [
-    'Basic Needs Fund',
-    'Emergency Fund',
-    'Investment',
-    'Time Deposit',
-  ];
   static const _incomeCategories = [
     'Salary',
     'Business income',
@@ -22326,6 +22323,59 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     'Reimbursable',
   ];
 
+  // The financial layer is the top-level choice; it filters which
+  // categories are shown and picks the FakeMaya bucket "Get from fund?"
+  // pulls from. Keyed by display label since "Emergency Fund" reads more
+  // naturally here than the onboarding motivation's internal
+  // "Financial Safety" name.
+  static const _financialLayers = [
+    'Cash Flow & Basic Needs',
+    'Emergency Fund',
+    'Accumulating Wealth',
+    'Financial Freedom',
+  ];
+  static const _financialLayerMotivations = {
+    'Cash Flow & Basic Needs': 'Cash Flow & Basic Needs',
+    'Emergency Fund': 'Financial Safety',
+    'Accumulating Wealth': 'Accumulating Wealth',
+    'Financial Freedom': 'Financial Freedom',
+  };
+  static const _financialLayerSources = {
+    'Cash Flow & Basic Needs': 'Basic Needs Fund',
+    'Emergency Fund': 'Emergency Fund',
+    'Accumulating Wealth': 'Investment',
+    'Financial Freedom': 'Personal Lifestyle Fund',
+  };
+  // Categories not listed here (e.g. "Transfer", "Other expense/income")
+  // are generic and stay available under every layer.
+  static const _layerCategories = {
+    'Cash Flow & Basic Needs': [
+      'Food & drink',
+      'Transport',
+      'Bills & utilities',
+      'Housing',
+      'Groceries',
+      'Salary',
+      'Refund',
+    ],
+    'Emergency Fund': ['Health', 'Insurance'],
+    'Accumulating Wealth': ['Debt payment', 'Education', 'Business income'],
+    'Financial Freedom': [
+      'Shopping',
+      'Entertainment',
+      'Travel',
+      'Gifts & giving',
+      'Personal goal',
+      'Gift',
+    ],
+  };
+  static const _genericCategories = [
+    'Transfer',
+    'Other expense',
+    'Other income'
+  ];
+
+  late String? _financialLayer = _initialFinancialLayer(widget.transaction);
   late String? _category = widget.transaction.category;
   late String? _source = _initialSource(widget.transaction);
   late final TextEditingController _subcategory = TextEditingController(
@@ -22337,6 +22387,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   );
   late bool _excluded = widget.transaction.excludedFromInsights;
   bool _saving = false;
+  // null = not answered yet for the current layer+category pair.
+  bool? _pullFromBucket;
 
   @override
   void dispose() {
@@ -22345,12 +22397,29 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     super.dispose();
   }
 
+  List<String> _categoriesForLayer(bool isIncome) {
+    final base = isIncome ? _incomeCategories : _expenseCategories;
+    final layer = _financialLayer;
+    if (layer == null) return base;
+    final allowed = {..._genericCategories, ...?_layerCategories[layer]};
+    final filtered = base.where(allowed.contains).toList();
+    return filtered.isEmpty ? base : filtered;
+  }
+
   @override
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
-    final categories =
-        transaction.amount >= 0 ? _incomeCategories : _expenseCategories;
+    final isIncome = transaction.amount >= 0;
+    final categories = _categoriesForLayer(isIncome);
     final automaticDestination = transaction.automaticDestination;
+    final state = AppScope.of(context);
+    final bucketId = _financialLayer == null
+        ? null
+        : fakeMayaBucketIdForMotivation(
+            _financialLayerMotivations[_financialLayer]!);
+    final bucket = bucketId == null
+        ? null
+        : state.fakeMayaLink?.summary.personalGoalById(bucketId);
     return _GoalSheetFrame(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -22393,24 +22462,63 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             ],
           ),
           const SizedBox(height: 18),
-          _TransactionDetailLine(
-            label: 'Type',
-            value: transaction.amount >= 0 ? 'Money in' : 'Money out',
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _border),
+            ),
+            child: Column(
+              children: [
+                _LabelFieldRow(
+                  label: 'Type',
+                  value: transaction.amount >= 0 ? 'Money in' : 'Money out',
+                ),
+                _LabelFieldRow(
+                  label: 'Account',
+                  value: transaction.account ?? 'Wallet',
+                ),
+                _LabelFieldRow(
+                  label: transaction.title.toLowerCase().contains('cash in')
+                      ? 'Sender'
+                      : transaction.title.toLowerCase().contains('sent')
+                          ? 'Recipient'
+                          : 'Details',
+                  value: transaction.detail,
+                ),
+                _LabelFieldRow(label: 'Time', value: transaction.age),
+              ],
+            ),
           ),
-          _TransactionDetailLine(
-            label: 'Account',
-            value: transaction.account ?? 'Wallet',
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            value: _financialLayers.contains(_financialLayer)
+                ? _financialLayer
+                : null,
+            decoration: inputDecoration('Choose a financial layer').copyWith(
+              labelText: 'Financial layer',
+            ),
+            items: _financialLayers
+                .map((value) => DropdownMenuItem(
+                      value: value,
+                      child: Text(value),
+                    ))
+                .toList(),
+            onChanged: (value) {
+              setState(() {
+                _financialLayer = value;
+                if (value != null) _source = _financialLayerSources[value];
+                if (!_categoriesForLayer(isIncome).contains(_category)) {
+                  _category = null;
+                }
+                _pullFromBucket = null;
+              });
+              _maybePromptBucketFunding();
+            },
           ),
-          _TransactionDetailLine(
-            label: transaction.title.toLowerCase().contains('cash in')
-                ? 'Sender'
-                : transaction.title.toLowerCase().contains('sent')
-                    ? 'Recipient'
-                    : 'Details',
-            value: transaction.detail,
-          ),
-          _TransactionDetailLine(label: 'Time', value: transaction.age),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             value: categories.contains(_category) ? _category : null,
             decoration: inputDecoration('Choose a category').copyWith(
@@ -22422,28 +22530,33 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                       child: Text(value),
                     ))
                 .toList(),
-            onChanged: (value) => setState(() => _category = value),
+            onChanged: (value) {
+              setState(() {
+                _category = value;
+                _pullFromBucket = null;
+              });
+              _maybePromptBucketFunding();
+            },
           ),
           const SizedBox(height: 12),
           if (automaticDestination == null)
-            DropdownButtonFormField<String>(
-              value: _sources.contains(_source) ? _source : null,
-              decoration: inputDecoration('Choose a fund').copyWith(
-                labelText: 'Source',
-              ),
-              items: _sources
-                  .map((value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value),
-                      ))
-                  .toList(),
-              onChanged: (value) => setState(() => _source = value),
+            _TransactionDetailLine(
+              label: 'Fund',
+              value: _source ?? 'Choose a financial layer first',
             )
           else
             _TransactionDetailLine(
               label: 'Destination',
               value: automaticDestination,
             ),
+          if (bucket != null && _pullFromBucket == true) ...[
+            const SizedBox(height: 10),
+            _BucketFundingPreview(
+              bucketName: bucket.name,
+              currentBalance: bucket.balance,
+              amount: transaction.amount.abs(),
+            ),
+          ],
           const SizedBox(height: 12),
           TextFormField(
             controller: _subcategory,
@@ -22493,7 +22606,10 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
           PrimaryButton(
             label: _saving ? 'Saving…' : 'Save label',
             icon: Icons.check_rounded,
-            enabled: _category != null && _source != null && !_saving,
+            enabled: _category != null &&
+                _financialLayer != null &&
+                _source != null &&
+                !_saving,
             onPressed: _save,
           ),
         ],
@@ -22501,12 +22617,91 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     );
   }
 
+  /// Once both the financial layer and category are chosen for an expense,
+  /// ask whether this expense should be pulled from that layer's FakeMaya
+  /// bucket — showing exactly how much would come out and letting the user
+  /// accept or reject. No-ops for income, for layers without a bucket
+  /// mapping, or if that bucket hasn't been created yet.
+  Future<void> _maybePromptBucketFunding() async {
+    final transaction = widget.transaction;
+    if (transaction.amount >= 0) return;
+    final layer = _financialLayer;
+    if (layer == null || _category == null || _pullFromBucket != null) return;
+    final motivation = _financialLayerMotivations[layer]!;
+    final bucketId = fakeMayaBucketIdForMotivation(motivation);
+    if (bucketId == null || !mounted) return;
+    final state = AppScope.of(context);
+    final bucket = state.fakeMayaLink?.summary.personalGoalById(bucketId);
+    if (bucket == null) return;
+    final amount = transaction.amount.abs();
+    final sufficient = bucket.balance >= amount;
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          'Get from ${bucket.name}?',
+          style: GoogleFonts.fredoka(
+            color: _title,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        content: Text(
+          sufficient
+              ? 'This will take ${money(amount)} from your ${bucket.name} '
+                  '(currently ${money(bucket.balance)}) to cover this expense.'
+              : '${bucket.name} only has ${money(bucket.balance)}, which '
+                  "isn't enough to cover this ${money(amount)} expense.",
+          style: const TextStyle(color: _body, fontWeight: FontWeight.w600),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No thanks'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _purple),
+            onPressed:
+                sufficient ? () => Navigator.pop(dialogContext, true) : null,
+            child: const Text('Yes, use fund'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _pullFromBucket = agreed ?? false);
+  }
+
   Future<void> _save() async {
     final category = _category;
+    final financialLayer = _financialLayer;
     final source = widget.transaction.automaticDestination ?? _source;
-    if (category == null || source == null || _saving) return;
+    if (category == null ||
+        financialLayer == null ||
+        source == null ||
+        _saving) {
+      return;
+    }
     setState(() => _saving = true);
-    await AppScope.of(context).labelFakeMayaTransaction(
+    final state = AppScope.of(context);
+    if (_pullFromBucket == true) {
+      try {
+        await state.fundTransactionFromBucket(
+          motivation: _financialLayerMotivations[financialLayer]!,
+          amount: widget.transaction.amount.abs(),
+        );
+      } on FakeMayaException catch (error) {
+        if (!mounted) return;
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Couldn't pull from the fund: $error")),
+        );
+        return;
+      }
+    }
+    await state.labelFakeMayaTransaction(
       transactionId: widget.transaction.transactionId,
       category: category,
       source: source,
@@ -22527,6 +22722,16 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     return trimmed.isEmpty ? null : trimmed;
   }
 
+  static String? _initialFinancialLayer(FakeMayaTransaction transaction) {
+    return switch (transaction.source?.trim().toLowerCase()) {
+      'basic needs fund' => 'Cash Flow & Basic Needs',
+      'emergency fund' => 'Emergency Fund',
+      'investment' => 'Accumulating Wealth',
+      'personal lifestyle fund' => 'Financial Freedom',
+      _ => null,
+    };
+  }
+
   static String? _initialSource(FakeMayaTransaction transaction) {
     final automaticDestination = transaction.automaticDestination;
     if (automaticDestination != null) return automaticDestination;
@@ -22538,6 +22743,57 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       'time deposit' => 'Time Deposit',
       _ => null,
     };
+  }
+}
+
+/// Shows what a bucket's balance will look like immediately after this
+/// expense pulls [amount] out of it.
+class _BucketFundingPreview extends StatelessWidget {
+  const _BucketFundingPreview({
+    required this.bucketName,
+    required this.currentBalance,
+    required this.amount,
+  });
+
+  final String bucketName;
+  final double currentBalance;
+  final double amount;
+
+  @override
+  Widget build(BuildContext context) {
+    final updated = math.max(0.0, currentBalance - amount);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _purple.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _purple.withValues(alpha: .18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'FUNDING FROM $bucketName'.toUpperCase(),
+            style: const TextStyle(
+              color: _purple,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              letterSpacing: .8,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${money(currentBalance)} → ${money(updated)} after this expense',
+            style: const TextStyle(
+              color: _title,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -22560,6 +22816,46 @@ class _TransactionDetailLine extends StatelessWidget {
           const Spacer(),
           const SizedBox(width: 16),
           Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A label/value row for the Label Transaction sheet's summary block. Unlike
+/// [_TransactionDetailLine], the label sits in a fixed-width column and the
+/// value fills the rest via [Expanded], so the value's right edge is always
+/// flush with the row's right edge regardless of how short or long either
+/// the label or the value text is.
+class _LabelFieldRow extends StatelessWidget {
+  const _LabelFieldRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
             child: Text(
               value,
               textAlign: TextAlign.right,
