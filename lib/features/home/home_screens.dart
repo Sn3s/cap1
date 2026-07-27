@@ -2286,8 +2286,18 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
   String goalId,
 ) async {
   final motivation = _motivationForGoalId(goalId);
-  if (motivation == null ||
-      state.confirmedFakeMayaBucketMotivations.contains(motivation)) {
+  if (motivation == null) {
+    return;
+  }
+  final bucketId = fakeMayaBucketIdForMotivation(motivation);
+  final link = state.fakeMayaLink;
+  final bucketMissing = bucketId != null &&
+      link != null &&
+      link.summary.personalGoalById(bucketId) == null;
+  if (state.confirmedFakeMayaBucketMotivations.contains(motivation)) {
+    if (bucketMissing) {
+      await state.ensureFakeMayaBucketForMotivation(motivation);
+    }
     return;
   }
   final agreed = await confirmFakeMayaBucketCreation(
