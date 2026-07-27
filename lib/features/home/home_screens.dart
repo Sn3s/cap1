@@ -2342,6 +2342,37 @@ String? _layerForGoalId(String goalId) {
   return null;
 }
 
+String? _motivationForGoalId(String goalId) => _layerForGoalId(goalId);
+
+Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
+  BuildContext context,
+  AppState state,
+  String goalId,
+) async {
+  final motivation = _motivationForGoalId(goalId);
+  if (motivation == null) {
+    return;
+  }
+  final bucketId = fakeMayaBucketIdForMotivation(motivation);
+  final link = state.fakeMayaLink;
+  final bucketMissing = bucketId != null &&
+      link != null &&
+      link.summary.personalGoalById(bucketId) == null;
+  if (state.confirmedFakeMayaBucketMotivations.contains(motivation)) {
+    if (bucketMissing) {
+      await state.ensureFakeMayaBucketForMotivation(motivation);
+    }
+    return;
+  }
+  final agreed = await confirmFakeMayaBucketCreation(
+    context,
+    motivation: motivation,
+  );
+  if (agreed) {
+    await state.ensureFakeMayaBucketForMotivation(motivation);
+  }
+}
+
 /// Which canonical goal cards should render on the Goals page. The
 /// Reflection Demo account always shows all of them (showcase account).
 /// Real accounts always see the goal for their onboarding pick —
@@ -12836,13 +12867,36 @@ class _GoalPillChip extends StatelessWidget {
 
 // ─── Goal detail screen ───────────────────────────────────────────────────────
 
-class _D1GoalDetailScreen extends StatelessWidget {
+class _D1GoalDetailScreen extends StatefulWidget {
   const _D1GoalDetailScreen({required this.goal, required this.onBack});
   final _D1GoalMeta goal;
   final VoidCallback onBack;
 
   @override
+  State<_D1GoalDetailScreen> createState() => _D1GoalDetailScreenState();
+}
+
+class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
+  bool _checkedBucket = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_checkedBucket) return;
+    _checkedBucket = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _confirmAndEnsureFakeMayaBucketForGoal(
+        context,
+        AppScope.of(context),
+        widget.goal.id,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final goal = widget.goal;
     final actions = _goalDetailActionsFor(context, goal);
     return ListView(
       padding: const EdgeInsets.only(bottom: 40),
@@ -12855,7 +12909,7 @@ class _D1GoalDetailScreen extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.arrow_back_rounded),
                 color: _title,
-                onPressed: onBack,
+                onPressed: widget.onBack,
               ),
               Expanded(
                 child: Column(
@@ -13183,6 +13237,11 @@ Future<void> _showGoalActionPicker(BuildContext context, _D1GoalMeta goal) {
                 FilledButton.icon(
                   onPressed: canSave
                       ? () async {
+                          await _confirmAndEnsureFakeMayaBucketForGoal(
+                            context,
+                            state,
+                            goal.id,
+                          );
                           state.setActionsForGoal(
                             allowedActionIds: allowedActionIds,
                             actionIds: draft,
