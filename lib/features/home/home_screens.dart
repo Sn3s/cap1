@@ -940,6 +940,70 @@ class _PyramidTransactionListContent extends StatelessWidget {
   }
 }
 
+/// Shows the FakeMaya bucket tied to this pyramid layer and its current
+/// balance — 0 until a transaction or goal action has actually moved money
+/// into it.
+class _PyramidMayaBucketTile extends StatelessWidget {
+  const _PyramidMayaBucketTile({
+    required this.emoji,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String emoji;
+  final String label;
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: .16)),
+      ),
+      child: Row(
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 15)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Maya · $label',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  money(value),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PyramidSummaryTile extends StatelessWidget {
   const _PyramidSummaryTile({
     required this.label,
@@ -3475,9 +3539,9 @@ class _ReflectionQuestion extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _purple.withValues(alpha: .08),
+          color: _surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _purple.withValues(alpha: .18)),
+          border: Border.all(color: _border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3487,9 +3551,9 @@ class _ReflectionQuestion extends StatelessWidget {
                 Container(
                   width: 22,
                   height: 22,
-                  decoration: BoxDecoration(
-                    color: _purple.withValues(alpha: .16),
-                    borderRadius: BorderRadius.circular(7),
+                  decoration: const BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.all(Radius.circular(7)),
                   ),
                   alignment: Alignment.center,
                   child:
@@ -3528,10 +3592,17 @@ class _ReflectionQuestion extends StatelessWidget {
               ),
             ),
             if (child != null) ...[
-              const SizedBox(height: 16),
-              const Divider(height: 1, color: _border),
-              const SizedBox(height: 16),
-              child!,
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: _bg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _border),
+                ),
+                child: child!,
+              ),
             ],
           ],
         ),
@@ -5168,9 +5239,9 @@ class _AvailableCashAnswerCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _purple.withValues(alpha: .08),
+          color: _surface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _purple.withValues(alpha: .18)),
+          border: Border.all(color: _border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -5242,8 +5313,9 @@ class _AvailableCashAnswerCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: _surface,
+                color: _bg,
                 borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -5666,136 +5738,119 @@ class _ActionProgressSection extends StatelessWidget {
 }
 
 /// One action's overall score (average of whichever measures apply) shown
-/// up front via a circular gauge on the right; tapping the card expands it
-/// in place to reveal the Consistency/Resiliency/Adherence breakdown — only
-/// the measures that are actually applicable to this action — plus a link
-/// into the full weekly-pattern dialog for a deeper dive.
-class _ActionMeasureCard extends StatefulWidget {
+/// up front via a circular gauge on the right, with the Consistency/
+/// Resiliency/Adherence breakdown — only the measures that are actually
+/// applicable to this action — always visible below it. Tapping anywhere on
+/// the card opens the full weekly-pattern dialog for a deeper dive.
+class _ActionMeasureCard extends StatelessWidget {
   const _ActionMeasureCard({required this.action});
 
   final _CashActionScore action;
 
   @override
-  State<_ActionMeasureCard> createState() => _ActionMeasureCardState();
-}
-
-class _ActionMeasureCardState extends State<_ActionMeasureCard> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final action = widget.action;
     final measures = _actionMeasures(action);
     final missingReason = measures
         .map((measure) => measure.missingReason)
         .whereType<String>()
         .firstOrNull;
     final overall = _overallActionScore(measures);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _surface,
+    return Material(
+      color: _surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: () => _showCashActionScoreDetails(context, action),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(
-                  width: 22,
-                  height: 22,
-                  decoration: const BoxDecoration(
-                    color: _bellySoft,
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child:
-                      const Icon(Icons.bolt_rounded, size: 13, color: _brand),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _d2Actions[action.id]?.text ?? action.title,
-                        style: const TextStyle(
-                          color: _title,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w900,
-                          height: 1.3,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        action.detail,
-                        style: const TextStyle(
-                          color: _body,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                _CircularScoreGauge(
-                  label: 'Score',
-                  percent: overall,
-                  size: 54,
-                  strokeWidth: 5,
-                  valueFontSize: 15,
-                ),
-                const SizedBox(width: 2),
-                Icon(
-                  _expanded
-                      ? Icons.expand_less_rounded
-                      : Icons.expand_more_rounded,
-                  color: _body,
-                ),
-              ],
-            ),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _border),
           ),
-          const SizedBox(height: 12),
-          _AiInsightNote(
-            trend: _actionInsightTrend(measures),
-            text: _actionInsight(action, measures),
-          ),
-          if (_expanded) ...[
-            const SizedBox(height: 14),
-            const Divider(height: 1, color: _border),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                for (final measure in measures)
-                  _CircularScoreGauge.forMeasure(measure),
-              ],
-            ),
-            if (missingReason != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                missingReason,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _body,
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: const BoxDecoration(
+                      color: _bellySoft,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.bolt_rounded,
+                        size: 13, color: _brand),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _d2Actions[action.id]?.text ?? action.title,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w900,
+                            height: 1.3,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          action.detail,
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _CircularScoreGauge(
+                    label: 'Score',
+                    percent: overall,
+                    size: 54,
+                    strokeWidth: 5,
+                    valueFontSize: 15,
+                  ),
+                ],
               ),
-            ],
-            const SizedBox(height: 12),
-            InkWell(
-              onTap: () => _showCashActionScoreDetails(context, action),
-              child: Row(
+              const SizedBox(height: 12),
+              _AiInsightNote(
+                trend: _actionInsightTrend(measures),
+                text: _actionInsight(action, measures),
+              ),
+              const SizedBox(height: 14),
+              const Divider(height: 1, color: _border),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final measure in measures)
+                    _CircularScoreGauge.forMeasure(measure),
+                ],
+              ),
+              if (missingReason != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  missingReason,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
                 children: [
                   Expanded(
                     child: Text(
@@ -5819,9 +5874,9 @@ class _ActionMeasureCardState extends State<_ActionMeasureCard> {
                       color: _purple, size: 16),
                 ],
               ),
-            ),
-          ],
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -11037,11 +11092,51 @@ class _PyramidBreakdownCardState extends State<_PyramidBreakdownCard> {
                     ),
                   ),
                 ),
+              _PyramidMayaBucketRow(
+                layerNum: widget.layerNum,
+                state: widget.state,
+                color: c,
+              ),
               // Layer-specific context
               _LayerContext(layerNum: widget.layerNum, state: widget.state),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The FakeMaya bucket tied to this pyramid layer's motivation and its
+/// current balance, pulled live from the linked FakeMaya account — 0 until
+/// a transaction or goal action has actually moved money into it. Renders
+/// nothing if this layer has no bucket mapping.
+class _PyramidMayaBucketRow extends StatelessWidget {
+  const _PyramidMayaBucketRow({
+    required this.layerNum,
+    required this.state,
+    required this.color,
+  });
+
+  final int layerNum;
+  final AppState state;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final bucketId = fakeMayaBucketIdForMotivation(_layerNames[layerNum - 1]);
+    if (bucketId == null) return const SizedBox.shrink();
+    final bucketTemplate = FakeMayaPersonalGoal.defaultForId(bucketId);
+    final bucketBalance =
+        state.fakeMayaLink?.summary.personalGoalById(bucketId)?.balance ??
+            0.0;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: _PyramidMayaBucketTile(
+        emoji: bucketTemplate.emoji,
+        label: bucketTemplate.name,
+        value: bucketBalance,
+        color: color,
       ),
     );
   }
