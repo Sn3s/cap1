@@ -1489,7 +1489,7 @@ const _d2Actions = <String, D2Action>{
       ]),
   'A27': D2Action(
       id: 'A27',
-      text: 'Add ₱X to the Everyday Enjoyment Fund every payday.',
+      text: 'Add ₱X to the Personal Lifestyle Fund every payday.',
       fields: [
         ActionField(
             key: 'amt',
@@ -1586,6 +1586,12 @@ const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
 const _emergencyFundGoalActionIds = ['A9', 'A8', 'A22', 'A10'];
 const _investmentGoalActionIds = ['A12', 'A23', 'A30'];
 const _lifestyleGoalActionIds = ['A26', 'A27', 'A28', 'A29'];
+// A29 is excluded from AI-actionable suggestions: its target now lives in
+// AppState.lifestyleHobbies (a named list, up to 3), not a single
+// actionFieldValues entry, so the generic "apply this suggestion" flow
+// (which only knows how to write actionFieldValues[actionId]) can't safely
+// change it. A26-A28 still use the standard single-target model.
+const _lifestyleActionStageActionIds = ['A26', 'A27', 'A28'];
 
 // D2: goal → action IDs matrix
 const _goalActionIds = <String, List<String>>{
@@ -4494,7 +4500,7 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A26' =>
       'Keep subscription and membership expenses updated, then confirm Lifestyle Fund transfers Shellby cannot detect.',
     'A27' =>
-      'Keep income deposits connected or logged and confirm each payday transfer to the Everyday Enjoyment Fund.',
+      'Keep income deposits connected or logged and confirm each payday transfer to the Personal Lifestyle Fund.',
     'A28' =>
       'Connect or log lifestyle purchases and keep entertainment, travel, and personal spending categories accurate.',
     'A29' =>
@@ -4537,11 +4543,11 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A26' =>
       'Shellby totals monthly Lifestyle Fund reserves against the configured subscription and membership amount and updates $indicatorText.',
     'A27' =>
-      'When payday income arrives, Shellby tracks the configured transfer to the Everyday Enjoyment Fund and updates $indicatorText.',
+      'When payday income arrives, Shellby tracks the configured transfer to the Personal Lifestyle Fund and updates $indicatorText.',
     'A28' =>
       'Shellby totals lifestyle spending for the current week, compares it with the configured limit, and updates $indicatorText.',
     'A29' =>
-      'Shellby tracks contributions toward the configured hobby or activity target and calculates progress against its target window.',
+      'Shellby tracks contributions toward each configured hobby or activity target and calculates progress against its target window.',
     'A2' ||
     'A3' =>
       'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',

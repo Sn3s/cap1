@@ -239,6 +239,41 @@ class ShellbyAiCoach {
     );
   }
 
+  Future<ActionStageResult> recommendLifestyleActionStage({
+    required AppState state,
+  }) async {
+    if (!isConfigured) {
+      throw const AiSetupException();
+    }
+
+    final parsed = await _sendJson(
+      instructions: _lifestyleActionStageInstructions,
+      input: _lifestyleActionStageInput(state),
+      maxOutputTokens: 900,
+    );
+    final rawSuggestions = parsed['suggestions'];
+    final suggestions = rawSuggestions is List
+        ? rawSuggestions
+            .whereType<Map<String, dynamic>>()
+            .map(_actionStageSuggestionFromJson)
+            .where((item) => item.actionId.isNotEmpty)
+            .toList()
+        : <ActionStageSuggestion>[];
+    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
+    return ActionStageResult(
+      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
+          ? (parsed['summary'] as String).trim()
+          : 'Shellby reviewed the latest lifestyle activity and prepared action updates.',
+      firstChange:
+          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
+              ? (parsed['first_change'] as String).trim()
+              : (suggestions.isEmpty
+                  ? 'No change is recommended yet.'
+                  : suggestions.first.reason),
+      suggestions: suggestions,
+    );
+  }
+
   Future<Map<String, dynamic>> _sendJson({
     required String instructions,
     required String input,
@@ -929,6 +964,48 @@ Analyze the integration data and recommend what to change first.
 ''';
   }
 
+  String _lifestyleActionStageInput(AppState state) {
+    final currentActions = state.selectedActionIds
+        .where(_lifestyleActionStageActionIds.contains)
+        .map((id) {
+      final action = _d2Actions[id];
+      final values = state.actionFieldValues[id] ?? const <String, String>{};
+      return '- $id: ${action?.text ?? id}; current_target=${jsonEncode(values)}';
+    }).join('\n');
+    final candidateActions = _lifestyleActionStageActionIds
+        .map((id) => '- $id: ${_d2Actions[id]?.text ?? id}')
+        .join('\n');
+    final hobbies = state.lifestyleHobbies;
+    final hobbyLines = hobbies.map((hobby) {
+      final id = hobby['id'].toString();
+      final name = hobby['name'];
+      final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+      final months = (hobby['months'] as num?)?.toInt() ?? 0;
+      final saved = state.lifestyleHobbyBalance(id);
+      return '- $name: ${money(saved)} of ${money(target)} saved, $months month window (read-only, not an editable action target)';
+    }).join('\n');
+
+    return '''
+Goal: Lifestyle Fund (Financial Freedom) - the relaxed top of the financial pyramid, so keep tone light and non-urgent.
+
+Personal Lifestyle Fund:
+- Current balance: ${money(state.lifestyleFundBalance)}
+- Reserved this month for subscriptions/memberships: ${money(state.lifestyleReservedThisMonth)}
+- This week's everyday enjoyment spending: ${money(_currentWeekLifestyleSpend(state))}
+
+Hobby/activity targets (for context only - these are managed as a separate named list in the app, not through the actions below):
+${hobbyLines.isEmpty ? 'No hobby or activity targets configured yet.' : hobbyLines}
+
+Current configured actions:
+${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentActions}
+
+Available action set:
+$candidateActions
+
+Analyze the integration data and recommend what to change first.
+''';
+  }
+
   String _fallbackGoalTitle(String concern) {
     return switch (concern) {
       'Managing debt' => 'Debt Reset',
@@ -1427,6 +1504,56 @@ Return only valid JSON:
       "target": {
         "pct": "number if A12 percentage or A30 target annual return is recommended",
         "amt": "number if A23 portfolio value target is recommended"
+      },
+      "replacement_action_id": "action id only for remove_and_replace_action, otherwise null"
+    }
+  ]
+}
+''';
+
+const _lifestyleActionStageInstructions = '''
+You are Shellby, the Action Stage AI for a Philippine personal finance app.
+Your job is to analyze the user's Personal Lifestyle Fund activity (subscriptions, payday transfers, weekly enjoyment spending) and recommend the first Lifestyle Fund action change. This is the relaxed top of the financial pyramid, not a strict savings goal, so keep the tone light and low-pressure.
+
+Allowed actions only:
+- A26: Set aside ₱X each month for subscriptions and memberships.
+- A27: Add ₱X to the Personal Lifestyle Fund every payday.
+- A28: Keep everyday enjoyment spending within ₱X each week.
+
+Hobby or activity targets (A29) are shown for context only and are NOT an allowed action - they are managed as a separate named list of up to 3 items directly in the app, not through this recommendation flow. Never return "A29" as an action_id.
+
+Allowed recommendation option values only:
+- retain_action
+- change_parameterized_target
+- suggest_new_action
+- remove_and_replace_action
+
+Rules:
+- Use only the provided Personal Lifestyle Fund balance, monthly subscription reserve, weekly enjoyment spending, and hobby context.
+- Prioritize the suggestion that should be changed first.
+- Return 1-2 suggestions when data is available, ordered by priority.
+- If a current action is working, retain it.
+- If A26's monthly target looks mismatched with what is actually being reserved, choose change_parameterized_target.
+- If A28's weekly limit is being exceeded repeatedly, suggest raising it to a realistic number rather than scolding the user - this is discretionary spending, not an emergency.
+- If A27 is missing and payday transfers to the Personal Lifestyle Fund look inconsistent, choose suggest_new_action.
+- Do not mention available cash, emergency fund, investment portfolio, or actions outside A26, A27, and A28.
+- Never recommend specific merchants, subscriptions to cancel, or how to spend the money - only whether the configured amounts still fit.
+- Keep reasons concrete and cite a relevant amount or spending pattern.
+- Use PHP amounts.
+
+Return only valid JSON:
+{
+  "summary": "1 short, low-pressure paragraph interpreting the lifestyle fund's current state",
+  "first_change": "the first thing the user should review or change",
+  "suggestions": [
+    {
+      "priority": 1,
+      "option": "retain_action | change_parameterized_target | suggest_new_action | remove_and_replace_action",
+      "action_id": "A26 | A27 | A28",
+      "action_text": "short action label",
+      "reason": "specific reason grounded in the data",
+      "target": {
+        "amt": "number if a peso amount is recommended"
       },
       "replacement_action_id": "action id only for remove_and_replace_action, otherwise null"
     }

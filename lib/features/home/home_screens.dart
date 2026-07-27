@@ -3603,6 +3603,7 @@ class _InsightsPageState extends State<InsightsPage> {
   final _actionStageKey = GlobalKey();
   final _emergencyActionStageKey = GlobalKey();
   final _investmentActionStageKey = GlobalKey();
+  final _freedomActionStageKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -3663,6 +3664,10 @@ class _InsightsPageState extends State<InsightsPage> {
             'Accumulating Wealth' => _AccumulatingWealthExplorer(
                 state: state,
                 actionStageKey: _investmentActionStageKey,
+              ),
+            'Financial Freedom' => _FinancialFreedomExplorer(
+                state: state,
+                actionStageKey: _freedomActionStageKey,
               ),
             _ => _MotivationGoalsSummary(
                 state: state,
@@ -5568,6 +5573,166 @@ _CashActionScore? _investmentActionScoreFor({
       evidence: [
         'Configured target annual return: ${target.toStringAsFixed(0)}%',
         'Tracking since: ${_shortDate(baseline)}',
+      ],
+    );
+  }
+  return null;
+}
+
+/// Financial Freedom (G8)'s action scores. The pyramid's top layer is
+/// intentionally relaxed - each action (A26-A29) is still scored as a
+/// single current-state point, the same "pattern: [ratio]" shape used for
+/// Accumulating Wealth's actions, since none of these have a natural
+/// multi-week series either.
+List<_CashActionScore> _lifestyleActionScores({required AppState state}) {
+  final configured =
+      state.selectedActionIds.where(_lifestyleGoalActionIds.contains).toList();
+  final actionIds = configured.isEmpty ? _lifestyleGoalActionIds : configured;
+  return [
+    for (final id in actionIds) _lifestyleActionScoreFor(id: id, state: state),
+  ].whereType<_CashActionScore>().toList();
+}
+
+_CashActionScore? _lifestyleActionScoreFor({
+  required String id,
+  required AppState state,
+}) {
+  double configuredNumber(String key, double fallback) {
+    final values = state.actionFieldValues[id] ?? const <String, String>{};
+    return double.tryParse((values[key] ?? '').replaceAll(',', '').trim()) ??
+        fallback;
+  }
+
+  if (id == 'A26') {
+    final target = configuredNumber('amt', _monthlySubscriptionBase(state));
+    final reserved = state.lifestyleReservedThisMonth;
+    final ratio = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Set aside subscriptions and memberships money',
+      score: ratio,
+      detail:
+          '${money(reserved)} reserved this month toward a ${money(target)} target.',
+      pattern: [ratio],
+      weekLabels: const ['This month'],
+      actualLabel: money(reserved),
+      targetLabel: money(target),
+      formula:
+          'Progress = amount reserved this month ÷ configured monthly subscriptions target.',
+      evidence: [
+        'Configured monthly target: ${money(target)}',
+        'Reserved this month: ${money(reserved)}',
+      ],
+    );
+  }
+  if (id == 'A27') {
+    final amount = configuredNumber('amt', 1000);
+    final latestIncome = _latestIncomeTransaction(state);
+    if (latestIncome == null) {
+      return _CashActionScore(
+        id: id,
+        title: 'Add to the Personal Lifestyle Fund every payday',
+        score: 0,
+        detail: 'No income has been detected yet to fund a payday transfer.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: money(amount),
+        formula:
+            'Progress = whether the configured payday transfer was made for the latest income.',
+        evidence: const ['No income transaction detected yet'],
+        emptyReason:
+            'No income has been detected yet to fund a payday transfer.',
+      );
+    }
+    final done = state.hasLifestylePaydayAllocation(latestIncome.transactionId);
+    final ratio = done ? 1.0 : 0.0;
+    return _CashActionScore(
+      id: id,
+      title: 'Add to the Personal Lifestyle Fund every payday',
+      score: ratio,
+      detail: done
+          ? '${money(amount)} was added to the Personal Lifestyle Fund on the latest payday.'
+          : '${money(amount)} has not been added yet for the latest payday.',
+      pattern: [ratio],
+      weekLabels: const ['Latest payday'],
+      actualLabel: done ? money(amount) : money(0),
+      targetLabel: money(amount),
+      formula:
+          'Progress = whether the configured payday transfer was made for the latest income.',
+      evidence: [
+        'Configured payday amount: ${money(amount)}',
+        'Latest payday: ${money(latestIncome.amount)}',
+      ],
+    );
+  }
+  if (id == 'A28') {
+    final limit = configuredNumber('amt', 1500);
+    final spent = _currentWeekLifestyleSpend(state);
+    final ratio =
+        limit <= 0 || spent <= limit ? 1.0 : (limit / spent).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Keep everyday enjoyment spending within the weekly limit',
+      score: ratio,
+      detail: spent <= limit
+          ? '${money(spent)} spent this week, within the ${money(limit)} limit.'
+          : '${money(spent)} spent this week, over the ${money(limit)} limit.',
+      pattern: [ratio],
+      weekLabels: const ['This week'],
+      actualLabel: money(spent),
+      targetLabel: money(limit),
+      formula:
+          'Progress = configured weekly limit ÷ actual spend when over the limit, otherwise full credit.',
+      evidence: [
+        'Configured weekly limit: ${money(limit)}',
+        'Spent this week: ${money(spent)}',
+      ],
+    );
+  }
+  if (id == 'A29') {
+    final hobbies = state.lifestyleHobbies;
+    if (hobbies.isEmpty) {
+      return _CashActionScore(
+        id: id,
+        title: 'Save toward a hobby or activity',
+        score: 0,
+        detail: 'No hobby or activity targets have been set up yet.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: 'Not set',
+        formula:
+            'Progress = total saved across configured hobbies ÷ their combined target.',
+        evidence: const ['No hobbies configured yet'],
+        emptyReason:
+            'Add a hobby or activity target to see this action\'s score.',
+      );
+    }
+    var totalSaved = 0.0;
+    var totalTarget = 0.0;
+    for (final hobby in hobbies) {
+      totalSaved += state.lifestyleHobbyBalance(hobby['id'].toString());
+      totalTarget += (hobby['target'] as num?)?.toDouble() ?? 0;
+    }
+    final ratio =
+        totalTarget <= 0 ? 0.0 : (totalSaved / totalTarget).clamp(0.0, 1.0);
+    final names = hobbies.map((h) => (h['name'] ?? '').toString()).join(', ');
+    return _CashActionScore(
+      id: id,
+      title: 'Save toward a hobby or activity',
+      score: ratio,
+      detail:
+          '${money(totalSaved)} saved toward $names (${money(totalTarget)} combined target).',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: money(totalSaved),
+      targetLabel: money(totalTarget),
+      formula:
+          'Progress = total saved across configured hobbies ÷ their combined target.',
+      evidence: [
+        'Hobbies configured: ${hobbies.length}',
+        'Combined target: ${money(totalTarget)}',
       ],
     );
   }
@@ -8799,26 +8964,30 @@ class _PortfolioValueCardState extends State<_PortfolioValueCard> {
                                 color: color.withValues(alpha: .12),
                                 borderRadius: BorderRadius.circular(999),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    positive
-                                        ? Icons.arrow_upward_rounded
-                                        : Icons.arrow_downward_rounded,
-                                    size: 10,
-                                    color: color,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    '${positive ? '+' : '-'}${money(delta.abs())}',
-                                    style: TextStyle(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      positive
+                                          ? Icons.arrow_upward_rounded
+                                          : Icons.arrow_downward_rounded,
+                                      size: 10,
                                       color: color,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      '${positive ? '+' : '-'}${money(delta.abs())}',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                             Container(
@@ -8828,12 +8997,15 @@ class _PortfolioValueCardState extends State<_PortfolioValueCard> {
                                 color: color.withValues(alpha: .12),
                                 borderRadius: BorderRadius.circular(999),
                               ),
-                              child: Text(
-                                '${positive ? '+' : ''}${deltaPercent.toStringAsFixed(2)}%',
-                                style: TextStyle(
-                                  color: color,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  '${positive ? '+' : ''}${deltaPercent.toStringAsFixed(2)}%',
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
                                 ),
                               ),
                             ),
@@ -9507,6 +9679,499 @@ class _HoldingRow extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+// ─── Financial Freedom (G8 / Lifestyle Fund) insights ───────────────────────
+
+const _freedomColor = Color(0xFF6AA8F0);
+
+class _FinancialFreedomExplorer extends StatelessWidget {
+  const _FinancialFreedomExplorer({
+    required this.state,
+    required this.actionStageKey,
+  });
+  final AppState state;
+  final GlobalKey actionStageKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final hobbies = state.lifestyleHobbies;
+    final hobbiesSaved = hobbies.fold<double>(
+      0,
+      (total, hobby) =>
+          total + state.lifestyleHobbyBalance(hobby['id'].toString()),
+    );
+    final totalValue = state.lifestyleFundBalance + hobbiesSaved;
+    final lifestyleScores = _lifestyleActionScores(state: state);
+    return Column(
+      children: [
+        _GoalInsightHeader(
+          icon: Icons.celebration_rounded,
+          title: 'Financial Freedom',
+          color: _freedomColor,
+          subtitle: 'Enjoy life, on your terms',
+          statText: '${money(totalValue)} total',
+        ),
+        _GoalSuggestionBanner(
+          goalLabel: 'financial freedom',
+          allowedActionIds: _lifestyleActionStageActionIds,
+          color: _freedomColor,
+          runStage: (coach, state) =>
+              coach.recommendLifestyleActionStage(state: state),
+          onViewSuggestions: () {
+            final target = actionStageKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOut,
+              );
+            }
+          },
+        ),
+        _LifestyleTargetFundsCard(state: state),
+        _LifestyleOverviewGrid(state: state),
+        _LifestyleWeeklySpendCard(state: state),
+        _LifestyleContributionsChart(
+          points: _lifestyleMonthlyContributions(state),
+          balance: state.lifestyleFundBalance,
+        ),
+        _ActionProgressSection(actionScores: lifestyleScores),
+        _GoalActionStageSection(
+          key: actionStageKey,
+          goalId: 'G8',
+          goalLabel: 'Lifestyle Fund',
+          allowedActionIds: _lifestyleActionStageActionIds,
+          subtitle:
+              'Shellby reviews the latest Personal Lifestyle Fund activity against the Lifestyle Fund action set.',
+          emptyMessage:
+              'The stage will compare current actions with the Lifestyle Fund action set, then rank what to review first.',
+          runStage: (coach, state) =>
+              coach.recommendLifestyleActionStage(state: state),
+        ),
+      ],
+    );
+  }
+}
+
+class _LifestyleTargetFundsCard extends StatelessWidget {
+  const _LifestyleTargetFundsCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final hobbies = state.lifestyleHobbies;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'TARGET FUNDS',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Hobby and activity progress',
+              style: TextStyle(
+                color: _title,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (hobbies.isEmpty)
+              Text(
+                'No hobby or activity targets yet. Add up to 3 from the Lifestyle Fund goal in Goals to see progress here.',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  height: 1.4,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            else
+              for (var i = 0; i < hobbies.length; i++) ...[
+                _HobbyProgressLine(hobby: hobbies[i], state: state),
+                if (i < hobbies.length - 1) const SizedBox(height: 16),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HobbyProgressLine extends StatelessWidget {
+  const _HobbyProgressLine({required this.hobby, required this.state});
+  final Map<String, dynamic> hobby;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = hobby['id'].toString();
+    final name = (hobby['name'] ?? 'Hobby').toString();
+    final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+    final months = (hobby['months'] as num?)?.toInt() ?? 6;
+    final saved = state.lifestyleHobbyBalance(id);
+    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
+    final complete = saved >= target && target > 0;
+    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              complete ? 'Funded' : 'By ${_shortDate(due)}',
+              style: TextStyle(
+                color: complete ? _sage : _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _LabeledProgressBar(
+          value: progress,
+          color: complete ? _sage : _freedomColor,
+          leadingLabel: money(saved),
+          trailingLabel: money(target),
+        ),
+      ],
+    );
+  }
+}
+
+class _LifestyleOverviewGrid extends StatelessWidget {
+  const _LifestyleOverviewGrid({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = _configuredActionAmount(
+      state,
+      'A26',
+      _monthlySubscriptionBase(state),
+    );
+    final reserved = state.lifestyleReservedThisMonth;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: _MetricMiniCard(
+              label: 'Subscriptions this month',
+              value: '${money(reserved)} / ${money(target)}',
+              icon: Icons.subscriptions_rounded,
+              color: _freedomColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _MetricMiniCard(
+              label: 'Personal Lifestyle Fund',
+              value: money(state.lifestyleFundBalance),
+              icon: Icons.account_balance_wallet_rounded,
+              color: _freedomColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleWeeklySpendCard extends StatelessWidget {
+  const _LifestyleWeeklySpendCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final limit = _configuredActionAmount(state, 'A28', 1500);
+    final spent = _currentWeekLifestyleSpend(state);
+    final over = spent > limit;
+    final progress = limit <= 0 ? 1.0 : (spent / limit);
+    final color = over ? _red : _freedomColor;
+    final pastWeeks = [
+      for (var i = 3; i >= 0; i--) _lifestyleSpendForCompletedWeek(state, i),
+    ];
+    final maxWeek = [...pastWeeks, spent, limit].fold<double>(1, math.max);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'EVERYDAY ENJOYMENT',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  money(spent),
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'of ${money(limit)} this week',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0.0, 1.0),
+                minHeight: 9,
+                color: color,
+                backgroundColor: color.withValues(alpha: .12),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              over
+                  ? '${money(spent - limit)} over the weekly limit - no pressure, just something to notice.'
+                  : '${money(math.max(0.0, limit - spent))} left in this week\'s enjoyment budget.',
+              style: TextStyle(
+                color: over ? _red : _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < pastWeeks.length; i++)
+                  Expanded(
+                    child: _WeeklySpendBar(
+                      label: '${pastWeeks.length - i}w ago',
+                      value: pastWeeks[i],
+                      limit: limit,
+                      maxValue: maxWeek,
+                    ),
+                  ),
+                Expanded(
+                  child: _WeeklySpendBar(
+                    label: 'This wk',
+                    value: spent,
+                    limit: limit,
+                    maxValue: maxWeek,
+                    emphasize: true,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeeklySpendBar extends StatelessWidget {
+  const _WeeklySpendBar({
+    required this.label,
+    required this.value,
+    required this.limit,
+    required this.maxValue,
+    this.emphasize = false,
+  });
+  final String label;
+  final double value;
+  final double limit;
+  final double maxValue;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final over = limit > 0 && value > limit;
+    final color = over ? _red : _freedomColor;
+    final height = 56 * (value / maxValue).clamp(0.03, 1.0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          SizedBox(
+            height: 56,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                height: height,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: emphasize ? 1 : .45),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: emphasize ? _title : _body,
+              fontSize: 9.5,
+              fontWeight: emphasize ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleContributionsChart extends StatelessWidget {
+  const _LifestyleContributionsChart({
+    required this.points,
+    required this.balance,
+  });
+  final List<_MonthlyContributionPoint> points;
+  final double balance;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = points.map((p) => p.amount).fold<double>(1, math.max);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'PERSONAL LIFESTYLE FUND',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              money(balance),
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Monthly contributions',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 110,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final point in points)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              height: 78 *
+                                  (point.amount / maxValue).clamp(0.02, 1.0),
+                              decoration: BoxDecoration(
+                                color: _freedomColor.withValues(
+                                  alpha: point.amount > 0 ? 1 : .15,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              point.label,
+                              style: const TextStyle(
+                                color: _body,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -14209,6 +14874,98 @@ double _currentWeekLifestyleSpend(AppState state) {
   );
 }
 
+/// Everyday-enjoyment spend for a completed week, [weeksAgo] weeks back
+/// (0 = the most recently completed week before this one). Used for the
+/// Financial Freedom insights page's weekly spending trend, separate from
+/// [_currentWeekLifestyleSpend] which cuts off at "now" for the in-progress
+/// week rather than a fixed 7-day window.
+double _lifestyleSpendForCompletedWeek(AppState state, int weeksAgo) {
+  final now = DateTime.now();
+  final thisWeekStart = DateTime(now.year, now.month, now.day)
+      .subtract(Duration(days: now.weekday - 1));
+  final start = thisWeekStart.subtract(Duration(days: 7 * (weeksAgo + 1)));
+  final end = start.add(const Duration(days: 7));
+  final lifestylePattern = RegExp(
+    r'entertainment|travel|personal goal|movie|cinema|concert|game|hobby|coffee|cafe|restaurant|bar',
+    caseSensitive: false,
+  );
+  final recurringPattern = RegExp(
+    r'subscription|membership|stream|netflix|spotify|gym|club|app plan',
+    caseSensitive: false,
+  );
+  return state.allTransactions.where((transaction) {
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    if (transaction.amount >= 0 ||
+        transaction.excludedFromInsights ||
+        date == null ||
+        date.isBefore(start) ||
+        !date.isBefore(end)) {
+      return false;
+    }
+    final category = transaction.category ?? '';
+    final layer = _insightCategoryConfig(category).$1;
+    final text =
+        '$category ${transaction.title} ${transaction.detail}'.toLowerCase();
+    if (recurringPattern.hasMatch(text)) return false;
+    return layer == 4 || lifestylePattern.hasMatch(text);
+  }).fold<double>(
+    0,
+    (total, transaction) => total + transaction.amount.abs(),
+  );
+}
+
+/// Combined Personal Lifestyle Fund inflow (A26 subscription reserves + A27
+/// payday transfers) for the last [months] calendar months, oldest first -
+/// the data behind the Financial Freedom insights page's contributions bar
+/// chart.
+List<_MonthlyContributionPoint> _lifestyleMonthlyContributions(
+  AppState state, {
+  int months = 6,
+}) {
+  final now = DateTime.now();
+  final buckets = <DateTime, double>{};
+  for (var i = months - 1; i >= 0; i--) {
+    final monthDate = DateTime(now.year, now.month - i, 1);
+    buckets[monthDate] = 0;
+  }
+  const types = {'lifestyle_subscription_reserve', 'lifestyle_payday'};
+  for (final entry in state.d1Ledger) {
+    if (!types.contains(entry['type']?.toString())) continue;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null) continue;
+    final monthKey = DateTime(date.year, date.month, 1);
+    if (!buckets.containsKey(monthKey)) continue;
+    buckets[monthKey] =
+        (buckets[monthKey] ?? 0) + ((entry['amount'] as num?)?.toDouble() ?? 0);
+  }
+  const monthLabels = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return buckets.entries
+      .map((entry) => _MonthlyContributionPoint(
+            monthLabels[entry.key.month - 1],
+            entry.value,
+          ))
+      .toList();
+}
+
+class _MonthlyContributionPoint {
+  const _MonthlyContributionPoint(this.label, this.amount);
+  final String label;
+  final double amount;
+}
+
 class _D1GoalCard extends StatelessWidget {
   const _D1GoalCard({required this.goal, required this.onTap});
   final _D1GoalMeta goal;
@@ -15311,10 +16068,10 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
         state.hasLifestylePaydayAllocation(income.transactionId);
     return _D1ActionMeta(
       id: id,
-      text: 'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+      text: 'Add ${money(amount)} to the Personal Lifestyle Fund every payday.',
       configLabel: 'Every payday',
       configValue: money(amount),
-      destBucket: 'Everyday Enjoyment Fund',
+      destBucket: 'Personal Lifestyle Fund',
       metrics: [
         (
           label: 'Latest payday',
@@ -15391,38 +16148,80 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
     );
   }
   if (id == 'A29') {
-    final target =
-        double.tryParse((values['amt'] ?? '').replaceAll(',', '')) ?? 10000;
-    final months =
-        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
-    final saved = state.lifestyleActivityBalance;
-    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
-    final due = DateTime(started.year, started.month + months, started.day);
+    final hobbies = state.lifestyleHobbies;
+    if (hobbies.isEmpty) {
+      return _D1ActionMeta(
+        id: id,
+        text: 'Save toward a hobby or activity within a set number of months.',
+        configLabel: 'Activity target',
+        configValue: 'Not set up yet',
+        destBucket: 'Personal Lifestyle Fund',
+        metrics: const [
+          (label: 'Hobbies tracked', value: '0 of 3', icon: Icons.flag_rounded),
+        ],
+        dataPoints: const [
+          (label: 'Hobbies configured', type: 'I', value: '0'),
+        ],
+        activityLog: const [],
+      );
+    }
+    var totalSaved = 0.0;
+    var totalTarget = 0.0;
+    DateTime? nextDue;
+    for (final hobby in hobbies) {
+      final hobbyId = hobby['id'].toString();
+      final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+      final months = (hobby['months'] as num?)?.toInt() ?? 6;
+      final saved = state.lifestyleHobbyBalance(hobbyId);
+      totalSaved += saved;
+      totalTarget += target;
+      if (saved < target) {
+        final started =
+            state.lifestyleHobbyStartedAt(hobbyId) ?? DateTime.now();
+        final due = DateTime(started.year, started.month + months, started.day);
+        if (nextDue == null || due.isBefore(nextDue)) nextDue = due;
+      }
+    }
+    final names =
+        hobbies.map((hobby) => (hobby['name'] ?? '').toString()).join(', ');
     return _D1ActionMeta(
       id: id,
-      text:
-          'Save ${money(target)} for a hobby or activity within $months months.',
-      configLabel: 'Activity target',
-      configValue: '${money(target)} in $months months',
-      destBucket: 'Hobby or Activity Fund',
+      text: hobbies.length == 1
+          ? 'Save ${money((hobbies.first['target'] as num?)?.toDouble() ?? 0)} for $names.'
+          : 'Save toward $names.',
+      configLabel: 'Hobbies tracked',
+      configValue: '${hobbies.length} of ${AppState.lifestyleHobbyLimit}',
+      destBucket: 'Personal Lifestyle Fund',
       metrics: [
-        (label: 'Saved', value: money(saved), icon: Icons.savings_rounded),
-        (label: 'Target', value: money(target), icon: Icons.flag_rounded),
+        (
+          label: 'Saved across hobbies',
+          value: money(totalSaved),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Combined target',
+          value: money(totalTarget),
+          icon: Icons.flag_rounded
+        ),
         (
           label: 'Still needed',
-          value: money(math.max(0.0, target - saved)),
+          value: money(math.max(0.0, totalTarget - totalSaved)),
           icon: Icons.timelapse_rounded
         ),
         (
-          label: 'Target date',
-          value: _shortDate(due),
+          label: 'Next target date',
+          value: nextDue == null ? 'All funded' : _shortDate(nextDue),
           icon: Icons.event_rounded
         ),
       ],
       dataPoints: [
-        (label: 'Lifestyle Fund balance', type: 'S', value: money(saved)),
-        (label: 'Activity target', type: 'I', value: money(target)),
-        (label: 'Target completion date', type: 'T', value: _shortDate(due)),
+        (
+          label: 'Personal Lifestyle Fund balance (hobbies)',
+          type: 'S',
+          value: money(totalSaved)
+        ),
+        (label: 'Combined hobby target', type: 'I', value: money(totalTarget)),
+        (label: 'Hobbies configured', type: 'I', value: '${hobbies.length}'),
       ],
       activityLog: const [],
     );
@@ -16776,7 +17575,16 @@ class _LifestyleFundSummary extends StatelessWidget {
       _monthlySubscriptionBase(state),
     );
     final weeklyLimit = _configuredActionAmount(state, 'A28', 1500);
-    final activityTarget = _configuredActionAmount(state, 'A29', 10000);
+    final hobbies = state.lifestyleHobbies;
+    final hobbyTotalTarget = hobbies.fold<double>(
+      0,
+      (total, hobby) => total + ((hobby['target'] as num?)?.toDouble() ?? 0),
+    );
+    final hobbyTotalSaved = hobbies.fold<double>(
+      0,
+      (total, hobby) =>
+          total + state.lifestyleHobbyBalance(hobby['id'].toString()),
+    );
     final reserved = state.lifestyleReservedThisMonth;
     final weeklySpent = _currentWeekLifestyleSpend(state);
     final recurringProgress = subscriptionTarget <= 0
@@ -16784,9 +17592,9 @@ class _LifestyleFundSummary extends StatelessWidget {
         : (reserved / subscriptionTarget).clamp(0.0, 1.0);
     final weeklyScore =
         weeklyLimit <= 0 || weeklySpent <= weeklyLimit ? 1.0 : 0.0;
-    final activityProgress = activityTarget <= 0
+    final activityProgress = hobbyTotalTarget <= 0
         ? 0.0
-        : (state.lifestyleActivityBalance / activityTarget).clamp(0.0, 1.0);
+        : (hobbyTotalSaved / hobbyTotalTarget).clamp(0.0, 1.0);
     final score =
         ((recurringProgress * .4 + weeklyScore * .25 + activityProgress * .35) *
                 100)
@@ -16825,7 +17633,7 @@ class _LifestyleFundSummary extends StatelessWidget {
                 child: _CashPositionMetric(
                   icon: Icons.savings_rounded,
                   label: 'Activity savings',
-                  value: money(state.lifestyleActivityBalance),
+                  value: money(hobbyTotalSaved),
                   color: _purple,
                 ),
               ),
@@ -17153,7 +17961,7 @@ class _LifestyleTransactionsList extends StatelessWidget {
         case 'lifestyle_payday':
           activity.add(_EmergencyActivityItem(
             title: 'Payday enjoyment contribution',
-            detail: 'Added to Everyday Enjoyment Fund',
+            detail: 'Added to Personal Lifestyle Fund',
             amount: amount,
             date: date,
             incoming: true,
@@ -17355,7 +18163,7 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
       return _LifestyleWeeklyLimitActionPanel(color: color);
     }
     if (action.id == 'A29') {
-      return _LifestyleActivityTargetActionPanel(color: color);
+      return _LifestyleHobbyActionPanel(color: color);
     }
     return Container(
       decoration: BoxDecoration(
@@ -18598,7 +19406,7 @@ class _LifestylePaydayActionPanelState
             id: 'A27',
             color: widget.color,
             text:
-                'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+                'Add ${money(amount)} to the Personal Lifestyle Fund every payday.',
           ),
           const SizedBox(height: 14),
           _ActionMetricTile(
@@ -18739,90 +19547,102 @@ class _LifestyleWeeklyLimitActionPanelState
   }
 }
 
-class _LifestyleActivityTargetActionPanel extends StatefulWidget {
-  const _LifestyleActivityTargetActionPanel({required this.color});
+class _LifestyleHobbyActionPanel extends StatefulWidget {
+  const _LifestyleHobbyActionPanel({required this.color});
   final Color color;
 
   @override
-  State<_LifestyleActivityTargetActionPanel> createState() =>
-      _LifestyleActivityTargetActionPanelState();
+  State<_LifestyleHobbyActionPanel> createState() =>
+      _LifestyleHobbyActionPanelState();
 }
 
-class _LifestyleActivityTargetActionPanelState
-    extends State<_LifestyleActivityTargetActionPanel> {
-  bool busy = false;
+class _LifestyleHobbyActionPanelState
+    extends State<_LifestyleHobbyActionPanel> {
+  String? busyHobbyId;
 
-  Future<void> _addSavings(AppState state, double remaining) async {
-    if (busy || remaining <= 0) return;
+  Future<void> _addHobby(AppState state) async {
+    final draft = await _showHobbyDialog(
+      context: context,
+      title: 'Add a hobby or activity',
+      color: widget.color,
+    );
+    if (draft == null) return;
+    await state.addLifestyleHobby(
+      name: draft.name,
+      target: draft.target,
+      months: draft.months,
+    );
+  }
+
+  Future<void> _editHobby(AppState state, Map<String, dynamic> hobby) async {
+    final draft = await _showHobbyDialog(
+      context: context,
+      title: 'Edit hobby or activity',
+      color: widget.color,
+      initialName: (hobby['name'] ?? '').toString(),
+      initialTarget: (hobby['target'] as num?)?.toDouble() ?? 10000,
+      initialMonths: (hobby['months'] as num?)?.toInt() ?? 6,
+    );
+    if (draft == null) return;
+    await state.editLifestyleHobby(
+      hobby['id'].toString(),
+      name: draft.name,
+      target: draft.target,
+      months: draft.months,
+    );
+  }
+
+  Future<void> _removeHobby(AppState state, String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Remove this hobby?',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        content: const Text(
+          'This stops tracking its target. Past contributions stay in your activity history.',
+          style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await state.removeLifestyleHobby(id);
+  }
+
+  Future<void> _addSavings(
+    AppState state,
+    Map<String, dynamic> hobby,
+    double remaining,
+  ) async {
+    if (busyHobbyId != null || remaining <= 0) return;
+    final id = hobby['id'].toString();
     final amount = await _showMoneyTargetDialog(
       context: context,
-      title: 'Add hobby or activity savings',
-      label: 'Amount to save',
+      title: 'Add savings',
+      label: '${hobby['name']} savings',
       initialAmount: math.max(100, math.min(remaining, 1000)),
       color: widget.color,
     );
     if (amount == null) return;
-    setState(() => busy = true);
-    await state.depositLifestyleActivity(amount);
-    if (mounted) setState(() => busy = false);
-  }
-
-  Future<void> _editTarget(
-    AppState state,
-    double current,
-    int months,
-  ) async {
-    final updated = await _showMoneyTargetDialog(
-      context: context,
-      title: 'Set hobby or activity target',
-      label: 'Target amount',
-      initialAmount: current,
-      color: widget.color,
-    );
-    if (updated == null) return;
-    state.actionFieldValues['A29'] = {
-      'amt': updated.toStringAsFixed(0),
-      'months': months.toString(),
-    };
-    await state.saveProfile();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _editMonths(
-    AppState state,
-    double target,
-    int current,
-  ) async {
-    final updated = await _showMonthsTargetDialog(
-      context: context,
-      title: 'Set target window',
-      initialMonths: current.toDouble(),
-      color: widget.color,
-      fieldLabel: 'Months to reach the target',
-      validDescription: 'Shellby will use this as the activity target window.',
-    );
-    if (updated == null) return;
-    state.actionFieldValues['A29'] = {
-      'amt': target.toStringAsFixed(0),
-      'months': updated.toStringAsFixed(0),
-    };
-    await state.saveProfile();
-    if (mounted) setState(() {});
+    setState(() => busyHobbyId = id);
+    await state.depositLifestyleHobby(hobbyId: id, amount: amount);
+    if (mounted) setState(() => busyHobbyId = null);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final values = _configuredActionValues(state, 'A29');
-    final target = _configuredActionAmount(state, 'A29', 10000);
-    final months =
-        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
-    final saved = state.lifestyleActivityBalance;
-    final remaining = math.max(0.0, target - saved);
-    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
-    final complete = saved >= target && target > 0;
-    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
-    final due = DateTime(started.year, started.month + months, started.day);
+    final hobbies = state.lifestyleHobbies;
+    final canAddMore = hobbies.length < AppState.lifestyleHobbyLimit;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -18830,34 +19650,136 @@ class _LifestyleActivityTargetActionPanelState
           _ActionPanelHeader(
             id: 'A29',
             color: widget.color,
-            text:
-                'Save ${money(target)} for a hobby or activity within $months months.',
+            text: hobbies.isEmpty
+                ? 'Save toward a hobby or activity within a set number of months.'
+                : 'Save toward up to 3 hobbies or activities, each with its own target.',
           ),
           const SizedBox(height: 14),
-          _ActionMetricTile(
-            icon: Icons.savings_rounded,
-            label: 'Saved for activity',
-            value: money(saved),
-            color: complete ? _sage : widget.color,
+          if (hobbies.isEmpty)
+            Text(
+              'No hobby or activity targets yet. Add up to 3, each with its own amount and timeline.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11.5,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            for (final hobby in hobbies) ...[
+              _LifestyleHobbyTile(
+                hobby: hobby,
+                color: widget.color,
+                busy: busyHobbyId == hobby['id'],
+                onAddSavings: (remaining) =>
+                    _addSavings(state, hobby, remaining),
+                onEdit: () => _editHobby(state, hobby),
+                onRemove: () => _removeHobby(state, hobby['id'].toString()),
+              ),
+              const SizedBox(height: 12),
+            ],
+          if (canAddMore)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _addHobby(state),
+                icon: const Icon(Icons.add_rounded),
+                label: Text(hobbies.isEmpty
+                    ? 'Add a hobby or activity'
+                    : 'Add another (${hobbies.length}/${AppState.lifestyleHobbyLimit})'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleHobbyTile extends StatelessWidget {
+  const _LifestyleHobbyTile({
+    required this.hobby,
+    required this.color,
+    required this.busy,
+    required this.onAddSavings,
+    required this.onEdit,
+    required this.onRemove,
+  });
+  final Map<String, dynamic> hobby;
+  final Color color;
+  final bool busy;
+  final ValueChanged<double> onAddSavings;
+  final VoidCallback onEdit;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final id = hobby['id'].toString();
+    final name = (hobby['name'] ?? 'Hobby').toString();
+    final target = (hobby['target'] as num?)?.toDouble() ?? 10000;
+    final months = (hobby['months'] as num?)?.toInt() ?? 6;
+    final saved = state.lifestyleHobbyBalance(id);
+    final remaining = math.max(0.0, target - saved);
+    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
+    final complete = saved >= target && target > 0;
+    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Edit',
+                visualDensity: VisualDensity.compact,
+                onPressed: onEdit,
+                icon: const Icon(Icons.tune_rounded, size: 18),
+              ),
+              IconButton(
+                tooltip: 'Remove',
+                visualDensity: VisualDensity.compact,
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Target date: ${_shortDate(due)}',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 10),
-          _ActionMetricTile(
-            icon: Icons.event_rounded,
-            label: 'Target date',
-            value: _shortDate(due),
-            color: widget.color,
-          ),
-          const SizedBox(height: 14),
           _LabeledProgressBar(
             value: progress,
-            color: complete ? _sage : widget.color,
+            color: complete ? _sage : color,
             leadingLabel: money(saved),
             trailingLabel: money(target),
           ),
           const SizedBox(height: 8),
           Text(
             complete
-                ? 'The hobby or activity target is fully funded.'
+                ? '"$name" is fully funded.'
                 : '${money(remaining)} still needs to be saved.',
             style: TextStyle(
               color: complete ? _sage : _body,
@@ -18866,29 +19788,15 @@ class _LifestyleActivityTargetActionPanelState
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: PrimaryButton(
-                  label: busy ? 'Adding...' : 'Add savings',
-                  icon: Icons.savings_rounded,
-                  enabled: !busy && !complete,
-                  onPressed: () => _addSavings(state, remaining),
-                ),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: 'Edit target amount',
-                onPressed: () => _editTarget(state, target, months),
-                icon: const Icon(Icons.tune_rounded),
-              ),
-              IconButton(
-                tooltip: 'Edit target window',
-                onPressed: () => _editMonths(state, target, months),
-                icon: const Icon(Icons.calendar_month_rounded),
-              ),
-            ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: PrimaryButton(
+              label: busy ? 'Adding...' : 'Add savings',
+              icon: Icons.savings_rounded,
+              enabled: !busy && !complete,
+              onPressed: () => onAddSavings(remaining),
+            ),
           ),
         ],
       ),
@@ -20699,6 +21607,129 @@ Future<double?> _showMonthsTargetDialog({
       },
     ),
   ).whenComplete(controller.dispose);
+}
+
+typedef _HobbyDraft = ({String name, double target, int months});
+
+Future<_HobbyDraft?> _showHobbyDialog({
+  required BuildContext context,
+  required String title,
+  required Color color,
+  String initialName = '',
+  double initialTarget = 10000,
+  int initialMonths = 6,
+}) {
+  final nameController = TextEditingController(text: initialName);
+  final amountController =
+      TextEditingController(text: initialTarget.toStringAsFixed(0));
+  final monthsController =
+      TextEditingController(text: initialMonths.toString());
+  return showDialog<_HobbyDraft>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        final name = nameController.text.trim();
+        final target =
+            double.tryParse(amountController.text.replaceAll(',', '').trim()) ??
+                0;
+        final months =
+            int.tryParse(monthsController.text.replaceAll(',', '').trim()) ?? 0;
+        final valid = name.isNotEmpty &&
+            target >= 100 &&
+            target <= 1000000 &&
+            months >= 1 &&
+            months <= 24;
+        return AlertDialog(
+          backgroundColor: _surface,
+          title: Text(title,
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Hobby or activity name',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                maxLength: 30,
+                decoration: inputDecoration('e.g. Photography')
+                    .copyWith(counterText: ''),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 10),
+              const Text('Target amount',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}$')),
+                ],
+                decoration: inputDecoration('0').copyWith(prefixText: '₱ '),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 10),
+              const Text('Target window',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: monthsController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: false),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: inputDecoration('6').copyWith(suffixText: 'months'),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                valid
+                    ? 'Save ${money(target)} for "$name" within $months months.'
+                    : 'Enter a name, an amount from ₱100 to ₱1,000,000, and 1-24 months.',
+                style: TextStyle(
+                  color: valid ? color : _red,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: valid
+                  ? () => Navigator.of(dialogContext).pop(
+                        (name: name, target: target, months: months),
+                      )
+                  : null,
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ),
+  ).whenComplete(() {
+    nameController.dispose();
+    amountController.dispose();
+    monthsController.dispose();
+  });
 }
 
 Future<double?> _showPercentTargetDialog({
