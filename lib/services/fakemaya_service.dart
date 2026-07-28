@@ -171,6 +171,171 @@ class FakeMayaService {
     }
   }
 
+  /// Same live source as [loadLiveInvestmentPrices], but also carries the
+  /// 24h % change CoinGecko already computes (the exact figure FakeMaya's
+  /// own Crypto page shows) - used for the Accumulating Wealth insights
+  /// page's per-asset performance cards.
+  static Future<Map<String, FakeMayaAssetQuote>>
+      loadLiveInvestmentQuotes() async {
+    final uri = Uri.parse(
+      'https://api.coingecko.com/api/v3/simple/price',
+    ).replace(queryParameters: {
+      'ids': 'bitcoin,nvidia-xstock',
+      'vs_currencies': 'php',
+      'include_24hr_change': 'true',
+    });
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 10));
+      final response =
+          await request.close().timeout(const Duration(seconds: 10));
+      final payload = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == HttpStatus.tooManyRequests) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now. Market price tokens are limited, so try again later.',
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now.',
+        );
+      }
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final btc = _mapFrom(data['bitcoin']);
+      final nvda = _mapFrom(data['nvidia-xstock']);
+      final btcPrice = FakeMayaAccountSummary._doubleFrom(btc?['php'], 0);
+      final nvdaPrice = FakeMayaAccountSummary._doubleFrom(nvda?['php'], 0);
+      if (btcPrice <= 0 || nvdaPrice <= 0) {
+        throw const FakeMayaException(
+          'Unavailable to refresh asset prices right now.',
+        );
+      }
+      return {
+        'BTC': FakeMayaAssetQuote(
+          price: btcPrice,
+          changePercent24h:
+              FakeMayaAccountSummary._doubleFrom(btc?['php_24h_change'], 0),
+        ),
+        'NVDA': FakeMayaAssetQuote(
+          price: nvdaPrice,
+          changePercent24h:
+              FakeMayaAccountSummary._doubleFrom(nvda?['php_24h_change'], 0),
+        ),
+      };
+    } on FakeMayaException {
+      rethrow;
+    } on SocketException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices. Check your connection.',
+      );
+    } on TimeoutException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices right now.',
+      );
+    } on FormatException {
+      throw const FakeMayaException(
+        'Unavailable to refresh asset prices right now.',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static const _investmentCoinGeckoIds = {
+    'BTC': 'bitcoin',
+    'NVDA': 'nvidia-xstock'
+  };
+
+  /// Live historical PHP price series for BTC/NVDA over the last [days],
+  /// straight from CoinGecko's public market_chart endpoint - the same
+  /// source FakeMaya's own Crypto page uses for live prices. Used to chart
+  /// portfolio value over time without needing FakeMaya to keep its own
+  /// price history (it only ever stores the current price).
+  static Future<Map<String, List<FakeMayaPricePoint>>>
+      loadHistoricalInvestmentPrices({required int days}) async {
+    final result = <String, List<FakeMayaPricePoint>>{};
+    for (final entry in _investmentCoinGeckoIds.entries) {
+      result[entry.key] =
+          await _fetchMarketChart(coinId: entry.value, days: days);
+    }
+    return result;
+  }
+
+  static Future<List<FakeMayaPricePoint>> _fetchMarketChart({
+    required String coinId,
+    required int days,
+  }) async {
+    final uri = Uri.parse(
+      'https://api.coingecko.com/api/v3/coins/$coinId/market_chart',
+    ).replace(queryParameters: {
+      'vs_currency': 'php',
+      'days': days.toString(),
+    });
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 10));
+      final response =
+          await request.close().timeout(const Duration(seconds: 12));
+      final payload = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode == HttpStatus.tooManyRequests) {
+        throw const FakeMayaException(
+          'Unavailable to load price history right now. Market price tokens are limited, so try again later.',
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw const FakeMayaException(
+          'Unavailable to load price history right now.',
+        );
+      }
+      final data = jsonDecode(payload) as Map<String, dynamic>;
+      final prices = data['prices'];
+      if (prices is! List) {
+        throw const FakeMayaException(
+          'Unavailable to load price history right now.',
+        );
+      }
+      return prices
+          .map((point) {
+            if (point is! List || point.length < 2) return null;
+            final ms = (point[0] as num?)?.toInt();
+            final price = (point[1] as num?)?.toDouble();
+            if (ms == null || price == null || price <= 0) return null;
+            return FakeMayaPricePoint(
+              DateTime.fromMillisecondsSinceEpoch(ms),
+              price,
+            );
+          })
+          .whereType<FakeMayaPricePoint>()
+          .toList();
+    } on FakeMayaException {
+      rethrow;
+    } on SocketException {
+      throw const FakeMayaException(
+        'Unavailable to load price history. Check your connection.',
+      );
+    } on TimeoutException {
+      throw const FakeMayaException(
+        'Unavailable to load price history right now.',
+      );
+    } on FormatException {
+      throw const FakeMayaException(
+        'Unavailable to load price history right now.',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   static Future<FakeMayaAccountSummary> loadWalletSummary({
     required String userId,
     required String accessToken,
@@ -840,6 +1005,7 @@ class FakeMayaAccountSummary {
     this.selectedGoalId = FakeMayaPersonalGoal.essentialExpenseFundId,
     this.personalGoals = const [],
     this.investmentHoldings = const [],
+    this.investmentTransactions = const [],
     required this.creditLimit,
     required this.creditUsed,
     this.creditBillingDay,
@@ -857,6 +1023,7 @@ class FakeMayaAccountSummary {
   final String selectedGoalId;
   final List<FakeMayaPersonalGoal> personalGoals;
   final List<FakeMayaInvestmentHolding> investmentHoldings;
+  final List<FakeMayaStockTransaction> investmentTransactions;
   final double creditLimit;
   final double creditUsed;
   final int? creditBillingDay;
@@ -868,6 +1035,18 @@ class FakeMayaAccountSummary {
         0,
         (total, holding) => total + holding.value,
       );
+  double get investmentHoldingsCostBasis => investmentHoldings.fold<double>(
+        0,
+        (total, holding) => total + holding.costBasis,
+      );
+  double get investmentHoldingsUnrealizedGain =>
+      investmentHoldingsValue - investmentHoldingsCostBasis;
+  double get investmentHoldingsUnrealizedGainPercent =>
+      investmentHoldingsCostBasis <= 0
+          ? 0
+          : investmentHoldingsUnrealizedGain /
+              investmentHoldingsCostBasis *
+              100;
   double get availableCredit => math.max(0, creditLimit - creditUsed);
   DateTime? get nextCreditCycleBillDate {
     if (creditUsed <= 0) return null;
@@ -932,6 +1111,7 @@ class FakeMayaAccountSummary {
     String? selectedGoalId,
     List<FakeMayaPersonalGoal>? personalGoals,
     List<FakeMayaInvestmentHolding>? investmentHoldings,
+    List<FakeMayaStockTransaction>? investmentTransactions,
     double? creditLimit,
     double? creditUsed,
     int? creditBillingDay,
@@ -949,6 +1129,8 @@ class FakeMayaAccountSummary {
       selectedGoalId: selectedGoalId ?? this.selectedGoalId,
       personalGoals: personalGoals ?? this.personalGoals,
       investmentHoldings: investmentHoldings ?? this.investmentHoldings,
+      investmentTransactions:
+          investmentTransactions ?? this.investmentTransactions,
       creditLimit: creditLimit ?? this.creditLimit,
       creditUsed: creditUsed ?? this.creditUsed,
       creditBillingDay: creditBillingDay ?? this.creditBillingDay,
@@ -980,6 +1162,8 @@ class FakeMayaAccountSummary {
       'personalGoals': personalGoals.map((goal) => goal.toMap()).toList(),
       'investmentHoldings':
           investmentHoldings.map((holding) => holding.toMap()).toList(),
+      'investmentTransactions':
+          investmentTransactions.map((t) => t.toMap()).toList(),
       'creditLimit': creditLimit,
       'creditUsed': creditUsed,
       'creditBillingDay': creditBillingDay,
@@ -999,6 +1183,11 @@ class FakeMayaAccountSummary {
       'stockHoldings': {
         for (final holding in investmentHoldings) holding.symbol: holding.units,
       },
+      // Round-tripped so a Shelby-triggered write (e.g. a bucket deposit)
+      // never wipes out FakeMaya's own trade history - app_state is written
+      // back wholesale, not merged field-by-field.
+      'stockTransactions':
+          investmentTransactions.map((t) => t.toMap()).toList(),
       'goal': (personalGoalById(selectedGoalId) ??
               personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId) ??
               _legacyPersonalGoal())
@@ -1064,6 +1253,12 @@ class FakeMayaAccountSummary {
             appState['investmentHoldings'] ??
             appState['stockHoldings'],
         marketPrices: appState['marketPrices'],
+        transactions: _stockTransactionsFrom(
+          data['investmentTransactions'] ?? appState['stockTransactions'],
+        ),
+      ),
+      investmentTransactions: _stockTransactionsFrom(
+        data['investmentTransactions'] ?? appState['stockTransactions'],
       ),
       creditLimit: _doubleFrom(
         appState['creditLimit'] ?? data['creditLimit'] ?? data['credit_limit'],
@@ -1194,9 +1389,22 @@ class FakeMayaAccountSummary {
   static List<FakeMayaInvestmentHolding> _investmentHoldingsFrom(
     Object? value, {
     Object? marketPrices,
+    List<FakeMayaStockTransaction> transactions = const [],
   }) {
+    final costBasisBySymbol = _costBasisBySymbol(transactions);
+    List<FakeMayaInvestmentHolding> withCostBasis(
+      List<FakeMayaInvestmentHolding> holdings,
+    ) {
+      if (costBasisBySymbol.isEmpty) return holdings;
+      return holdings
+          .map((holding) => holding.copyWith(
+                costBasis: costBasisBySymbol[holding.symbol],
+              ))
+          .toList();
+    }
+
     if (value is Map) {
-      return value.entries
+      return withCostBasis(value.entries
           .map((entry) => FakeMayaInvestmentHolding.fromSymbolUnits(
                 entry.key.toString(),
                 _doubleFrom(entry.value, 0),
@@ -1206,17 +1414,17 @@ class FakeMayaAccountSummary {
                 ),
               ))
           .whereType<FakeMayaInvestmentHolding>()
-          .toList();
+          .toList());
     }
     if (value is Iterable) {
-      return value
+      return withCostBasis(value
           .map((item) => item is Map
               ? FakeMayaInvestmentHolding.fromMap(
                   Map<String, dynamic>.from(item),
                 )
               : null)
           .whereType<FakeMayaInvestmentHolding>()
-          .toList();
+          .toList());
     }
     return const [];
   }
@@ -1227,6 +1435,49 @@ class FakeMayaAccountSummary {
     if (raw is num) return raw.toDouble();
     if (raw is Map) return _doubleFrom(raw['price'], 0);
     return 0;
+  }
+
+  static List<FakeMayaStockTransaction> _stockTransactionsFrom(Object? value) {
+    if (value is! Iterable) return const [];
+    return value
+        .map((item) => item is Map
+            ? FakeMayaStockTransaction.fromMap(Map<String, dynamic>.from(item))
+            : null)
+        .whereType<FakeMayaStockTransaction>()
+        .toList();
+  }
+
+  /// Weighted-average cost basis (total ₱ still "in" the currently-held
+  /// units) per symbol, replayed from FakeMaya's own buy/sell history.
+  /// FakeMaya stores transactions newest-first (and caps the list at 20), so
+  /// this is best-effort - a symbol with a longer history than that will
+  /// have its earliest buys silently dropped, same as FakeMaya's own UI.
+  static Map<String, double> _costBasisBySymbol(
+    List<FakeMayaStockTransaction> transactions,
+  ) {
+    final bySymbol = <String, List<FakeMayaStockTransaction>>{};
+    for (final tx in transactions) {
+      bySymbol.putIfAbsent(tx.symbol, () => []).add(tx);
+    }
+    final result = <String, double>{};
+    for (final entry in bySymbol.entries) {
+      var units = 0.0;
+      var cost = 0.0;
+      // Chronological replay (oldest first) is required for a correct
+      // running average, so reverse FakeMaya's newest-first ordering.
+      for (final tx in entry.value.reversed) {
+        if (tx.isBuy) {
+          units += tx.shares;
+          cost += tx.amount;
+        } else if (units > 0) {
+          final soldFraction = (tx.shares / units).clamp(0.0, 1.0);
+          cost -= cost * soldFraction;
+          units = math.max(0.0, units - tx.shares);
+        }
+      }
+      result[entry.key] = math.max(0.0, cost);
+    }
+    return result;
   }
 
   static double _doubleFrom(Object? value, double fallback) {
@@ -1300,6 +1551,7 @@ class FakeMayaInvestmentHolding {
     required this.units,
     required this.price,
     required this.unitLabel,
+    this.costBasis = 0,
   });
 
   final String symbol;
@@ -1308,12 +1560,22 @@ class FakeMayaInvestmentHolding {
   final double units;
   final double price;
   final String unitLabel;
+  // Total ₱ still "in" the currently-held units (weighted-average cost),
+  // reconstructed from FakeMaya's buy/sell history - see
+  // FakeMayaAccountSummary._costBasisBySymbol. 0 when there's no trade
+  // history to derive it from (e.g. a holding seeded directly rather than
+  // bought through FakeMaya's Crypto page).
+  final double costBasis;
 
   double get value => units * price;
+  double get unrealizedGain => value - costBasis;
+  double get unrealizedGainPercent =>
+      costBasis <= 0 ? 0 : unrealizedGain / costBasis * 100;
 
   FakeMayaInvestmentHolding copyWith({
     double? price,
     double? units,
+    double? costBasis,
   }) {
     return FakeMayaInvestmentHolding(
       symbol: symbol,
@@ -1322,6 +1584,7 @@ class FakeMayaInvestmentHolding {
       units: units ?? this.units,
       price: price ?? this.price,
       unitLabel: unitLabel,
+      costBasis: costBasis ?? this.costBasis,
     );
   }
 
@@ -1343,6 +1606,7 @@ class FakeMayaInvestmentHolding {
       'price': price,
       'unitLabel': unitLabel,
       'value': value,
+      'costBasis': costBasis,
     };
   }
 
@@ -1362,6 +1626,7 @@ class FakeMayaInvestmentHolding {
           ? 0
           : parsedPrice,
       unitLabel: data['unitLabel']?.toString() ?? template.unitLabel,
+      costBasis: FakeMayaAccountSummary._doubleFrom(data['costBasis'], 0),
     );
   }
 
@@ -1379,6 +1644,79 @@ class FakeMayaInvestmentHolding {
       units: units,
       price: price,
       unitLabel: template.unitLabel,
+    );
+  }
+}
+
+/// A single FakeMaya Crypto-page buy/sell event (BTC/NVDA today).
+/// One point in a live historical price series (see
+/// [FakeMayaService.loadHistoricalInvestmentPrices]).
+class FakeMayaPricePoint {
+  const FakeMayaPricePoint(this.date, this.price);
+  final DateTime date;
+  final double price;
+}
+
+/// A live current price + 24h change (see
+/// [FakeMayaService.loadLiveInvestmentQuotes]).
+class FakeMayaAssetQuote {
+  const FakeMayaAssetQuote(
+      {required this.price, required this.changePercent24h});
+  final double price;
+  final double changePercent24h;
+}
+
+class FakeMayaStockTransaction {
+  const FakeMayaStockTransaction({
+    required this.side,
+    required this.symbol,
+    required this.name,
+    required this.shares,
+    required this.unitLabel,
+    required this.type,
+    required this.amount,
+    this.createdAt,
+  });
+
+  final String side; // 'Bought' | 'Sold'
+  final String symbol;
+  final String name;
+  final double shares;
+  final String unitLabel;
+  final String type;
+  final double amount;
+  final DateTime? createdAt;
+
+  bool get isBuy =>
+      side.trim().toLowerCase().startsWith('buy') ||
+      side.trim().toLowerCase().startsWith('bought');
+
+  Map<String, dynamic> toMap() {
+    return {
+      'side': side,
+      'symbol': symbol,
+      'name': name,
+      'shares': shares,
+      'unitLabel': unitLabel,
+      'type': type,
+      'amount': amount,
+      'createdAt': createdAt?.toIso8601String(),
+    };
+  }
+
+  factory FakeMayaStockTransaction.fromMap(Map<String, dynamic> data) {
+    return FakeMayaStockTransaction(
+      side: data['side']?.toString() ?? 'Bought',
+      symbol: (data['symbol']?.toString() ?? '').trim().toUpperCase(),
+      name: data['name']?.toString() ?? '',
+      shares: FakeMayaAccountSummary._doubleFrom(
+        data['shares'] ?? data['units'],
+        0,
+      ),
+      unitLabel: data['unitLabel']?.toString() ?? 'units',
+      type: data['type']?.toString() ?? 'asset',
+      amount: FakeMayaAccountSummary._doubleFrom(data['amount'], 0),
+      createdAt: DateTime.tryParse(data['createdAt']?.toString() ?? ''),
     );
   }
 }

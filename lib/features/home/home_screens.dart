@@ -3689,6 +3689,8 @@ class _InsightsPageState extends State<InsightsPage> {
   DateTime? _selectedMonth;
   final _actionStageKey = GlobalKey();
   final _emergencyActionStageKey = GlobalKey();
+  final _investmentActionStageKey = GlobalKey();
+  final _freedomActionStageKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -3745,6 +3747,14 @@ class _InsightsPageState extends State<InsightsPage> {
                 selectedWeek: _selectedWeek,
                 onWeekSelected: (week) => setState(() => _selectedWeek = week),
                 actionStageKey: _emergencyActionStageKey,
+              ),
+            'Accumulating Wealth' => _AccumulatingWealthExplorer(
+                state: state,
+                actionStageKey: _investmentActionStageKey,
+              ),
+            'Financial Freedom' => _FinancialFreedomExplorer(
+                state: state,
+                actionStageKey: _freedomActionStageKey,
               ),
             _ => _MotivationGoalsSummary(
                 state: state,
@@ -5517,6 +5527,299 @@ _CashActionScore? _cashActionScoreFor({
         'Configured coverage target: ${months.toStringAsFixed(0)} months',
         'Monthly essential expenses: ${money(monthlyEssentials)}',
         'Emergency Fund balance counted: ${money(currentFund)}',
+      ],
+    );
+  }
+  return null;
+}
+
+/// Accumulating Wealth (G5)'s action scores. Unlike Available Cash/Emergency
+/// Fund, these actions (A12/A23/A30) aren't tied to a weekly income/spending
+/// pattern, so each is scored as a single current-state point rather than a
+/// multi-week series - the same "pattern: [ratio], weekLabels: ['Current']"
+/// shape A22 (Emergency Fund coverage) already uses for the same reason.
+List<_CashActionScore> _investmentActionScores({required AppState state}) {
+  final configured =
+      state.selectedActionIds.where(_investmentGoalActionIds.contains).toList();
+  final actionIds = configured.isEmpty ? _investmentGoalActionIds : configured;
+  return [
+    for (final id in actionIds) _investmentActionScoreFor(id: id, state: state),
+  ].whereType<_CashActionScore>().toList();
+}
+
+_CashActionScore? _investmentActionScoreFor({
+  required String id,
+  required AppState state,
+}) {
+  final values = state.actionFieldValues[id] ?? const <String, String>{};
+  double configuredNumber(String key, double fallback) {
+    return double.tryParse((values[key] ?? '').replaceAll(',', '').trim()) ??
+        fallback;
+  }
+
+  final balance = state.investmentBalance;
+  if (id == 'A12') {
+    final pct = configuredNumber('pct', 10);
+    final latestIncome = _latestIncomeTransaction(state);
+    if (latestIncome == null) {
+      return _CashActionScore(
+        id: id,
+        title: 'Invest a share of income',
+        score: 0,
+        detail: 'No income has been detected yet to invest a share of.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: '${pct.toStringAsFixed(0)}% of income',
+        formula:
+            'Progress = whether the configured ${pct.toStringAsFixed(0)}% share of the latest income was invested.',
+        evidence: const ['No income transaction detected yet'],
+        emptyReason: 'No income has been detected yet to invest a share of.',
+      );
+    }
+    final contribution = latestIncome.amount * pct / 100;
+    final done =
+        state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
+    final ratio = done ? 1.0 : 0.0;
+    return _CashActionScore(
+      id: id,
+      title: 'Invest a share of income',
+      score: ratio,
+      detail: done
+          ? '${money(contribution)} of the latest income was invested at ${pct.toStringAsFixed(0)}%.'
+          : '${money(contribution)} of the latest income has not been invested yet.',
+      pattern: [ratio],
+      weekLabels: const ['Latest income'],
+      actualLabel: done ? money(contribution) : money(0),
+      targetLabel: money(contribution),
+      formula:
+          'Progress = whether the configured ${pct.toStringAsFixed(0)}% share of the latest income was invested.',
+      evidence: [
+        'Configured contribution: ${pct.toStringAsFixed(0)}% of each income',
+        'Latest income: ${money(latestIncome.amount)}',
+      ],
+    );
+  }
+  if (id == 'A23') {
+    final target = configuredNumber('amt', state.investmentPortfolioTarget);
+    final ratio = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Build the Investment Portfolio',
+      score: ratio,
+      detail:
+          '${money(balance)} saved toward a ${money(target)} portfolio target.',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: money(balance),
+      targetLabel: money(target),
+      formula:
+          'Progress = current Investment Portfolio balance ÷ configured target.',
+      evidence: [
+        'Configured portfolio target: ${money(target)}',
+        'Investment Portfolio balance: ${money(balance)}',
+      ],
+    );
+  }
+  if (id == 'A30') {
+    final target =
+        configuredNumber('pct', state.investmentTargetAnnualReturnPercent);
+    final baseline = state.investmentReturnBaselineDate;
+    final tracking = baseline != null;
+    final actual = state.investmentAnnualizedReturnPercent;
+    if (!tracking) {
+      return _CashActionScore(
+        id: id,
+        title: 'Meet the annual return target',
+        score: 0,
+        detail:
+            'Start tracking to compare performance with the ${target.toStringAsFixed(0)}% target.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: 'Not tracking',
+        targetLabel: '${target.toStringAsFixed(0)}%',
+        formula:
+            'Progress = annualized investment return since tracking started ÷ configured target annual return.',
+        evidence: const ['Tracking has not started yet'],
+        emptyReason: 'Start tracking to see this action\'s score.',
+      );
+    }
+    final ratio = target <= 0 ? 1.0 : (actual / target).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Meet the annual return target',
+      score: ratio,
+      detail:
+          '${actual.toStringAsFixed(1)}% annualized return toward a ${target.toStringAsFixed(0)}% target.',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: '${actual.toStringAsFixed(1)}%',
+      targetLabel: '${target.toStringAsFixed(0)}%',
+      formula:
+          'Progress = annualized investment return since tracking started ÷ configured target annual return.',
+      evidence: [
+        'Configured target annual return: ${target.toStringAsFixed(0)}%',
+        'Tracking since: ${_shortDate(baseline)}',
+      ],
+    );
+  }
+  return null;
+}
+
+/// Financial Freedom (G8)'s action scores. The pyramid's top layer is
+/// intentionally relaxed - each action (A26-A29) is still scored as a
+/// single current-state point, the same "pattern: [ratio]" shape used for
+/// Accumulating Wealth's actions, since none of these have a natural
+/// multi-week series either.
+List<_CashActionScore> _lifestyleActionScores({required AppState state}) {
+  final configured =
+      state.selectedActionIds.where(_lifestyleGoalActionIds.contains).toList();
+  final actionIds = configured.isEmpty ? _lifestyleGoalActionIds : configured;
+  return [
+    for (final id in actionIds) _lifestyleActionScoreFor(id: id, state: state),
+  ].whereType<_CashActionScore>().toList();
+}
+
+_CashActionScore? _lifestyleActionScoreFor({
+  required String id,
+  required AppState state,
+}) {
+  double configuredNumber(String key, double fallback) {
+    final values = state.actionFieldValues[id] ?? const <String, String>{};
+    return double.tryParse((values[key] ?? '').replaceAll(',', '').trim()) ??
+        fallback;
+  }
+
+  if (id == 'A26') {
+    final target = configuredNumber('amt', _monthlySubscriptionBase(state));
+    final reserved = state.lifestyleReservedThisMonth;
+    final ratio = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Set aside subscriptions and memberships money',
+      score: ratio,
+      detail:
+          '${money(reserved)} reserved this month toward a ${money(target)} target.',
+      pattern: [ratio],
+      weekLabels: const ['This month'],
+      actualLabel: money(reserved),
+      targetLabel: money(target),
+      formula:
+          'Progress = amount reserved this month ÷ configured monthly subscriptions target.',
+      evidence: [
+        'Configured monthly target: ${money(target)}',
+        'Reserved this month: ${money(reserved)}',
+      ],
+    );
+  }
+  if (id == 'A27') {
+    final amount = configuredNumber('amt', 1000);
+    final latestIncome = _latestIncomeTransaction(state);
+    if (latestIncome == null) {
+      return _CashActionScore(
+        id: id,
+        title: 'Add to the Personal Lifestyle Fund every payday',
+        score: 0,
+        detail: 'No income has been detected yet to fund a payday transfer.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: money(amount),
+        formula:
+            'Progress = whether the configured payday transfer was made for the latest income.',
+        evidence: const ['No income transaction detected yet'],
+        emptyReason:
+            'No income has been detected yet to fund a payday transfer.',
+      );
+    }
+    final done = state.hasLifestylePaydayAllocation(latestIncome.transactionId);
+    final ratio = done ? 1.0 : 0.0;
+    return _CashActionScore(
+      id: id,
+      title: 'Add to the Personal Lifestyle Fund every payday',
+      score: ratio,
+      detail: done
+          ? '${money(amount)} was added to the Personal Lifestyle Fund on the latest payday.'
+          : '${money(amount)} has not been added yet for the latest payday.',
+      pattern: [ratio],
+      weekLabels: const ['Latest payday'],
+      actualLabel: done ? money(amount) : money(0),
+      targetLabel: money(amount),
+      formula:
+          'Progress = whether the configured payday transfer was made for the latest income.',
+      evidence: [
+        'Configured payday amount: ${money(amount)}',
+        'Latest payday: ${money(latestIncome.amount)}',
+      ],
+    );
+  }
+  if (id == 'A28') {
+    final limit = configuredNumber('amt', 1500);
+    final spent = _currentWeekLifestyleSpend(state);
+    final ratio =
+        limit <= 0 || spent <= limit ? 1.0 : (limit / spent).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Keep everyday enjoyment spending within the weekly limit',
+      score: ratio,
+      detail: spent <= limit
+          ? '${money(spent)} spent this week, within the ${money(limit)} limit.'
+          : '${money(spent)} spent this week, over the ${money(limit)} limit.',
+      pattern: [ratio],
+      weekLabels: const ['This week'],
+      actualLabel: money(spent),
+      targetLabel: money(limit),
+      formula:
+          'Progress = configured weekly limit ÷ actual spend when over the limit, otherwise full credit.',
+      evidence: [
+        'Configured weekly limit: ${money(limit)}',
+        'Spent this week: ${money(spent)}',
+      ],
+    );
+  }
+  if (id == 'A29') {
+    final hobbies = state.lifestyleHobbies;
+    if (hobbies.isEmpty) {
+      return _CashActionScore(
+        id: id,
+        title: 'Save toward a hobby or activity',
+        score: 0,
+        detail: 'No hobby or activity targets have been set up yet.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: 'Not set',
+        formula:
+            'Progress = total saved across configured hobbies ÷ their combined target.',
+        evidence: const ['No hobbies configured yet'],
+        emptyReason:
+            'Add a hobby or activity target to see this action\'s score.',
+      );
+    }
+    var totalSaved = 0.0;
+    var totalTarget = 0.0;
+    for (final hobby in hobbies) {
+      totalSaved += state.lifestyleHobbyBalance(hobby['id'].toString());
+      totalTarget += (hobby['target'] as num?)?.toDouble() ?? 0;
+    }
+    final ratio =
+        totalTarget <= 0 ? 0.0 : (totalSaved / totalTarget).clamp(0.0, 1.0);
+    final names = hobbies.map((h) => (h['name'] ?? '').toString()).join(', ');
+    return _CashActionScore(
+      id: id,
+      title: 'Save toward a hobby or activity',
+      score: ratio,
+      detail:
+          '${money(totalSaved)} saved toward $names (${money(totalTarget)} combined target).',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: money(totalSaved),
+      targetLabel: money(totalTarget),
+      formula:
+          'Progress = total saved across configured hobbies ÷ their combined target.',
+      evidence: [
+        'Hobbies configured: ${hobbies.length}',
+        'Combined target: ${money(totalTarget)}',
       ],
     );
   }
@@ -8467,6 +8770,1495 @@ class _CoverageMilestoneRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─── Accumulating Wealth (G5) insights ─────────────────────────────────────
+
+class _AccumulatingWealthExplorer extends StatelessWidget {
+  const _AccumulatingWealthExplorer({
+    required this.state,
+    required this.actionStageKey,
+  });
+  final AppState state;
+  final GlobalKey actionStageKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final holdings = state.fakeMayaLink?.summary.investmentHoldings ?? const [];
+    final totalValue = state.investmentBalance +
+        (state.fakeMayaLink?.summary.investmentHoldingsValue ?? 0);
+    final investmentScores = _investmentActionScores(state: state);
+
+    return Column(
+      children: [
+        _GoalInsightHeader(
+          icon: Icons.trending_up_rounded,
+          title: 'Accumulating Wealth',
+          color: _purple,
+          subtitle: 'Grow your investments',
+          statText: '${money(totalValue)} total',
+        ),
+        _GoalSuggestionBanner(
+          goalLabel: 'accumulating wealth',
+          allowedActionIds: _investmentGoalActionIds,
+          color: _purple,
+          runStage: (coach, state) =>
+              coach.recommendInvestmentActionStage(state: state),
+          onViewSuggestions: () {
+            final target = actionStageKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOut,
+              );
+            }
+          },
+        ),
+        _PortfolioValueCard(holdings: holdings),
+        _InvestmentMetricsGrid(state: state, holdings: holdings),
+        _InvestmentHoldingsCard(holdings: holdings),
+        _ActionProgressSection(actionScores: investmentScores),
+        _GoalActionStageSection(
+          key: actionStageKey,
+          goalId: 'G5',
+          goalLabel: 'Grow Investments',
+          allowedActionIds: _investmentGoalActionIds,
+          subtitle:
+              'Shellby reviews the latest Investment Portfolio and FakeMaya trading activity against the Grow Investments action set.',
+          emptyMessage:
+              'The stage will compare current actions with the Grow Investments action set, then rank what to review first.',
+          runStage: (coach, state) =>
+              coach.recommendInvestmentActionStage(state: state),
+        ),
+      ],
+    );
+  }
+}
+
+enum _PortfolioRange { oneWeek, oneMonth, threeMonths, sixMonths, oneYear }
+
+extension on _PortfolioRange {
+  String get label => switch (this) {
+        _PortfolioRange.oneWeek => '1W',
+        _PortfolioRange.oneMonth => '1M',
+        _PortfolioRange.threeMonths => '3M',
+        _PortfolioRange.sixMonths => '6M',
+        _PortfolioRange.oneYear => '1Y',
+      };
+  int get days => switch (this) {
+        _PortfolioRange.oneWeek => 7,
+        _PortfolioRange.oneMonth => 30,
+        _PortfolioRange.threeMonths => 90,
+        _PortfolioRange.sixMonths => 180,
+        _PortfolioRange.oneYear => 365,
+      };
+}
+
+class _PortfolioHistoryPoint {
+  const _PortfolioHistoryPoint(this.date, this.value);
+  final DateTime date;
+  final double value;
+}
+
+/// Builds a daily portfolio-value series from FakeMaya's currently-held
+/// units and CoinGecko's live historical prices. FakeMaya itself never
+/// tracks historical holdings changes, so this approximates "what the
+/// current holdings would have been worth" rather than replaying exact
+/// past trades - the same simplification FakeMaya's own single-price
+/// model already makes.
+List<_PortfolioHistoryPoint> _buildPortfolioHistory({
+  required Map<String, List<FakeMayaPricePoint>> pricesBySymbol,
+  required List<FakeMayaInvestmentHolding> holdings,
+}) {
+  final held = holdings.where((holding) => holding.units > 0).toList();
+  if (held.isEmpty) return const [];
+  final allDays = <DateTime>{};
+  for (final series in pricesBySymbol.values) {
+    for (final point in series) {
+      allDays.add(DateTime(point.date.year, point.date.month, point.date.day));
+    }
+  }
+  if (allDays.isEmpty) return const [];
+  final sortedDays = allDays.toList()..sort();
+
+  double nearestPrice(List<FakeMayaPricePoint> series, DateTime day) {
+    if (series.isEmpty) return 0;
+    var best = series.first;
+    var bestDiff = series.first.date.difference(day).abs();
+    for (final point in series) {
+      final diff = point.date.difference(day).abs();
+      if (diff < bestDiff) {
+        best = point;
+        bestDiff = diff;
+      }
+    }
+    return best.price;
+  }
+
+  return sortedDays.map((day) {
+    var total = 0.0;
+    for (final holding in held) {
+      final series = pricesBySymbol[holding.symbol] ?? const [];
+      total += holding.units * nearestPrice(series, day);
+    }
+    return _PortfolioHistoryPoint(day, total);
+  }).toList();
+}
+
+class _PortfolioValueCard extends StatefulWidget {
+  const _PortfolioValueCard({required this.holdings});
+  final List<FakeMayaInvestmentHolding> holdings;
+
+  @override
+  State<_PortfolioValueCard> createState() => _PortfolioValueCardState();
+}
+
+class _PortfolioValueCardState extends State<_PortfolioValueCard> {
+  _PortfolioRange _range = _PortfolioRange.oneMonth;
+  bool _loading = false;
+  String? _error;
+  List<_PortfolioHistoryPoint> _history = const [];
+  _PortfolioHistoryPoint? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PortfolioValueCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_holdingsKey(oldWidget.holdings) != _holdingsKey(widget.holdings)) {
+      _load();
+    }
+  }
+
+  String _holdingsKey(List<FakeMayaInvestmentHolding> holdings) =>
+      holdings.map((h) => '${h.symbol}:${h.units}').join(',');
+
+  Future<void> _load() async {
+    final held = widget.holdings.where((h) => h.units > 0).toList();
+    if (held.isEmpty) {
+      setState(() {
+        _history = const [];
+        _loading = false;
+        _error = null;
+        _selected = null;
+      });
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      _selected = null;
+    });
+    try {
+      final prices = await FakeMayaService.loadHistoricalInvestmentPrices(
+        days: _range.days,
+      );
+      if (!mounted) return;
+      setState(() {
+        _history =
+            _buildPortfolioHistory(pricesBySymbol: prices, holdings: held);
+        _loading = false;
+      });
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Unavailable to load price history right now.';
+        _loading = false;
+      });
+    }
+  }
+
+  void _changeRange(_PortfolioRange range) {
+    if (range == _range) return;
+    setState(() => _range = range);
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final held = widget.holdings.where((h) => h.units > 0).toList();
+    final currentValue = held.fold<double>(0, (total, h) => total + h.value);
+    final startValue = _history.isEmpty ? currentValue : _history.first.value;
+    final displayed = _selected ?? (_history.isEmpty ? null : _history.last);
+    final displayedValue = displayed?.value ?? currentValue;
+    final delta = displayedValue - startValue;
+    final deltaPercent = startValue <= 0 ? 0.0 : delta / startValue * 100;
+    final positive = delta >= 0;
+    final color = positive ? _sage : _red;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'PORTFOLIO VALUE',
+                        style: TextStyle(
+                          color: _body,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        money(displayedValue),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      if (held.isNotEmpty)
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: .12),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      positive
+                                          ? Icons.arrow_upward_rounded
+                                          : Icons.arrow_downward_rounded,
+                                      size: 10,
+                                      color: color,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      '${positive ? '+' : '-'}${money(delta.abs())}',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: .12),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  '${positive ? '+' : ''}${deltaPercent.toStringAsFixed(2)}%',
+                                  style: TextStyle(
+                                    color: color,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (_selected != null)
+                              Text(
+                                _shortDate(_selected!.date),
+                                style: const TextStyle(
+                                  color: _body,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: [
+                    for (final range in _PortfolioRange.values)
+                      _RangeChip(
+                        label: range.label,
+                        selected: range == _range,
+                        onTap: () => _changeRange(range),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (held.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No stock or crypto holdings yet. Buy BTC or NVDA in FakeMaya\'s Crypto page to see performance here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              )
+            else if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              )
+            else if (_error != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Column(
+                  children: [
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: _red,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(onPressed: _load, child: const Text('Retry')),
+                  ],
+                ),
+              )
+            else ...[
+              _PortfolioLineChart(
+                points: _history,
+                color: color,
+                onPointSelected: (point) => setState(() => _selected = point),
+              ),
+              if (_history.length >= 2) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_shortDate(_history.first.date),
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700)),
+                    Text(_shortDate(_history[_history.length ~/ 2].date),
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700)),
+                    Text(_shortDate(_history.last.date),
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RangeChip extends StatelessWidget {
+  const _RangeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected ? _title : _bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: selected ? _title : _border),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : _body,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A tappable/draggable line chart of portfolio value over time. Dragging
+/// or tapping shows a crosshair at the nearest point and reports it via
+/// [onPointSelected] (null once released) so the parent card can "zoom in"
+/// its header metrics to that point in time.
+class _PortfolioLineChart extends StatefulWidget {
+  const _PortfolioLineChart({
+    required this.points,
+    required this.color,
+    required this.onPointSelected,
+  });
+  final List<_PortfolioHistoryPoint> points;
+  final Color color;
+  final ValueChanged<_PortfolioHistoryPoint?> onPointSelected;
+
+  @override
+  State<_PortfolioLineChart> createState() => _PortfolioLineChartState();
+}
+
+class _PortfolioLineChartState extends State<_PortfolioLineChart> {
+  int? _selectedIndex;
+
+  void _select(Offset localPosition, Size size) {
+    if (widget.points.length < 2 || size.width <= 0) return;
+    final fraction = (localPosition.dx / size.width).clamp(0.0, 1.0);
+    final index = (fraction * (widget.points.length - 1)).round();
+    setState(() => _selectedIndex = index);
+    widget.onPointSelected(widget.points[index]);
+  }
+
+  void _clear() {
+    if (_selectedIndex == null) return;
+    setState(() => _selectedIndex = null);
+    widget.onPointSelected(null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.points.length < 2) {
+      return const SizedBox(
+        height: 210,
+        child: Center(
+          child: Text(
+            'Not enough price history yet.',
+            style: TextStyle(
+                color: _body, fontWeight: FontWeight.w700, fontSize: 11.5),
+          ),
+        ),
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, 210);
+        return GestureDetector(
+          onTapDown: (details) => _select(details.localPosition, size),
+          onHorizontalDragStart: (details) =>
+              _select(details.localPosition, size),
+          onHorizontalDragUpdate: (details) =>
+              _select(details.localPosition, size),
+          onHorizontalDragEnd: (_) => _clear(),
+          onTapUp: (_) => _clear(),
+          child: SizedBox(
+            height: 210,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _PortfolioLinePainter(
+                points: widget.points,
+                color: widget.color,
+                selectedIndex: _selectedIndex,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PortfolioLinePainter extends CustomPainter {
+  _PortfolioLinePainter({
+    required this.points,
+    required this.color,
+    required this.selectedIndex,
+  });
+  final List<_PortfolioHistoryPoint> points;
+  final Color color;
+  final int? selectedIndex;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final values = points.map((p) => p.value).toList();
+    final minValue = values.reduce(math.min);
+    final maxValue = values.reduce(math.max);
+    final range =
+        (maxValue - minValue).abs() < 0.01 ? 1.0 : maxValue - minValue;
+
+    Offset offsetFor(int index) {
+      final x =
+          points.length <= 1 ? 0.0 : size.width * index / (points.length - 1);
+      final y = size.height -
+          ((points[index].value - minValue) / range) * size.height;
+      return Offset(x, y.clamp(0.0, size.height));
+    }
+
+    final linePath = Path();
+    final fillPath = Path();
+    for (var i = 0; i < points.length; i++) {
+      final offset = offsetFor(i);
+      if (i == 0) {
+        linePath.moveTo(offset.dx, offset.dy);
+        fillPath.moveTo(offset.dx, offset.dy);
+      } else {
+        linePath.lineTo(offset.dx, offset.dy);
+        fillPath.lineTo(offset.dx, offset.dy);
+      }
+    }
+    fillPath.lineTo(size.width, size.height);
+    fillPath.lineTo(0, size.height);
+    fillPath.close();
+
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [color.withValues(alpha: .18), color.withValues(alpha: 0)],
+        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+    );
+
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    final selected = selectedIndex;
+    if (selected != null && selected >= 0 && selected < points.length) {
+      final offset = offsetFor(selected);
+      final dashPaint = Paint()
+        ..color = color.withValues(alpha: .45)
+        ..strokeWidth = 1;
+      var y = 0.0;
+      const dashHeight = 4.0;
+      const dashGap = 3.0;
+      while (y < size.height) {
+        canvas.drawLine(
+          Offset(offset.dx, y),
+          Offset(offset.dx, math.min(y + dashHeight, size.height)),
+          dashPaint,
+        );
+        y += dashHeight + dashGap;
+      }
+      canvas.drawCircle(offset, 5, Paint()..color = color);
+      canvas.drawCircle(
+        offset,
+        5,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PortfolioLinePainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.selectedIndex != selectedIndex ||
+        oldDelegate.color != color;
+  }
+}
+
+class _InvestmentMetricsGrid extends StatefulWidget {
+  const _InvestmentMetricsGrid({required this.state, required this.holdings});
+  final AppState state;
+  final List<FakeMayaInvestmentHolding> holdings;
+
+  @override
+  State<_InvestmentMetricsGrid> createState() => _InvestmentMetricsGridState();
+}
+
+class _InvestmentMetricsGridState extends State<_InvestmentMetricsGrid> {
+  Map<String, FakeMayaAssetQuote>? _quotes;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadQuotes();
+  }
+
+  Future<void> _loadQuotes() async {
+    try {
+      final quotes = await FakeMayaService.loadLiveInvestmentQuotes();
+      if (mounted) setState(() => _quotes = quotes);
+    } catch (_) {
+      // Fall back silently to whatever FakeMaya-reported holding price is
+      // already available - a failed live refresh shouldn't block the rest
+      // of the page.
+    }
+  }
+
+  FakeMayaInvestmentHolding? _holdingFor(String symbol) =>
+      widget.holdings.where((h) => h.symbol == symbol).firstOrNull;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final totalInvested = state.investmentBalance +
+        (state.fakeMayaLink?.summary.investmentHoldingsCostBasis ?? 0);
+    final tracking = state.investmentReturnBaselineDate != null;
+    final annualizedReturn = state.investmentAnnualizedReturnPercent;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 1.5,
+        children: [
+          _MetricMiniCard(
+            label: 'Total Invested',
+            value: money(totalInvested),
+            icon: Icons.savings_rounded,
+            color: _purple,
+          ),
+          _MetricMiniCard(
+            label: 'Annualized Return',
+            value: tracking
+                ? '${annualizedReturn >= 0 ? '+' : ''}${annualizedReturn.toStringAsFixed(1)}%'
+                : 'Not tracking',
+            icon: annualizedReturn >= 0
+                ? Icons.trending_up_rounded
+                : Icons.trending_down_rounded,
+            color: !tracking ? _body : (annualizedReturn >= 0 ? _sage : _red),
+          ),
+          _StockPerformanceCard(
+            symbol: 'BTC',
+            name: 'Bitcoin',
+            quote: _quotes?['BTC'],
+            holding: _holdingFor('BTC'),
+          ),
+          _StockPerformanceCard(
+            symbol: 'NVDA',
+            name: 'NVIDIA',
+            quote: _quotes?['NVDA'],
+            holding: _holdingFor('NVDA'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricMiniCard extends StatelessWidget {
+  const _MetricMiniCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+                color: _body, fontSize: 10.5, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                  color: color, fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A dark "market pulse" card for one of FakeMaya's 2 tradeable assets,
+/// showing its live price and 24h change regardless of whether the user
+/// currently holds it.
+class _StockPerformanceCard extends StatelessWidget {
+  const _StockPerformanceCard({
+    required this.symbol,
+    required this.name,
+    required this.quote,
+    required this.holding,
+  });
+  final String symbol;
+  final String name;
+  final FakeMayaAssetQuote? quote;
+  final FakeMayaInvestmentHolding? holding;
+
+  @override
+  Widget build(BuildContext context) {
+    final price = quote?.price ?? holding?.price ?? 0;
+    final change = quote?.changePercent24h ?? 0;
+    final positive = change >= 0;
+    final accent =
+        symbol == 'BTC' ? const Color(0xFFF5C518) : const Color(0xFF76B900);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF14101C),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration:
+                    BoxDecoration(color: accent, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                symbol,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            name,
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 10,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              price > 0 ? money(price) : '—',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900),
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (price > 0)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  positive
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
+                  size: 11,
+                  color: positive ? _sage : _red,
+                ),
+                const SizedBox(width: 2),
+                Text(
+                  '${change.abs().toStringAsFixed(2)}% 24h',
+                  style: TextStyle(
+                    color: positive ? _sage : _red,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentHoldingsCard extends StatelessWidget {
+  const _InvestmentHoldingsCard({required this.holdings});
+  final List<FakeMayaInvestmentHolding> holdings;
+
+  @override
+  Widget build(BuildContext context) {
+    final held = holdings.where((h) => h.units > 0).toList();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'HOLDINGS',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (held.isEmpty)
+              const Text(
+                'No stock or crypto holdings yet. Buy BTC or NVDA in FakeMaya\'s Crypto page to see them here.',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  height: 1.4,
+                ),
+              )
+            else
+              for (var i = 0; i < held.length; i++) ...[
+                if (i > 0)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Divider(height: 1, color: _border),
+                  ),
+                _HoldingRow(holding: held[i]),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HoldingRow extends StatelessWidget {
+  const _HoldingRow({required this.holding});
+  final FakeMayaInvestmentHolding holding;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = holding.symbol == 'BTC'
+        ? const Color(0xFFF5C518)
+        : const Color(0xFF76B900);
+    final gain = holding.unrealizedGain;
+    final gainPercent = holding.unrealizedGainPercent;
+    final positive = gain >= 0;
+    final hasCostBasis = holding.costBasis > 0;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 3,
+          height: 40,
+          decoration: BoxDecoration(
+              color: accent, borderRadius: BorderRadius.circular(2)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                holding.name,
+                style: const TextStyle(
+                    color: _title, fontSize: 13.5, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                holding.type == 'crypto' ? 'Crypto' : 'Stock',
+                style: const TextStyle(
+                    color: _body, fontSize: 10.5, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              money(holding.value),
+              style: const TextStyle(
+                  color: _title, fontSize: 13.5, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              hasCostBasis
+                  ? '${positive ? '+' : ''}${gainPercent.toStringAsFixed(2)}%'
+                  : '—',
+              style: TextStyle(
+                color: hasCostBasis ? (positive ? _sage : _red) : _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Financial Freedom (G8 / Lifestyle Fund) insights ───────────────────────
+
+const _freedomColor = Color(0xFF6AA8F0);
+
+class _FinancialFreedomExplorer extends StatelessWidget {
+  const _FinancialFreedomExplorer({
+    required this.state,
+    required this.actionStageKey,
+  });
+  final AppState state;
+  final GlobalKey actionStageKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final hobbies = state.lifestyleHobbies;
+    final hobbiesSaved = hobbies.fold<double>(
+      0,
+      (total, hobby) =>
+          total + state.lifestyleHobbyBalance(hobby['id'].toString()),
+    );
+    final totalValue = state.lifestyleFundBalance + hobbiesSaved;
+    final lifestyleScores = _lifestyleActionScores(state: state);
+    return Column(
+      children: [
+        _GoalInsightHeader(
+          icon: Icons.celebration_rounded,
+          title: 'Financial Freedom',
+          color: _freedomColor,
+          subtitle: 'Enjoy life, on your terms',
+          statText: '${money(totalValue)} total',
+        ),
+        _GoalSuggestionBanner(
+          goalLabel: 'financial freedom',
+          allowedActionIds: _lifestyleActionStageActionIds,
+          color: _freedomColor,
+          runStage: (coach, state) =>
+              coach.recommendLifestyleActionStage(state: state),
+          onViewSuggestions: () {
+            final target = actionStageKey.currentContext;
+            if (target != null) {
+              Scrollable.ensureVisible(
+                target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeInOut,
+              );
+            }
+          },
+        ),
+        _LifestyleTargetFundsCard(state: state),
+        _LifestyleOverviewGrid(state: state),
+        _LifestyleWeeklySpendCard(state: state),
+        _LifestyleContributionsChart(
+          points: _lifestyleMonthlyContributions(state),
+          balance: state.lifestyleFundBalance,
+        ),
+        _ActionProgressSection(actionScores: lifestyleScores),
+        _GoalActionStageSection(
+          key: actionStageKey,
+          goalId: 'G8',
+          goalLabel: 'Lifestyle Fund',
+          allowedActionIds: _lifestyleActionStageActionIds,
+          subtitle:
+              'Shellby reviews the latest Personal Lifestyle Fund activity against the Lifestyle Fund action set.',
+          emptyMessage:
+              'The stage will compare current actions with the Lifestyle Fund action set, then rank what to review first.',
+          runStage: (coach, state) =>
+              coach.recommendLifestyleActionStage(state: state),
+        ),
+      ],
+    );
+  }
+}
+
+class _LifestyleTargetFundsCard extends StatelessWidget {
+  const _LifestyleTargetFundsCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final hobbies = state.lifestyleHobbies;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'TARGET FUNDS',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Hobby and activity progress',
+              style: TextStyle(
+                color: _title,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (hobbies.isEmpty)
+              Text(
+                'No hobby or activity targets yet. Add up to 3 from the Lifestyle Fund goal in Goals to see progress here.',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  height: 1.4,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            else
+              for (var i = 0; i < hobbies.length; i++) ...[
+                _HobbyProgressLine(hobby: hobbies[i], state: state),
+                if (i < hobbies.length - 1) const SizedBox(height: 16),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HobbyProgressLine extends StatelessWidget {
+  const _HobbyProgressLine({required this.hobby, required this.state});
+  final Map<String, dynamic> hobby;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = hobby['id'].toString();
+    final name = (hobby['name'] ?? 'Hobby').toString();
+    final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+    final months = (hobby['months'] as num?)?.toInt() ?? 6;
+    final saved = state.lifestyleHobbyBalance(id);
+    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
+    final complete = saved >= target && target > 0;
+    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              complete ? 'Funded' : 'By ${_shortDate(due)}',
+              style: TextStyle(
+                color: complete ? _sage : _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _LabeledProgressBar(
+          value: progress,
+          color: complete ? _sage : _freedomColor,
+          leadingLabel: money(saved),
+          trailingLabel: money(target),
+        ),
+      ],
+    );
+  }
+}
+
+class _LifestyleOverviewGrid extends StatelessWidget {
+  const _LifestyleOverviewGrid({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final target = _configuredActionAmount(
+      state,
+      'A26',
+      _monthlySubscriptionBase(state),
+    );
+    final reserved = state.lifestyleReservedThisMonth;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: _MetricMiniCard(
+              label: 'Subscriptions this month',
+              value: '${money(reserved)} / ${money(target)}',
+              icon: Icons.subscriptions_rounded,
+              color: _freedomColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _MetricMiniCard(
+              label: 'Personal Lifestyle Fund',
+              value: money(state.lifestyleFundBalance),
+              icon: Icons.account_balance_wallet_rounded,
+              color: _freedomColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleWeeklySpendCard extends StatelessWidget {
+  const _LifestyleWeeklySpendCard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final limit = _configuredActionAmount(state, 'A28', 1500);
+    final spent = _currentWeekLifestyleSpend(state);
+    final over = spent > limit;
+    final progress = limit <= 0 ? 1.0 : (spent / limit);
+    final color = over ? _red : _freedomColor;
+    final pastWeeks = [
+      for (var i = 3; i >= 0; i--) _lifestyleSpendForCompletedWeek(state, i),
+    ];
+    final maxWeek = [...pastWeeks, spent, limit].fold<double>(1, math.max);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'EVERYDAY ENJOYMENT',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  money(spent),
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'of ${money(limit)} this week',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress.clamp(0.0, 1.0),
+                minHeight: 9,
+                color: color,
+                backgroundColor: color.withValues(alpha: .12),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              over
+                  ? '${money(spent - limit)} over the weekly limit - no pressure, just something to notice.'
+                  : '${money(math.max(0.0, limit - spent))} left in this week\'s enjoyment budget.',
+              style: TextStyle(
+                color: over ? _red : _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (var i = 0; i < pastWeeks.length; i++)
+                  Expanded(
+                    child: _WeeklySpendBar(
+                      label: '${pastWeeks.length - i}w ago',
+                      value: pastWeeks[i],
+                      limit: limit,
+                      maxValue: maxWeek,
+                    ),
+                  ),
+                Expanded(
+                  child: _WeeklySpendBar(
+                    label: 'This wk',
+                    value: spent,
+                    limit: limit,
+                    maxValue: maxWeek,
+                    emphasize: true,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeeklySpendBar extends StatelessWidget {
+  const _WeeklySpendBar({
+    required this.label,
+    required this.value,
+    required this.limit,
+    required this.maxValue,
+    this.emphasize = false,
+  });
+  final String label;
+  final double value;
+  final double limit;
+  final double maxValue;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final over = limit > 0 && value > limit;
+    final color = over ? _red : _freedomColor;
+    final height = 56 * (value / maxValue).clamp(0.03, 1.0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          SizedBox(
+            height: 56,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                height: height,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: emphasize ? 1 : .45),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: emphasize ? _title : _body,
+              fontSize: 9.5,
+              fontWeight: emphasize ? FontWeight.w900 : FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleContributionsChart extends StatelessWidget {
+  const _LifestyleContributionsChart({
+    required this.points,
+    required this.balance,
+  });
+  final List<_MonthlyContributionPoint> points;
+  final double balance;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = points.map((p) => p.amount).fold<double>(1, math.max);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'PERSONAL LIFESTYLE FUND',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              money(balance),
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Monthly contributions',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 110,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final point in points)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              height: 78 *
+                                  (point.amount / maxValue).clamp(0.02, 1.0),
+                              decoration: BoxDecoration(
+                                color: _freedomColor.withValues(
+                                  alpha: point.amount > 0 ? 1 : .15,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              point.label,
+                              style: const TextStyle(
+                                color: _body,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -13169,6 +14961,98 @@ double _currentWeekLifestyleSpend(AppState state) {
   );
 }
 
+/// Everyday-enjoyment spend for a completed week, [weeksAgo] weeks back
+/// (0 = the most recently completed week before this one). Used for the
+/// Financial Freedom insights page's weekly spending trend, separate from
+/// [_currentWeekLifestyleSpend] which cuts off at "now" for the in-progress
+/// week rather than a fixed 7-day window.
+double _lifestyleSpendForCompletedWeek(AppState state, int weeksAgo) {
+  final now = DateTime.now();
+  final thisWeekStart = DateTime(now.year, now.month, now.day)
+      .subtract(Duration(days: now.weekday - 1));
+  final start = thisWeekStart.subtract(Duration(days: 7 * (weeksAgo + 1)));
+  final end = start.add(const Duration(days: 7));
+  final lifestylePattern = RegExp(
+    r'entertainment|travel|personal goal|movie|cinema|concert|game|hobby|coffee|cafe|restaurant|bar',
+    caseSensitive: false,
+  );
+  final recurringPattern = RegExp(
+    r'subscription|membership|stream|netflix|spotify|gym|club|app plan',
+    caseSensitive: false,
+  );
+  return state.allTransactions.where((transaction) {
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    if (transaction.amount >= 0 ||
+        transaction.excludedFromInsights ||
+        date == null ||
+        date.isBefore(start) ||
+        !date.isBefore(end)) {
+      return false;
+    }
+    final category = transaction.category ?? '';
+    final layer = _insightCategoryConfig(category).$1;
+    final text =
+        '$category ${transaction.title} ${transaction.detail}'.toLowerCase();
+    if (recurringPattern.hasMatch(text)) return false;
+    return layer == 4 || lifestylePattern.hasMatch(text);
+  }).fold<double>(
+    0,
+    (total, transaction) => total + transaction.amount.abs(),
+  );
+}
+
+/// Combined Personal Lifestyle Fund inflow (A26 subscription reserves + A27
+/// payday transfers) for the last [months] calendar months, oldest first -
+/// the data behind the Financial Freedom insights page's contributions bar
+/// chart.
+List<_MonthlyContributionPoint> _lifestyleMonthlyContributions(
+  AppState state, {
+  int months = 6,
+}) {
+  final now = DateTime.now();
+  final buckets = <DateTime, double>{};
+  for (var i = months - 1; i >= 0; i--) {
+    final monthDate = DateTime(now.year, now.month - i, 1);
+    buckets[monthDate] = 0;
+  }
+  const types = {'lifestyle_subscription_reserve', 'lifestyle_payday'};
+  for (final entry in state.d1Ledger) {
+    if (!types.contains(entry['type']?.toString())) continue;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null) continue;
+    final monthKey = DateTime(date.year, date.month, 1);
+    if (!buckets.containsKey(monthKey)) continue;
+    buckets[monthKey] =
+        (buckets[monthKey] ?? 0) + ((entry['amount'] as num?)?.toDouble() ?? 0);
+  }
+  const monthLabels = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return buckets.entries
+      .map((entry) => _MonthlyContributionPoint(
+            monthLabels[entry.key.month - 1],
+            entry.value,
+          ))
+      .toList();
+}
+
+class _MonthlyContributionPoint {
+  const _MonthlyContributionPoint(this.label, this.amount);
+  final String label;
+  final double amount;
+}
+
 class _D1GoalCard extends StatelessWidget {
   const _D1GoalCard({required this.goal, required this.onTap});
   final _D1GoalMeta goal;
@@ -14148,33 +16032,40 @@ _D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
       activityLog: const [],
     );
   }
-  if (id == 'A24') {
-    final target =
-        double.tryParse((values['amt'] ?? '').replaceAll(',', '').trim()) ??
-            1000;
-    final earned = state.investmentEarningsThisMonth;
-    final remaining = math.max(0.0, target - earned);
+  if (id == 'A30') {
+    final target = double.tryParse(
+          (values['pct'] ?? '').replaceAll(',', '').trim(),
+        ) ??
+        state.investmentTargetAnnualReturnPercent;
+    final tracking = state.investmentReturnBaselineDate != null;
+    final actual = state.investmentAnnualizedReturnPercent;
+    final onTrack = state.isInvestmentAnnualReturnOnTrack;
     return _D1ActionMeta(
-      id: 'A24',
-      text: 'Earn at least ${money(target)} from investments this month.',
-      configLabel: 'Monthly earnings target',
-      configValue: money(target),
+      id: 'A30',
+      text:
+          'Keep your investment portfolio on track to meet your target annual return on investment of ${target.toStringAsFixed(0)}%.',
+      configLabel: 'Target annual return',
+      configValue: '${target.toStringAsFixed(0)}%',
       destBucket: 'Investment Portfolio',
       metrics: [
         (
-          label: 'Earned this month',
-          value: money(earned),
-          icon: Icons.trending_up_rounded
+          label: 'Annualized return',
+          value: tracking ? '${actual.toStringAsFixed(1)}%' : 'Not tracking',
+          icon: actual >= 0
+              ? Icons.trending_up_rounded
+              : Icons.trending_down_rounded
         ),
         (
-          label: 'Earnings target',
-          value: money(target),
+          label: 'Target annual return',
+          value: '${target.toStringAsFixed(0)}%',
           icon: Icons.flag_rounded
         ),
         (
-          label: 'Still needed',
-          value: money(remaining),
-          icon: Icons.timelapse_rounded
+          label: tracking
+              ? (onTrack ? 'Ahead of target' : 'Behind target')
+              : 'Status',
+          value: tracking ? (onTrack ? 'Yes' : 'No') : 'Not started',
+          icon: onTrack ? Icons.check_circle_rounded : Icons.warning_rounded
         ),
         (
           label: 'Portfolio balance',
@@ -14183,47 +16074,17 @@ _D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
         ),
       ],
       dataPoints: [
-        (label: 'Investment earnings', type: 'S', value: money(earned)),
-        (label: 'Monthly earnings target', type: 'I', value: money(target)),
         (label: 'Investment account balance', type: 'S', value: money(balance)),
-      ],
-      activityLog: const [],
-    );
-  }
-  if (id == 'A25') {
-    final limit =
-        double.tryParse((values['amt'] ?? '').replaceAll(',', '').trim()) ??
-            1000;
-    final losses = state.investmentLossesThisMonth;
-    final remaining = math.max(0.0, limit - losses);
-    return _D1ActionMeta(
-      id: 'A25',
-      text: 'Keep investment losses below ${money(limit)} this month.',
-      configLabel: 'Monthly loss limit',
-      configValue: money(limit),
-      destBucket: 'Investment Portfolio',
-      metrics: [
         (
-          label: 'Losses this month',
-          value: money(losses),
-          icon: Icons.trending_down_rounded
-        ),
-        (label: 'Loss limit', value: money(limit), icon: Icons.flag_rounded),
-        (
-          label: losses >= limit ? 'Limit exceeded' : 'Room remaining',
-          value: money(remaining),
-          icon: losses >= limit ? Icons.warning_rounded : Icons.shield_rounded
+          label: 'Target annual return',
+          type: 'I',
+          value: '${target.toStringAsFixed(0)}%'
         ),
         (
-          label: 'Net return this month',
-          value: money(state.investmentNetReturnThisMonth),
-          icon: Icons.insights_rounded
+          label: 'Annualized return since tracking started',
+          type: 'I',
+          value: tracking ? '${actual.toStringAsFixed(1)}%' : 'Not tracking'
         ),
-      ],
-      dataPoints: [
-        (label: 'Investment losses', type: 'S', value: money(losses)),
-        (label: 'Monthly loss limit', type: 'I', value: money(limit)),
-        (label: 'Investment account balance', type: 'S', value: money(balance)),
       ],
       activityLog: const [],
     );
@@ -14294,10 +16155,10 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
         state.hasLifestylePaydayAllocation(income.transactionId);
     return _D1ActionMeta(
       id: id,
-      text: 'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+      text: 'Add ${money(amount)} to the Personal Lifestyle Fund every payday.',
       configLabel: 'Every payday',
       configValue: money(amount),
-      destBucket: 'Everyday Enjoyment Fund',
+      destBucket: 'Personal Lifestyle Fund',
       metrics: [
         (
           label: 'Latest payday',
@@ -14374,38 +16235,80 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
     );
   }
   if (id == 'A29') {
-    final target =
-        double.tryParse((values['amt'] ?? '').replaceAll(',', '')) ?? 10000;
-    final months =
-        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
-    final saved = state.lifestyleActivityBalance;
-    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
-    final due = DateTime(started.year, started.month + months, started.day);
+    final hobbies = state.lifestyleHobbies;
+    if (hobbies.isEmpty) {
+      return _D1ActionMeta(
+        id: id,
+        text: 'Save toward a hobby or activity within a set number of months.',
+        configLabel: 'Activity target',
+        configValue: 'Not set up yet',
+        destBucket: 'Personal Lifestyle Fund',
+        metrics: const [
+          (label: 'Hobbies tracked', value: '0 of 3', icon: Icons.flag_rounded),
+        ],
+        dataPoints: const [
+          (label: 'Hobbies configured', type: 'I', value: '0'),
+        ],
+        activityLog: const [],
+      );
+    }
+    var totalSaved = 0.0;
+    var totalTarget = 0.0;
+    DateTime? nextDue;
+    for (final hobby in hobbies) {
+      final hobbyId = hobby['id'].toString();
+      final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+      final months = (hobby['months'] as num?)?.toInt() ?? 6;
+      final saved = state.lifestyleHobbyBalance(hobbyId);
+      totalSaved += saved;
+      totalTarget += target;
+      if (saved < target) {
+        final started =
+            state.lifestyleHobbyStartedAt(hobbyId) ?? DateTime.now();
+        final due = DateTime(started.year, started.month + months, started.day);
+        if (nextDue == null || due.isBefore(nextDue)) nextDue = due;
+      }
+    }
+    final names =
+        hobbies.map((hobby) => (hobby['name'] ?? '').toString()).join(', ');
     return _D1ActionMeta(
       id: id,
-      text:
-          'Save ${money(target)} for a hobby or activity within $months months.',
-      configLabel: 'Activity target',
-      configValue: '${money(target)} in $months months',
-      destBucket: 'Hobby or Activity Fund',
+      text: hobbies.length == 1
+          ? 'Save ${money((hobbies.first['target'] as num?)?.toDouble() ?? 0)} for $names.'
+          : 'Save toward $names.',
+      configLabel: 'Hobbies tracked',
+      configValue: '${hobbies.length} of ${AppState.lifestyleHobbyLimit}',
+      destBucket: 'Personal Lifestyle Fund',
       metrics: [
-        (label: 'Saved', value: money(saved), icon: Icons.savings_rounded),
-        (label: 'Target', value: money(target), icon: Icons.flag_rounded),
+        (
+          label: 'Saved across hobbies',
+          value: money(totalSaved),
+          icon: Icons.savings_rounded
+        ),
+        (
+          label: 'Combined target',
+          value: money(totalTarget),
+          icon: Icons.flag_rounded
+        ),
         (
           label: 'Still needed',
-          value: money(math.max(0.0, target - saved)),
+          value: money(math.max(0.0, totalTarget - totalSaved)),
           icon: Icons.timelapse_rounded
         ),
         (
-          label: 'Target date',
-          value: _shortDate(due),
+          label: 'Next target date',
+          value: nextDue == null ? 'All funded' : _shortDate(nextDue),
           icon: Icons.event_rounded
         ),
       ],
       dataPoints: [
-        (label: 'Lifestyle Fund balance', type: 'S', value: money(saved)),
-        (label: 'Activity target', type: 'I', value: money(target)),
-        (label: 'Target completion date', type: 'T', value: _shortDate(due)),
+        (
+          label: 'Personal Lifestyle Fund balance (hobbies)',
+          type: 'S',
+          value: money(totalSaved)
+        ),
+        (label: 'Combined hobby target', type: 'I', value: money(totalTarget)),
+        (label: 'Hobbies configured', type: 'I', value: '${hobbies.length}'),
       ],
       activityLog: const [],
     );
@@ -15614,25 +17517,24 @@ class _GrowInvestmentsSummary extends StatelessWidget {
     final balance = state.investmentBalance;
     final target =
         _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
-    final earningsTarget = _configuredActionAmount(state, 'A24', 1000);
-    final lossLimit = _configuredActionAmount(state, 'A25', 1000);
-    final earnings = state.investmentEarningsThisMonth;
-    final losses = state.investmentLossesThisMonth;
     final latestIncome = _latestIncomeTransaction(state);
     final contributionMade = latestIncome != null &&
         state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
     final targetProgress =
         target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
-    final earningsProgress =
-        earningsTarget <= 0 ? 0.0 : (earnings / earningsTarget).clamp(0.0, 1.0);
     final contributionScore = contributionMade ? 1.0 : 0.0;
-    final lossScore = lossLimit <= 0 || losses < lossLimit ? 1.0 : 0.0;
-    final feasibility = ((targetProgress * .40 +
-                earningsProgress * .25 +
-                contributionScore * .20 +
-                lossScore * .15) *
-            100)
-        .round();
+    final returnTarget = state.investmentTargetAnnualReturnPercent;
+    final returnTracking = state.investmentReturnBaselineDate != null;
+    final returnScore = !returnTracking
+        ? 0.5 // neutral until the user starts tracking an annual return
+        : returnTarget <= 0
+            ? 1.0
+            : (state.investmentAnnualizedReturnPercent / returnTarget)
+                .clamp(0.0, 1.0);
+    final feasibility =
+        ((targetProgress * .40 + returnScore * .35 + contributionScore * .25) *
+                100)
+            .round();
     final scoreColor = feasibility >= 80
         ? _sage
         : feasibility >= 60
@@ -15731,7 +17633,7 @@ class _GrowInvestmentsSummary extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} target. The score also considers this month\'s earnings, whether the latest income was invested, and whether losses remain below ${money(lossLimit)}.',
+                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} target. The score also considers whether the latest income was invested and how the annualized return compares with your ${returnTarget.toStringAsFixed(0)}% target.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 10.5,
@@ -15760,7 +17662,16 @@ class _LifestyleFundSummary extends StatelessWidget {
       _monthlySubscriptionBase(state),
     );
     final weeklyLimit = _configuredActionAmount(state, 'A28', 1500);
-    final activityTarget = _configuredActionAmount(state, 'A29', 10000);
+    final hobbies = state.lifestyleHobbies;
+    final hobbyTotalTarget = hobbies.fold<double>(
+      0,
+      (total, hobby) => total + ((hobby['target'] as num?)?.toDouble() ?? 0),
+    );
+    final hobbyTotalSaved = hobbies.fold<double>(
+      0,
+      (total, hobby) =>
+          total + state.lifestyleHobbyBalance(hobby['id'].toString()),
+    );
     final reserved = state.lifestyleReservedThisMonth;
     final weeklySpent = _currentWeekLifestyleSpend(state);
     final recurringProgress = subscriptionTarget <= 0
@@ -15768,9 +17679,9 @@ class _LifestyleFundSummary extends StatelessWidget {
         : (reserved / subscriptionTarget).clamp(0.0, 1.0);
     final weeklyScore =
         weeklyLimit <= 0 || weeklySpent <= weeklyLimit ? 1.0 : 0.0;
-    final activityProgress = activityTarget <= 0
+    final activityProgress = hobbyTotalTarget <= 0
         ? 0.0
-        : (state.lifestyleActivityBalance / activityTarget).clamp(0.0, 1.0);
+        : (hobbyTotalSaved / hobbyTotalTarget).clamp(0.0, 1.0);
     final score =
         ((recurringProgress * .4 + weeklyScore * .25 + activityProgress * .35) *
                 100)
@@ -15809,7 +17720,7 @@ class _LifestyleFundSummary extends StatelessWidget {
                 child: _CashPositionMetric(
                   icon: Icons.savings_rounded,
                   label: 'Activity savings',
-                  value: money(state.lifestyleActivityBalance),
+                  value: money(hobbyTotalSaved),
                   color: _purple,
                 ),
               ),
@@ -16137,7 +18048,7 @@ class _LifestyleTransactionsList extends StatelessWidget {
         case 'lifestyle_payday':
           activity.add(_EmergencyActivityItem(
             title: 'Payday enjoyment contribution',
-            detail: 'Added to Everyday Enjoyment Fund',
+            detail: 'Added to Personal Lifestyle Fund',
             amount: amount,
             date: date,
             incoming: true,
@@ -16326,11 +18237,8 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
     if (action.id == 'A23') {
       return _InvestmentPortfolioTargetActionPanel(color: color);
     }
-    if (action.id == 'A24') {
-      return _InvestmentEarningsActionPanel(color: color);
-    }
-    if (action.id == 'A25') {
-      return _InvestmentLossLimitActionPanel(color: color);
+    if (action.id == 'A30') {
+      return _InvestmentAnnualReturnActionPanel(color: color);
     }
     if (action.id == 'A26') {
       return _LifestyleSubscriptionsActionPanel(color: color);
@@ -16342,7 +18250,7 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
       return _LifestyleWeeklyLimitActionPanel(color: color);
     }
     if (action.id == 'A29') {
-      return _LifestyleActivityTargetActionPanel(color: color);
+      return _LifestyleHobbyActionPanel(color: color);
     }
     return Container(
       decoration: BoxDecoration(
@@ -17239,236 +19147,167 @@ class _InvestmentPortfolioTargetActionPanelState
   }
 }
 
-class _InvestmentEarningsActionPanel extends StatefulWidget {
-  const _InvestmentEarningsActionPanel({required this.color});
+class _InvestmentAnnualReturnActionPanel extends StatefulWidget {
+  const _InvestmentAnnualReturnActionPanel({required this.color});
   final Color color;
 
   @override
-  State<_InvestmentEarningsActionPanel> createState() =>
-      _InvestmentEarningsActionPanelState();
+  State<_InvestmentAnnualReturnActionPanel> createState() =>
+      _InvestmentAnnualReturnActionPanelState();
 }
 
-class _InvestmentEarningsActionPanelState
-    extends State<_InvestmentEarningsActionPanel> {
+class _InvestmentAnnualReturnActionPanelState
+    extends State<_InvestmentAnnualReturnActionPanel> {
   bool busy = false;
 
-  Future<void> _recordEarnings(AppState state, double suggestedAmount) async {
-    if (busy) return;
-    final amount = await _showMoneyTargetDialog(
-      context: context,
-      title: 'Record investment earnings',
-      label: 'Earnings amount',
-      initialAmount: math.max(100, suggestedAmount),
-      color: widget.color,
-    );
-    if (amount == null) return;
-    setState(() => busy = true);
-    await state.recordInvestmentPerformance(
-      amount: amount,
-      isGain: true,
-    );
-    if (mounted) setState(() => busy = false);
-  }
-
   Future<void> _editTarget(AppState state, double current) async {
-    final updated = await _showMoneyTargetDialog(
+    final updated = await _showPercentTargetDialog(
       context: context,
-      title: 'Set monthly earnings target',
-      label: 'Monthly earnings target',
-      initialAmount: current,
+      title: 'Set target annual return',
+      label: 'Target annual return',
+      initialPercent: current,
       color: widget.color,
     );
     if (updated == null) return;
-    state.actionFieldValues['A24'] = {'amt': updated.toStringAsFixed(0)};
+    state.actionFieldValues['A30'] = {'pct': updated.toStringAsFixed(0)};
     await state.saveProfile();
     if (mounted) setState(() {});
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final state = AppScope.of(context);
-    final target = _configuredActionAmount(state, 'A24', 1000);
-    final earned = state.investmentEarningsThisMonth;
-    final remaining = math.max(0.0, target - earned);
-    final progress = target <= 0 ? 0.0 : (earned / target).clamp(0.0, 1.0);
-    final complete = earned >= target && target > 0;
-    return _ActionCardShell(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _ActionPanelHeader(
-            id: 'A24',
-            color: widget.color,
-            text: 'Earn at least ${money(target)} from investments this month.',
+  Future<void> _startTracking(AppState state) async {
+    if (busy) return;
+    setState(() => busy = true);
+    await state.startInvestmentReturnTracking();
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _restartTracking(AppState state) async {
+    if (busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Restart tracking?',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        content: const Text(
+          "This resets the annual return calculation to start from today's "
+          "portfolio balance. Past performance won't count toward the new "
+          'tracking window.',
+          style: TextStyle(color: _body, fontWeight: FontWeight.w600),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
           ),
-          const SizedBox(height: 14),
-          _ActionMetricTile(
-            icon: Icons.trending_up_rounded,
-            label: 'Earned this month',
-            value: money(earned),
-            color: complete ? _sage : widget.color,
-          ),
-          const SizedBox(height: 10),
-          _ActionMetricTile(
-            icon: Icons.flag_rounded,
-            label: 'Earnings target',
-            value: money(target),
-            color: widget.color,
-          ),
-          const SizedBox(height: 14),
-          _LabeledProgressBar(
-            value: progress,
-            color: complete ? _sage : widget.color,
-            leadingLabel: money(earned),
-            trailingLabel: money(target),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            complete
-                ? 'This month\'s investment earnings target has been reached.'
-                : '${money(remaining)} more in earnings is needed this month.',
-            style: TextStyle(
-              color: complete ? _sage : _body,
-              fontSize: 11,
-              height: 1.35,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: PrimaryButton(
-                  label: busy ? 'Saving...' : 'Record earnings',
-                  icon: Icons.add_chart_rounded,
-                  enabled: !busy,
-                  onPressed: () => _recordEarnings(state, remaining),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: 'Edit earnings target',
-                onPressed: () => _editTarget(state, target),
-                icon: const Icon(Icons.tune_rounded),
-              ),
-            ],
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restart'),
           ),
         ],
       ),
     );
-  }
-}
-
-class _InvestmentLossLimitActionPanel extends StatefulWidget {
-  const _InvestmentLossLimitActionPanel({required this.color});
-  final Color color;
-
-  @override
-  State<_InvestmentLossLimitActionPanel> createState() =>
-      _InvestmentLossLimitActionPanelState();
-}
-
-class _InvestmentLossLimitActionPanelState
-    extends State<_InvestmentLossLimitActionPanel> {
-  bool busy = false;
-
-  Future<void> _recordLoss(AppState state, double suggestedAmount) async {
-    if (busy || state.investmentBalance <= 0) return;
-    final amount = await _showMoneyTargetDialog(
-      context: context,
-      title: 'Record investment loss',
-      label: 'Loss amount',
-      initialAmount: math.max(100, suggestedAmount),
-      color: _red,
-    );
-    if (amount == null) return;
+    if (confirmed != true) return;
     setState(() => busy = true);
-    await state.recordInvestmentPerformance(
-      amount: amount,
-      isGain: false,
-    );
+    await state.startInvestmentReturnTracking();
     if (mounted) setState(() => busy = false);
-  }
-
-  Future<void> _editLimit(AppState state, double current) async {
-    final updated = await _showMoneyTargetDialog(
-      context: context,
-      title: 'Set monthly loss limit',
-      label: 'Monthly loss limit',
-      initialAmount: current,
-      color: widget.color,
-    );
-    if (updated == null) return;
-    state.actionFieldValues['A25'] = {'amt': updated.toStringAsFixed(0)};
-    await state.saveProfile();
-    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final limit = _configuredActionAmount(state, 'A25', 1000);
-    final losses = state.investmentLossesThisMonth;
-    final remaining = math.max(0.0, limit - losses);
-    final progress = limit <= 0 ? 1.0 : (losses / limit).clamp(0.0, 1.0);
-    final exceeded = losses >= limit && limit > 0;
+    final target = double.tryParse(
+          (_configuredActionValues(state, 'A30')['pct'] ?? '')
+              .replaceAll(',', ''),
+        ) ??
+        state.investmentTargetAnnualReturnPercent;
+    final tracking = state.investmentReturnBaselineDate != null;
+    final actual = state.investmentAnnualizedReturnPercent;
+    final onTrack = state.isInvestmentAnnualReturnOnTrack;
+    final progress = target <= 0 ? 0.0 : (actual / target).clamp(0.0, 1.0);
+    final statusColor = tracking ? (onTrack ? _sage : _red) : widget.color;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _ActionPanelHeader(
-            id: 'A25',
+            id: 'A30',
             color: widget.color,
-            text: 'Keep investment losses below ${money(limit)} this month.',
+            text: 'Keep your investment portfolio on track to meet your '
+                'target annual return on investment of '
+                '${target.toStringAsFixed(0)}%.',
           ),
           const SizedBox(height: 14),
           _ActionMetricTile(
-            icon: Icons.trending_down_rounded,
-            label: 'Losses this month',
-            value: money(losses),
-            color: exceeded ? _red : _sage,
+            icon: actual >= 0
+                ? Icons.trending_up_rounded
+                : Icons.trending_down_rounded,
+            label: 'Annualized return',
+            value:
+                tracking ? '${actual.toStringAsFixed(1)}%' : 'Not tracking yet',
+            color: statusColor,
           ),
           const SizedBox(height: 10),
           _ActionMetricTile(
-            icon: Icons.shield_rounded,
-            label: exceeded ? 'Limit exceeded' : 'Room remaining',
-            value: money(remaining),
-            color: exceeded ? _red : widget.color,
+            icon: Icons.flag_rounded,
+            label: 'Target annual return',
+            value: '${target.toStringAsFixed(0)}%',
+            color: widget.color,
           ),
           const SizedBox(height: 14),
-          _LabeledProgressBar(
-            value: progress,
-            color: exceeded ? _red : widget.color,
-            leadingLabel: money(losses),
-            trailingLabel: '${money(limit)} limit',
-          ),
-          const SizedBox(height: 8),
-          Text(
-            exceeded
-                ? 'The monthly loss limit has been reached. Consider reducing risk before adding more money.'
-                : '${money(remaining)} remains before the monthly loss limit is reached.',
-            style: TextStyle(
-              color: exceeded ? _red : _body,
-              fontSize: 11,
-              height: 1.35,
-              fontWeight: FontWeight.w800,
+          if (tracking) ...[
+            _LabeledProgressBar(
+              value: progress,
+              color: statusColor,
+              leadingLabel: '${actual.toStringAsFixed(1)}%',
+              trailingLabel: '${target.toStringAsFixed(0)}% target',
             ),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              onTrack
+                  ? "The portfolio's annualized return is ahead of the "
+                      '${target.toStringAsFixed(0)}% target.'
+                  : "The portfolio's annualized return is behind the "
+                      '${target.toStringAsFixed(0)}% target.',
+              style: TextStyle(
+                color: statusColor,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ] else
+            const Text(
+              'Start tracking to compare portfolio performance with this '
+              'target over time.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: PrimaryButton(
-                  label: busy ? 'Saving...' : 'Record loss',
-                  icon: Icons.trending_down_rounded,
-                  enabled: !busy && state.investmentBalance > 0,
-                  onPressed: () => _recordLoss(state, remaining),
+                  label: busy
+                      ? 'Saving...'
+                      : tracking
+                          ? 'Restart tracking'
+                          : 'Start tracking',
+                  icon: Icons.timeline_rounded,
+                  enabled: !busy,
+                  onPressed: () => tracking
+                      ? _restartTracking(state)
+                      : _startTracking(state),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton(
-                tooltip: 'Edit loss limit',
-                onPressed: () => _editLimit(state, limit),
+                tooltip: 'Edit target annual return',
+                onPressed: () => _editTarget(state, target),
                 icon: const Icon(Icons.tune_rounded),
               ),
             ],
@@ -17654,7 +19493,7 @@ class _LifestylePaydayActionPanelState
             id: 'A27',
             color: widget.color,
             text:
-                'Add ${money(amount)} to the Everyday Enjoyment Fund every payday.',
+                'Add ${money(amount)} to the Personal Lifestyle Fund every payday.',
           ),
           const SizedBox(height: 14),
           _ActionMetricTile(
@@ -17795,90 +19634,102 @@ class _LifestyleWeeklyLimitActionPanelState
   }
 }
 
-class _LifestyleActivityTargetActionPanel extends StatefulWidget {
-  const _LifestyleActivityTargetActionPanel({required this.color});
+class _LifestyleHobbyActionPanel extends StatefulWidget {
+  const _LifestyleHobbyActionPanel({required this.color});
   final Color color;
 
   @override
-  State<_LifestyleActivityTargetActionPanel> createState() =>
-      _LifestyleActivityTargetActionPanelState();
+  State<_LifestyleHobbyActionPanel> createState() =>
+      _LifestyleHobbyActionPanelState();
 }
 
-class _LifestyleActivityTargetActionPanelState
-    extends State<_LifestyleActivityTargetActionPanel> {
-  bool busy = false;
+class _LifestyleHobbyActionPanelState
+    extends State<_LifestyleHobbyActionPanel> {
+  String? busyHobbyId;
 
-  Future<void> _addSavings(AppState state, double remaining) async {
-    if (busy || remaining <= 0) return;
+  Future<void> _addHobby(AppState state) async {
+    final draft = await _showHobbyDialog(
+      context: context,
+      title: 'Add a hobby or activity',
+      color: widget.color,
+    );
+    if (draft == null) return;
+    await state.addLifestyleHobby(
+      name: draft.name,
+      target: draft.target,
+      months: draft.months,
+    );
+  }
+
+  Future<void> _editHobby(AppState state, Map<String, dynamic> hobby) async {
+    final draft = await _showHobbyDialog(
+      context: context,
+      title: 'Edit hobby or activity',
+      color: widget.color,
+      initialName: (hobby['name'] ?? '').toString(),
+      initialTarget: (hobby['target'] as num?)?.toDouble() ?? 10000,
+      initialMonths: (hobby['months'] as num?)?.toInt() ?? 6,
+    );
+    if (draft == null) return;
+    await state.editLifestyleHobby(
+      hobby['id'].toString(),
+      name: draft.name,
+      target: draft.target,
+      months: draft.months,
+    );
+  }
+
+  Future<void> _removeHobby(AppState state, String id) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Remove this hobby?',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        content: const Text(
+          'This stops tracking its target. Past contributions stay in your activity history.',
+          style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await state.removeLifestyleHobby(id);
+  }
+
+  Future<void> _addSavings(
+    AppState state,
+    Map<String, dynamic> hobby,
+    double remaining,
+  ) async {
+    if (busyHobbyId != null || remaining <= 0) return;
+    final id = hobby['id'].toString();
     final amount = await _showMoneyTargetDialog(
       context: context,
-      title: 'Add hobby or activity savings',
-      label: 'Amount to save',
+      title: 'Add savings',
+      label: '${hobby['name']} savings',
       initialAmount: math.max(100, math.min(remaining, 1000)),
       color: widget.color,
     );
     if (amount == null) return;
-    setState(() => busy = true);
-    await state.depositLifestyleActivity(amount);
-    if (mounted) setState(() => busy = false);
-  }
-
-  Future<void> _editTarget(
-    AppState state,
-    double current,
-    int months,
-  ) async {
-    final updated = await _showMoneyTargetDialog(
-      context: context,
-      title: 'Set hobby or activity target',
-      label: 'Target amount',
-      initialAmount: current,
-      color: widget.color,
-    );
-    if (updated == null) return;
-    state.actionFieldValues['A29'] = {
-      'amt': updated.toStringAsFixed(0),
-      'months': months.toString(),
-    };
-    await state.saveProfile();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _editMonths(
-    AppState state,
-    double target,
-    int current,
-  ) async {
-    final updated = await _showMonthsTargetDialog(
-      context: context,
-      title: 'Set target window',
-      initialMonths: current.toDouble(),
-      color: widget.color,
-      fieldLabel: 'Months to reach the target',
-      validDescription: 'Shellby will use this as the activity target window.',
-    );
-    if (updated == null) return;
-    state.actionFieldValues['A29'] = {
-      'amt': target.toStringAsFixed(0),
-      'months': updated.toStringAsFixed(0),
-    };
-    await state.saveProfile();
-    if (mounted) setState(() {});
+    setState(() => busyHobbyId = id);
+    await state.depositLifestyleHobby(hobbyId: id, amount: amount);
+    if (mounted) setState(() => busyHobbyId = null);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final values = _configuredActionValues(state, 'A29');
-    final target = _configuredActionAmount(state, 'A29', 10000);
-    final months =
-        (double.tryParse(values['months'] ?? '') ?? 6).round().clamp(1, 12);
-    final saved = state.lifestyleActivityBalance;
-    final remaining = math.max(0.0, target - saved);
-    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
-    final complete = saved >= target && target > 0;
-    final started = state.lifestyleActivityStartedAt ?? DateTime.now();
-    final due = DateTime(started.year, started.month + months, started.day);
+    final hobbies = state.lifestyleHobbies;
+    final canAddMore = hobbies.length < AppState.lifestyleHobbyLimit;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -17886,34 +19737,136 @@ class _LifestyleActivityTargetActionPanelState
           _ActionPanelHeader(
             id: 'A29',
             color: widget.color,
-            text:
-                'Save ${money(target)} for a hobby or activity within $months months.',
+            text: hobbies.isEmpty
+                ? 'Save toward a hobby or activity within a set number of months.'
+                : 'Save toward up to 3 hobbies or activities, each with its own target.',
           ),
           const SizedBox(height: 14),
-          _ActionMetricTile(
-            icon: Icons.savings_rounded,
-            label: 'Saved for activity',
-            value: money(saved),
-            color: complete ? _sage : widget.color,
+          if (hobbies.isEmpty)
+            Text(
+              'No hobby or activity targets yet. Add up to 3, each with its own amount and timeline.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11.5,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            for (final hobby in hobbies) ...[
+              _LifestyleHobbyTile(
+                hobby: hobby,
+                color: widget.color,
+                busy: busyHobbyId == hobby['id'],
+                onAddSavings: (remaining) =>
+                    _addSavings(state, hobby, remaining),
+                onEdit: () => _editHobby(state, hobby),
+                onRemove: () => _removeHobby(state, hobby['id'].toString()),
+              ),
+              const SizedBox(height: 12),
+            ],
+          if (canAddMore)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _addHobby(state),
+                icon: const Icon(Icons.add_rounded),
+                label: Text(hobbies.isEmpty
+                    ? 'Add a hobby or activity'
+                    : 'Add another (${hobbies.length}/${AppState.lifestyleHobbyLimit})'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LifestyleHobbyTile extends StatelessWidget {
+  const _LifestyleHobbyTile({
+    required this.hobby,
+    required this.color,
+    required this.busy,
+    required this.onAddSavings,
+    required this.onEdit,
+    required this.onRemove,
+  });
+  final Map<String, dynamic> hobby;
+  final Color color;
+  final bool busy;
+  final ValueChanged<double> onAddSavings;
+  final VoidCallback onEdit;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final id = hobby['id'].toString();
+    final name = (hobby['name'] ?? 'Hobby').toString();
+    final target = (hobby['target'] as num?)?.toDouble() ?? 10000;
+    final months = (hobby['months'] as num?)?.toInt() ?? 6;
+    final saved = state.lifestyleHobbyBalance(id);
+    final remaining = math.max(0.0, target - saved);
+    final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
+    final complete = saved >= target && target > 0;
+    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final due = DateTime(started.year, started.month + months, started.day);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Edit',
+                visualDensity: VisualDensity.compact,
+                onPressed: onEdit,
+                icon: const Icon(Icons.tune_rounded, size: 18),
+              ),
+              IconButton(
+                tooltip: 'Remove',
+                visualDensity: VisualDensity.compact,
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Target date: ${_shortDate(due)}',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 10),
-          _ActionMetricTile(
-            icon: Icons.event_rounded,
-            label: 'Target date',
-            value: _shortDate(due),
-            color: widget.color,
-          ),
-          const SizedBox(height: 14),
           _LabeledProgressBar(
             value: progress,
-            color: complete ? _sage : widget.color,
+            color: complete ? _sage : color,
             leadingLabel: money(saved),
             trailingLabel: money(target),
           ),
           const SizedBox(height: 8),
           Text(
             complete
-                ? 'The hobby or activity target is fully funded.'
+                ? '"$name" is fully funded.'
                 : '${money(remaining)} still needs to be saved.',
             style: TextStyle(
               color: complete ? _sage : _body,
@@ -17922,29 +19875,15 @@ class _LifestyleActivityTargetActionPanelState
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: PrimaryButton(
-                  label: busy ? 'Adding...' : 'Add savings',
-                  icon: Icons.savings_rounded,
-                  enabled: !busy && !complete,
-                  onPressed: () => _addSavings(state, remaining),
-                ),
-              ),
-              const SizedBox(width: 4),
-              IconButton(
-                tooltip: 'Edit target amount',
-                onPressed: () => _editTarget(state, target, months),
-                icon: const Icon(Icons.tune_rounded),
-              ),
-              IconButton(
-                tooltip: 'Edit target window',
-                onPressed: () => _editMonths(state, target, months),
-                icon: const Icon(Icons.calendar_month_rounded),
-              ),
-            ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: PrimaryButton(
+              label: busy ? 'Adding...' : 'Add savings',
+              icon: Icons.savings_rounded,
+              enabled: !busy && !complete,
+              onPressed: () => onAddSavings(remaining),
+            ),
           ),
         ],
       ),
@@ -19748,6 +21687,200 @@ Future<double?> _showMonthsTargetDialog({
             FilledButton(
               onPressed:
                   valid ? () => Navigator.of(dialogContext).pop(months) : null,
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ),
+  ).whenComplete(controller.dispose);
+}
+
+typedef _HobbyDraft = ({String name, double target, int months});
+
+Future<_HobbyDraft?> _showHobbyDialog({
+  required BuildContext context,
+  required String title,
+  required Color color,
+  String initialName = '',
+  double initialTarget = 10000,
+  int initialMonths = 6,
+}) {
+  final nameController = TextEditingController(text: initialName);
+  final amountController =
+      TextEditingController(text: initialTarget.toStringAsFixed(0));
+  final monthsController =
+      TextEditingController(text: initialMonths.toString());
+  return showDialog<_HobbyDraft>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        final name = nameController.text.trim();
+        final target =
+            double.tryParse(amountController.text.replaceAll(',', '').trim()) ??
+                0;
+        final months =
+            int.tryParse(monthsController.text.replaceAll(',', '').trim()) ?? 0;
+        final valid = name.isNotEmpty &&
+            target >= 100 &&
+            target <= 1000000 &&
+            months >= 1 &&
+            months <= 24;
+        return AlertDialog(
+          backgroundColor: _surface,
+          title: Text(title,
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Hobby or activity name',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                maxLength: 30,
+                decoration: inputDecoration('e.g. Photography')
+                    .copyWith(counterText: ''),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 10),
+              const Text('Target amount',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: amountController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}$')),
+                ],
+                decoration: inputDecoration('0').copyWith(prefixText: '₱ '),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 10),
+              const Text('Target window',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: monthsController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: false),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: inputDecoration('6').copyWith(suffixText: 'months'),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                valid
+                    ? 'Save ${money(target)} for "$name" within $months months.'
+                    : 'Enter a name, an amount from ₱100 to ₱1,000,000, and 1-24 months.',
+                style: TextStyle(
+                  color: valid ? color : _red,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: valid
+                  ? () => Navigator.of(dialogContext).pop(
+                        (name: name, target: target, months: months),
+                      )
+                  : null,
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ),
+  ).whenComplete(() {
+    nameController.dispose();
+    amountController.dispose();
+    monthsController.dispose();
+  });
+}
+
+Future<double?> _showPercentTargetDialog({
+  required BuildContext context,
+  required String title,
+  required String label,
+  required double initialPercent,
+  required Color color,
+}) {
+  final controller =
+      TextEditingController(text: initialPercent.toStringAsFixed(0));
+  return showDialog<double>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        final percent =
+            double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
+        final valid = percent >= 1 && percent <= 100;
+        return AlertDialog(
+          backgroundColor: _surface,
+          title: Text(title,
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: false),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: inputDecoration('8').copyWith(suffixText: '%'),
+                onChanged: (_) => setDialogState(() {}),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                valid
+                    ? 'Shellby will use ${percent.toStringAsFixed(0)}% for this action.'
+                    : 'Use a percentage from 1% to 100%.',
+                style: TextStyle(
+                  color: valid ? color : _red,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed:
+                  valid ? () => Navigator.of(dialogContext).pop(percent) : null,
               child: const Text('Save'),
             ),
           ],

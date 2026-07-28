@@ -134,6 +134,11 @@ class AppState extends ChangeNotifier {
   double lifestyleActivityBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
   final List<Map<String, dynamic>> billObligations = [];
+  // Up to 3 named hobby/activity targets for A29 (each: id, name, target,
+  // months, createdAt). Per-hobby saved balances are derived from d1Ledger
+  // 'lifestyle_hobby_deposit' entries tagged with a matching hobbyId, the
+  // same "derive from the ledger" pattern used across the rest of AppState.
+  final List<Map<String, dynamic>> lifestyleHobbies = [];
 
   DateTime? get lastEfWithdrawal => _lastEfWithdrawalStr == null
       ? null
@@ -805,6 +810,7 @@ class AppState extends ChangeNotifier {
     lifestyleActivityBalance = 0;
     _lastEfWithdrawalStr = null;
     billObligations.clear();
+    lifestyleHobbies.clear();
     messages
       ..clear()
       ..add(
@@ -852,8 +858,6 @@ class AppState extends ChangeNotifier {
         'A10',
         'A12',
         'A23',
-        'A24',
-        'A25',
         'A26',
         'A27',
         'A28',
@@ -872,12 +876,9 @@ class AppState extends ChangeNotifier {
         'A10': {'days': '7'},
         'A12': {'pct': '10'},
         'A23': {'amt': '50000'},
-        'A24': {'amt': '1500'},
-        'A25': {'amt': '1200'},
         'A26': {'amt': '2100'},
         'A27': {'amt': '1200'},
         'A28': {'amt': '1500'},
-        'A29': {'amt': '12000', 'months': '6'},
       });
     onboardingComplete = true;
     confidence = 5;
@@ -1032,8 +1033,8 @@ class AppState extends ChangeNotifier {
     billsObligationsBalance = 1800;
     emergencyFundBalance = 24000;
     investmentBalance = 32000;
-    lifestyleFundBalance = 2800;
-    lifestyleActivityBalance = 3500;
+    lifestyleFundBalance = 13400;
+    lifestyleActivityBalance = 0;
     categorySpendingBudgets
       ..clear()
       ..addAll({
@@ -1177,7 +1178,8 @@ class AppState extends ChangeNotifier {
     }
     final recent = today.subtract(const Duration(days: 2));
     final earlierThisMonth = DateTime(today.year, today.month, 3);
-    final activityStart = DateTime(today.year, today.month - 1, 18);
+    final freedomWeekStart = DateTime(today.year, today.month, today.day)
+        .subtract(Duration(days: today.weekday - 1));
     d1Ledger.insertAll(0, [
       {
         'type': 'essential_deposit',
@@ -1239,11 +1241,37 @@ class AppState extends ChangeNotifier {
         'destination': 'Investment Portfolio',
         'label': 'Investment loss',
       },
+      // Personal Lifestyle Fund: 6 months of subscription-reserve + payday
+      // contributions, so the Financial Freedom insights page's monthly
+      // contributions chart has a real trend instead of one data point.
+      for (final entry in const [
+        (155, 1000.0, 900.0),
+        (125, 1100.0, 1000.0),
+        (95, 1200.0, 1100.0),
+        (65, 1150.0, 1050.0),
+        (35, 1300.0, 1200.0),
+      ]) ...[
+        {
+          'type': 'lifestyle_subscription_reserve',
+          'date': today.subtract(Duration(days: entry.$1)).toIso8601String(),
+          'amount': entry.$2,
+          'destination': 'Personal Lifestyle Fund',
+          'label': 'Subscriptions and memberships reserve',
+        },
+        {
+          'type': 'lifestyle_payday',
+          'date':
+              today.subtract(Duration(days: entry.$1 - 2)).toIso8601String(),
+          'amount': entry.$3,
+          'destination': 'Personal Lifestyle Fund',
+          'label': 'Payday enjoyment contribution',
+        },
+      ],
       {
         'type': 'lifestyle_subscription_reserve',
         'date': recent.subtract(const Duration(days: 1)).toIso8601String(),
         'amount': 1200.0,
-        'destination': 'Lifestyle Fund',
+        'destination': 'Personal Lifestyle Fund',
         'label': 'Subscriptions and memberships reserve',
       },
       {
@@ -1252,24 +1280,60 @@ class AppState extends ChangeNotifier {
         'sourceDate': earlierThisMonth.toIso8601String(),
         'sourceTransactionId': 'income-9',
         'amount': 1200.0,
-        'destination': 'Everyday Enjoyment Fund',
+        'destination': 'Personal Lifestyle Fund',
         'label': 'Payday enjoyment contribution',
       },
-      {
-        'type': 'lifestyle_activity_deposit',
-        'date': activityStart.toIso8601String(),
-        'amount': 2000.0,
-        'destination': 'Hobby or Activity Fund',
-        'label': 'Hobby or activity contribution',
-      },
-      {
-        'type': 'lifestyle_activity_deposit',
-        'date': recent.toIso8601String(),
-        'amount': 1500.0,
-        'destination': 'Hobby or Activity Fund',
-        'label': 'Hobby or activity contribution',
-      },
+      // Hobby/activity targets: 3 named hobbies at different progress
+      // levels (near-complete, mid-way, just started) so the Target Funds
+      // card has explorable variety.
+      for (final entry in const [
+        ('hobby_demo_1', 150, 3000.0),
+        ('hobby_demo_1', 100, 3500.0),
+        ('hobby_demo_1', 50, 2500.0),
+        ('hobby_demo_1', 10, 2000.0),
+        ('hobby_demo_2', 90, 3000.0),
+        ('hobby_demo_2', 45, 2500.0),
+        ('hobby_demo_2', 15, 2500.0),
+        ('hobby_demo_3', 20, 700.0),
+        ('hobby_demo_3', 5, 500.0),
+      ])
+        {
+          'type': 'lifestyle_hobby_deposit',
+          'date': today.subtract(Duration(days: entry.$2)).toIso8601String(),
+          'hobbyId': entry.$1,
+          'amount': entry.$3,
+          'destination': 'Personal Lifestyle Fund',
+          'label': 'Hobby or activity contribution',
+        },
     ]);
+    lifestyleHobbies
+      ..clear()
+      ..addAll([
+        {
+          'id': 'hobby_demo_1',
+          'name': 'Photography Gear',
+          'target': 15000.0,
+          'months': 6,
+          'createdAt':
+              today.subtract(const Duration(days: 160)).toIso8601String(),
+        },
+        {
+          'id': 'hobby_demo_2',
+          'name': 'Weekend Trips',
+          'target': 20000.0,
+          'months': 12,
+          'createdAt':
+              today.subtract(const Duration(days: 95)).toIso8601String(),
+        },
+        {
+          'id': 'hobby_demo_3',
+          'name': 'Guitar Lessons',
+          'target': 6000.0,
+          'months': 4,
+          'createdAt':
+              today.subtract(const Duration(days: 25)).toIso8601String(),
+        },
+      ]);
     transactions.addAll([
       _demoTransaction(
         id: 'lifestyle-coffee-current',
@@ -1296,6 +1360,54 @@ class AppState extends ChangeNotifier {
         amount: -700,
         date: recent.subtract(const Duration(days: 1)),
         category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+      // Prior weeks' everyday-enjoyment spending, mixing under- and
+      // over-limit weeks so the weekly spend trend bars on the Financial
+      // Freedom insights page have real variation to show.
+      _demoTransaction(
+        id: 'lifestyle-week1-dinner',
+        title: 'Paid merchant',
+        detail: 'To: Weekend restaurant',
+        amount: -2100,
+        date: freedomWeekStart.subtract(const Duration(days: 4)),
+        category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'lifestyle-week2-concert',
+        title: 'Paid merchant',
+        detail: 'To: Concert tickets',
+        amount: -700,
+        date: freedomWeekStart.subtract(const Duration(days: 11)),
+        category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'lifestyle-week2-cafe',
+        title: 'Paid merchant',
+        detail: 'To: Cafe',
+        amount: -500,
+        date: freedomWeekStart.subtract(const Duration(days: 9)),
+        category: 'Food & drink',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'lifestyle-week3-hobby',
+        title: 'Paid merchant',
+        detail: 'To: Hobby supplies',
+        amount: -900,
+        date: freedomWeekStart.subtract(const Duration(days: 18)),
+        category: 'Entertainment',
+        source: 'Lifestyle Fund',
+      ),
+      _demoTransaction(
+        id: 'lifestyle-week4-travel',
+        title: 'Paid merchant',
+        detail: 'To: Weekend trip',
+        amount: -1700,
+        date: freedomWeekStart.subtract(const Duration(days: 25)),
+        category: 'Travel',
         source: 'Lifestyle Fund',
       ),
     ]);
@@ -1344,6 +1456,123 @@ class AppState extends ChangeNotifier {
     bufferBalance = buffer;
     emergencyMonths =
         emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
+    // Accumulating Wealth: a 6-month annual-return tracking window (started
+    // behind the configured 12% target, so both the "ahead" and "behind"
+    // states are explorable) plus BTC/NVDA holdings with enough buy/sell
+    // history for cost-basis and unrealized-gain math to have real data to
+    // work with on the Accumulating Wealth insights page.
+    actionFieldValues['A30'] = {'pct': '12'};
+    d1Ledger.addAll([
+      {
+        'type': 'investment_return_baseline',
+        'date': today.subtract(const Duration(days: 180)).toIso8601String(),
+        'balance': 27500.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Started annual return tracking',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 150)).toIso8601String(),
+        'amount': 800.0,
+        'balance': 28300.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+      {
+        'type': 'investment_loss',
+        'date': today.subtract(const Duration(days: 120)).toIso8601String(),
+        'amount': 400.0,
+        'balance': 27900.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment loss',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 90)).toIso8601String(),
+        'amount': 600.0,
+        'balance': 28500.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+      {
+        'type': 'investment_loss',
+        'date': today.subtract(const Duration(days: 60)).toIso8601String(),
+        'amount': 900.0,
+        'balance': 27600.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment loss',
+      },
+      {
+        'type': 'investment_gain',
+        'date': today.subtract(const Duration(days: 30)).toIso8601String(),
+        'amount': 500.0,
+        'balance': 28100.0,
+        'destination': 'Investment Portfolio',
+        'label': 'Investment earnings',
+      },
+    ]);
+    const demoInvestmentHoldings = [
+      FakeMayaInvestmentHolding(
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        type: 'crypto',
+        units: 0.007,
+        price: 3785577.87,
+        unitLabel: 'coins',
+        costBasis: 23000,
+      ),
+      FakeMayaInvestmentHolding(
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        type: 'stock',
+        units: 2,
+        price: 7350.00,
+        unitLabel: 'shares',
+        costBasis: 13000,
+      ),
+    ];
+    final demoInvestmentTransactions = [
+      FakeMayaStockTransaction(
+        side: 'Sold',
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        shares: 1,
+        unitLabel: 'shares',
+        type: 'stock',
+        amount: 7000,
+        createdAt: today.subtract(const Duration(days: 30)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        shares: 3,
+        unitLabel: 'shares',
+        type: 'stock',
+        amount: 19500,
+        createdAt: today.subtract(const Duration(days: 120)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        shares: 0.002,
+        unitLabel: 'coins',
+        type: 'crypto',
+        amount: 7000,
+        createdAt: today.subtract(const Duration(days: 60)),
+      ),
+      FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        shares: 0.005,
+        unitLabel: 'coins',
+        type: 'crypto',
+        amount: 16000,
+        createdAt: today.subtract(const Duration(days: 150)),
+      ),
+    ];
     fakeMayaLink = FakeMayaLink(
       userId: 'reflection-demo-fakemaya',
       email: 'reflection@test.com',
@@ -1359,8 +1588,15 @@ class AppState extends ChangeNotifier {
         timeDeposit: investmentBalance,
         goalName: 'Lifestyle and Activity Funds',
         goalEmoji: '🎨',
-        goalBalance: lifestyleFundBalance + lifestyleActivityBalance,
+        goalBalance: lifestyleFundBalance +
+            lifestyleHobbies.fold<double>(
+              0,
+              (total, hobby) =>
+                  total + lifestyleHobbyBalance(hobby['id'].toString()),
+            ),
         goalTarget: 12000,
+        investmentHoldings: demoInvestmentHoldings,
+        investmentTransactions: demoInvestmentTransactions,
         creditLimit: 0,
         creditUsed: 0,
         transactions: transactions
@@ -1484,6 +1720,7 @@ class AppState extends ChangeNotifier {
       'investmentBalance': investmentBalance,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
+      'lifestyleHobbies': lifestyleHobbies,
       'billObligations': billObligations,
       'd1Ledger': d1Ledger,
       'onboardingSelections': _onboardingSelectionsMap(),
@@ -1705,6 +1942,15 @@ class AppState extends ChangeNotifier {
               (entry) => Map<String, dynamic>.from(entry),
             ));
     }
+    final savedLifestyleHobbies = data['lifestyleHobbies'];
+    if (savedLifestyleHobbies is Iterable) {
+      lifestyleHobbies
+        ..clear()
+        ..addAll(savedLifestyleHobbies.whereType<Map>().map(
+              (entry) => Map<String, dynamic>.from(entry),
+            ));
+    }
+    _migrateLegacyLifestyleHobbyIfNeeded();
     final savedD1Ledger = data['d1Ledger'];
     if (savedD1Ledger is Iterable) {
       d1Ledger
@@ -3003,6 +3249,95 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A30: keep the investment portfolio on track to meet a target annual
+  /// return. There's no natural "day one" for a return calculation, so
+  /// tracking starts explicitly and is anchored to the most recent
+  /// 'investment_return_baseline' ledger entry - mirroring how
+  /// [lastInvestmentReviewDate] reads its own marker entries rather than a
+  /// separate persisted field.
+  Map<String, dynamic>? get _investmentReturnBaselineEntry {
+    for (final entry in d1Ledger) {
+      if (entry['type'] == 'investment_return_baseline') return entry;
+    }
+    return null;
+  }
+
+  DateTime? get investmentReturnBaselineDate {
+    final date = _investmentReturnBaselineEntry?['date']?.toString();
+    return date == null ? null : DateTime.tryParse(date);
+  }
+
+  double get investmentReturnBaselineValue =>
+      (_investmentReturnBaselineEntry?['balance'] as num?)?.toDouble() ?? 0;
+
+  /// Sum of investment_gain/investment_loss ledger entries recorded since
+  /// tracking started. Contributions (investment_deposit/monthly/windfall)
+  /// are deliberately excluded so this reflects market performance only,
+  /// not money the user added.
+  double get investmentNetReturnSinceBaseline {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null) return 0;
+    var total = 0.0;
+    for (final entry in d1Ledger) {
+      final type = entry['type'];
+      if (type != 'investment_gain' && type != 'investment_loss') continue;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      if (date == null || date.isBefore(baseline)) continue;
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      total += type == 'investment_gain' ? amount : -amount;
+    }
+    return total;
+  }
+
+  double get investmentReturnPercentSinceBaseline {
+    final baselineValue = investmentReturnBaselineValue;
+    if (baselineValue <= 0) return 0;
+    return investmentNetReturnSinceBaseline / baselineValue * 100;
+  }
+
+  /// Projects the return-to-date to a full year, so a tracking window
+  /// shorter than 12 months can still be compared fairly against an annual
+  /// target (e.g. +2% after 2 months reads as +12% annualized).
+  double get investmentAnnualizedReturnPercent {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null || investmentReturnBaselineValue <= 0) return 0;
+    final elapsedDays = math.max(1, DateTime.now().difference(baseline).inDays);
+    return investmentReturnPercentSinceBaseline * (365 / elapsedDays);
+  }
+
+  double get investmentTargetAnnualReturnPercent {
+    final configured = double.tryParse(actionFieldValues['A30']?['pct'] ?? '');
+    return configured ?? 8.0;
+  }
+
+  bool get isInvestmentAnnualReturnOnTrack {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null) return true;
+    // A brand-new tracking window sits at 0% return by definition - flagging
+    // that as "behind target" on day one would be misleading, so give it a
+    // week before judging performance.
+    if (DateTime.now().difference(baseline).inDays < 7) return true;
+    return investmentAnnualizedReturnPercent >=
+        investmentTargetAnnualReturnPercent;
+  }
+
+  /// Marks "now" as the start of a new annual-return tracking window,
+  /// anchored to the current portfolio balance - call the first time the
+  /// user sets this action's target, or whenever they want to restart
+  /// tracking (e.g. after a large one-off deposit that isn't investment
+  /// return).
+  Future<void> startInvestmentReturnTracking() async {
+    d1Ledger.insert(0, {
+      'type': 'investment_return_baseline',
+      'date': DateTime.now().toIso8601String(),
+      'balance': investmentBalance,
+      'destination': 'Investment Portfolio',
+      'label': 'Started annual return tracking',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
   /// A14: transfer X% of unspent monthly funds toward investments at month end.
   Future<void> sweepUnspentFundsToInvestment({double percentage = 50}) async {
     if (hasInvestmentSweepForCurrentMonth) return;
@@ -3103,7 +3438,7 @@ class AppState extends ChangeNotifier {
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'amount': amount,
-      'destination': 'Everyday Enjoyment Fund',
+      'destination': 'Personal Lifestyle Fund',
       'label': 'Payday enjoyment contribution',
     });
     await saveProfile();
@@ -3128,6 +3463,134 @@ class AppState extends ChangeNotifier {
     });
     await saveProfile();
     notifyListeners();
+  }
+
+  static const int lifestyleHobbyLimit = 3;
+  static const String _legacyLifestyleHobbyId = 'hobby_legacy';
+
+  /// Saved balance for one hobby/activity target, summed from tagged
+  /// deposits. The migrated legacy hobby additionally carries whatever
+  /// [lifestyleActivityBalance] had already accumulated before hobbies
+  /// existed as a list, so its progress doesn't appear to reset to zero.
+  double lifestyleHobbyBalance(String hobbyId) {
+    final tagged = d1Ledger.where((entry) {
+      return entry['type'] == 'lifestyle_hobby_deposit' &&
+          entry['hobbyId'] == hobbyId;
+    }).fold<double>(
+      0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
+    );
+    return hobbyId == _legacyLifestyleHobbyId
+        ? tagged + lifestyleActivityBalance
+        : tagged;
+  }
+
+  DateTime? lifestyleHobbyStartedAt(String hobbyId) {
+    final hobby = lifestyleHobbies.firstWhere(
+      (entry) => entry['id'] == hobbyId,
+      orElse: () => const {},
+    );
+    return DateTime.tryParse(hobby['createdAt']?.toString() ?? '');
+  }
+
+  Future<void> addLifestyleHobby({
+    required String name,
+    required double target,
+    required int months,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty ||
+        target <= 0 ||
+        lifestyleHobbies.length >= lifestyleHobbyLimit) {
+      return;
+    }
+    lifestyleHobbies.add({
+      'id': 'hobby_${DateTime.now().microsecondsSinceEpoch}',
+      'name': trimmed,
+      'target': target,
+      'months': months.clamp(1, 24),
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> editLifestyleHobby(
+    String hobbyId, {
+    String? name,
+    double? target,
+    int? months,
+  }) async {
+    final index =
+        lifestyleHobbies.indexWhere((entry) => entry['id'] == hobbyId);
+    if (index == -1) return;
+    final current = lifestyleHobbies[index];
+    lifestyleHobbies[index] = {
+      ...current,
+      if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      if (target != null && target > 0) 'target': target,
+      if (months != null) 'months': months.clamp(1, 24),
+    };
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> removeLifestyleHobby(String hobbyId) async {
+    if (!lifestyleHobbies.any((entry) => entry['id'] == hobbyId)) return;
+    lifestyleHobbies.removeWhere((entry) => entry['id'] == hobbyId);
+    await saveProfile();
+    notifyListeners();
+  }
+
+  Future<void> depositLifestyleHobby({
+    required String hobbyId,
+    required double amount,
+  }) async {
+    if (amount <= 0) return;
+    final hobby =
+        lifestyleHobbies.where((entry) => entry['id'] == hobbyId).firstOrNull;
+    if (hobby == null) return;
+    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
+    );
+    d1Ledger.insert(0, {
+      'type': 'lifestyle_hobby_deposit',
+      'date': DateTime.now().toIso8601String(),
+      'hobbyId': hobbyId,
+      'amount': amount,
+      'destination': 'Personal Lifestyle Fund',
+      'label': '${hobby['name']} contribution',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// Accounts that configured A29 before hobbies became a named list get a
+  /// single hobby synthesized from their old amt/months target and
+  /// [lifestyleActivityBalance], so existing progress carries over instead
+  /// of appearing to vanish. Guarded by the emptiness check so it only ever
+  /// runs once per account.
+  void _migrateLegacyLifestyleHobbyIfNeeded() {
+    if (lifestyleHobbies.isNotEmpty) return;
+    final legacyValues = actionFieldValues['A29'];
+    final legacyTarget = double.tryParse(
+      (legacyValues?['amt'] ?? '').replaceAll(',', ''),
+    );
+    final hasLegacyActivity = lifestyleActivityBalance > 0 ||
+        (legacyTarget != null && legacyTarget > 0);
+    if (!hasLegacyActivity) return;
+    final legacyMonths = int.tryParse(legacyValues?['months'] ?? '') ?? 6;
+    lifestyleHobbies.add({
+      'id': _legacyLifestyleHobbyId,
+      'name': 'Hobby or Activity Fund',
+      'target': legacyTarget ?? 10000.0,
+      'months': legacyMonths.clamp(1, 24),
+      'createdAt':
+          (lifestyleActivityStartedAt ?? DateTime.now()).toIso8601String(),
+    });
   }
 
   void logD1Income({
