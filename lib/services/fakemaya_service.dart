@@ -2026,7 +2026,8 @@ class FakeMayaTransaction {
     return value.isEmpty ? title.trim().toLowerCase() : value;
   }
 
-  String get patternKey => '${amount < 0 ? 'out' : 'in'}|$counterpartyKey';
+  String get patternKey =>
+      '${amount < 0 ? 'out' : 'in'}|$counterpartyKey|${amount.abs().toStringAsFixed(2)}';
 
   FakeMayaTransaction copyWithLabel({
     required String category,

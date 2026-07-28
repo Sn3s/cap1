@@ -3682,6 +3682,12 @@ class AppState extends ChangeNotifier {
       final key = _fakeMayaTransactionStableKey(transaction);
       savedByStableKey.putIfAbsent(key, () => []).add(transaction);
     }
+    final savedByFingerprint = <String, List<FakeMayaTransaction>>{};
+    for (final transaction in savedTransactions) {
+      if (!transaction.isLabeled) continue;
+      final key = _fakeMayaTransactionFingerprint(transaction);
+      savedByFingerprint.putIfAbsent(key, () => []).add(transaction);
+    }
     return freshTransactions.map((transaction) {
       final savedByExactId = savedById[transaction.transactionId];
       if (savedByExactId != null) {
@@ -3689,9 +3695,26 @@ class AppState extends ChangeNotifier {
       }
       final stableKey = _fakeMayaTransactionStableKey(transaction);
       final savedMatches = savedByStableKey[stableKey];
-      if (savedMatches == null || savedMatches.isEmpty) return transaction;
-      return transaction.withLabelFrom(savedMatches.removeAt(0));
+      if (savedMatches != null && savedMatches.isNotEmpty) {
+        return transaction.withLabelFrom(savedMatches.removeAt(0));
+      }
+      final fingerprint = _fakeMayaTransactionFingerprint(transaction);
+      final fingerprintMatches = savedByFingerprint[fingerprint];
+      if (fingerprintMatches == null || fingerprintMatches.isEmpty) {
+        return transaction;
+      }
+      return transaction.withLabelFrom(fingerprintMatches.removeAt(0));
     }).toList();
+  }
+
+  List<FakeMayaTransaction> mergeFakeMayaTransactionLabelsForTesting({
+    required Iterable<FakeMayaTransaction> savedTransactions,
+    required Iterable<FakeMayaTransaction> freshTransactions,
+  }) {
+    return _mergeFakeMayaTransactionLabels(
+      savedTransactions: savedTransactions,
+      freshTransactions: freshTransactions,
+    );
   }
 
   String _fakeMayaTransactionStableKey(FakeMayaTransaction transaction) {
@@ -3706,6 +3729,56 @@ class AppState extends ChangeNotifier {
       transaction.createdAt?.toUtc().toIso8601String() ?? '',
       clean(transaction.account ?? ''),
     ].join('|');
+  }
+
+  String _fakeMayaTransactionFingerprint(FakeMayaTransaction transaction) {
+    String clean(String value) {
+      return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    }
+
+    return [
+      clean(transaction.title),
+      transaction.counterpartyKey,
+      transaction.amount.toStringAsFixed(2),
+      clean(transaction.account ?? ''),
+    ].join('|');
+  }
+
+  void _applyFakeMayaSession(
+    FakeMayaSession session, {
+    FakeMayaLink? previousLink,
+    bool preserveLabels = true,
+    List<FakeMayaInvestmentHolding>? investmentHoldings,
+  }) {
+    final savedLink = preserveLabels ? previousLink ?? fakeMayaLink : null;
+    final transactions = savedLink == null
+        ? session.summary.transactions
+        : _mergeFakeMayaTransactionLabels(
+            savedTransactions: savedLink.summary.transactions,
+            freshTransactions: session.summary.transactions,
+          );
+    final holdings = investmentHoldings ??
+        (savedLink == null
+            ? session.summary.investmentHoldings
+            : _withLastKnownInvestmentPrices(
+                session.summary.investmentHoldings,
+                savedLink.summary.investmentHoldings,
+              ));
+    fakeMayaLink = FakeMayaLink(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: session.summary.copyWith(
+        investmentHoldings: holdings,
+        transactions: transactions,
+      ),
+    );
+    _syncFakeMayaMoneyItems();
   }
 
   Future<void> _moveFakeMayaWalletTo(
@@ -3723,22 +3796,7 @@ class AppState extends ChangeNotifier {
         personalGoalId: personalGoalId,
       ),
     );
-    final transactions = _mergeFakeMayaTransactionLabels(
-      savedTransactions: link.summary.transactions,
-      freshTransactions: session.summary.transactions,
-    );
-    fakeMayaLink = FakeMayaLink.fromSession(FakeMayaSession(
-      userId: session.userId,
-      email: session.email,
-      name: session.name,
-      phone: session.phone,
-      provider: session.provider,
-      accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
-      expiresAt: session.expiresAt,
-      summary: session.summary.copyWith(transactions: transactions),
-    ));
-    _syncFakeMayaMoneyItems();
+    _applyFakeMayaSession(session, previousLink: link);
   }
 
   Future<void> _withdrawFakeMayaPersonalGoalToWallet(
@@ -3754,8 +3812,7 @@ class AppState extends ChangeNotifier {
         personalGoalId: personalGoalId,
       ),
     );
-    fakeMayaLink = FakeMayaLink.fromSession(session);
-    _syncFakeMayaMoneyItems();
+    _applyFakeMayaSession(session, previousLink: link);
   }
 
   /// Pulls [amount] out of the FakeMaya bucket tied to [motivation] and
@@ -3785,8 +3842,7 @@ class AppState extends ChangeNotifier {
         amount: amount,
       ),
     );
-    fakeMayaLink = FakeMayaLink.fromSession(session);
-    _syncFakeMayaMoneyItems();
+    _applyFakeMayaSession(session, previousLink: link);
   }
 
   void acceptAppPermissions({required bool notificationGranted}) {
@@ -3937,8 +3993,7 @@ class AppState extends ChangeNotifier {
             personalGoalId: bucketId,
           ),
         );
-        fakeMayaLink = FakeMayaLink.fromSession(session);
-        _syncFakeMayaMoneyItems();
+        _applyFakeMayaSession(session, previousLink: link);
       } on FakeMayaException {
         // Swallowed - see comment above. _withFakeMayaSessionRecovery
         // already unlinked the account if the session was dead.
@@ -4008,8 +4063,7 @@ class AppState extends ChangeNotifier {
           allowedPersonalGoalIds: allowedIds,
         ),
       );
-      fakeMayaLink = FakeMayaLink.fromSession(session);
-      _syncFakeMayaMoneyItems();
+      _applyFakeMayaSession(session, previousLink: link);
     } on FakeMayaException {
       // Keep refresh/link flows usable even if a stale bucket cleanup fails.
     }
@@ -4195,22 +4249,7 @@ class AppState extends ChangeNotifier {
           account: FakeMayaGoalAccount.savings,
         ),
       );
-      final merged = _mergeFakeMayaTransactionLabels(
-        savedTransactions: link.summary.transactions,
-        freshTransactions: session.summary.transactions,
-      );
-      fakeMayaLink = FakeMayaLink.fromSession(FakeMayaSession(
-        userId: session.userId,
-        email: session.email,
-        name: session.name,
-        phone: session.phone,
-        provider: session.provider,
-        accessToken: session.accessToken,
-        refreshToken: session.refreshToken,
-        expiresAt: session.expiresAt,
-        summary: session.summary.copyWith(transactions: merged),
-      ));
-      _syncFakeMayaMoneyItems();
+      _applyFakeMayaSession(session, previousLink: link);
     }
     shieldLedger.insert(
       0,
@@ -4602,13 +4641,13 @@ class AppState extends ChangeNotifier {
             '$prefix${money(amount)} → ${money(needsOut)} Needs + ${money(remainder)} Buffer';
       } else {
         if (fakeMayaLink != null) {
+          final link = fakeMayaLink!;
           try {
             final session = await FakeMayaService.withdrawFromSavings(
-              link: fakeMayaLink!,
+              link: link,
               amount: remainder,
             );
-            fakeMayaLink = FakeMayaLink.fromSession(session);
-            _syncFakeMayaMoneyItems();
+            _applyFakeMayaSession(session, previousLink: link);
           } on FakeMayaException catch (error) {
             if (error.sessionExpired) await unlinkFakeMayaAccount();
           } catch (_) {}
@@ -4665,8 +4704,7 @@ class AppState extends ChangeNotifier {
           account: linkedAccount,
         ),
       );
-      fakeMayaLink = FakeMayaLink.fromSession(session);
-      _syncFakeMayaMoneyItems();
+      _applyFakeMayaSession(session, previousLink: link);
     } else {
       goalBucketOverrides[bucket.id] = bucket.copyWith(
         current: bucket.current + amount,
@@ -4686,13 +4724,12 @@ class AppState extends ChangeNotifier {
       email: email,
       password: password,
     );
-    fakeMayaLink = FakeMayaLink.fromSession(session);
+    _applyFakeMayaSession(session, preserveLabels: false);
     fakeMayaSyncedAccounts
       ..clear()
       ..addAll(syncedAccounts ?? manualAccountBalances.keys);
     thirdPartyDataLinkingAllowed = true;
     automaticDataGatheringAllowed = true;
-    _syncFakeMayaMoneyItems();
     await _pruneFakeMayaBucketsToActiveGoals();
     // Catch this account up on every motivation it already agreed to a
     // bucket for (onboarding, "Add goal", etc.) but that couldn't be
@@ -4710,29 +4747,7 @@ class AppState extends ChangeNotifier {
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.refreshSession(link),
     );
-    final mergedTransactions = _mergeFakeMayaTransactionLabels(
-      savedTransactions: link.summary.transactions,
-      freshTransactions: session.summary.transactions,
-    );
-    final investmentHoldings = _withLastKnownInvestmentPrices(
-      session.summary.investmentHoldings,
-      link.summary.investmentHoldings,
-    );
-    fakeMayaLink = FakeMayaLink(
-      userId: session.userId,
-      email: session.email,
-      name: session.name,
-      phone: session.phone,
-      provider: session.provider,
-      accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
-      expiresAt: session.expiresAt,
-      summary: session.summary.copyWith(
-        investmentHoldings: investmentHoldings,
-        transactions: mergedTransactions,
-      ),
-    );
-    _syncFakeMayaMoneyItems();
+    _applyFakeMayaSession(session, previousLink: link);
     if (reconcileBuckets) {
       await _pruneFakeMayaBucketsToActiveGoals();
       // Self-heal: retry creating any bucket that's been agreed to but is
@@ -4761,25 +4776,11 @@ class AppState extends ChangeNotifier {
       final price = prices[holding.symbol.toUpperCase()];
       return price == null ? holding : holding.copyWith(price: price);
     }).toList();
-    final mergedTransactions = _mergeFakeMayaTransactionLabels(
-      savedTransactions: link.summary.transactions,
-      freshTransactions: session.summary.transactions,
+    _applyFakeMayaSession(
+      session,
+      previousLink: link,
+      investmentHoldings: updatedHoldings,
     );
-    fakeMayaLink = FakeMayaLink(
-      userId: session.userId,
-      email: session.email,
-      name: session.name,
-      phone: session.phone,
-      provider: session.provider,
-      accessToken: session.accessToken,
-      refreshToken: session.refreshToken,
-      expiresAt: session.expiresAt,
-      summary: session.summary.copyWith(
-        investmentHoldings: updatedHoldings,
-        transactions: mergedTransactions,
-      ),
-    );
-    _syncFakeMayaMoneyItems();
     await saveProfile();
     notifyListeners();
   }

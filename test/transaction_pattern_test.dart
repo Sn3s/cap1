@@ -35,6 +35,13 @@ void main() {
       title: 'Cash in',
       detail: 'from: acme payroll',
       age: 'Just now',
+      amountText: '+ ₱1,000.00',
+    );
+    const differentAmount = FakeMayaTransaction(
+      id: 'third',
+      title: 'Cash in',
+      detail: 'from: acme payroll',
+      age: 'Just now',
       amountText: '+ ₱2,000.00',
     );
     final labeled = source.copyWithLabel(
@@ -48,6 +55,7 @@ void main() {
     final recognized = rule.applyTo(matching);
 
     expect(source.patternKey, matching.patternKey);
+    expect(source.patternKey, isNot(differentAmount.patternKey));
     expect(recognized.category, 'Salary');
     expect(recognized.source, 'E-wallet');
     expect(recognized.subcategory, 'Main job');
@@ -70,6 +78,46 @@ void main() {
     expect(transaction.isFakeMayaCashIn, isTrue);
     expect(transaction.automaticDestination, 'E-wallet');
     expect(TransactionLabelRule.fromTransaction(labeled).source, 'E-wallet');
+  });
+
+  test('FakeMaya refresh keeps labels when id and timestamp change', () {
+    final saved = FakeMayaTransaction(
+      id: 'old-server-id',
+      title: 'Paid merchant',
+      detail: 'To: Grocery Mart · Card payment',
+      age: 'Yesterday',
+      amountText: '- ₱750.00',
+      createdAt: DateTime.utc(2026, 7, 25, 10),
+      account: 'Wallet',
+    ).copyWithLabel(
+      category: 'Groceries',
+      source: 'Basic Needs Fund',
+      subcategory: 'Weekly food',
+      tag: 'Personal',
+      note: 'Remembered locally',
+    );
+    final fresh = FakeMayaTransaction(
+      id: 'new-server-id',
+      title: 'Paid merchant',
+      detail: 'To: Grocery Mart',
+      age: 'Yesterday',
+      amountText: '- ₱750.00',
+      createdAt: DateTime.utc(2026, 7, 25, 10, 5),
+      account: 'Wallet',
+    );
+
+    final merged = AppState().mergeFakeMayaTransactionLabelsForTesting(
+      savedTransactions: [saved],
+      freshTransactions: [fresh],
+    );
+
+    expect(merged.single.transactionId, 'new-server-id');
+    expect(merged.single.category, 'Groceries');
+    expect(merged.single.source, 'Basic Needs Fund');
+    expect(merged.single.subcategory, 'Weekly food');
+    expect(merged.single.tag, 'Personal');
+    expect(merged.single.note, 'Remembered locally');
+    expect(merged.single.isLabeled, isTrue);
   });
 
   test('FakeMaya goal deposits are internal transfers, not cash-in', () {
