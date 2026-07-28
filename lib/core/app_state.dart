@@ -855,14 +855,21 @@ class AppState extends ChangeNotifier {
     _applyAccumulatingWealthMockProfile(null);
   }
 
+  void seedFinancialFreedomMockDataForTesting() {
+    email = 'freedom@gmail.com';
+    _applyFinancialFreedomMockProfile(null);
+  }
+
   bool get canOverwriteWithMockData {
     final normalizedEmail = email.trim().toLowerCase();
     return normalizedEmail == 'cashflow@gmail.com' ||
         normalizedEmail == 'emergency@gmail.com' ||
         normalizedEmail == 'accumulating@gmail.com' ||
+        normalizedEmail == 'freedom@gmail.com' ||
         selectedGoalId == 'G1' ||
         selectedGoalId == 'G3' ||
-        selectedGoalId == 'G5';
+        selectedGoalId == 'G5' ||
+        selectedGoalId == 'G8';
   }
 
   Future<void> overwriteWithMockData() async {
@@ -887,6 +894,9 @@ class AppState extends ChangeNotifier {
     } else if (normalizedEmail == 'accumulating@gmail.com' ||
         selectedGoalId == 'G5') {
       _applyAccumulatingWealthMockProfile(user);
+    } else if (normalizedEmail == 'freedom@gmail.com' ||
+        selectedGoalId == 'G8') {
+      _applyFinancialFreedomMockProfile(user);
     } else {
       _applyEmergencyFundMockProfile(user);
     }
@@ -2986,6 +2996,469 @@ class AppState extends ChangeNotifier {
         investmentHoldings: holdings,
         investmentTransactions: stockTransactions
           ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions
+          ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
+        updatedAt: now,
+      ),
+    );
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(manualAccountBalances.keys);
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules[transaction.patternKey] =
+            TransactionLabelRule.fromTransaction(transaction);
+      }
+    }
+    _syncFakeMayaMoneyItems();
+  }
+
+  void _applyFinancialFreedomMockProfile(User? user) {
+    final now = DateTime.now();
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
+        ? 'freedom@gmail.com'
+        : (user?.email ?? email).trim().toLowerCase();
+    name = user?.displayName?.trim().isNotEmpty == true
+        ? user!.displayName!.trim()
+        : 'Financial Freedom Account';
+    email = normalizedEmail;
+    primaryConcern = 'Financial Freedom';
+    motivation = 'Financial Freedom';
+    reflectedMotivation =
+        'Fund everyday enjoyment, recurring lifestyle costs, and personal experiences without pulling from core bills.';
+    selectedGoalId = 'G8';
+    selectedGoal = 'Lifestyle Fund';
+    selectedGoalDescription =
+        'Create room for hobbies, memberships, and chosen experiences without disrupting other goals.';
+    selectedGoalMonthlyTarget = 6500;
+    onboardingComplete = true;
+    mockDataEnabled = true;
+    confidence = 7;
+    anxiety = 2;
+    employmentStatus = 'Employed';
+    incomeType = 'Stable';
+    incomeRhythm = 'Twice a month';
+    billsRhythm = 'Mostly scheduled';
+    checkInRhythm = 'Monthly';
+    responsibility = 'Personal expenses';
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'A26', 'A27', 'A28', 'A29'});
+    addedGoalIds.clear();
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A26': {'amt': '2500'},
+        'A27': {'amt': '1500'},
+        'A28': {'amt': '2200'},
+        'A29': {'amt': '45000', 'months': '8'},
+      });
+
+    monthlySalary = 76000;
+    irregularIncomeFloor = 0;
+    income = 76000;
+    expenses = 26300;
+    variableExpenses = 6200;
+    debtPayments = 0;
+    investments = 12000;
+    basicNeedsMonthlyTarget = 11000;
+    basicNeedsAllocationPercent = .40;
+    bufferAllocationPercent = .20;
+    needsTarget = 11000;
+    needsPercent = 40;
+    financialSafetyBalance = 42000;
+    safetyShieldAllocationPercent = 0;
+    safetyShieldTargetMonths = 0;
+    shieldTrackedBalance = 42000;
+    investmentBalance = 0;
+    lifestyleFundBalance = 0;
+    lifestyleActivityBalance = 0;
+    cashOnHandBalance = 2200;
+    categorySpendingBudgets
+      ..clear()
+      ..addAll({
+        'Entertainment': 7000,
+        'Travel': 9000,
+        'Food & drink': 8500,
+        'Memberships': 2500,
+      });
+
+    onboardingIncomeLedger
+      ..clear()
+      ..add(_incomeLedgerRow(
+        name: 'Salary',
+        amount: 76000,
+        stable: true,
+        scheduled: true,
+        payDay: 15,
+      ));
+    onboardingExpenseLedger
+      ..clear()
+      ..addAll([
+        _expenseLedgerRow(
+          name: 'Rent share',
+          amount: 4500,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 5,
+        ),
+        _expenseLedgerRow(
+          name: 'Utilities',
+          amount: 2200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 15,
+        ),
+        _expenseLedgerRow(
+          name: 'Food and drinks',
+          amount: 4300,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Investment contribution',
+          amount: 12000,
+          layer: ExpenseLayer.debtInvestments,
+          scheduled: true,
+          dueDay: 28,
+        ),
+        _expenseLedgerRow(
+          name: 'Memberships',
+          amount: 2500,
+          layer: ExpenseLayer.nonEssentials,
+          scheduled: true,
+          dueDay: 12,
+        ),
+        _expenseLedgerRow(
+          name: 'Travel and hobbies',
+          amount: 6800,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+      ]);
+    _syncOnboardingBaselineTotals();
+    cashFlowExpenses
+      ..clear()
+      ..addAll([
+        CashFlowExpense('Rent share', 4500),
+        CashFlowExpense('Utilities', 2200),
+        CashFlowExpense('Food and drinks', 4300),
+        CashFlowExpense(
+          'Investment contribution',
+          12000,
+          layer: ExpenseLayer.debtInvestments,
+        ),
+        CashFlowExpense(
+          'Memberships',
+          2500,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+        CashFlowExpense(
+          'Travel and hobbies',
+          6800,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+      ]);
+    onboardingBaselines
+      ..clear()
+      ..addAll({
+        'income_baseline': '76000.00',
+        'stable_income': '76000.00',
+        'variable_income': '0.00',
+        'monthly_expenses': '26300.00',
+        'essential_expenses': '11000.00',
+        'discretionary_spend': '9300.00',
+        'investment_balance': '0.00',
+        'emergency_balance': '42000.00',
+      });
+
+    jarLedger.clear();
+    d1Ledger.clear();
+    shieldLedger.clear();
+    billObligations.clear();
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    goalBucketOverrides.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns
+      ..clear()
+      ..addAll({
+        DateTime(now.year, now.month - 3, 28).toIso8601String(): 3,
+        DateTime(now.year, now.month - 2, 28).toIso8601String(): 3,
+        DateTime(now.year, now.month - 1, 28).toIso8601String(): 2,
+        DateTime(now.year, now.month, now.day).toIso8601String(): 2,
+      });
+
+    lifestyleHobbies
+      ..clear()
+      ..addAll([
+        {
+          'id': 'freedom_travel',
+          'name': 'Weekend Trips',
+          'target': 24000.0,
+          'months': 8,
+          'createdAt': DateTime(now.year, now.month - 3, 3).toIso8601String(),
+        },
+        {
+          'id': 'freedom_music',
+          'name': 'Music Lessons',
+          'target': 12000.0,
+          'months': 6,
+          'createdAt': DateTime(now.year, now.month - 2, 8).toIso8601String(),
+        },
+        {
+          'id': 'freedom_camera',
+          'name': 'Camera Upgrade',
+          'target': 18000.0,
+          'months': 10,
+          'createdAt': DateTime(now.year, now.month - 1, 12).toIso8601String(),
+        },
+      ]);
+
+    final transactions = <FakeMayaTransaction>[];
+    final ledger = <Map<String, dynamic>>[];
+    var walletBalance = 32000.0;
+    var needs = 7000.0;
+    var buffer = 18000.0;
+    var lifestyleFund = 9000.0;
+    const monthOffsets = [3, 2, 1, 0];
+    const subscriptionReserve = {3: 2200.0, 2: 2500.0, 1: 2700.0, 0: 2500.0};
+    const paydayContributions = {
+      3: [1500.0, 1200.0],
+      2: [1500.0, 1500.0],
+      1: [1500.0, 1700.0],
+      0: [1500.0, 1500.0],
+    };
+    const hobbyDeposits = {
+      3: [('freedom_travel', 2500.0), ('freedom_music', 1200.0)],
+      2: [('freedom_travel', 3200.0), ('freedom_music', 1600.0)],
+      1: [('freedom_travel', 2800.0), ('freedom_camera', 1900.0)],
+      0: [('freedom_music', 1800.0), ('freedom_camera', 2200.0)],
+    };
+    const weeklyLifestyleSpend = {
+      3: [1600.0, 2300.0, 1800.0, 1200.0],
+      2: [1900.0, 2100.0, 2600.0, 1700.0],
+      1: [1500.0, 1800.0, 2200.0, 1400.0],
+      0: [1700.0, 1950.0, 2350.0, 900.0],
+    };
+
+    for (final offset in monthOffsets) {
+      final month = DateTime(now.year, now.month - offset);
+      final paydays = [
+        DateTime(month.year, month.month, 15, 9),
+        DateTime(month.year, month.month + 1, 0, 9),
+      ];
+      final paydayAmounts = paydayContributions[offset]!;
+      for (var i = 0; i < paydays.length; i++) {
+        final payday = paydays[i];
+        if (payday.isAfter(now)) continue;
+        final transactionId = 'ff-salary-${month.year}-${month.month}-$i';
+        walletBalance += 38000;
+        transactions.add(_demoTransaction(
+          id: transactionId,
+          title: 'Cash in',
+          detail: 'From: Employer payroll',
+          amount: 38000,
+          date: payday,
+          category: 'Salary',
+          source: 'E-wallet',
+        ));
+
+        final needsIn =
+            math.min<double>(15200, math.max(0, needsTarget - needs));
+        final bufferIn = 7600 + (15200 - needsIn);
+        needs = math.min(needsTarget, needs + needsIn);
+        buffer += bufferIn;
+        jarLedger.add(JarEvent(
+          timestamp: payday.add(const Duration(hours: 1)),
+          type: JarEventType.income,
+          needsIn: needsIn,
+          needsOut: 0,
+          bufferIn: bufferIn,
+          bufferOut: 0,
+          sentence:
+              '${money(38000)} salary -> ${money(needsIn)} Needs, ${money(bufferIn)} Buffer',
+        ));
+
+        final contribution = paydayAmounts[i];
+        walletBalance = math.max(0, walletBalance - contribution);
+        lifestyleFund += contribution;
+        ledger.add({
+          'type': 'lifestyle_payday',
+          'date': payday.add(const Duration(hours: 2)).toIso8601String(),
+          'sourceDate': payday.toIso8601String(),
+          'sourceTransactionId': transactionId,
+          'amount': contribution,
+          'destination': 'Personal Lifestyle Fund',
+          'label': contribution >= 1500
+              ? 'Payday enjoyment contribution'
+              : 'Partial payday enjoyment contribution',
+        });
+        transactions.add(_demoTransaction(
+          id: 'ff-payday-transfer-${month.year}-${month.month}-$i',
+          title: 'Fund transfer',
+          detail: 'To: Personal Lifestyle Fund',
+          amount: -contribution,
+          date: payday.add(const Duration(hours: 2)),
+          category: 'Transfer',
+          source: 'E-wallet',
+        ));
+      }
+
+      final reserveDate = DateTime(month.year, month.month, 3, 10);
+      if (!reserveDate.isAfter(now)) {
+        final amount = subscriptionReserve[offset]!;
+        walletBalance = math.max(0, walletBalance - amount);
+        lifestyleFund += amount;
+        ledger.add({
+          'type': 'lifestyle_subscription_reserve',
+          'date': reserveDate.toIso8601String(),
+          'amount': amount,
+          'destination': 'Personal Lifestyle Fund',
+          'label': 'Subscriptions and memberships reserve',
+        });
+        transactions.add(_demoTransaction(
+          id: 'ff-subscription-reserve-${month.year}-${month.month}',
+          title: 'Fund transfer',
+          detail: 'To: Personal Lifestyle Fund',
+          amount: -amount,
+          date: reserveDate,
+          category: 'Transfer',
+          source: 'E-wallet',
+        ));
+      }
+
+      for (final item in hobbyDeposits[offset]!) {
+        final date = DateTime(month.year, month.month, 21, 11)
+            .add(Duration(days: hobbyDeposits[offset]!.indexOf(item) * 3));
+        if (date.isAfter(now)) continue;
+        walletBalance = math.max(0, walletBalance - item.$2);
+        lifestyleFund += item.$2;
+        ledger.add({
+          'type': 'lifestyle_hobby_deposit',
+          'date': date.toIso8601String(),
+          'hobbyId': item.$1,
+          'amount': item.$2,
+          'destination': 'Personal Lifestyle Fund',
+          'label': 'Hobby or activity contribution',
+        });
+        transactions.add(_demoTransaction(
+          id: 'ff-hobby-transfer-${item.$1}-${month.year}-${month.month}',
+          title: 'Fund transfer',
+          detail:
+              'To: ${item.$1 == 'freedom_travel' ? 'Weekend Trips' : item.$1 == 'freedom_music' ? 'Music Lessons' : 'Camera Upgrade'}',
+          amount: -item.$2,
+          date: date,
+          category: 'Transfer',
+          source: 'E-wallet',
+        ));
+      }
+
+      for (final bill in [
+        (
+          DateTime(month.year, month.month, 5, 10),
+          'Rent share',
+          4500.0,
+          'Housing'
+        ),
+        (
+          DateTime(month.year, month.month, 12, 9),
+          'Music app subscription',
+          500.0,
+          'Entertainment'
+        ),
+        (
+          DateTime(month.year, month.month, 15, 18),
+          'Utilities',
+          2200.0,
+          'Bills & utilities'
+        ),
+        (
+          DateTime(month.year, month.month, 18, 9),
+          'Gym membership',
+          1200.0,
+          'Memberships'
+        ),
+      ]) {
+        if (bill.$1.isAfter(now)) continue;
+        if (bill.$4 == 'Housing' || bill.$4 == 'Bills & utilities') {
+          needs = math.max(0, needs - math.min(needs, bill.$3));
+        } else {
+          lifestyleFund = math.max(0, lifestyleFund - bill.$3);
+        }
+        transactions.add(_demoTransaction(
+          id: 'ff-${bill.$2.toLowerCase().replaceAll(' ', '-')}-${month.year}-${month.month}',
+          title: 'Bill payment',
+          detail: 'To: ${bill.$2}',
+          amount: -bill.$3,
+          date: bill.$1,
+          category: bill.$4,
+          source: bill.$4 == 'Housing' || bill.$4 == 'Bills & utilities'
+              ? 'Basic Needs Fund'
+              : 'Lifestyle Fund',
+        ));
+      }
+
+      final spendAmounts = weeklyLifestyleSpend[offset]!;
+      for (var i = 0; i < spendAmounts.length; i++) {
+        final date = DateTime(month.year, month.month, 6 + i * 6, 14);
+        if (date.isAfter(now)) continue;
+        final amount = spendAmounts[i];
+        lifestyleFund = math.max(0, lifestyleFund - amount);
+        transactions.add(_demoTransaction(
+          id: 'ff-enjoy-${month.year}-${month.month}-$i',
+          title: i.isEven ? 'Paid merchant' : 'Sent money',
+          detail: i.isEven ? 'To: Restaurant and cafe' : 'To: Weekend activity',
+          amount: -amount,
+          date: date,
+          category: i.isEven ? 'Food & drink' : 'Entertainment',
+          source: 'Lifestyle Fund',
+        ));
+      }
+    }
+
+    lifestyleFundBalance = lifestyleFund;
+    lifestyleActivityBalance = 0;
+    needsBalance = needs;
+    bufferBalance = buffer;
+    essentialExpensesBalance = needs;
+    d1Ledger
+      ..clear()
+      ..addAll(ledger
+        ..sort((a, b) => DateTime.parse(b['date'].toString())
+            .compareTo(DateTime.parse(a['date'].toString()))));
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    fakeMayaBucketCreationAllowed = true;
+    confirmedFakeMayaBucketMotivations
+      ..clear()
+      ..add('Financial Freedom');
+
+    final lifestyleGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.personalLifestyleFundId,
+    ).copyWith(
+      balance: lifestyleFundBalance,
+      target: 54000,
+      daysLeft: 210,
+    );
+    fakeMayaLink = FakeMayaLink(
+      userId: 'mock-freedom-fakemaya',
+      email: normalizedEmail,
+      name: name,
+      phone: '+63 917 555 0180',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: walletBalance,
+        savings: bufferBalance,
+        timeDeposit: 0,
+        goalName: lifestyleGoal.name,
+        goalEmoji: lifestyleGoal.emoji,
+        goalBalance: lifestyleGoal.balance,
+        goalTarget: lifestyleGoal.target,
+        selectedGoalId: lifestyleGoal.id,
+        personalGoals: [lifestyleGoal],
         creditLimit: 0,
         creditUsed: 0,
         transactions: transactions

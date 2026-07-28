@@ -82,6 +82,6 @@ void main() {
 
     expect(find.text('Lifestyle Fund'), findsOneWidget);
     expect(find.textContaining('subscriptions and memberships'), findsWidgets);
-    expect(find.textContaining('Everyday Enjoyment Fund'), findsWidgets);
+    expect(find.textContaining('everyday enjoyment'), findsWidgets);
   });
 }

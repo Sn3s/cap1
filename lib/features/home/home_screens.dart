@@ -3800,6 +3800,11 @@ class _InsightsPageState extends State<InsightsPage> {
               ),
             'Financial Freedom' => _FinancialFreedomExplorer(
                 state: state,
+                selectedMonth: _selectedMonth,
+                onMonthSelected: (month) => setState(() {
+                  _selectedMonth = month;
+                  _selectedWeek = null;
+                }),
                 actionStageKey: _freedomActionStageKey,
               ),
             _ => _MotivationGoalsSummary(
@@ -5738,23 +5743,30 @@ _CashActionScore? _investmentActionScoreFor({
   return null;
 }
 
-/// Financial Freedom (G8)'s action scores. The pyramid's top layer is
-/// intentionally relaxed - each action (A26-A29) is still scored as a
-/// single current-state point, the same "pattern: [ratio]" shape used for
-/// Accumulating Wealth's actions, since none of these have a natural
-/// multi-week series either.
-List<_CashActionScore> _lifestyleActionScores({required AppState state}) {
+/// Financial Freedom (G8)'s action scores. A26-A28 are month-aware so the
+/// Freedom insights tab can answer the selected month directly; A29 remains a
+/// current target-funding view because hobby balances are cumulative by design.
+List<_CashActionScore> _lifestyleActionScores({
+  required AppState state,
+  DateTime? monthStart,
+}) {
   final configured =
       state.selectedActionIds.where(_lifestyleGoalActionIds.contains).toList();
   final actionIds = configured.isEmpty ? _lifestyleGoalActionIds : configured;
   return [
-    for (final id in actionIds) _lifestyleActionScoreFor(id: id, state: state),
+    for (final id in actionIds)
+      _lifestyleActionScoreFor(
+        id: id,
+        state: state,
+        monthStart: monthStart,
+      ),
   ].whereType<_CashActionScore>().toList();
 }
 
 _CashActionScore? _lifestyleActionScoreFor({
   required String id,
   required AppState state,
+  DateTime? monthStart,
 }) {
   double configuredNumber(String key, double fallback) {
     final values = state.actionFieldValues[id] ?? const <String, String>{};
@@ -5764,7 +5776,13 @@ _CashActionScore? _lifestyleActionScoreFor({
 
   if (id == 'A26') {
     final target = configuredNumber('amt', _monthlySubscriptionBase(state));
-    final reserved = state.lifestyleReservedThisMonth;
+    final reserved = monthStart == null
+        ? state.lifestyleReservedThisMonth
+        : _monthLedgerAmount(
+            state,
+            monthStart,
+            'lifestyle_subscription_reserve',
+          );
     final ratio = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
     return _CashActionScore(
       id: id,
@@ -5780,72 +5798,113 @@ _CashActionScore? _lifestyleActionScoreFor({
           'Progress = amount reserved this month ÷ configured monthly subscriptions target.',
       evidence: [
         'Configured monthly target: ${money(target)}',
-        'Reserved this month: ${money(reserved)}',
+        'Reserved ${monthStart == null ? 'this month' : 'in ${_monthLabel(monthStart)}'}: ${money(reserved)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   if (id == 'A27') {
     final amount = configuredNumber('amt', 1000);
-    final latestIncome = _latestIncomeTransaction(state);
-    if (latestIncome == null) {
+    final incomes = monthStart == null
+        ? [
+            if (_latestIncomeTransaction(state) case final latestIncome?)
+              latestIncome,
+          ]
+        : _incomeTransactionsForInvestmentMonth(state, monthStart);
+    if (incomes.isEmpty) {
       return _CashActionScore(
         id: id,
         title: 'Add to the Personal Lifestyle Fund every payday',
         score: 0,
-        detail: 'No income has been detected yet to fund a payday transfer.',
+        detail: monthStart == null
+            ? 'No income has been detected yet to fund a payday transfer.'
+            : 'No income was detected in ${_monthLabel(monthStart)} to fund payday transfers.',
         pattern: const [],
         weekLabels: const [],
         actualLabel: money(0),
         targetLabel: money(amount),
         formula:
             'Progress = whether the configured payday transfer was made for the latest income.',
-        evidence: const ['No income transaction detected yet'],
-        emptyReason:
-            'No income has been detected yet to fund a payday transfer.',
+        evidence: [
+          monthStart == null
+              ? 'No income transaction detected yet'
+              : 'No income transaction detected for ${_monthLabel(monthStart)}'
+        ],
+        emptyReason: monthStart == null
+            ? 'No income has been detected yet to fund a payday transfer.'
+            : 'No income has been detected for ${_monthLabel(monthStart)}.',
       );
     }
-    final done = state.hasLifestylePaydayAllocation(latestIncome.transactionId);
-    final ratio = done ? 1.0 : 0.0;
+    final ratios = <double>[];
+    final labels = <String>[];
+    var actual = 0.0;
+    for (final income in incomes) {
+      final contributed =
+          _lifestylePaydayAmountForIncome(state, income.transactionId);
+      actual += contributed;
+      ratios.add(amount <= 0 ? 0 : (contributed / amount).clamp(0.0, 1.0));
+      labels.add(
+          income.createdAt == null ? 'Payday' : _shortDate(income.createdAt!));
+    }
+    final expected = amount * incomes.length;
+    final ratio = ratios.isEmpty
+        ? 0.0
+        : ratios.fold<double>(0, (total, value) => total + value) /
+            ratios.length;
     return _CashActionScore(
       id: id,
       title: 'Add to the Personal Lifestyle Fund every payday',
       score: ratio,
-      detail: done
-          ? '${money(amount)} was added to the Personal Lifestyle Fund on the latest payday.'
-          : '${money(amount)} has not been added yet for the latest payday.',
-      pattern: [ratio],
-      weekLabels: const ['Latest payday'],
-      actualLabel: done ? money(amount) : money(0),
-      targetLabel: money(amount),
+      detail:
+          '${money(actual)} added toward ${money(expected)} expected payday lifestyle contributions${monthStart == null ? '' : ' in ${_monthLabel(monthStart)}'}.',
+      pattern: ratios,
+      weekLabels: labels,
+      actualLabel: money(actual),
+      targetLabel: money(expected),
       formula:
-          'Progress = whether the configured payday transfer was made for the latest income.',
+          'Progress = each payday lifestyle transfer ÷ configured payday amount.',
       evidence: [
         'Configured payday amount: ${money(amount)}',
-        'Latest payday: ${money(latestIncome.amount)}',
+        'Paydays counted: ${incomes.length}',
+        'Payday contributions: ${money(actual)}',
       ],
     );
   }
   if (id == 'A28') {
     final limit = configuredNumber('amt', 1500);
-    final spent = _currentWeekLifestyleSpend(state);
-    final ratio =
-        limit <= 0 || spent <= limit ? 1.0 : (limit / spent).clamp(0.0, 1.0);
+    final weeks = monthStart == null
+        ? [_LifestyleWeekSpend('This week', _currentWeekLifestyleSpend(state))]
+        : _lifestyleWeeklySpendForMonth(state, monthStart);
+    final ratios = [
+      for (final week in weeks)
+        limit <= 0 || week.amount <= limit
+            ? 1.0
+            : (limit / week.amount).clamp(0.0, 1.0),
+    ];
+    final spent = weeks.fold<double>(0, (total, week) => total + week.amount);
+    final target = limit * math.max(1, weeks.length);
+    final ratio = ratios.isEmpty
+        ? 0.0
+        : ratios.fold<double>(0, (total, value) => total + value) /
+            ratios.length;
     return _CashActionScore(
       id: id,
       title: 'Keep everyday enjoyment spending within the weekly limit',
       score: ratio,
-      detail: spent <= limit
-          ? '${money(spent)} spent this week, within the ${money(limit)} limit.'
-          : '${money(spent)} spent this week, over the ${money(limit)} limit.',
-      pattern: [ratio],
-      weekLabels: const ['This week'],
+      detail: monthStart == null
+          ? (spent <= limit
+              ? '${money(spent)} spent this week, within the ${money(limit)} limit.'
+              : '${money(spent)} spent this week, over the ${money(limit)} limit.')
+          : '${money(spent)} spent across ${weeks.length} week${weeks.length == 1 ? '' : 's'} in ${_monthLabel(monthStart)} against a ${money(limit)} weekly limit.',
+      pattern: ratios,
+      weekLabels: [for (final week in weeks) week.label],
       actualLabel: money(spent),
-      targetLabel: money(limit),
+      targetLabel: money(target),
       formula:
           'Progress = configured weekly limit ÷ actual spend when over the limit, otherwise full credit.',
       evidence: [
         'Configured weekly limit: ${money(limit)}',
-        'Spent this week: ${money(spent)}',
+        'Lifestyle spend counted: ${money(spent)}',
       ],
     );
   }
@@ -5893,6 +5952,7 @@ _CashActionScore? _lifestyleActionScoreFor({
         'Hobbies configured: ${hobbies.length}',
         'Combined target: ${money(totalTarget)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   return null;
@@ -10200,12 +10260,31 @@ class _HoldingRow extends StatelessWidget {
 
 const _freedomColor = Color(0xFF6AA8F0);
 
+List<DateTime> _lifestyleInsightMonths(AppState state) {
+  final months = <DateTime>{
+    ...state.allTransactions
+        .where((transaction) => transaction.createdAt != null)
+        .map((transaction) => _monthStart(transaction.createdAt!)),
+    ...state.d1Ledger
+        .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .map(_monthStart),
+  }.toList()
+    ..sort();
+  if (months.isEmpty) return [_monthStart(DateTime.now())];
+  return months;
+}
+
 class _FinancialFreedomExplorer extends StatelessWidget {
   const _FinancialFreedomExplorer({
     required this.state,
+    required this.selectedMonth,
+    required this.onMonthSelected,
     required this.actionStageKey,
   });
   final AppState state;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime> onMonthSelected;
   final GlobalKey actionStageKey;
 
   @override
@@ -10217,7 +10296,12 @@ class _FinancialFreedomExplorer extends StatelessWidget {
           total + state.lifestyleHobbyBalance(hobby['id'].toString()),
     );
     final totalValue = state.lifestyleFundBalance + hobbiesSaved;
-    final lifestyleScores = _lifestyleActionScores(state: state);
+    final months = _lifestyleInsightMonths(state);
+    final activeMonth =
+        months.where((month) => month == selectedMonth).firstOrNull ??
+            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+    final lifestyleScores =
+        _lifestyleActionScores(state: state, monthStart: activeMonth);
     return Column(
       children: [
         _GoalInsightHeader(
@@ -10245,11 +10329,21 @@ class _FinancialFreedomExplorer extends StatelessWidget {
           },
         ),
         _LifestyleTargetFundsCard(state: state),
-        _LifestyleOverviewGrid(state: state),
-        _LifestyleWeeklySpendCard(state: state),
+        _LifestyleOverviewGrid(state: state, monthStart: activeMonth),
+        _LifestyleWeeklySpendCard(state: state, monthStart: activeMonth),
         _LifestyleContributionsChart(
           points: _lifestyleMonthlyContributions(state),
           balance: state.lifestyleFundBalance,
+        ),
+        _InsightMonthSelector(
+          months: months,
+          selected: activeMonth,
+          onSelected: onMonthSelected,
+        ),
+        _FinancialFreedomScoreSummaryCard(
+          state: state,
+          monthStart: activeMonth,
+          actionScores: lifestyleScores,
         ),
         _ActionProgressSection(actionScores: lifestyleScores),
         _GoalActionStageSection(
@@ -10265,6 +10359,135 @@ class _FinancialFreedomExplorer extends StatelessWidget {
               coach.recommendLifestyleActionStage(state: state),
         ),
       ],
+    );
+  }
+}
+
+class _FinancialFreedomScoreSummaryCard extends StatelessWidget {
+  const _FinancialFreedomScoreSummaryCard({
+    required this.state,
+    required this.monthStart,
+    required this.actionScores,
+  });
+
+  final AppState state;
+  final DateTime monthStart;
+  final List<_CashActionScore> actionScores;
+
+  @override
+  Widget build(BuildContext context) {
+    final score = _totalActionScore(actionScores);
+    final scoreValue = score ?? 0;
+    final scoreColor = score == null ? _body : _resiliencyScoreColor(score);
+    final subscriptionReserve = _monthLedgerAmount(
+      state,
+      monthStart,
+      'lifestyle_subscription_reserve',
+    );
+    final payday = _monthLedgerAmount(state, monthStart, 'lifestyle_payday');
+    final hobbyDeposits =
+        _monthLedgerAmount(state, monthStart, 'lifestyle_hobby_deposit');
+    final monthSetAside = subscriptionReserve + payday + hobbyDeposits;
+    final weeks = _lifestyleWeeklySpendForMonth(state, monthStart);
+    final monthSpend =
+        weeks.fold<double>(0, (total, week) => total + week.amount);
+    final weeklyLimit = _configuredActionAmount(state, 'A28', 1500);
+    final spendEnvelope = weeklyLimit * math.max(1, weeks.length);
+    final hobbyTarget = state.lifestyleHobbies.fold<double>(
+      0,
+      (total, hobby) => total + ((hobby['target'] as num?)?.toDouble() ?? 0),
+    );
+    final hobbySaved = state.lifestyleHobbies.fold<double>(
+      0,
+      (total, hobby) =>
+          total + state.lifestyleHobbyBalance(hobby['id'].toString()),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final ring = _CircularInvestmentScoreRing(
+              percent: scoreValue.toDouble(),
+              color: scoreColor,
+              empty: score == null,
+            );
+            final details = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Financial Freedom Score',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  score == null ? 'Not enough data' : '$score/100',
+                  style: TextStyle(
+                    color: scoreColor,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 13),
+                _InvestmentMetricLine(
+                  label: _monthLabel(monthStart),
+                  value: '${money(monthSetAside)} set aside',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Enjoyment Spend',
+                  value: '${money(monthSpend)} / ${money(spendEnvelope)}',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Subscriptions',
+                  value: money(subscriptionReserve),
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Hobby Goals',
+                  value: '${money(hobbySaved)} / ${money(hobbyTarget)}',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Lifestyle Fund',
+                  value: money(state.lifestyleFundBalance),
+                ),
+              ],
+            );
+            if (constraints.maxWidth < 310) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ring,
+                  const SizedBox(height: 16),
+                  details,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ring,
+                const SizedBox(width: 18),
+                Expanded(child: details),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -10384,8 +10607,12 @@ class _HobbyProgressLine extends StatelessWidget {
 }
 
 class _LifestyleOverviewGrid extends StatelessWidget {
-  const _LifestyleOverviewGrid({required this.state});
+  const _LifestyleOverviewGrid({
+    required this.state,
+    required this.monthStart,
+  });
   final AppState state;
+  final DateTime monthStart;
 
   @override
   Widget build(BuildContext context) {
@@ -10394,7 +10621,11 @@ class _LifestyleOverviewGrid extends StatelessWidget {
       'A26',
       _monthlySubscriptionBase(state),
     );
-    final reserved = state.lifestyleReservedThisMonth;
+    final reserved = _monthLedgerAmount(
+      state,
+      monthStart,
+      'lifestyle_subscription_reserve',
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       child: Row(
@@ -10423,20 +10654,26 @@ class _LifestyleOverviewGrid extends StatelessWidget {
 }
 
 class _LifestyleWeeklySpendCard extends StatelessWidget {
-  const _LifestyleWeeklySpendCard({required this.state});
+  const _LifestyleWeeklySpendCard({
+    required this.state,
+    required this.monthStart,
+  });
   final AppState state;
+  final DateTime monthStart;
 
   @override
   Widget build(BuildContext context) {
     final limit = _configuredActionAmount(state, 'A28', 1500);
-    final spent = _currentWeekLifestyleSpend(state);
-    final over = spent > limit;
-    final progress = limit <= 0 ? 1.0 : (spent / limit);
+    final weeks = _lifestyleWeeklySpendForMonth(state, monthStart);
+    final spent = weeks.fold<double>(0, (total, week) => total + week.amount);
+    final target = limit * math.max(1, weeks.length);
+    final over = spent > target;
+    final progress = target <= 0 ? 1.0 : (spent / target);
     final color = over ? _red : _freedomColor;
-    final pastWeeks = [
-      for (var i = 3; i >= 0; i--) _lifestyleSpendForCompletedWeek(state, i),
-    ];
-    final maxWeek = [...pastWeeks, spent, limit].fold<double>(1, math.max);
+    final maxWeek = [
+      ...weeks.map((week) => week.amount),
+      limit,
+    ].fold<double>(1, math.max);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       child: Container(
@@ -10475,7 +10712,7 @@ class _LifestyleWeeklySpendCard extends StatelessWidget {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'of ${money(limit)} this week',
+                    'of ${money(target)} in ${_monthLabel(monthStart)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -10500,8 +10737,8 @@ class _LifestyleWeeklySpendCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               over
-                  ? '${money(spent - limit)} over the weekly limit - no pressure, just something to notice.'
-                  : '${money(math.max(0.0, limit - spent))} left in this week\'s enjoyment budget.',
+                  ? '${money(spent - target)} over the month\'s weekly-limit envelope - no pressure, just something to notice.'
+                  : '${money(math.max(0.0, target - spent))} left in ${_monthLabel(monthStart)}\'s enjoyment envelope.',
               style: TextStyle(
                 color: over ? _red : _body,
                 fontSize: 10.5,
@@ -10513,24 +10750,16 @@ class _LifestyleWeeklySpendCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                for (var i = 0; i < pastWeeks.length; i++)
+                for (var i = 0; i < weeks.length; i++)
                   Expanded(
                     child: _WeeklySpendBar(
-                      label: '${pastWeeks.length - i}w ago',
-                      value: pastWeeks[i],
+                      label: weeks[i].label,
+                      value: weeks[i].amount,
                       limit: limit,
                       maxValue: maxWeek,
+                      emphasize: i == weeks.length - 1,
                     ),
                   ),
-                Expanded(
-                  child: _WeeklySpendBar(
-                    label: 'This wk',
-                    value: spent,
-                    limit: limit,
-                    maxValue: maxWeek,
-                    emphasize: true,
-                  ),
-                ),
               ],
             ),
           ],
@@ -15618,17 +15847,36 @@ double _currentWeekLifestyleSpend(AppState state) {
   );
 }
 
-/// Everyday-enjoyment spend for a completed week, [weeksAgo] weeks back
-/// (0 = the most recently completed week before this one). Used for the
-/// Financial Freedom insights page's weekly spending trend, separate from
-/// [_currentWeekLifestyleSpend] which cuts off at "now" for the in-progress
-/// week rather than a fixed 7-day window.
-double _lifestyleSpendForCompletedWeek(AppState state, int weeksAgo) {
-  final now = DateTime.now();
-  final thisWeekStart = DateTime(now.year, now.month, now.day)
-      .subtract(Duration(days: now.weekday - 1));
-  final start = thisWeekStart.subtract(Duration(days: 7 * (weeksAgo + 1)));
-  final end = start.add(const Duration(days: 7));
+class _LifestyleWeekSpend {
+  const _LifestyleWeekSpend(this.label, this.amount);
+  final String label;
+  final double amount;
+}
+
+List<_LifestyleWeekSpend> _lifestyleWeeklySpendForMonth(
+  AppState state,
+  DateTime monthStart,
+) {
+  final end = DateTime(monthStart.year, monthStart.month + 1);
+  final weeks = <_LifestyleWeekSpend>[];
+  var cursor = monthStart;
+  var index = 1;
+  while (cursor.isBefore(end)) {
+    final weekEnd = cursor.add(const Duration(days: 7));
+    final clampedEnd = weekEnd.isBefore(end) ? weekEnd : end;
+    weeks.add(
+      _LifestyleWeekSpend(
+        'Week $index',
+        _lifestyleSpendInRange(state, cursor, clampedEnd),
+      ),
+    );
+    cursor = clampedEnd;
+    index += 1;
+  }
+  return weeks;
+}
+
+double _lifestyleSpendInRange(AppState state, DateTime start, DateTime end) {
   final lifestylePattern = RegExp(
     r'entertainment|travel|personal goal|movie|cinema|concert|game|hobby|coffee|cafe|restaurant|bar',
     caseSensitive: false,
@@ -19105,6 +19353,16 @@ double _investmentDepositsForIncome(AppState state, String transactionId) {
   var total = 0.0;
   for (final entry in state.d1Ledger) {
     if (entry['type'] != 'investment_deposit') continue;
+    if (entry['sourceTransactionId']?.toString() != transactionId) continue;
+    total += (entry['amount'] as num?)?.toDouble() ?? 0;
+  }
+  return total;
+}
+
+double _lifestylePaydayAmountForIncome(AppState state, String transactionId) {
+  var total = 0.0;
+  for (final entry in state.d1Ledger) {
+    if (entry['type'] != 'lifestyle_payday') continue;
     if (entry['sourceTransactionId']?.toString() != transactionId) continue;
     total += (entry['amount'] as num?)?.toDouble() ?? 0;
   }
