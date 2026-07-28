@@ -1167,78 +1167,153 @@ class _PyramidLedgerSection extends StatelessWidget {
         ),
       );
     }
+    final sections = _PyramidLedgerDisplayItem.fromEntries(entries);
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
       itemBuilder: (context, index) {
-        final entry = entries[index];
-        return AppCard(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(entry.icon, color: entry.isIncome ? _sage : _body),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.name,
-                      style: const TextStyle(
-                        color: _title,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      entry.detail,
-                      style: const TextStyle(
-                        color: _body,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+        final item = sections[index];
+        final sectionTitle = item.sectionTitle;
+        if (sectionTitle != null) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(2, 4, 2, 0),
+            child: Text(
+              sectionTitle,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
               ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    money(entry.amount),
-                    style: TextStyle(
-                      color: entry.isIncome ? _sage : _red,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  if (entry.editable)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Edit',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.edit_rounded, size: 18),
-                          onPressed: () => onEdit(entry),
-                        ),
-                        IconButton(
-                          tooltip: 'Delete',
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.delete_outline_rounded,
-                              size: 18, color: _red),
-                          onPressed: () => onDelete(entry),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ],
-          ),
+            ),
+          );
+        }
+        final entry = item.entry!;
+        return _PyramidLedgerEntryCard(
+          entry: entry,
+          onEdit: onEdit,
+          onDelete: onDelete,
         );
       },
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemCount: entries.length,
+      itemCount: sections.length,
+    );
+  }
+}
+
+class _PyramidLedgerDisplayItem {
+  const _PyramidLedgerDisplayItem.entry(this.entry) : sectionTitle = null;
+  const _PyramidLedgerDisplayItem.section(this.sectionTitle) : entry = null;
+
+  final _PyramidBaselineEntry? entry;
+  final String? sectionTitle;
+
+  static List<_PyramidLedgerDisplayItem> fromEntries(
+    List<_PyramidBaselineEntry> entries,
+  ) {
+    final shouldGroupBasicNeedsExpenses = entries.any((entry) =>
+            !entry.isIncome && entry.layer == _pyramidCashFlowLayer) &&
+        entries.every(
+            (entry) => !entry.isIncome && entry.layer == _pyramidCashFlowLayer);
+    if (!shouldGroupBasicNeedsExpenses) {
+      return [
+        for (final entry in entries) _PyramidLedgerDisplayItem.entry(entry)
+      ];
+    }
+    final withDueDate = entries.where((entry) => entry.hasDueDate).toList();
+    final withoutDueDate = entries.where((entry) => !entry.hasDueDate).toList();
+    return [
+      if (withDueDate.isNotEmpty) ...[
+        const _PyramidLedgerDisplayItem.section('With due date'),
+        for (final entry in withDueDate) _PyramidLedgerDisplayItem.entry(entry),
+      ],
+      if (withoutDueDate.isNotEmpty) ...[
+        const _PyramidLedgerDisplayItem.section('Without due date'),
+        for (final entry in withoutDueDate)
+          _PyramidLedgerDisplayItem.entry(entry),
+      ],
+    ];
+  }
+}
+
+class _PyramidLedgerEntryCard extends StatelessWidget {
+  const _PyramidLedgerEntryCard({
+    required this.entry,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final _PyramidBaselineEntry entry;
+  final ValueChanged<_PyramidBaselineEntry> onEdit;
+  final ValueChanged<_PyramidBaselineEntry> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(entry.icon, color: entry.isIncome ? _sage : _body),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.name,
+                  style: const TextStyle(
+                    color: _title,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  entry.detail,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                money(entry.amount),
+                style: TextStyle(
+                  color: entry.isIncome ? _sage : _red,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              if (entry.editable)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Edit',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.edit_rounded, size: 18),
+                      onPressed: () => onEdit(entry),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: _red,
+                      ),
+                      onPressed: () => onDelete(entry),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1935,6 +2010,7 @@ class _PyramidBaselineEntry {
     required this.detail,
     required this.icon,
     this.editable = true,
+    this.hasDueDate = false,
   });
 
   final int index;
@@ -1946,6 +2022,7 @@ class _PyramidBaselineEntry {
   final String detail;
   final IconData icon;
   final bool editable;
+  final bool hasDueDate;
 }
 
 List<_PyramidBaselineEntry> _onboardingEntriesForLayer(
@@ -2195,7 +2272,17 @@ _PyramidBaselineEntry _expenseBaselineEntry(
     layer: _pyramidLayerForExpenseLayer(layer),
     detail: detail,
     icon: layer == null ? Icons.receipt_long_rounded : _expenseLayerIcon(layer),
+    hasDueDate: _baselineExpenseHasDueDate(data),
   );
+}
+
+bool _baselineExpenseHasDueDate(Map<String, dynamic> data) {
+  if (data['scheduled'] == true) return true;
+  if ((data['dueDay'] as num?) != null) return true;
+  if (DateTime.tryParse(data['scheduleAnchorDate']?.toString() ?? '') != null) {
+    return true;
+  }
+  return DateTime.tryParse(data['dueDate']?.toString() ?? '') != null;
 }
 
 String _pyramidLayerForExpenseLayer(ExpenseLayer? layer) {
@@ -22041,8 +22128,10 @@ class _ActivityRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final positive = data.countsAsIncome;
     final transaction = data.transaction;
-    final needsLabel = transaction?.isWalletCashMovement == true &&
-        transaction?.isLabeled == false;
+    final needsLabel = transaction != null &&
+        !transaction.isInternalFakeMayaTransfer &&
+        !transaction.isLabeled &&
+        transaction.amount != 0;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -22444,6 +22533,33 @@ class _TransactionLabelSheet extends StatefulWidget {
   State<_TransactionLabelSheet> createState() => _TransactionLabelSheetState();
 }
 
+class _TransactionCategoryOption {
+  const _TransactionCategoryOption.category(String category)
+      : value = category,
+        label = category,
+        enabled = true;
+
+  const _TransactionCategoryOption.header(this.label)
+      : value = null,
+        enabled = false;
+
+  final String? value;
+  final String label;
+  final bool enabled;
+}
+
+class _TransactionSourceOption {
+  const _TransactionSourceOption({
+    required this.value,
+    required this.label,
+    this.enabled = true,
+  });
+
+  final String value;
+  final String label;
+  final bool enabled;
+}
+
 class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   static const _incomeCategories = [
     'Salary',
@@ -22502,6 +22618,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     'Accumulating Wealth': 'Investment',
     'Financial Freedom': 'Personal Lifestyle Fund',
   };
+  static const _eWalletSource = 'E-wallet';
   // Categories not listed here (e.g. "Transfer", "Other expense/income")
   // are generic and stay available under every layer.
   static const _layerCategories = {
@@ -22553,23 +22670,136 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     super.dispose();
   }
 
-  List<String> _categoriesForLayer(bool isIncome) {
+  List<_TransactionCategoryOption> _categoryOptionsForLayer(
+    AppState state,
+    bool isIncome,
+  ) {
     final base = isIncome ? _incomeCategories : _expenseCategories;
-    if (isIncome) return base;
+    if (isIncome) {
+      return [
+        for (final category in base)
+          _TransactionCategoryOption.category(category),
+      ];
+    }
     final layer = _financialLayer;
-    if (layer == null) return base;
+    if (layer == null) return const [];
+    if (layer == _pyramidCashFlowLayer) {
+      final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
+      if (pyramidOptions.isNotEmpty) return pyramidOptions;
+    }
     final allowed = {..._genericCategories, ...?_layerCategories[layer]};
     final filtered = base.where(allowed.contains).toList();
-    return filtered.isEmpty ? base : filtered;
+    return [
+      for (final category in (filtered.isEmpty ? base : filtered))
+        _TransactionCategoryOption.category(category),
+    ];
+  }
+
+  List<String> _enabledCategoryValuesForLayer(
+    AppState state,
+    bool isIncome,
+  ) {
+    return [
+      for (final option in _categoryOptionsForLayer(state, isIncome))
+        if (option.enabled && option.value != null) option.value!,
+    ];
+  }
+
+  List<_TransactionCategoryOption> _cashFlowBasicNeedsCategoryOptions(
+    AppState state,
+  ) {
+    final entries = _onboardingEntriesForLayer(state, _pyramidCashFlowLayer)
+        .where((entry) => !entry.isIncome && entry.amount > 0)
+        .toList();
+    final withDueDate = _uniqueCategoryEntries(
+      entries.where((entry) => entry.hasDueDate),
+    );
+    final withoutDueDate = _uniqueCategoryEntries(
+      entries.where((entry) => !entry.hasDueDate),
+    );
+    return [
+      if (withDueDate.isNotEmpty) ...[
+        const _TransactionCategoryOption.header('With due date'),
+        for (final entry in withDueDate)
+          _TransactionCategoryOption.category(entry.name),
+      ],
+      if (withoutDueDate.isNotEmpty) ...[
+        const _TransactionCategoryOption.header('Without due date'),
+        for (final entry in withoutDueDate)
+          _TransactionCategoryOption.category(entry.name),
+      ],
+    ];
+  }
+
+  List<_PyramidBaselineEntry> _uniqueCategoryEntries(
+    Iterable<_PyramidBaselineEntry> entries,
+  ) {
+    final seen = <String>{};
+    return [
+      for (final entry in entries)
+        if (seen.add(entry.name.trim().toLowerCase())) entry,
+    ];
+  }
+
+  List<_TransactionSourceOption> _sourcesForLayer(
+    AppState state,
+    bool isIncome,
+  ) {
+    if (isIncome) return const [];
+    final layer = _financialLayer;
+    final fund = layer == null ? null : _financialLayerSources[layer];
+    final fundEnabled = layer != null && _fundSourceIsAvailable(state, layer);
+    return [
+      const _TransactionSourceOption(
+        value: _eWalletSource,
+        label: _eWalletSource,
+      ),
+      if (fund != null)
+        _TransactionSourceOption(
+          value: fund,
+          label: fundEnabled ? fund : '$fund (not enough)',
+          enabled: fundEnabled,
+        ),
+    ];
+  }
+
+  bool _fundSourceIsAvailable(AppState state, String layer) {
+    final motivation = _financialLayerMotivations[layer];
+    final bucketId =
+        motivation == null ? null : fakeMayaBucketIdForMotivation(motivation);
+    final bucket = bucketId == null
+        ? null
+        : state.fakeMayaLink?.summary.personalGoalById(bucketId);
+    return bucket != null && bucket.balance >= widget.transaction.amount.abs();
   }
 
   @override
   Widget build(BuildContext context) {
     final transaction = widget.transaction;
     final isIncome = transaction.amount >= 0;
-    final categories = _categoriesForLayer(isIncome);
-    final automaticDestination = transaction.automaticDestination;
     final state = AppScope.of(context);
+    final categoryOptions = _categoryOptionsForLayer(state, isIncome);
+    final enabledCategories = [
+      for (final option in categoryOptions)
+        if (option.enabled && option.value != null) option.value!,
+    ];
+    final canChooseCategory =
+        (isIncome || _financialLayer != null) && enabledCategories.isNotEmpty;
+    final categoryHint = canChooseCategory
+        ? 'Choose a category'
+        : _financialLayer == null && !isIncome
+            ? 'Choose a financial layer first'
+            : 'Add pyramid expenses first';
+    final sourceOptions = _sourcesForLayer(state, isIncome);
+    final enabledSourceValues = [
+      for (final option in sourceOptions)
+        if (option.enabled) option.value,
+    ];
+    final canChooseSource =
+        isIncome || (_financialLayer != null && _category != null);
+    final selectedSourceIsEnabled =
+        isIncome || enabledSourceValues.contains(_source);
+    final automaticDestination = transaction.automaticDestination;
     final bucketId = isIncome || _financialLayer == null
         ? null
         : fakeMayaBucketIdForMotivation(
@@ -22667,8 +22897,9 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               onChanged: (value) {
                 setState(() {
                   _financialLayer = value;
-                  if (value != null) _source = _financialLayerSources[value];
-                  if (!_categoriesForLayer(isIncome).contains(_category)) {
+                  if (value != null) _source = _eWalletSource;
+                  if (!_enabledCategoryValuesForLayer(state, isIncome)
+                      .contains(_category)) {
                     _category = null;
                   }
                   _pullFromBucket = null;
@@ -22679,33 +22910,77 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             const SizedBox(height: 12),
           ],
           DropdownButtonFormField<String>(
-            value: categories.contains(_category) ? _category : null,
-            decoration: inputDecoration('Choose a category').copyWith(
+            value: canChooseCategory && enabledCategories.contains(_category)
+                ? _category
+                : null,
+            decoration: inputDecoration(categoryHint).copyWith(
               labelText: 'Category',
             ),
-            items: categories
-                .map((value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(value),
+            items: categoryOptions
+                .map((option) => DropdownMenuItem(
+                      value: option.value ?? '__${option.label}__',
+                      enabled: option.enabled,
+                      child: Text(
+                        option.label,
+                        style: TextStyle(
+                          color: option.enabled ? _title : _body,
+                          fontWeight: option.enabled
+                              ? FontWeight.w700
+                              : FontWeight.w900,
+                        ),
+                      ),
                     ))
                 .toList(),
-            onChanged: (value) {
-              setState(() {
-                _category = value;
-                _pullFromBucket = null;
-              });
-              _maybePromptBucketFunding();
-            },
+            onChanged: canChooseCategory
+                ? (value) {
+                    setState(() {
+                      _category = value;
+                      _pullFromBucket = null;
+                    });
+                    _maybePromptBucketFunding();
+                  }
+                : null,
           ),
           const SizedBox(height: 12),
           if (automaticDestination == null)
-            _TransactionDetailLine(
-              label: 'Fund',
-              value: _source ??
-                  (isIncome
-                      ? transaction.account ?? 'Wallet'
-                      : 'Choose a financial layer first'),
-            )
+            if (isIncome)
+              _TransactionDetailLine(
+                label: 'Source',
+                value: _source ?? transaction.account ?? 'Wallet',
+              )
+            else
+              DropdownButtonFormField<String>(
+                value: enabledSourceValues.contains(_source) ? _source : null,
+                decoration: inputDecoration(canChooseSource
+                        ? 'Choose a source'
+                        : _financialLayer == null
+                            ? 'Choose a financial layer first'
+                            : 'Choose a category first')
+                    .copyWith(
+                  labelText: 'Source',
+                ),
+                items: sourceOptions
+                    .map((option) => DropdownMenuItem(
+                          value: option.value,
+                          enabled: option.enabled,
+                          child: Text(
+                            option.label,
+                            style: TextStyle(
+                              color: option.enabled ? _title : _body,
+                              fontWeight: option.enabled
+                                  ? FontWeight.w700
+                                  : FontWeight.w900,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+                onChanged: canChooseSource
+                    ? (value) {
+                        if (value == null) return;
+                        _selectSource(value);
+                      }
+                    : null,
+              )
           else
             _TransactionDetailLine(
               label: 'Destination',
@@ -22771,6 +23046,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             enabled: _category != null &&
                 (isIncome || _financialLayer != null) &&
                 _source != null &&
+                selectedSourceIsEnabled &&
                 !_saving,
             onPressed: _save,
           ),
@@ -22789,13 +23065,59 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     if (transaction.amount >= 0) return;
     final layer = _financialLayer;
     if (layer == null || _category == null || _pullFromBucket != null) return;
+    await _confirmBucketSource(layer);
+  }
+
+  Future<void> _selectSource(String source) async {
+    final layer = _financialLayer;
+    final state = AppScope.of(context);
+    if (layer == null || _category == null) {
+      setState(() {
+        _source = _eWalletSource;
+        _pullFromBucket = false;
+      });
+      return;
+    }
+    final fundSource = layer == null ? null : _financialLayerSources[layer];
+    if (source == fundSource) {
+      if (!_fundSourceIsAvailable(state, layer)) {
+        setState(() {
+          _source = _eWalletSource;
+          _pullFromBucket = false;
+        });
+        return;
+      }
+      await _confirmBucketSource(layer);
+      return;
+    }
+    setState(() {
+      _source = source;
+      if (source == _eWalletSource) _pullFromBucket = false;
+    });
+  }
+
+  Future<void> _confirmBucketSource(String layer) async {
     final motivation = _financialLayerMotivations[layer]!;
     final bucketId = fakeMayaBucketIdForMotivation(motivation);
-    if (bucketId == null || !mounted) return;
+    if (bucketId == null || !mounted) {
+      if (mounted) {
+        setState(() {
+          _pullFromBucket = false;
+          _source = _eWalletSource;
+        });
+      }
+      return;
+    }
     final state = AppScope.of(context);
     final bucket = state.fakeMayaLink?.summary.personalGoalById(bucketId);
-    if (bucket == null) return;
-    final amount = transaction.amount.abs();
+    if (bucket == null) {
+      setState(() {
+        _pullFromBucket = false;
+        _source = _eWalletSource;
+      });
+      return;
+    }
+    final amount = widget.transaction.amount.abs();
     final sufficient = bucket.balance >= amount;
     final agreed = await showDialog<bool>(
       context: context,
@@ -22833,7 +23155,10 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       ),
     );
     if (!mounted) return;
-    setState(() => _pullFromBucket = agreed ?? false);
+    setState(() {
+      _pullFromBucket = agreed == true;
+      _source = agreed == true ? _financialLayerSources[layer] : _eWalletSource;
+    });
   }
 
   Future<void> _save() async {
@@ -22843,9 +23168,14 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final source = widget.transaction.automaticDestination ??
         _source ??
         (isIncome ? widget.transaction.account ?? 'Wallet' : null);
+    final fundSource =
+        financialLayer == null ? null : _financialLayerSources[financialLayer];
     if (category == null ||
         (!isIncome && financialLayer == null) ||
         source == null ||
+        (!isIncome &&
+            source == fundSource &&
+            !_fundSourceIsAvailable(AppScope.of(context), financialLayer!)) ||
         _saving) {
       return;
     }
@@ -22904,6 +23234,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     if (automaticDestination != null) return automaticDestination;
     if (transaction.source != null) return transaction.source;
     if (transaction.amount >= 0) return transaction.account ?? 'Wallet';
+    final layer = _initialFinancialLayer(transaction);
+    if (layer != null) return _eWalletSource;
     return switch (transaction.category?.trim().toLowerCase()) {
       'basic needs' => 'Basic Needs Fund',
       'emergency fund' => 'Emergency Fund',

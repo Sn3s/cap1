@@ -358,6 +358,7 @@ class AppState extends ChangeNotifier {
     }
     _applyProfileMap(profile);
     _applyFirebaseUser(user);
+    await _refreshLinkedAccountsAfterSignIn();
     await saveProfile();
     notifyListeners();
     return true;
@@ -392,6 +393,7 @@ class AppState extends ChangeNotifier {
     if (profile != null) {
       _applyProfileMap(profile);
       _applyFirebaseUser(user);
+      if (onboardingComplete) await _refreshLinkedAccountsAfterSignIn();
     }
     if (saveAfterSignIn) {
       await saveProfile();
@@ -426,8 +428,23 @@ class AppState extends ChangeNotifier {
     }
     _applyProfileMap(profile);
     _applyFirebaseUser(user);
+    await _refreshLinkedAccountsAfterSignIn();
     await saveProfile();
     notifyListeners();
+  }
+
+  Future<void> _refreshLinkedAccountsAfterSignIn() async {
+    _syncFakeMayaMoneyItems();
+    if (fakeMayaLink == null) return;
+    try {
+      await refreshFakeMayaAccount();
+    } on FakeMayaException catch (error) {
+      debugPrint('FakeMaya refresh after login failed: $error');
+      _syncFakeMayaMoneyItems();
+    } catch (error) {
+      debugPrint('Linked account refresh after login failed: $error');
+      _syncFakeMayaMoneyItems();
+    }
   }
 
   Future<void> createAccountWithEmail({
