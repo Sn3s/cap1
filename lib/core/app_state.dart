@@ -97,6 +97,7 @@ class AppState extends ChangeNotifier {
   bool emotionalLogsEnabled = false;
   bool stressIndicatorsEnabled = false;
   FakeMayaLink? fakeMayaLink;
+  bool mockDataEnabled = false;
   double cashOnHandBalance = 0;
   final Map<String, double> manualAccountBalances = {
     'Wallet': 0,
@@ -706,6 +707,7 @@ class AppState extends ChangeNotifier {
     _pendingAccountPassword = null;
     _pendingGoogleAccount = false;
     photoUrl = null;
+    mockDataEnabled = false;
     onboardingComplete = false;
     age = '';
     occupation = '';
@@ -834,6 +836,51 @@ class AppState extends ChangeNotifier {
 
   void seedReflectionDemoDataForTesting() {
     _applyReflectionDemoProfile(null);
+  }
+
+  void seedEmergencyFundMockDataForTesting() {
+    email = 'emergency@gmail.com';
+    _applyEmergencyFundMockProfile(null);
+  }
+
+  void seedCashFlowMockDataForTesting() {
+    email = 'cashflow@gmail.com';
+    _applyCashFlowMockProfile(null);
+  }
+
+  bool get canOverwriteWithMockData {
+    final normalizedEmail = email.trim().toLowerCase();
+    return normalizedEmail == 'cashflow@gmail.com' ||
+        normalizedEmail == 'emergency@gmail.com' ||
+        selectedGoalId == 'G1' ||
+        selectedGoalId == 'G3';
+  }
+
+  Future<void> overwriteWithMockData() async {
+    await setMockDataEnabled(true);
+  }
+
+  Future<void> setMockDataEnabled(bool enabled) async {
+    if (!canOverwriteWithMockData) {
+      throw StateError(
+          'Mock overwrite is only available for supported saved goal accounts right now.');
+    }
+    if (!enabled) {
+      mockDataEnabled = false;
+      await saveProfile();
+      notifyListeners();
+      return;
+    }
+    final user = FirebaseProfileService.currentUser;
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase();
+    if (normalizedEmail == 'cashflow@gmail.com' || selectedGoalId == 'G1') {
+      _applyCashFlowMockProfile(user);
+    } else {
+      _applyEmergencyFundMockProfile(user);
+    }
+    mockDataEnabled = true;
+    await saveProfile(markOnboardingComplete: true);
+    notifyListeners();
   }
 
   void _applyReflectionDemoProfile(User? user) {
@@ -1611,6 +1658,899 @@ class AppState extends ChangeNotifier {
     _syncFakeMayaMoneyItems();
   }
 
+  void _applyCashFlowMockProfile(User? user) {
+    final now = DateTime.now();
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
+        ? 'cashflow@gmail.com'
+        : (user?.email ?? email).trim().toLowerCase();
+    name = user?.displayName?.trim().isNotEmpty == true
+        ? user!.displayName!.trim()
+        : 'Cash Flow Account';
+    email = normalizedEmail;
+    primaryConcern = 'Cash Flow & Basic Needs';
+    motivation = 'Cash Flow & Basic Needs';
+    reflectedMotivation =
+        'Keep bills covered while smoothing irregular income into everyday cash.';
+    selectedGoalId = 'G1';
+    selectedGoal = 'Maintain Available Cash';
+    selectedGoalDescription =
+        'Maintain enough available cash to cover essential bills and weekly spending.';
+    selectedGoalMonthlyTarget = 12000;
+    onboardingComplete = true;
+    mockDataEnabled = true;
+    confidence = 6;
+    anxiety = 5;
+    employmentStatus = 'Freelance';
+    incomeType = 'Variable';
+    incomeRhythm = 'Irregular';
+    billsRhythm = 'Clustered bill weeks';
+    checkInRhythm = 'Weekly';
+    responsibility = 'Shared household expenses';
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'A1', 'A3', 'A20', 'A19'});
+    addedGoalIds.clear();
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A1': {'pct': '55'},
+        'A3': {'amt': '12000', 'categories': 'Food & drink,Transport'},
+        'A20': {'amt': '30000'},
+        'A19': {'amt': '9000'},
+      });
+
+    monthlySalary = 0;
+    irregularIncomeFloor = 30000;
+    income = 36000;
+    expenses = 12700;
+    variableExpenses = 3000;
+    savings = 0;
+    emergencyMonths = 1.6;
+    debtPayments = 0;
+    investments = 0;
+    subscriptions = 0;
+    basicNeedsMonthlyTarget = 9700;
+    basicNeedsAllocationPercent = .55;
+    bufferAllocationPercent = .25;
+    needsTarget = 9700;
+    needsPercent = 70;
+    financialSafetyBalance = 0;
+    safetyShieldAllocationPercent = 0;
+    safetyShieldTargetMonths = 0;
+    shieldTrackedBalance = 0;
+    investmentBalance = 0;
+    lifestyleFundBalance = 0;
+    lifestyleActivityBalance = 0;
+    cashOnHandBalance = 1200;
+    manualAccountBalances
+      ..clear()
+      ..addAll({
+        'Wallet': 0,
+        'Savings': 0,
+        'Time Deposit': 0,
+        'Goal Savings': 0,
+      });
+
+    Map<String, dynamic> scheduledExpense({
+      required String name,
+      required double amount,
+      required int dueDay,
+    }) =>
+        {
+          'name': name,
+          'amount': amount,
+          'essential': true,
+          'expenseType': ExpenseLayer.basicNeeds.name,
+          'scheduled': true,
+          'dueDay': dueDay,
+          'scheduleAnchorDate':
+              DateTime(now.year, now.month, dueDay).toIso8601String(),
+        };
+
+    onboardingIncomeLedger
+      ..clear()
+      ..add(_incomeLedgerRow(
+        name: 'Client projects',
+        amount: 36000,
+        stable: false,
+        scheduled: false,
+      ));
+    onboardingExpenseLedger
+      ..clear()
+      ..addAll([
+        scheduledExpense(name: 'Rent share', amount: 4500, dueDay: 5),
+        scheduledExpense(name: 'Utilities', amount: 2200, dueDay: 15),
+        scheduledExpense(name: 'Internet', amount: 1500, dueDay: 20),
+        _expenseLedgerRow(
+          name: 'Groceries and meals',
+          amount: 2500,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Commute',
+          amount: 1000,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Streaming subscriptions',
+          amount: 700,
+          layer: ExpenseLayer.nonEssentials,
+          scheduled: true,
+          dueDay: 12,
+        ),
+      ]);
+    _syncOnboardingBaselineTotals();
+    cashFlowExpenses
+      ..clear()
+      ..addAll([
+        CashFlowExpense('Rent share', 4500),
+        CashFlowExpense('Utilities', 2200),
+        CashFlowExpense('Internet', 1500),
+        CashFlowExpense('Groceries and meals', 2500),
+        CashFlowExpense('Commute', 1000),
+        CashFlowExpense(
+          'Streaming subscriptions',
+          700,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+      ]);
+    categorySpendingBudgets
+      ..clear()
+      ..addAll({
+        'Food & drink': 6500,
+        'Transport': 5500,
+      });
+    onboardingBaselines
+      ..clear()
+      ..addAll({
+        'income_baseline': '36000.00',
+        'stable_income': '0.00',
+        'variable_income': '36000.00',
+        'monthly_expenses': '12400.00',
+        'essential_expenses': '9700.00',
+        'discretionary_spend': '700.00',
+        'investment_balance': '0.00',
+        'emergency_balance': '0.00',
+      });
+
+    jarLedger.clear();
+    d1Ledger.clear();
+    shieldLedger.clear();
+    billObligations.clear();
+    lifestyleHobbies.clear();
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    goalBucketOverrides.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns
+      ..clear()
+      ..addAll({
+        DateTime(now.year, now.month - 3, 28).toIso8601String(): 6,
+        DateTime(now.year, now.month - 2, 28).toIso8601String(): 5,
+        DateTime(now.year, now.month - 1, 28).toIso8601String(): 6,
+        DateTime(now.year, now.month, now.day).toIso8601String(): 4,
+      });
+
+    final transactions = <FakeMayaTransaction>[];
+    var walletBalance = 21000.0;
+    var needs = 7000.0;
+    var buffer = 1800.0;
+    final monthOffsets = [3, 2, 1, 0];
+    const monthlyIncome = {
+      3: [12000.0, 9000.0, 11000.0],
+      2: [14000.0, 8000.0, 16000.0],
+      1: [10000.0, 15000.0, 12000.0],
+      0: [16000.0, 9000.0, 8000.0],
+    };
+    const monthlyNeedsDeposits = {
+      3: [6600.0, 4950.0, 6050.0],
+      2: [7700.0, 4400.0, 5000.0],
+      1: [5500.0, 8250.0, 6600.0],
+      0: [8800.0, 4950.0, 2200.0],
+    };
+    const monthlyExtraSpending = {
+      3: [780.0, 620.0, 940.0, 510.0, 730.0, 660.0],
+      2: [980.0, 760.0, 1180.0, 640.0, 820.0, 710.0],
+      1: [700.0, 620.0, 840.0, 580.0, 690.0, 640.0],
+      0: [1050.0, 890.0, 1320.0, 760.0, 980.0, 880.0],
+    };
+
+    for (final offset in monthOffsets) {
+      final month = DateTime(now.year, now.month - offset);
+      final incomeDates = [
+        DateTime(month.year, month.month, 2, 9),
+        DateTime(month.year, month.month, 14, 10),
+        DateTime(month.year, month.month, 24, 11),
+      ];
+      final incomes = monthlyIncome[offset]!;
+      final deposits = monthlyNeedsDeposits[offset]!;
+      for (var i = 0; i < incomes.length; i++) {
+        final incomeDate = incomeDates[i];
+        if (incomeDate.isAfter(now)) continue;
+        final incomeAmount = incomes[i];
+        final depositAmount = deposits[i];
+        final transactionId = 'cf-income-${month.year}-${month.month}-$i';
+        walletBalance += incomeAmount;
+        transactions.add(_demoTransaction(
+          id: transactionId,
+          title: 'Cash in',
+          detail:
+              'From: ${i == 0 ? 'Retainer client' : i == 1 ? 'Project milestone' : 'Invoice payment'}',
+          amount: incomeAmount,
+          date: incomeDate,
+          category: 'Business income',
+          source: 'E-wallet',
+        ));
+        walletBalance = math.max(0, walletBalance - depositAmount);
+        needs += depositAmount;
+        final bufferIn = math.max(0.0, incomeAmount - depositAmount);
+        buffer += bufferIn;
+        jarLedger.add(JarEvent(
+          timestamp: incomeDate.add(const Duration(hours: 1)),
+          type: JarEventType.income,
+          needsIn: depositAmount,
+          needsOut: 0,
+          bufferIn: bufferIn,
+          bufferOut: 0,
+          sentence:
+              '${money(incomeAmount)} cash in -> ${money(depositAmount)} Needs, ${money(bufferIn)} Buffer',
+        ));
+        d1Ledger.add({
+          'type': 'essential_deposit',
+          'date': incomeDate.add(const Duration(hours: 1)).toIso8601String(),
+          'sourceDate': incomeDate.toIso8601String(),
+          'sourceTransactionId': transactionId,
+          'incomeAmount': incomeAmount,
+          'percentage': (depositAmount / incomeAmount) * 100,
+          'amount': depositAmount,
+          'destination': 'Essential Expenses Fund',
+          'label': depositAmount >= incomeAmount * .55
+              ? 'Cash Flow allocation to Essential Expenses Fund'
+              : 'Partial Cash Flow allocation to Essential Expenses Fund',
+        });
+        transactions.add(_demoTransaction(
+          id: 'cf-needs-transfer-${month.year}-${month.month}-$i',
+          title: 'Fund transfer',
+          detail: 'To: Essential Expenses Fund',
+          amount: -depositAmount,
+          date: incomeDate.add(const Duration(hours: 1)),
+          category: 'Transfer',
+          source: 'E-wallet',
+        ));
+      }
+
+      final bills = [
+        (
+          DateTime(month.year, month.month, 5, 10),
+          'Rent share',
+          4500.0,
+          'Housing'
+        ),
+        (
+          DateTime(month.year, month.month, 15, 18),
+          'Utilities',
+          2200.0,
+          'Bills & utilities'
+        ),
+        (
+          DateTime(month.year, month.month, 20, 12),
+          'Internet',
+          1500.0,
+          'Bills & utilities'
+        ),
+      ];
+      for (final bill in bills) {
+        if (bill.$1.isAfter(now)) continue;
+        final amount = bill.$3;
+        final needsOut = math.min<double>(needs, amount);
+        final bufferOut =
+            math.min<double>(buffer, math.max(0.0, amount - needsOut));
+        needs = math.max(0, needs - needsOut);
+        buffer = math.max(0, buffer - bufferOut);
+        jarLedger.add(JarEvent(
+          timestamp: bill.$1,
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: needsOut,
+          bufferIn: 0,
+          bufferOut: bufferOut,
+          sentence:
+              '${bill.$2} ${money(amount)} paid from Needs${bufferOut > 0 ? ' + Buffer' : ''}',
+        ));
+        transactions.add(_demoTransaction(
+          id: 'cf-bill-${bill.$2.toLowerCase().replaceAll(' ', '-')}-${month.year}-${month.month}',
+          title: 'Bill payment',
+          detail: 'To: ${bill.$2}',
+          amount: -amount,
+          date: bill.$1,
+          category: bill.$4,
+          source: 'Basic Needs Fund',
+        ));
+      }
+
+      final spendingAmounts = monthlyExtraSpending[offset]!;
+      for (var i = 0; i < spendingAmounts.length; i++) {
+        final date = DateTime(month.year, month.month, 7 + i * 3, 13);
+        if (date.isAfter(now)) continue;
+        final amount = spendingAmounts[i];
+        needs = math.max(0, needs - math.min(needs, amount));
+        final isFood = i.isEven;
+        transactions.add(_demoTransaction(
+          id: 'cf-spend-${month.year}-${month.month}-$i',
+          title: isFood ? 'Paid merchant' : 'Sent money',
+          detail: isFood ? 'To: Grocery and meals' : 'To: Commute top up',
+          amount: -amount,
+          date: date,
+          category: isFood ? 'Food & drink' : 'Transport',
+          source: 'Basic Needs Fund',
+        ));
+      }
+    }
+
+    needsBalance = needs;
+    bufferBalance = buffer;
+    essentialExpensesBalance = needs;
+    billsObligationsBalance = 0;
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    d1Ledger.sort((a, b) => DateTime.parse(b['date'].toString())
+        .compareTo(DateTime.parse(a['date'].toString())));
+    fakeMayaBucketCreationAllowed = true;
+    confirmedFakeMayaBucketMotivations
+      ..clear()
+      ..add('Cash Flow & Basic Needs');
+
+    final essentialGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
+    ).copyWith(
+      balance: essentialExpensesBalance,
+      target: needsTarget,
+      daysLeft: 30,
+    );
+    fakeMayaLink = FakeMayaLink(
+      userId: 'mock-cashflow-fakemaya',
+      email: normalizedEmail,
+      name: name,
+      phone: '+63 917 555 0110',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: walletBalance,
+        savings: bufferBalance,
+        timeDeposit: 0,
+        goalName: essentialGoal.name,
+        goalEmoji: essentialGoal.emoji,
+        goalBalance: essentialGoal.balance,
+        goalTarget: essentialGoal.target,
+        personalGoals: [essentialGoal],
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions
+          ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
+        updatedAt: now,
+      ),
+    );
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(manualAccountBalances.keys);
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules[transaction.patternKey] =
+            TransactionLabelRule.fromTransaction(transaction);
+      }
+    }
+    _syncFakeMayaMoneyItems();
+  }
+
+  void _applyEmergencyFundMockProfile(User? user) {
+    final now = DateTime.now();
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
+        ? 'emergency@gmail.com'
+        : (user?.email ?? email).trim().toLowerCase();
+    name = user?.displayName?.trim().isNotEmpty == true
+        ? user!.displayName!.trim()
+        : 'Emergency Fund Account';
+    email = normalizedEmail;
+    primaryConcern = 'Financial Safety';
+    motivation = 'Financial Safety';
+    reflectedMotivation =
+        'Build enough protection so emergencies do not derail monthly cash flow.';
+    selectedGoalId = 'G3';
+    selectedGoal = 'Build Emergency Fund';
+    selectedGoalDescription =
+        'Build an emergency fund that can cover unexpected expenses.';
+    selectedGoalMonthlyTarget = 3500;
+    onboardingComplete = true;
+    mockDataEnabled = true;
+    confidence = 6;
+    anxiety = 4;
+    employmentStatus = 'Employed';
+    incomeType = 'Stable';
+    incomeRhythm = 'Twice a month';
+    billsRhythm = 'Mostly scheduled';
+    checkInRhythm = 'Weekly';
+    responsibility = 'Shared household expenses';
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'A9', 'A8', 'A22', 'A10'});
+    addedGoalIds.clear();
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A9': {'amt': '6500'},
+        'A8': {'pct': '10'},
+        'A22': {'months': '3'},
+        'A10': {'days': '5'},
+      });
+
+    monthlySalary = 42000;
+    irregularIncomeFloor = 0;
+    income = 42000;
+    expenses = 13900;
+    variableExpenses = 2400;
+    debtPayments = 0;
+    investments = 0;
+    basicNeedsMonthlyTarget = 11000;
+    basicNeedsAllocationPercent = .60;
+    bufferAllocationPercent = .20;
+    needsTarget = 11000;
+    needsPercent = 70;
+    financialSafetyBalance = 31500;
+    safetyShieldAllocationPercent = 10;
+    safetyShieldTargetMonths = 6;
+    shieldTrackedBalance = 31500;
+    investmentBalance = 0;
+    lifestyleFundBalance = 0;
+    lifestyleActivityBalance = 0;
+    categorySpendingBudgets
+      ..clear()
+      ..addAll({
+        'Health': 2500,
+        'Insurance': 2400,
+        'Bills & utilities': 2200,
+      });
+
+    onboardingIncomeLedger
+      ..clear()
+      ..add(_incomeLedgerRow(
+        name: 'Salary',
+        amount: 42000,
+        stable: true,
+        scheduled: true,
+        payDay: 15,
+      ));
+    onboardingExpenseLedger
+      ..clear()
+      ..addAll([
+        _expenseLedgerRow(
+          name: 'Rent share',
+          amount: 4500,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 5,
+        ),
+        _expenseLedgerRow(
+          name: 'Utilities',
+          amount: 2200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 15,
+        ),
+        _expenseLedgerRow(
+          name: 'Groceries and meals',
+          amount: 3100,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Commute',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Insurance premium',
+          amount: 2400,
+          layer: ExpenseLayer.emergencyInsurance,
+          scheduled: true,
+          dueDay: 20,
+        ),
+        _expenseLedgerRow(
+          name: 'Medical sinking fund',
+          amount: 1500,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+        _expenseLedgerRow(
+          name: 'Occasional medicine',
+          amount: 1000,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+      ]);
+    _syncOnboardingBaselineTotals();
+    cashFlowExpenses
+      ..clear()
+      ..addAll([
+        CashFlowExpense('Rent share', 4500),
+        CashFlowExpense('Utilities', 2200),
+        CashFlowExpense('Groceries and meals', 3100),
+        CashFlowExpense('Commute', 1200),
+        CashFlowExpense(
+          'Insurance premium',
+          2400,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+        CashFlowExpense(
+          'Medical sinking fund',
+          1500,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+        CashFlowExpense(
+          'Occasional medicine',
+          1000,
+          layer: ExpenseLayer.emergencyInsurance,
+        ),
+      ]);
+
+    final transactions = <FakeMayaTransaction>[];
+    final ledger = <Map<String, dynamic>>[];
+    var emergencyBalance = 18000.0;
+    var needs = 7200.0;
+    var buffer = 2600.0;
+    final monthOffsets = [3, 2, 1, 0];
+    for (final offset in monthOffsets) {
+      final month = DateTime(now.year, now.month - offset);
+      final firstPayday = DateTime(month.year, month.month, 15, 9);
+      final secondPayday = offset == 0
+          ? DateTime(now.year, now.month, now.day, 9)
+          : DateTime(month.year, month.month + 1, 0, 9);
+      final paydays = [firstPayday, secondPayday];
+      for (var i = 0; i < paydays.length; i++) {
+        final payday = paydays[i];
+        final transactionId = 'ef-salary-${month.year}-${month.month}-$i';
+        transactions.add(_demoTransaction(
+          id: transactionId,
+          title: 'Cash in',
+          detail: 'From: Employer payroll',
+          amount: 21000,
+          date: payday,
+          category: 'Salary',
+          source: 'E-wallet',
+        ));
+        final needsIn =
+            math.min<double>(12600, math.max(0, needsTarget - needs));
+        final bufferIn = 4200 + (12600 - needsIn);
+        needs = math.min(needsTarget, needs + needsIn);
+        buffer += bufferIn;
+        jarLedger.add(JarEvent(
+          timestamp: payday.add(const Duration(hours: 1)),
+          type: JarEventType.income,
+          needsIn: needsIn,
+          needsOut: 0,
+          bufferIn: bufferIn,
+          bufferOut: 0,
+          sentence:
+              '${money(21000)} salary -> ${money(needsIn)} Needs, ${money(bufferIn)} Buffer',
+        ));
+        final depositAmount = 2100.0;
+        emergencyBalance += depositAmount;
+        ledger.add({
+          'type': 'emergency_deposit',
+          'date': payday.add(const Duration(hours: 2)).toIso8601String(),
+          'sourceDate': payday.toIso8601String(),
+          'sourceTransactionId': transactionId,
+          'incomeAmount': 21000.0,
+          'percentage': 10.0,
+          'amount': depositAmount,
+          'destination': 'Emergency Fund',
+          'label': depositAmount >= 2100
+              ? '10% salary transfer to Emergency Fund'
+              : 'Partial salary transfer to Emergency Fund',
+        });
+        transactions.add(_demoTransaction(
+          id: 'ef-transfer-${month.year}-${month.month}-$i',
+          title: 'Fund transfer',
+          detail: 'To: Emergency Fund',
+          amount: -depositAmount,
+          date: payday.add(const Duration(hours: 2)),
+          category: 'Transfer',
+          source: 'E-wallet',
+        ));
+      }
+
+      if (offset == 0) {
+        for (final extra in [
+          (
+            DateTime(month.year, month.month, 3, 11),
+            'Weekend clinic reimbursement',
+            5000.0,
+            500.0
+          ),
+          (
+            DateTime(month.year, month.month, 9, 16),
+            'Health allowance reimbursement',
+            8000.0,
+            800.0
+          ),
+          (
+            DateTime(month.year, month.month, 22, 10),
+            'Attendance bonus',
+            6000.0,
+            600.0
+          ),
+          (
+            now.subtract(const Duration(hours: 1)),
+            'Pharmacy refund',
+            2500.0,
+            250.0
+          ),
+        ]) {
+          final extraDate = extra.$1;
+          if (extraDate.isAfter(now)) continue;
+          final transactionId =
+              'ef-extra-income-${extraDate.year}-${extraDate.month}-${extraDate.day}';
+          transactions.add(_demoTransaction(
+            id: transactionId,
+            title: 'Cash in',
+            detail: 'From: ${extra.$2}',
+            amount: extra.$3,
+            date: extraDate,
+            category: 'Refund',
+            source: 'E-wallet',
+          ));
+          final depositAmount = extra.$4;
+          if (depositAmount <= 0) continue;
+          emergencyBalance += depositAmount;
+          ledger.add({
+            'type': 'emergency_deposit',
+            'date': extraDate.add(const Duration(hours: 2)).toIso8601String(),
+            'sourceDate': extraDate.toIso8601String(),
+            'sourceTransactionId': transactionId,
+            'incomeAmount': extra.$3,
+            'percentage': (depositAmount / extra.$3) * 100,
+            'amount': depositAmount,
+            'destination': 'Emergency Fund',
+            'label': depositAmount < extra.$3 * .10
+                ? 'Partial extra-income Emergency Fund transfer'
+                : 'Extra-income Emergency Fund transfer',
+          });
+          transactions.add(_demoTransaction(
+            id: 'ef-extra-transfer-${extraDate.year}-${extraDate.month}-${extraDate.day}',
+            title: 'Fund transfer',
+            detail: 'To: Emergency Fund',
+            amount: -depositAmount,
+            date: extraDate.add(const Duration(hours: 2)),
+            category: 'Transfer',
+            source: 'E-wallet',
+          ));
+        }
+      }
+
+      final rentDate = DateTime(month.year, month.month, 5, 10);
+      final utilityDate = DateTime(month.year, month.month, 15, 18);
+      final insuranceDate = DateTime(month.year, month.month, 20, 10);
+      for (final item in [
+        (rentDate, 'Rent share', 4500.0, 'Housing', 'Basic Needs Fund'),
+        (
+          utilityDate,
+          'Utilities',
+          2200.0,
+          'Bills & utilities',
+          'Basic Needs Fund'
+        ),
+        (insuranceDate, 'Insurance premium', 2400.0, 'Insurance', 'E-wallet'),
+      ]) {
+        final amount = item.$3.toDouble();
+        if (item.$5 == 'Basic Needs Fund') {
+          final needsOut = math.min<double>(needs, amount);
+          final bufferOut =
+              math.min<double>(buffer, math.max(0.0, amount - needsOut));
+          needs = math.max(0, needs - needsOut);
+          buffer = math.max(0, buffer - bufferOut);
+          jarLedger.add(JarEvent(
+            timestamp: item.$1,
+            type: JarEventType.billPaid,
+            needsIn: 0,
+            needsOut: needsOut,
+            bufferIn: 0,
+            bufferOut: bufferOut,
+            sentence:
+                '${item.$2} ${money(amount)} paid from Needs${bufferOut > 0 ? ' + Buffer' : ''}',
+          ));
+        } else if (item.$5 == 'Emergency Fund') {
+          emergencyBalance = math.max(0, emergencyBalance - amount);
+        }
+        transactions.add(_demoTransaction(
+          id: 'ef-${item.$2.toLowerCase().replaceAll(' ', '-')}-${month.year}-${month.month}',
+          title: 'Bill payment',
+          detail: 'To: ${item.$2}',
+          amount: -amount,
+          date: item.$1,
+          category: item.$4,
+          source: item.$5,
+        ));
+      }
+
+      for (var n = 0; n < 4; n++) {
+        final date = DateTime(month.year, month.month, 7 + n * 5, 13);
+        final amount = 520.0 + ((offset + n) * 45);
+        needs = math.max(0, needs - math.min(needs, amount));
+        transactions.add(_demoTransaction(
+          id: 'ef-grocery-${month.year}-${month.month}-$n',
+          title: n.isEven ? 'Paid merchant' : 'Sent money',
+          detail: n.isEven ? 'To: Grocery and pharmacy' : 'To: Commute top up',
+          amount: -amount,
+          date: date,
+          category: n.isEven ? 'Groceries' : 'Transport',
+          source: 'Basic Needs Fund',
+        ));
+      }
+    }
+
+    final currentMonthLateUse = DateTime(now.year, now.month, 6, 15);
+    if (!currentMonthLateUse.isAfter(now)) {
+      emergencyBalance = math.max(0, emergencyBalance - 4800);
+      ledger.add({
+        'type': 'use_emergency',
+        'date': currentMonthLateUse.toIso8601String(),
+        'amount': 4800.0,
+        'label': 'Child fever urgent care',
+        'sourceTransactionId': 'ef-current-fever-emergency',
+      });
+      transactions.add(_demoTransaction(
+        id: 'ef-current-fever-emergency',
+        title: 'Emergency payment',
+        detail: 'To: Pediatric urgent care',
+        amount: -4800,
+        date: currentMonthLateUse,
+        category: 'Health',
+        source: 'Emergency Fund',
+      ));
+      final currentMonthLateReplenish =
+          currentMonthLateUse.add(const Duration(days: 10));
+      if (!currentMonthLateReplenish.isAfter(now)) {
+        emergencyBalance += 4800;
+        ledger.add({
+          'type': 'ef_replenish',
+          'date': currentMonthLateReplenish.toIso8601String(),
+          'amount': 4800.0,
+          'label': 'Urgent care replenished after next salary',
+        });
+      }
+    }
+
+    final lastMonth = DateTime(now.year, now.month - 1, 11, 14);
+    emergencyBalance = math.max(0, emergencyBalance - 6800);
+    ledger.add({
+      'type': 'use_emergency',
+      'date': lastMonth.toIso8601String(),
+      'amount': 6800.0,
+      'label': 'Urgent dental procedure',
+      'sourceTransactionId': 'ef-dental-emergency',
+    });
+    transactions.add(_demoTransaction(
+      id: 'ef-dental-emergency',
+      title: 'Emergency payment',
+      detail: 'To: Dental clinic',
+      amount: -6800,
+      date: lastMonth,
+      category: 'Health',
+      source: 'Emergency Fund',
+    ));
+    final replenishedAt = lastMonth.add(const Duration(days: 4));
+    emergencyBalance += 6800;
+    ledger.add({
+      'type': 'ef_replenish',
+      'date': replenishedAt.toIso8601String(),
+      'amount': 6800.0,
+      'label': 'Dental emergency replenished after payday',
+    });
+
+    final recentEmergency = now.subtract(const Duration(days: 8));
+    emergencyBalance = math.max(0, emergencyBalance - 5600);
+    ledger.add({
+      'type': 'use_emergency',
+      'date': recentEmergency.toIso8601String(),
+      'amount': 5600.0,
+      'label': 'Urgent clinic visit',
+      'sourceTransactionId': 'ef-clinic-emergency',
+    });
+    transactions.add(_demoTransaction(
+      id: 'ef-clinic-emergency',
+      title: 'Emergency payment',
+      detail: 'To: Urgent care clinic',
+      amount: -5600,
+      date: recentEmergency,
+      category: 'Health',
+      source: 'Emergency Fund',
+    ));
+
+    emergencyFundBalance = emergencyBalance;
+    financialSafetyBalance = emergencyBalance;
+    shieldTrackedBalance = emergencyBalance;
+    emergencyMonths =
+        emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
+    needsBalance = needs;
+    bufferBalance = buffer;
+    essentialExpensesBalance = needs;
+    billsObligationsBalance = 0;
+    _lastEfWithdrawalStr = recentEmergency.toIso8601String();
+    billObligations
+      ..clear()
+      ..addAll([
+        {
+          'id': 'mock_insurance_${now.year}_${now.month}',
+          'name': 'Insurance premium',
+          'expectedAmount': 2400.0,
+          'paidAmount': 2400.0,
+          'dueDate': DateTime(now.year, now.month, 20).toIso8601String(),
+          'expenseType': ExpenseLayer.emergencyInsurance.name,
+          'status': 'paid',
+          'updatedAt': DateTime(now.year, now.month, 20).toIso8601String(),
+          'createdAt': DateTime(now.year, now.month, 1).toIso8601String(),
+        },
+      ]);
+    d1Ledger
+      ..clear()
+      ..addAll(ledger
+        ..sort((a, b) => DateTime.parse(b['date'].toString())
+            .compareTo(DateTime.parse(a['date'].toString()))));
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    goalBucketOverrides.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns
+      ..clear()
+      ..addAll({
+        DateTime(now.year, now.month - 3, 28).toIso8601String(): 6,
+        DateTime(now.year, now.month - 2, 28).toIso8601String(): 5,
+        DateTime(now.year, now.month - 1, 28).toIso8601String(): 4,
+        DateTime(now.year, now.month, now.day).toIso8601String(): 3,
+      });
+
+    final emergencyGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.emergencyFundId,
+    ).copyWith(
+      balance: emergencyFundBalance,
+      target: monthlyEssentialExpenseTotal * 6,
+      daysLeft: 120,
+    );
+    fakeMayaLink = FakeMayaLink(
+      userId: 'mock-emergency-fakemaya',
+      email: normalizedEmail,
+      name: name,
+      phone: '+63 917 555 0130',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: 24500,
+        savings: 6200,
+        timeDeposit: 0,
+        goalName: emergencyGoal.name,
+        goalEmoji: emergencyGoal.emoji,
+        goalBalance: emergencyGoal.balance,
+        goalTarget: emergencyGoal.target,
+        personalGoals: [emergencyGoal],
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions
+          ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
+        updatedAt: now,
+      ),
+    );
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(manualAccountBalances.keys);
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules[transaction.patternKey] =
+            TransactionLabelRule.fromTransaction(transaction);
+      }
+    }
+    _syncFakeMayaMoneyItems();
+  }
+
   FakeMayaTransaction _demoTransaction({
     required String id,
     required String title,
@@ -1690,6 +2630,7 @@ class AppState extends ChangeNotifier {
       'shieldTrackedBalance': shieldTrackedBalance,
       'shieldLedger': shieldLedger.map((e) => e.toMap()).toList(),
       'fakeMayaLink': fakeMayaLink?.toMap(),
+      'mockDataEnabled': mockDataEnabled,
       'cashOnHandBalance': cashOnHandBalance,
       'manualAccountBalances': manualAccountBalances,
       'fakeMayaSyncedAccounts': fakeMayaSyncedAccounts.toList()..sort(),
@@ -2056,6 +2997,7 @@ class AppState extends ChangeNotifier {
     }
     financialSafetyBalance =
         _doubleFrom(data['financialSafetyBalance'], financialSafetyBalance);
+    mockDataEnabled = data['mockDataEnabled'] as bool? ?? mockDataEnabled;
     safetyShieldAllocationPercent = _doubleFrom(
         data['safetyShieldAllocationPercent'], safetyShieldAllocationPercent);
     safetyShieldTargetMonths =
@@ -3974,6 +4916,10 @@ class AppState extends ChangeNotifier {
   /// FakeMaya linking step), the agreement is remembered and the bucket is
   /// created later by [reconcileFakeMayaBuckets] once linking succeeds.
   Future<void> ensureFakeMayaBucketForMotivation(String motivation) async {
+    if (mockDataEnabled) {
+      notifyListeners();
+      return;
+    }
     confirmedFakeMayaBucketMotivations.add(motivation);
     final bucketId = fakeMayaBucketIdForMotivation(motivation);
     final link = fakeMayaLink;
@@ -4007,7 +4953,9 @@ class AppState extends ChangeNotifier {
   /// couldn't be created yet because no FakeMaya account was linked at the
   /// time — call this right after a successful link.
   Future<void> reconcileFakeMayaBuckets() async {
-    if (fakeMayaLink == null || confirmedFakeMayaBucketMotivations.isEmpty) {
+    if (mockDataEnabled ||
+        fakeMayaLink == null ||
+        confirmedFakeMayaBucketMotivations.isEmpty) {
       return;
     }
     final allowedMotivations = _activeFakeMayaBucketMotivations();
@@ -4724,6 +5672,7 @@ class AppState extends ChangeNotifier {
       email: email,
       password: password,
     );
+    mockDataEnabled = false;
     _applyFakeMayaSession(session, preserveLabels: false);
     fakeMayaSyncedAccounts
       ..clear()
@@ -4744,6 +5693,11 @@ class AppState extends ChangeNotifier {
   Future<void> refreshFakeMayaAccount({bool reconcileBuckets = true}) async {
     final link = fakeMayaLink;
     if (link == null) return;
+    if (mockDataEnabled) {
+      _syncFakeMayaMoneyItems();
+      notifyListeners();
+      return;
+    }
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.refreshSession(link),
     );
@@ -4763,6 +5717,11 @@ class AppState extends ChangeNotifier {
   Future<void> refreshFakeMayaAssetPrices() async {
     final link = fakeMayaLink;
     if (link == null) return;
+    if (mockDataEnabled) {
+      _syncFakeMayaMoneyItems();
+      notifyListeners();
+      return;
+    }
     if (!link.canRefresh) {
       throw const FakeMayaException(
         'Unavailable to refresh assets. Please relink FakeMaya first.',

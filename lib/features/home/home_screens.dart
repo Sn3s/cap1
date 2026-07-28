@@ -887,7 +887,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
 // ─── Pyramid widgets ───────────────────────────────────────────────────────────
 
 const _pyramidCashFlowLayer = 'Cash Flow & Basic Needs';
-const _pyramidEmergencyLayer = 'Emergency Fund';
+const _pyramidEmergencyLayer = 'Financial Safety';
 const _pyramidWealthLayer = 'Accumulating Wealth';
 const _pyramidFreedomLayer = 'Financial Freedom';
 
@@ -1209,11 +1209,12 @@ class _PyramidLedgerDisplayItem {
   static List<_PyramidLedgerDisplayItem> fromEntries(
     List<_PyramidBaselineEntry> entries,
   ) {
-    final shouldGroupBasicNeedsExpenses = entries.any((entry) =>
-            !entry.isIncome && entry.layer == _pyramidCashFlowLayer) &&
-        entries.every(
-            (entry) => !entry.isIncome && entry.layer == _pyramidCashFlowLayer);
-    if (!shouldGroupBasicNeedsExpenses) {
+    final shouldGroupDueDateExpenses = entries.any((entry) =>
+            !entry.isIncome &&
+            _pyramidLayerGroupsExpenseDueDates(entry.layer)) &&
+        entries.every((entry) =>
+            !entry.isIncome && _pyramidLayerGroupsExpenseDueDates(entry.layer));
+    if (!shouldGroupDueDateExpenses) {
       return [
         for (final entry in entries) _PyramidLedgerDisplayItem.entry(entry)
       ];
@@ -1233,6 +1234,9 @@ class _PyramidLedgerDisplayItem {
     ];
   }
 }
+
+bool _pyramidLayerGroupsExpenseDueDates(String layer) =>
+    layer == _pyramidCashFlowLayer || layer == _pyramidFreedomLayer;
 
 class _PyramidLedgerEntryCard extends StatelessWidget {
   const _PyramidLedgerEntryCard({
@@ -2548,15 +2552,13 @@ bool isCashFlowGoalOnTrack(AppState state) {
   return _cashFlowMonthlySpent(state) <= total;
 }
 
-/// "Build Emergency Fund" goal is on track once the safety fund has reached
-/// at least half of its 6-month target (matching the 3-month marker shown
-/// on the Financial Safety pyramid card).
+/// "Build Emergency Fund" is complete once the Emergency Fund reaches the
+/// six-month Financial Safety target. A22 can still track a smaller configured
+/// coverage action, but the goal itself is six months.
 bool isEmergencyFundGoalOnTrack(AppState state) {
-  final budget = state.safetyShieldMonthlyBase;
-  if (budget <= 0) return false;
-  final current =
-      state.safetyShieldBalance + state.displayedEmergencyFundBalance;
-  return (current / budget) >= 3;
+  final target = _financialSafetyGoalTarget(state);
+  if (target <= 0) return false;
+  return state.displayedEmergencyFundBalance >= target;
 }
 
 bool isLifestyleGoalOnTrack(AppState state) {
@@ -2621,11 +2623,35 @@ int maintainAvailableCashFeasibility(AppState state) {
 }
 
 double emergencyFundGoalPercent(AppState state) {
-  final target = state.emergencyFundTarget;
+  final target = _financialSafetyGoalTarget(state);
   if (target <= 0) return 0;
-  final current =
-      state.safetyShieldBalance + state.displayedEmergencyFundBalance;
+  final current = state.displayedEmergencyFundBalance;
   return _clampPercent((current / target) * 100);
+}
+
+const double _financialSafetyGoalMonths = 6.0;
+
+double _financialSafetyGoalTarget(AppState state) {
+  final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+  if (monthlyEssentials > 0) {
+    return monthlyEssentials * _financialSafetyGoalMonths;
+  }
+  return math.max(60000.0, state.emergencyFundTarget * 2);
+}
+
+double _configuredEmergencyCoverageMonths(AppState state) {
+  final raw = _configuredActionValues(state, 'A22')['months'];
+  final configured = double.tryParse((raw ?? '').replaceAll(',', '').trim());
+  if (configured != null && configured > 0) return configured;
+  return 3.0;
+}
+
+double _configuredEmergencyCoverageTarget(AppState state) {
+  final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+  if (monthlyEssentials > 0) {
+    return monthlyEssentials * _configuredEmergencyCoverageMonths(state);
+  }
+  return math.max(30000.0, state.emergencyFundTarget);
 }
 
 double investmentGoalPercent(AppState state) {
@@ -2733,6 +2759,9 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
 ) async {
   final motivation = _motivationForGoalId(goalId);
   if (motivation == null) {
+    return;
+  }
+  if (state.mockDataEnabled) {
     return;
   }
   final bucketId = fakeMayaBucketIdForMotivation(motivation);
@@ -3744,6 +3773,11 @@ class _InsightsPageState extends State<InsightsPage> {
             'Financial Safety' => _EmergencyReflectionExplorer(
                 state: state,
                 service: service,
+                selectedMonth: _selectedMonth,
+                onMonthSelected: (month) => setState(() {
+                  _selectedMonth = month;
+                  _selectedWeek = null;
+                }),
                 selectedWeek: _selectedWeek,
                 onWeekSelected: (week) => setState(() => _selectedWeek = week),
                 actionStageKey: _emergencyActionStageKey,
@@ -4650,14 +4684,12 @@ String _emergencyAnalysisContext(
 ) {
   final activity = _emergencyReflectionActivity(state);
   final monthlyEssentials = state.monthlyEssentialExpenseTotal;
-  final target = monthlyEssentials > 0
-      ? monthlyEssentials * 3
-      : math.max(30000.0, state.emergencyFundTarget);
+  final target = _financialSafetyGoalTarget(state);
   return '''
 Screen: Emergency Fund goal
 Question: When did my emergency fund change, and which events explain the change?
 Current fund balance: ${money(state.displayedEmergencyFundBalance)}
-Three-month target: ${money(target)}
+Six-month Financial Safety goal: ${money(target)}
 Monthly essential expenses: ${money(monthlyEssentials)}
 Pending replenishment: ${money(state.pendingEmergencyReplenishment)}
 Tracked weekly periods: ${service.weekRecords.length}
@@ -5104,7 +5136,10 @@ _CashActionScore? _cashActionScoreFor({
     final pattern = weeks
         .map((week) => week.weekIncome <= 0
             ? 0.0
-            : (week.weekRefill / (week.weekIncome * targetPct)).clamp(0.0, 1.5))
+            : (_ledgerAmountInRange(state, week.start, week.end,
+                        const {'essential_deposit'}) /
+                    (week.weekIncome * targetPct))
+                .clamp(0.0, 1.5))
         .toList();
     return _CashActionScore(
       id: id,
@@ -5252,22 +5287,15 @@ _CashActionScore? _cashActionScoreFor({
             .where((transaction) => transaction.amount > 0)
             .where((transaction) => !transaction.isInternalFakeMayaTransfer)
             .fold(0.0, (sum, transaction) => sum + transaction.amount);
-    final pattern = weeks.isEmpty
-        ? <double>[target <= 0 ? 0 : (monthIncome / target).clamp(0.0, 1.0)]
-        : weeks.map((week) {
-            final weeklyTarget = target / weekCount;
-            return weeklyTarget <= 0
-                ? 0.0
-                : (week.weekIncome / weeklyTarget).clamp(0.0, 1.0);
-          }).toList();
+    final ratio = target <= 0 ? 0.0 : (monthIncome / target).clamp(0.0, 1.0);
     return _CashActionScore(
       id: id,
       title: 'Reach monthly cash-in target',
-      score: _averageWeeklyResiliency(pattern),
+      score: ratio,
       detail:
           '${money(monthIncome)} brought in toward a ${money(target)} monthly cash-in target.',
-      pattern: pattern,
-      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      pattern: [ratio],
+      weekLabels: const ['Current'],
       actualLabel: money(monthIncome),
       targetLabel: money(target),
       formula:
@@ -5276,6 +5304,7 @@ _CashActionScore? _cashActionScoreFor({
         'Configured monthly cash-in target: ${money(target)}',
         'Monthly cash-in counted: ${money(monthIncome)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   if (id == 'A19') {
@@ -5499,16 +5528,9 @@ _CashActionScore? _cashActionScoreFor({
     );
   }
   if (id == 'A22') {
-    final recommended = action == null
-        ? 3.0
-        : double.parse(
-            _recommendationsForActionField(state, action, action.fields.first)
-                .first);
-    final months = configuredNumber('months', recommended);
+    final months = _configuredEmergencyCoverageMonths(state);
     final monthlyEssentials = state.monthlyEssentialExpenseTotal;
-    final target = monthlyEssentials > 0
-        ? monthlyEssentials * months
-        : math.max(30000.0, state.emergencyFundTarget);
+    final target = _configuredEmergencyCoverageTarget(state);
     final currentFund = state.displayedEmergencyFundBalance;
     final ratio = target <= 0 ? 0.0 : (currentFund / target).clamp(0.0, 1.0);
     return _CashActionScore(
@@ -5528,6 +5550,7 @@ _CashActionScore? _cashActionScoreFor({
         'Monthly essential expenses: ${money(monthlyEssentials)}',
         'Emergency Fund balance counted: ${money(currentFund)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   return null;
@@ -5932,6 +5955,56 @@ class _CashMonthSelector extends StatelessWidget {
               selected: active,
               label: Text(_monthLabel(month.start)),
               onSelected: (_) => onSelected(month.start),
+              selectedColor: _title,
+              backgroundColor: _surface,
+              labelStyle: TextStyle(
+                color: active ? Colors.white : _body,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+              side: BorderSide(color: active ? _title : _border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightMonthSelector extends StatelessWidget {
+  const _InsightMonthSelector({
+    required this.months,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<DateTime> months;
+  final DateTime? selected;
+  final ValueChanged<DateTime> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (months.length <= 1) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: SizedBox(
+        height: 40,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          reverse: true,
+          itemCount: months.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, reversedIndex) {
+            final index = months.length - 1 - reversedIndex;
+            final month = months[index];
+            final active = selected == month;
+            return ChoiceChip(
+              selected: active,
+              label: Text(_monthLabel(month)),
+              onSelected: (_) => onSelected(month),
               selectedColor: _title,
               backgroundColor: _surface,
               labelStyle: TextStyle(
@@ -6570,7 +6643,7 @@ class _ActionMeasureCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${action.actualLabel} of ${action.targetLabel} target',
+                      _actionMeasuredInputLabel(action),
                       style: const TextStyle(
                         color: _body,
                         fontSize: 10.5,
@@ -6597,6 +6670,9 @@ class _ActionMeasureCard extends StatelessWidget {
     );
   }
 }
+
+String _actionMeasuredInputLabel(_CashActionScore action) =>
+    'Measured input: ${action.actualLabel} · configured target: ${action.targetLabel}';
 
 _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
   final scored = measures.where((measure) => measure.hasScore).toList();
@@ -6957,7 +7033,7 @@ void _showCashActionScoreDetails(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          '${action.actualLabel} of ${action.targetLabel} target',
+                          _actionMeasuredInputLabel(action),
                           style: const TextStyle(
                             color: _purple,
                             fontSize: 12,
@@ -8458,7 +8534,7 @@ class _EmergencyFundOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = state.displayedEmergencyFundBalance;
-    final target = state.emergencyFundTarget;
+    final target = _financialSafetyGoalTarget(state);
     final percent = emergencyFundGoalPercent(state);
     final monthlyContribution = _emergencyMonthlyContribution(state);
     final monthsCovered = state.emergencyMonthsCovered;
@@ -8501,7 +8577,7 @@ class _EmergencyFundOverviewCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 13),
                   _EmergencyMetricLine(
-                    label: '3-Mo. Target',
+                    label: '6-Mo. Goal',
                     value: money(target),
                   ),
                   const SizedBox(height: 8),
@@ -10267,12 +10343,16 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
   const _EmergencyReflectionExplorer({
     required this.state,
     required this.service,
+    required this.selectedMonth,
+    required this.onMonthSelected,
     required this.selectedWeek,
     required this.onWeekSelected,
     required this.actionStageKey,
   });
   final AppState state;
   final IntegrationService service;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime> onMonthSelected;
   final DateTime? selectedWeek;
   final ValueChanged<DateTime> onWeekSelected;
   final GlobalKey actionStageKey;
@@ -10285,7 +10365,7 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
       ...activity.map((item) => _mondayOf(item.date)),
     }.toList()
       ..sort();
-    final weeks = starts.map((start) {
+    final allWeeks = starts.map((start) {
       final items =
           activity.where((item) => _mondayOf(item.date) == start).toList();
       return _EmergencyReflectionWeek(
@@ -10304,26 +10384,48 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
             0,
       );
     }).toList();
+    final months = <DateTime>{
+      ...allWeeks.map((week) => _monthStart(week.start)),
+      ...activity.map((item) => _monthStart(item.date)),
+      ...state.allTransactions
+          .where((transaction) => transaction.createdAt != null)
+          .map((transaction) => _monthStart(transaction.createdAt!)),
+      ...state.d1Ledger
+          .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
+          .whereType<DateTime>()
+          .map(_monthStart),
+    }.toList()
+      ..sort();
+    final activeMonth =
+        months.where((month) => month == selectedMonth).firstOrNull ??
+            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+    final weeks =
+        allWeeks.where((week) => _sameMonth(week.start, activeMonth)).toList();
+    final monthWeekRecords = service.weekRecords
+        .where((week) => _sameMonth(week.start, activeMonth))
+        .toList();
     final selected =
         weeks.where((week) => week.start == selectedWeek).firstOrNull ??
             (weeks.isEmpty ? null : weeks.last);
     final monthlyEssentials = state.monthlyEssentialExpenseTotal;
-    final target = monthlyEssentials > 0
-        ? monthlyEssentials * 3
-        : math.max(30000.0, state.emergencyFundTarget);
-    final monthStart = DateTime(DateTime.now().year, DateTime.now().month);
+    final target = _financialSafetyGoalTarget(state);
     final monthIncome = state.allTransactions
         .where((transaction) =>
             transaction.amount > 0 &&
             !transaction.isInternalFakeMayaTransfer &&
             transaction.createdAt != null &&
-            _sameMonth(transaction.createdAt!, monthStart))
+            _sameMonth(transaction.createdAt!, activeMonth))
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
+    final monthTransactions = state.allTransactions
+        .where((transaction) =>
+            transaction.createdAt != null &&
+            _sameMonth(transaction.createdAt!, activeMonth))
+        .toList();
     final efScores = _emergencyFundActionScores(
       state: state,
-      monthStart: monthStart,
-      weeks: service.weekRecords,
-      transactions: state.allTransactions,
+      monthStart: activeMonth,
+      weeks: monthWeekRecords,
+      transactions: monthTransactions,
       income: monthIncome,
     );
 
@@ -10356,11 +10458,16 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
         ),
         _EmergencyFundOverviewCard(state: state),
         _EmergencyMilestonesCard(state: state),
+        _InsightMonthSelector(
+          months: months,
+          selected: activeMonth,
+          onSelected: onMonthSelected,
+        ),
         _ReflectionQuestion(
           question:
-              'When did my emergency fund change, and which events explain the change?',
+              'When did my emergency fund change in ${_monthLabel(activeMonth)}, and which events explain the change?',
           detail:
-              'The chart below answers this: additions and use are broken out week by week so you can see exactly when the fund moved.',
+              'The chart below answers this for the selected month: additions and use are broken out week by week so you can see exactly when the fund moved.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -10374,13 +10481,20 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '${money(state.displayedEmergencyFundBalance)} saved toward ${money(target)} · additions and use are shown separately.',
+                '${_monthLabel(activeMonth)} activity · ${money(state.displayedEmergencyFundBalance)} saved toward ${money(target)} overall.',
                 style: const TextStyle(
                   color: _body,
                   fontSize: 11,
                   height: 1.35,
                   fontWeight: FontWeight.w700,
                 ),
+              ),
+              const SizedBox(height: 14),
+              _EmergencyMovementImpactSummary(
+                weeks: weeks,
+                selected: selected,
+                goalTarget: target,
+                currentBalance: state.displayedEmergencyFundBalance,
               ),
               const SizedBox(height: 14),
               _SelectableWeeklyChart(
@@ -10399,6 +10513,14 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
                 comparisonColor: _red,
                 onSelected: onWeekSelected,
               ),
+              const SizedBox(height: 14),
+              if (selected == null)
+                const _ReflectionEmpty(
+                  message:
+                      'Select a week to review its Emergency Fund records.',
+                )
+              else
+                _EmergencyWeekRecordList(week: selected),
             ],
           ),
         ),
@@ -10416,6 +10538,121 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
               coach.recommendEmergencyFundActionStage(state: state),
         ),
       ],
+    );
+  }
+}
+
+class _EmergencyMovementImpactSummary extends StatelessWidget {
+  const _EmergencyMovementImpactSummary({
+    required this.weeks,
+    required this.selected,
+    required this.goalTarget,
+    required this.currentBalance,
+  });
+
+  final List<_EmergencyReflectionWeek> weeks;
+  final _EmergencyReflectionWeek? selected;
+  final double goalTarget;
+  final double currentBalance;
+
+  @override
+  Widget build(BuildContext context) {
+    final added = weeks.fold<double>(0, (sum, week) => sum + week.added);
+    final used = weeks.fold<double>(0, (sum, week) => sum + week.used);
+    final net = added - used;
+    final selectedNet =
+        selected == null ? 0.0 : selected!.added - selected!.used;
+    final gap = math.max(0.0, goalTarget - currentBalance);
+    final selectedText = selected == null
+        ? 'No week selected'
+        : '${_shortDate(selected!.start)} week: ${selectedNet >= 0 ? '+' : '-'}${money(selectedNet.abs())} net';
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _EmergencyMovementMetric(
+          label: 'Month net',
+          value: '${net >= 0 ? '+' : '-'}${money(net.abs())}',
+          color: net >= 0 ? _sage : _red,
+        ),
+        _EmergencyMovementMetric(
+          label: 'Added',
+          value: money(added),
+          color: _sage,
+        ),
+        _EmergencyMovementMetric(
+          label: 'Used',
+          value: money(used),
+          color: used > 0 ? _red : _body,
+        ),
+        _EmergencyMovementMetric(
+          label: '6-mo gap',
+          value: money(gap),
+          color: gap <= 0 ? _sage : _amber,
+        ),
+        _EmergencyMovementMetric(
+          label: 'Selected',
+          value: selectedText,
+          color: selectedNet >= 0 ? _sage : _red,
+          wide: true,
+        ),
+      ],
+    );
+  }
+}
+
+class _EmergencyMovementMetric extends StatelessWidget {
+  const _EmergencyMovementMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+    this.wide = false,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final bool wide;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: wide ? 208 : 100,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: .18)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _body,
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              maxLines: wide ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: wide ? 11 : 12,
+                height: 1.2,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -10453,6 +10690,10 @@ class _EmergencyReflectionItem {
 List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
   final activity = <_EmergencyReflectionItem>[];
   final recordedTransactionIds = <String>{};
+  final transactionsById = {
+    for (final transaction in state.allTransactions)
+      transaction.transactionId: transaction,
+  };
   for (final entry in state.d1Ledger) {
     final type = entry['type']?.toString();
     if (!const {
@@ -10466,16 +10707,27 @@ List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
     if (date == null) continue;
     final transactionId = entry['sourceTransactionId']?.toString();
     if (transactionId != null) recordedTransactionIds.add(transactionId);
+    final transaction =
+        transactionId == null ? null : transactionsById[transactionId];
+    final transactionDetail = transaction == null
+        ? null
+        : [
+            if ((transaction.category ?? '').trim().isNotEmpty)
+              transaction.category!.trim(),
+            if ((transaction.source ?? '').trim().isNotEmpty)
+              transaction.source!.trim(),
+            transaction.detail,
+          ].where((part) => part.trim().isNotEmpty).join(' · ');
     activity.add(_EmergencyReflectionItem(
       title: switch (type) {
-        'emergency_deposit' => 'Income contribution',
+        'emergency_deposit' => transaction?.title ?? 'Income contribution',
         'ef_replenish' => 'Fund replenished',
-        _ => 'Emergency fund used',
+        _ => transaction?.title ?? 'Emergency fund used',
       },
       detail: switch (type) {
-        'emergency_deposit' => 'Scheduled contribution',
+        'emergency_deposit' => transactionDetail ?? 'Scheduled contribution',
         'ef_replenish' => 'Previous withdrawal restored',
-        _ => 'Withdrawal',
+        _ => transactionDetail ?? 'Withdrawal',
       },
       amount: (entry['amount'] as num?)?.toDouble() ?? 0,
       date: date,
@@ -10532,6 +10784,63 @@ class _EmergencyWeekDetail extends StatelessWidget {
                   ),
               ],
             ),
+    );
+  }
+}
+
+class _EmergencyWeekRecordList extends StatelessWidget {
+  const _EmergencyWeekRecordList({required this.week});
+  final _EmergencyReflectionWeek week;
+
+  @override
+  Widget build(BuildContext context) {
+    final end = week.start.add(const Duration(days: 6));
+    final records = week.activity.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 1, color: _border),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Records behind ${_shortDate(week.start)}-${_shortDate(end)}',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            Text(
+              '${money(week.added)} in · ${money(week.used)} out',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (records.isEmpty)
+          const _ReflectionEmpty(
+            message: 'No Emergency Fund records were found for this week.',
+          )
+        else
+          for (final item in records)
+            _ReflectionDetailRow(
+              icon: item.add
+                  ? Icons.south_west_rounded
+                  : Icons.north_east_rounded,
+              color: item.add ? _sage : _red,
+              title: item.title,
+              detail: '${item.detail} · ${_shortDate(item.date)}',
+              amount: '${item.add ? '+' : '-'}${money(item.amount)}',
+            ),
+      ],
     );
   }
 }
@@ -11528,9 +11837,7 @@ class _EmergencyGoalOverview extends StatelessWidget {
   Widget build(BuildContext context) {
     final monthlyEssentials = state.monthlyEssentialExpenseTotal;
     final current = state.displayedEmergencyFundBalance;
-    final target = monthlyEssentials > 0
-        ? monthlyEssentials * 3
-        : math.max(state.emergencyFundTarget, 30000.0);
+    final target = _financialSafetyGoalTarget(state);
     final months = monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
     final adherence = target <= 0 ? 0.0 : (current / target).clamp(0.0, 1.0);
     final pending = state.pendingEmergencyReplenishment;
@@ -11538,7 +11845,7 @@ class _EmergencyGoalOverview extends StatelessWidget {
     return _ReflectionSection(
       title: 'Emergency Fund Overview',
       caption:
-          'Current savings are compared with your three-month target. Progress is capped at 100% so extra savings do not hide another missing measure.',
+          'Current savings are compared with the six-month Financial Safety goal. Progress is capped at 100% so extra savings do not hide another missing measure.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -15840,10 +16147,8 @@ _D1ActionMeta? _emergencyFundD1ActionMeta(String id, AppState state) {
     );
   }
   if (id == 'A22') {
-    final months =
-        double.tryParse((values['months'] ?? '').replaceAll(',', '').trim()) ??
-            3;
-    final target = monthlyEssentials * months;
+    final months = _configuredEmergencyCoverageMonths(state);
+    final target = _configuredEmergencyCoverageTarget(state);
     return _D1ActionMeta(
       id: 'A22',
       text:
@@ -17259,9 +17564,7 @@ class _EmergencyFundSummary extends StatelessWidget {
     final monthlyEssentials = state.monthlyEssentialExpenseTotal;
     final current = state.displayedEmergencyFundBalance;
     final pending = state.pendingEmergencyReplenishment;
-    final target = monthlyEssentials > 0
-        ? monthlyEssentials * 3
-        : math.max(30000.0, state.emergencyFundTarget);
+    final target = _financialSafetyGoalTarget(state);
     final coverageMonths =
         monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
     final latestIncome = _latestIncomeTransaction(state);
@@ -20043,12 +20346,8 @@ class _EmergencyFundCoverageActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final monthlyEssentials = math.max(1.0, state.monthlyEssentialExpenseTotal);
-    final months = double.tryParse(
-          (_configuredActionValues(state, 'A22')['months'] ?? '')
-              .replaceAll(',', ''),
-        ) ??
-        3;
-    final target = monthlyEssentials * months;
+    final months = _configuredEmergencyCoverageMonths(state);
+    final target = _configuredEmergencyCoverageTarget(state);
     final current = state.displayedEmergencyFundBalance;
     final covered = current / monthlyEssentials;
     final progress = target <= 0 ? 0.0 : (current / target).clamp(0.0, 1.0);
@@ -22325,6 +22624,87 @@ class ProfilePage extends StatelessWidget {
                       _pushReplacement(context, const WelcomeScreen());
                     },
                   ),
+                  if (state.canOverwriteWithMockData) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: _border),
+                      ),
+                      child: SwitchListTile.adaptive(
+                        value: state.mockDataEnabled,
+                        activeColor: _purple,
+                        secondary: const Icon(
+                          Icons.science_rounded,
+                          color: _purple,
+                        ),
+                        title: const Text(
+                          'Overwrite with mock data',
+                          style: TextStyle(
+                            color: _title,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 14),
+                        onChanged: (enabled) async {
+                          if (enabled) {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) => AlertDialog(
+                                backgroundColor: _surface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                title: const Text('Overwrite mock data?'),
+                                content: const Text(
+                                  'This will replace this account with a realistic four-month Emergency Fund scenario.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(dialogContext, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: _purple,
+                                    ),
+                                    onPressed: () =>
+                                        Navigator.pop(dialogContext, true),
+                                    child: const Text('Overwrite'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed != true || !context.mounted) return;
+                          }
+                          try {
+                            await AppScope.of(context)
+                                .setMockDataEnabled(enabled);
+                            if (!context.mounted) return;
+                            showAppNotice(
+                              context,
+                              message: enabled
+                                  ? 'Mock Emergency Fund data loaded.'
+                                  : 'Mock data mode turned off.',
+                              icon: enabled
+                                  ? Icons.check_circle_rounded
+                                  : Icons.science_outlined,
+                            );
+                          } on StateError catch (error) {
+                            if (!context.mounted) return;
+                            showAppNotice(
+                              context,
+                              message: error.message,
+                              icon: Icons.warning_amber_rounded,
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -24730,24 +25110,23 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
 
   // The financial layer is the top-level choice; it filters which
   // categories are shown and picks the FakeMaya bucket "Get from fund?"
-  // pulls from. Keyed by display label since "Emergency Fund" reads more
-  // naturally here than the onboarding motivation's internal
-  // "Financial Safety" name.
+  // pulls from. The Financial Safety layer still uses the Emergency Fund as
+  // its money source.
   static const _financialLayers = [
     'Cash Flow & Basic Needs',
-    'Emergency Fund',
+    'Financial Safety',
     'Accumulating Wealth',
     'Financial Freedom',
   ];
   static const _financialLayerMotivations = {
     'Cash Flow & Basic Needs': 'Cash Flow & Basic Needs',
-    'Emergency Fund': 'Financial Safety',
+    'Financial Safety': 'Financial Safety',
     'Accumulating Wealth': 'Accumulating Wealth',
     'Financial Freedom': 'Financial Freedom',
   };
   static const _financialLayerSources = {
     'Cash Flow & Basic Needs': 'Basic Needs Fund',
-    'Emergency Fund': 'Emergency Fund',
+    'Financial Safety': 'Emergency Fund',
     'Accumulating Wealth': 'Investment',
     'Financial Freedom': 'Personal Lifestyle Fund',
   };
@@ -24764,7 +25143,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       'Salary',
       'Refund',
     ],
-    'Emergency Fund': ['Health', 'Insurance'],
+    'Financial Safety': ['Health', 'Insurance'],
     'Accumulating Wealth': ['Debt payment', 'Education', 'Business income'],
     'Financial Freedom': [
       'Shopping',
@@ -25211,7 +25590,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       });
       return;
     }
-    final fundSource = layer == null ? null : _financialLayerSources[layer];
+    final fundSource = _financialLayerSources[layer];
     if (source == fundSource) {
       if (!_fundSourceIsAvailable(state, layer)) {
         setState(() {
@@ -25355,7 +25734,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     if (transaction.amount >= 0) return null;
     return switch (transaction.source?.trim().toLowerCase()) {
       'basic needs fund' => 'Cash Flow & Basic Needs',
-      'emergency fund' => 'Emergency Fund',
+      'emergency fund' => 'Financial Safety',
       'investment' => 'Accumulating Wealth',
       'personal lifestyle fund' => 'Financial Freedom',
       _ => null,

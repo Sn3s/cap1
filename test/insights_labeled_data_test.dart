@@ -188,6 +188,11 @@ void main() {
     expect(find.text('6-Month Fund'), findsOneWidget);
     expect(find.text('REFLECTION QUESTION'), findsOneWidget);
     expect(find.text('Emergency fund movement'), findsOneWidget);
+    expect(find.text('MONTH NET'), findsOneWidget);
+    expect(find.text('ADDED'), findsOneWidget);
+    expect(find.text('USED'), findsOneWidget);
+    expect(find.text('6-MO GAP'), findsOneWidget);
+    expect(find.textContaining('Records behind'), findsOneWidget);
     expect(find.text('Contributions and Use'), findsNothing);
     expect(find.text('DETAIL · SELECTED WEEK'), findsNothing);
     await tester.scrollUntilVisible(
