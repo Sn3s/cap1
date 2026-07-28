@@ -8785,6 +8785,269 @@ class _GoalRingPainter extends CustomPainter {
       oldDelegate.percent != percent || oldDelegate.color != color;
 }
 
+class _InvestmentScoreSummaryCard extends StatelessWidget {
+  const _InvestmentScoreSummaryCard({
+    required this.state,
+    required this.monthStart,
+    required this.actionScores,
+  });
+
+  final AppState state;
+  final DateTime monthStart;
+  final List<_CashActionScore> actionScores;
+
+  @override
+  Widget build(BuildContext context) {
+    final score = _totalActionScore(actionScores);
+    final scoreValue = score ?? 0;
+    final scoreColor = score == null ? _body : _resiliencyScoreColor(score);
+    final target = _configuredInvestmentGoalTarget(state);
+    final portfolioValue = state.investmentPortfolioValue;
+    final progress = target <= 0 ? 0 : (portfolioValue / target) * 100;
+    final monthInvested =
+        _investmentContributionAmountForMonth(state, monthStart);
+    final expected = _investmentContributionTargetForMonth(state, monthStart);
+    final monthGain = _monthLedgerAmount(state, monthStart, 'investment_gain');
+    final monthLoss = _monthLedgerAmount(state, monthStart, 'investment_loss');
+    final monthReturn = monthGain - monthLoss;
+    final annualReturn = state.investmentAnnualizedReturnPercent;
+    final unrealizedGain =
+        state.fakeMayaLink?.summary.investmentHoldingsUnrealizedGain ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final ring = _CircularInvestmentScoreRing(
+              percent: scoreValue.toDouble(),
+              color: scoreColor,
+              empty: score == null,
+            );
+            final details = Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Accumulating Wealth Score',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  score == null ? 'Not enough data' : '$score/100',
+                  style: TextStyle(
+                    color: scoreColor,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 13),
+                _InvestmentMetricLine(
+                  label: 'Portfolio',
+                  value:
+                      '${money(portfolioValue)} / ${money(target)} (${progress.clamp(0, 100).round()}%)',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: _monthLabel(monthStart),
+                  value: '${money(monthInvested)} / ${money(expected)}',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Month Return',
+                  value:
+                      '${monthReturn >= 0 ? '+' : '-'}${money(monthReturn.abs())}',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Annualized',
+                  value:
+                      '${annualReturn >= 0 ? '+' : ''}${annualReturn.toStringAsFixed(1)}%',
+                ),
+                const SizedBox(height: 8),
+                _InvestmentMetricLine(
+                  label: 'Unrealized',
+                  value:
+                      '${unrealizedGain >= 0 ? '+' : '-'}${money(unrealizedGain.abs())}',
+                ),
+              ],
+            );
+            if (constraints.maxWidth < 310) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ring,
+                  const SizedBox(height: 16),
+                  details,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ring,
+                const SizedBox(width: 18),
+                Expanded(child: details),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CircularInvestmentScoreRing extends StatelessWidget {
+  const _CircularInvestmentScoreRing({
+    required this.percent,
+    required this.color,
+    required this.empty,
+  });
+
+  final double percent;
+  final Color color;
+  final bool empty;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = percent.clamp(0.0, 100.0);
+    return SizedBox(
+      width: 128,
+      height: 128,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: const Size(128, 128),
+            painter: _GoalRingPainter(
+              percent: empty ? 0 : clamped,
+              color: color,
+              strokeWidth: 13,
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                empty ? 'N/A' : '${clamped.round()}',
+                style: TextStyle(
+                  color: empty ? _body : Colors.black,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'total score',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentMetricLine extends StatelessWidget {
+  const _InvestmentMetricLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Flexible(
+          flex: 4,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          flex: 6,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+int? _totalActionScore(List<_CashActionScore> actionScores) {
+  final scored = [
+    for (final action in actionScores)
+      if (_overallActionScore(_actionMeasures(action)) case final score?) score,
+  ];
+  if (scored.isEmpty) return null;
+  return (scored.fold<int>(0, (total, score) => total + score) / scored.length)
+      .round();
+}
+
+double _investmentContributionAmountForMonth(
+  AppState state,
+  DateTime monthStart,
+) {
+  var total = 0.0;
+  for (final income
+      in _incomeTransactionsForInvestmentMonth(state, monthStart)) {
+    total += _investmentDepositsForIncome(state, income.transactionId);
+  }
+  return total;
+}
+
+double _investmentContributionTargetForMonth(
+  AppState state,
+  DateTime monthStart,
+) {
+  final pct = double.tryParse(
+        (state.actionFieldValues['A12']?['pct'] ?? '')
+            .replaceAll(',', '')
+            .trim(),
+      ) ??
+      10;
+  return _incomeTransactionsForInvestmentMonth(state, monthStart).fold<double>(
+    0,
+    (total, income) => total + income.amount * pct / 100,
+  );
+}
+
 /// Coverage Milestones card: progress toward the 3-month minimum safety net
 /// and the 6-month recommended coverage, both measured against the same
 /// current fund balance.
@@ -8957,6 +9220,11 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
           months: months,
           selected: activeMonth,
           onSelected: onMonthSelected,
+        ),
+        _InvestmentScoreSummaryCard(
+          state: state,
+          monthStart: activeMonth,
+          actionScores: investmentScores,
         ),
         _ActionProgressSection(actionScores: investmentScores),
         _GoalActionStageSection(
