@@ -158,6 +158,8 @@ class AppState extends ChangeNotifier {
       : math.max(2000, cashFlowPyramidBaseline * 0.10);
   double get investmentPortfolioTarget =>
       math.max(20000, investmentMonthlyTarget * 12);
+  double get investmentPortfolioValue =>
+      investmentBalance + (fakeMayaLink?.summary.investmentHoldingsValue ?? 0);
   List<Map<String, dynamic>> get openBillObligations => billObligations
       .where((bill) => _billRemaining(bill) > 0)
       .toList()
@@ -848,12 +850,19 @@ class AppState extends ChangeNotifier {
     _applyCashFlowMockProfile(null);
   }
 
+  void seedAccumulatingWealthMockDataForTesting() {
+    email = 'accumulating@gmail.com';
+    _applyAccumulatingWealthMockProfile(null);
+  }
+
   bool get canOverwriteWithMockData {
     final normalizedEmail = email.trim().toLowerCase();
     return normalizedEmail == 'cashflow@gmail.com' ||
         normalizedEmail == 'emergency@gmail.com' ||
+        normalizedEmail == 'accumulating@gmail.com' ||
         selectedGoalId == 'G1' ||
-        selectedGoalId == 'G3';
+        selectedGoalId == 'G3' ||
+        selectedGoalId == 'G5';
   }
 
   Future<void> overwriteWithMockData() async {
@@ -875,6 +884,9 @@ class AppState extends ChangeNotifier {
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase();
     if (normalizedEmail == 'cashflow@gmail.com' || selectedGoalId == 'G1') {
       _applyCashFlowMockProfile(user);
+    } else if (normalizedEmail == 'accumulating@gmail.com' ||
+        selectedGoalId == 'G5') {
+      _applyAccumulatingWealthMockProfile(user);
     } else {
       _applyEmergencyFundMockProfile(user);
     }
@@ -2532,6 +2544,448 @@ class AppState extends ChangeNotifier {
         goalBalance: emergencyGoal.balance,
         goalTarget: emergencyGoal.target,
         personalGoals: [emergencyGoal],
+        creditLimit: 0,
+        creditUsed: 0,
+        transactions: transactions
+          ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
+        updatedAt: now,
+      ),
+    );
+    fakeMayaSyncedAccounts
+      ..clear()
+      ..addAll(manualAccountBalances.keys);
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules[transaction.patternKey] =
+            TransactionLabelRule.fromTransaction(transaction);
+      }
+    }
+    _syncFakeMayaMoneyItems();
+  }
+
+  void _applyAccumulatingWealthMockProfile(User? user) {
+    final now = DateTime.now();
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
+        ? 'accumulating@gmail.com'
+        : (user?.email ?? email).trim().toLowerCase();
+    name = user?.displayName?.trim().isNotEmpty == true
+        ? user!.displayName!.trim()
+        : 'Accumulating Wealth Account';
+    email = normalizedEmail;
+    primaryConcern = 'Accumulating Wealth';
+    motivation = 'Accumulating Wealth';
+    reflectedMotivation =
+        'Keep investing a steady share of income while growing a portfolio with visible return targets.';
+    selectedGoalId = 'G5';
+    selectedGoal = 'Grow Investments';
+    selectedGoalDescription =
+        'Build an investment portfolio and keep it on track against your target return.';
+    selectedGoalMonthlyTarget = 5800;
+    onboardingComplete = true;
+    mockDataEnabled = true;
+    confidence = 7;
+    anxiety = 3;
+    employmentStatus = 'Employed';
+    incomeType = 'Stable';
+    incomeRhythm = 'Twice a month';
+    billsRhythm = 'Mostly scheduled';
+    checkInRhythm = 'Monthly';
+    responsibility = 'Personal expenses';
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'A12', 'A23', 'A30'});
+    addedGoalIds.clear();
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A12': {'pct': '10'},
+        'A23': {'amt': '120000'},
+        'A30': {'pct': '12'},
+      });
+
+    monthlySalary = 58000;
+    irregularIncomeFloor = 0;
+    income = 58000;
+    expenses = 18200;
+    variableExpenses = 4200;
+    debtPayments = 3500;
+    investments = 5800;
+    basicNeedsMonthlyTarget = 9000;
+    basicNeedsAllocationPercent = .45;
+    bufferAllocationPercent = .25;
+    needsTarget = 9000;
+    needsPercent = 45;
+    financialSafetyBalance = 18000;
+    safetyShieldAllocationPercent = 0;
+    safetyShieldTargetMonths = 0;
+    shieldTrackedBalance = 18000;
+    lifestyleFundBalance = 0;
+    lifestyleActivityBalance = 0;
+    cashOnHandBalance = 1500;
+    categorySpendingBudgets
+      ..clear()
+      ..addAll({
+        'Investment': 5800,
+        'Debt payment': 3500,
+        'Food & drink': 7000,
+        'Transport': 2500,
+      });
+
+    onboardingIncomeLedger
+      ..clear()
+      ..add(_incomeLedgerRow(
+        name: 'Salary',
+        amount: 58000,
+        stable: true,
+        scheduled: true,
+        payDay: 15,
+      ));
+    onboardingExpenseLedger
+      ..clear()
+      ..addAll([
+        _expenseLedgerRow(
+          name: 'Rent share',
+          amount: 4500,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 5,
+        ),
+        _expenseLedgerRow(
+          name: 'Utilities',
+          amount: 2200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: true,
+          dueDay: 15,
+        ),
+        _expenseLedgerRow(
+          name: 'Groceries and meals',
+          amount: 3100,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Commute',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+        ),
+        _expenseLedgerRow(
+          name: 'Investment contribution',
+          amount: 5800,
+          layer: ExpenseLayer.debtInvestments,
+          scheduled: true,
+          dueDay: 28,
+        ),
+        _expenseLedgerRow(
+          name: 'Credit card payment',
+          amount: 3500,
+          layer: ExpenseLayer.debtInvestments,
+          scheduled: true,
+          dueDay: 18,
+        ),
+        _expenseLedgerRow(
+          name: 'Dining out',
+          amount: 2200,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+      ]);
+    _syncOnboardingBaselineTotals();
+    cashFlowExpenses
+      ..clear()
+      ..addAll([
+        CashFlowExpense('Rent share', 4500),
+        CashFlowExpense('Utilities', 2200),
+        CashFlowExpense('Groceries and meals', 3100),
+        CashFlowExpense('Commute', 1200),
+        CashFlowExpense(
+          'Investment contribution',
+          5800,
+          layer: ExpenseLayer.debtInvestments,
+        ),
+        CashFlowExpense(
+          'Credit card payment',
+          3500,
+          layer: ExpenseLayer.debtInvestments,
+        ),
+        CashFlowExpense(
+          'Dining out',
+          2200,
+          layer: ExpenseLayer.nonEssentials,
+        ),
+      ]);
+    onboardingBaselines
+      ..clear()
+      ..addAll({
+        'income_baseline': '58000.00',
+        'stable_income': '58000.00',
+        'variable_income': '0.00',
+        'monthly_expenses': '18200.00',
+        'essential_expenses': '11000.00',
+        'discretionary_spend': '2200.00',
+        'investment_balance': '0.00',
+        'emergency_balance': '18000.00',
+      });
+
+    jarLedger.clear();
+    d1Ledger.clear();
+    shieldLedger.clear();
+    billObligations.clear();
+    lifestyleHobbies.clear();
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    goalBucketOverrides.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns
+      ..clear()
+      ..addAll({
+        DateTime(now.year, now.month - 3, 28).toIso8601String(): 4,
+        DateTime(now.year, now.month - 2, 28).toIso8601String(): 3,
+        DateTime(now.year, now.month - 1, 28).toIso8601String(): 3,
+        DateTime(now.year, now.month, now.day).toIso8601String(): 2,
+      });
+
+    final transactions = <FakeMayaTransaction>[];
+    final stockTransactions = <FakeMayaStockTransaction>[];
+    final ledger = <Map<String, dynamic>>[];
+    var walletBalance = 26000.0;
+    var needs = 5200.0;
+    var buffer = 9400.0;
+    var investmentBucket = 21000.0;
+    const monthOffsets = [3, 2, 1, 0];
+    const monthlyInvestmentDeposits = {
+      3: [2900.0, 2600.0],
+      2: [2900.0, 2900.0],
+      1: [2900.0, 3200.0],
+      0: [2900.0, 2100.0],
+    };
+    const monthlyReturns = {
+      3: [900.0, -350.0],
+      2: [1250.0, -250.0],
+      1: [780.0, -700.0],
+      0: [650.0, -200.0],
+    };
+
+    ledger.add({
+      'type': 'investment_return_baseline',
+      'date': DateTime(now.year, now.month - 4, 28).toIso8601String(),
+      'balance': 62000.0,
+      'destination': 'Investment Portfolio',
+      'label': 'Started annual return tracking',
+    });
+
+    for (final offset in monthOffsets) {
+      final month = DateTime(now.year, now.month - offset);
+      final paydays = [
+        DateTime(month.year, month.month, 15, 9),
+        DateTime(month.year, month.month + 1, 0, 9),
+      ];
+      final deposits = monthlyInvestmentDeposits[offset]!;
+      for (var i = 0; i < paydays.length; i++) {
+        final payday = paydays[i];
+        if (payday.isAfter(now)) continue;
+        final transactionId = 'aw-salary-${month.year}-${month.month}-$i';
+        walletBalance += 29000;
+        transactions.add(_demoTransaction(
+          id: transactionId,
+          title: 'Cash in',
+          detail: 'From: Employer payroll',
+          amount: 29000,
+          date: payday,
+          category: 'Salary',
+          source: 'E-wallet',
+        ));
+
+        final needsIn =
+            math.min<double>(13050, math.max(0, needsTarget - needs));
+        final bufferIn = 7250 + (13050 - needsIn);
+        needs = math.min(needsTarget, needs + needsIn);
+        buffer += bufferIn;
+        jarLedger.add(JarEvent(
+          timestamp: payday.add(const Duration(hours: 1)),
+          type: JarEventType.income,
+          needsIn: needsIn,
+          needsOut: 0,
+          bufferIn: bufferIn,
+          bufferOut: 0,
+          sentence:
+              '${money(29000)} salary -> ${money(needsIn)} Needs, ${money(bufferIn)} Buffer',
+        ));
+
+        final depositAmount = deposits[i];
+        walletBalance = math.max(0, walletBalance - depositAmount);
+        investmentBucket += depositAmount;
+        ledger.add({
+          'type': 'investment_deposit',
+          'date': payday.add(const Duration(hours: 2)).toIso8601String(),
+          'sourceDate': payday.toIso8601String(),
+          'sourceTransactionId': transactionId,
+          'incomeAmount': 29000.0,
+          'percentage': (depositAmount / 29000) * 100,
+          'amount': depositAmount,
+          'destination': 'Investment Portfolio',
+          'label': depositAmount >= 2900
+              ? '10% salary transfer to Investment Portfolio'
+              : 'Partial salary transfer to Investment Portfolio',
+        });
+        transactions.add(_demoTransaction(
+          id: 'aw-invest-transfer-${month.year}-${month.month}-$i',
+          title: 'Fund transfer',
+          detail: 'To: Investment Portfolio',
+          amount: -depositAmount,
+          date: payday.add(const Duration(hours: 2)),
+          category: 'Investment',
+          source: 'E-wallet',
+        ));
+      }
+
+      final firstReturn = monthlyReturns[offset]![0];
+      final secondReturn = monthlyReturns[offset]![1];
+      for (final item in [
+        (DateTime(month.year, month.month, 10, 10), firstReturn),
+        (DateTime(month.year, month.month, 24, 10), secondReturn),
+      ]) {
+        if (item.$1.isAfter(now)) continue;
+        final amount = item.$2.abs();
+        ledger.add({
+          'type': item.$2 >= 0 ? 'investment_gain' : 'investment_loss',
+          'date': item.$1.toIso8601String(),
+          'amount': amount,
+          'balance': investmentBucket,
+          'destination': 'Investment Portfolio',
+          'label': item.$2 >= 0 ? 'Investment earnings' : 'Investment loss',
+        });
+      }
+
+      final stockDate = DateTime(month.year, month.month, 28, 11);
+      if (!stockDate.isAfter(now)) {
+        final buyNvda = offset.isEven;
+        stockTransactions.add(FakeMayaStockTransaction(
+          side: 'Bought',
+          symbol: buyNvda ? 'NVDA' : 'BTC',
+          name: buyNvda ? 'NVIDIA' : 'Bitcoin',
+          shares: buyNvda ? 0.55 : 0.0016,
+          unitLabel: buyNvda ? 'shares' : 'coins',
+          type: buyNvda ? 'stock' : 'crypto',
+          amount: buyNvda ? 4100 : 6200,
+          createdAt: stockDate,
+        ));
+      }
+
+      for (final bill in [
+        (
+          DateTime(month.year, month.month, 5, 10),
+          'Rent share',
+          4500.0,
+          'Housing'
+        ),
+        (
+          DateTime(month.year, month.month, 15, 18),
+          'Utilities',
+          2200.0,
+          'Bills & utilities'
+        ),
+        (
+          DateTime(month.year, month.month, 18, 12),
+          'Credit card payment',
+          3500.0,
+          'Debt payment'
+        ),
+      ]) {
+        if (bill.$1.isAfter(now)) continue;
+        needs = math.max(0, needs - math.min(needs, bill.$3));
+        transactions.add(_demoTransaction(
+          id: 'aw-${bill.$2.toLowerCase().replaceAll(' ', '-')}-${month.year}-${month.month}',
+          title: 'Bill payment',
+          detail: 'To: ${bill.$2}',
+          amount: -bill.$3,
+          date: bill.$1,
+          category: bill.$4,
+          source: bill.$4 == 'Debt payment' ? 'E-wallet' : 'Basic Needs Fund',
+        ));
+      }
+
+      for (var n = 0; n < 4; n++) {
+        final date = DateTime(month.year, month.month, 8 + n * 4, 13);
+        if (date.isAfter(now)) continue;
+        final amount = 620.0 + ((offset + n) * 70);
+        final isFood = n.isEven;
+        needs = math.max(0, needs - math.min(needs, amount));
+        transactions.add(_demoTransaction(
+          id: 'aw-spend-${month.year}-${month.month}-$n',
+          title: isFood ? 'Paid merchant' : 'Sent money',
+          detail: isFood ? 'To: Groceries and coffee' : 'To: Commute reload',
+          amount: -amount,
+          date: date,
+          category: isFood ? 'Food & drink' : 'Transport',
+          source: 'Basic Needs Fund',
+        ));
+      }
+    }
+
+    const holdings = [
+      FakeMayaInvestmentHolding(
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        type: 'crypto',
+        units: 0.0102,
+        price: 3860000,
+        unitLabel: 'coins',
+        costBasis: 36800,
+      ),
+      FakeMayaInvestmentHolding(
+        symbol: 'NVDA',
+        name: 'NVIDIA',
+        type: 'stock',
+        units: 2.35,
+        price: 7200,
+        unitLabel: 'shares',
+        costBasis: 15800,
+      ),
+    ];
+    investmentBalance = investmentBucket;
+    needsBalance = needs;
+    bufferBalance = buffer;
+    essentialExpensesBalance = needs;
+    emergencyFundBalance = financialSafetyBalance;
+    shieldTrackedBalance = financialSafetyBalance;
+    d1Ledger
+      ..clear()
+      ..addAll(ledger
+        ..sort((a, b) => DateTime.parse(b['date'].toString())
+            .compareTo(DateTime.parse(a['date'].toString()))));
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    fakeMayaBucketCreationAllowed = true;
+    confirmedFakeMayaBucketMotivations
+      ..clear()
+      ..add('Accumulating Wealth');
+
+    final investmentGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.investmentFundId,
+    ).copyWith(
+      balance: investmentBalance,
+      target: 120000,
+      daysLeft: 180,
+    );
+    fakeMayaLink = FakeMayaLink(
+      userId: 'mock-accumulating-fakemaya',
+      email: normalizedEmail,
+      name: name,
+      phone: '+63 917 555 0150',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: FakeMayaAccountSummary(
+        wallet: walletBalance,
+        savings: bufferBalance,
+        timeDeposit: 0,
+        goalName: investmentGoal.name,
+        goalEmoji: investmentGoal.emoji,
+        goalBalance: investmentGoal.balance,
+        goalTarget: investmentGoal.target,
+        selectedGoalId: investmentGoal.id,
+        personalGoals: [investmentGoal],
+        investmentHoldings: holdings,
+        investmentTransactions: stockTransactions
+          ..sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now)),
         creditLimit: 0,
         creditUsed: 0,
         transactions: transactions

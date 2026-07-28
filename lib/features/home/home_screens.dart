@@ -2575,9 +2575,9 @@ bool isLifestyleGoalOnTrack(AppState state) {
 /// target — replaces the previous always-neutral placeholder now that a
 /// real target field (`investmentPortfolioTarget`) is available.
 bool isInvestmentGoalOnTrack(AppState state) {
-  final target = state.investmentPortfolioTarget;
+  final target = _configuredInvestmentGoalTarget(state);
   if (target <= 0) return false;
-  return state.investmentBalance >= target;
+  return state.investmentPortfolioValue >= target;
 }
 
 double _clampPercent(double value) => value.isFinite ? value.clamp(0, 100) : 0;
@@ -2655,9 +2655,16 @@ double _configuredEmergencyCoverageTarget(AppState state) {
 }
 
 double investmentGoalPercent(AppState state) {
-  final target = state.investmentPortfolioTarget;
+  final target = _configuredInvestmentGoalTarget(state);
   if (target <= 0) return 0;
-  return _clampPercent((state.investmentBalance / target) * 100);
+  return _clampPercent((state.investmentPortfolioValue / target) * 100);
+}
+
+double _configuredInvestmentGoalTarget(AppState state) {
+  final raw = _configuredActionValues(state, 'A23')['amt'];
+  final configured = double.tryParse((raw ?? '').replaceAll(',', '').trim());
+  if (configured != null && configured > 0) return configured;
+  return state.investmentPortfolioTarget;
 }
 
 double lifestyleGoalPercent(AppState state) {
@@ -2686,7 +2693,7 @@ double investmentChangeLast14Days(AppState state) {
     final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
     delta += type == 'investment_gain' ? amount : -amount;
   }
-  final baseline = state.investmentBalance - delta;
+  final baseline = state.investmentPortfolioValue - delta;
   if (baseline <= 0) return 0;
   return (delta / baseline) * 100;
 }
@@ -3784,6 +3791,11 @@ class _InsightsPageState extends State<InsightsPage> {
               ),
             'Accumulating Wealth' => _AccumulatingWealthExplorer(
                 state: state,
+                selectedMonth: _selectedMonth,
+                onMonthSelected: (month) => setState(() {
+                  _selectedMonth = month;
+                  _selectedWeek = null;
+                }),
                 actionStageKey: _investmentActionStageKey,
               ),
             'Financial Freedom' => _FinancialFreedomExplorer(
@@ -5556,23 +5568,30 @@ _CashActionScore? _cashActionScoreFor({
   return null;
 }
 
-/// Accumulating Wealth (G5)'s action scores. Unlike Available Cash/Emergency
-/// Fund, these actions (A12/A23/A30) aren't tied to a weekly income/spending
-/// pattern, so each is scored as a single current-state point rather than a
-/// multi-week series - the same "pattern: [ratio], weekLabels: ['Current']"
-/// shape A22 (Emergency Fund coverage) already uses for the same reason.
-List<_CashActionScore> _investmentActionScores({required AppState state}) {
+/// Accumulating Wealth (G5)'s action scores. A12 is month-aware because it can
+/// compare each income event with its matching investment transfer; A23/A30 stay
+/// single-point portfolio health checks.
+List<_CashActionScore> _investmentActionScores({
+  required AppState state,
+  DateTime? monthStart,
+}) {
   final configured =
       state.selectedActionIds.where(_investmentGoalActionIds.contains).toList();
   final actionIds = configured.isEmpty ? _investmentGoalActionIds : configured;
   return [
-    for (final id in actionIds) _investmentActionScoreFor(id: id, state: state),
+    for (final id in actionIds)
+      _investmentActionScoreFor(
+        id: id,
+        state: state,
+        monthStart: monthStart,
+      ),
   ].whereType<_CashActionScore>().toList();
 }
 
 _CashActionScore? _investmentActionScoreFor({
   required String id,
   required AppState state,
+  DateTime? monthStart,
 }) {
   final values = state.actionFieldValues[id] ?? const <String, String>{};
   double configuredNumber(String key, double fallback) {
@@ -5580,46 +5599,73 @@ _CashActionScore? _investmentActionScoreFor({
         fallback;
   }
 
-  final balance = state.investmentBalance;
+  final balance = state.investmentPortfolioValue;
   if (id == 'A12') {
     final pct = configuredNumber('pct', 10);
-    final latestIncome = _latestIncomeTransaction(state);
-    if (latestIncome == null) {
+    final incomes = monthStart == null
+        ? [
+            if (_latestIncomeTransaction(state) case final latestIncome?)
+              latestIncome,
+          ]
+        : _incomeTransactionsForInvestmentMonth(state, monthStart);
+    if (incomes.isEmpty) {
       return _CashActionScore(
         id: id,
         title: 'Invest a share of income',
         score: 0,
-        detail: 'No income has been detected yet to invest a share of.',
+        detail: monthStart == null
+            ? 'No income has been detected yet to invest a share of.'
+            : 'No income was detected in ${_monthLabel(monthStart)} to invest a share of.',
         pattern: const [],
         weekLabels: const [],
         actualLabel: money(0),
         targetLabel: '${pct.toStringAsFixed(0)}% of income',
         formula:
-            'Progress = whether the configured ${pct.toStringAsFixed(0)}% share of the latest income was invested.',
-        evidence: const ['No income transaction detected yet'],
-        emptyReason: 'No income has been detected yet to invest a share of.',
+            'Progress = invested amount from income ÷ configured ${pct.toStringAsFixed(0)}% income target.',
+        evidence: [
+          monthStart == null
+              ? 'No income transaction detected yet'
+              : 'No income transaction detected for ${_monthLabel(monthStart)}'
+        ],
+        emptyReason: monthStart == null
+            ? 'No income has been detected yet to invest a share of.'
+            : 'No income has been detected for ${_monthLabel(monthStart)}.',
       );
     }
-    final contribution = latestIncome.amount * pct / 100;
-    final done =
-        state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
-    final ratio = done ? 1.0 : 0.0;
+    final ratios = <double>[];
+    final labels = <String>[];
+    var expected = 0.0;
+    var actual = 0.0;
+    for (final income in incomes) {
+      final target = income.amount * pct / 100;
+      final invested =
+          _investmentDepositsForIncome(state, income.transactionId);
+      expected += target;
+      actual += invested;
+      ratios.add(target <= 0 ? 0 : (invested / target).clamp(0.0, 1.0));
+      labels.add(
+          income.createdAt == null ? 'Income' : _shortDate(income.createdAt!));
+    }
+    final ratio = ratios.isEmpty
+        ? 0.0
+        : ratios.fold<double>(0, (total, value) => total + value) /
+            ratios.length;
     return _CashActionScore(
       id: id,
       title: 'Invest a share of income',
       score: ratio,
-      detail: done
-          ? '${money(contribution)} of the latest income was invested at ${pct.toStringAsFixed(0)}%.'
-          : '${money(contribution)} of the latest income has not been invested yet.',
-      pattern: [ratio],
-      weekLabels: const ['Latest income'],
-      actualLabel: done ? money(contribution) : money(0),
-      targetLabel: money(contribution),
+      detail:
+          '${money(actual)} invested toward ${money(expected)} expected from ${pct.toStringAsFixed(0)}% of income${monthStart == null ? '' : ' in ${_monthLabel(monthStart)}'}.',
+      pattern: ratios,
+      weekLabels: labels,
+      actualLabel: money(actual),
+      targetLabel: money(expected),
       formula:
-          'Progress = whether the configured ${pct.toStringAsFixed(0)}% share of the latest income was invested.',
+          'Progress = invested amount from each income ÷ configured ${pct.toStringAsFixed(0)}% income target.',
       evidence: [
         'Configured contribution: ${pct.toStringAsFixed(0)}% of each income',
-        'Latest income: ${money(latestIncome.amount)}',
+        'Income counted: ${money(incomes.fold<double>(0, (total, income) => total + income.amount))}',
+        'Investment deposits from income: ${money(actual)}',
       ],
     );
   }
@@ -5642,6 +5688,7 @@ _CashActionScore? _investmentActionScoreFor({
         'Configured portfolio target: ${money(target)}',
         'Investment Portfolio balance: ${money(balance)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   if (id == 'A30') {
@@ -5664,6 +5711,7 @@ _CashActionScore? _investmentActionScoreFor({
         formula:
             'Progress = annualized investment return since tracking started ÷ configured target annual return.',
         evidence: const ['Tracking has not started yet'],
+        applicableMeasures: const ['Resiliency'],
         emptyReason: 'Start tracking to see this action\'s score.',
       );
     }
@@ -5684,6 +5732,7 @@ _CashActionScore? _investmentActionScoreFor({
         'Configured target annual return: ${target.toStringAsFixed(0)}%',
         'Tracking since: ${_shortDate(baseline)}',
       ],
+      applicableMeasures: const ['Resiliency'],
     );
   }
   return null;
@@ -8855,17 +8904,25 @@ class _CoverageMilestoneRow extends StatelessWidget {
 class _AccumulatingWealthExplorer extends StatelessWidget {
   const _AccumulatingWealthExplorer({
     required this.state,
+    required this.selectedMonth,
+    required this.onMonthSelected,
     required this.actionStageKey,
   });
   final AppState state;
+  final DateTime? selectedMonth;
+  final ValueChanged<DateTime> onMonthSelected;
   final GlobalKey actionStageKey;
 
   @override
   Widget build(BuildContext context) {
     final holdings = state.fakeMayaLink?.summary.investmentHoldings ?? const [];
-    final totalValue = state.investmentBalance +
-        (state.fakeMayaLink?.summary.investmentHoldingsValue ?? 0);
-    final investmentScores = _investmentActionScores(state: state);
+    final months = _investmentInsightMonths(state);
+    final activeMonth =
+        months.where((month) => month == selectedMonth).firstOrNull ??
+            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+    final totalValue = state.investmentPortfolioValue;
+    final investmentScores =
+        _investmentActionScores(state: state, monthStart: activeMonth);
 
     return Column(
       children: [
@@ -8896,6 +8953,11 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
         _PortfolioValueCard(holdings: holdings),
         _InvestmentMetricsGrid(state: state, holdings: holdings),
         _InvestmentHoldingsCard(holdings: holdings),
+        _InsightMonthSelector(
+          months: months,
+          selected: activeMonth,
+          onSelected: onMonthSelected,
+        ),
         _ActionProgressSection(actionScores: investmentScores),
         _GoalActionStageSection(
           key: actionStageKey,
@@ -8937,6 +8999,26 @@ class _PortfolioHistoryPoint {
   const _PortfolioHistoryPoint(this.date, this.value);
   final DateTime date;
   final double value;
+}
+
+List<DateTime> _investmentInsightMonths(AppState state) {
+  final months = <DateTime>{
+    ...state.allTransactions
+        .where((transaction) => transaction.createdAt != null)
+        .map((transaction) => _monthStart(transaction.createdAt!)),
+    ...state.d1Ledger
+        .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .map(_monthStart),
+    ...(state.fakeMayaLink?.summary.investmentTransactions ??
+            const <FakeMayaStockTransaction>[])
+        .map((transaction) => transaction.createdAt)
+        .whereType<DateTime>()
+        .map(_monthStart),
+  }.toList()
+    ..sort();
+  if (months.isEmpty) return [_monthStart(DateTime.now())];
+  return months;
 }
 
 /// Builds a daily portfolio-value series from FakeMaya's currently-held
@@ -16243,7 +16325,7 @@ _D1ActionMeta? _emergencyFundD1ActionMeta(String id, AppState state) {
 
 _D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
   final values = _configuredActionValues(state, id);
-  final balance = state.investmentBalance;
+  final balance = state.investmentPortfolioValue;
   if (id == 'A12') {
     final pct =
         double.tryParse((values['pct'] ?? '').replaceAll(',', '').trim()) ?? 10;
@@ -17817,7 +17899,7 @@ class _GrowInvestmentsSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final balance = state.investmentBalance;
+    final balance = state.investmentPortfolioValue;
     final target =
         _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
     final latestIncome = _latestIncomeTransaction(state);
@@ -18713,24 +18795,52 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
   }
 }
 
+bool _isIncomeTransaction(FakeMayaTransaction transaction) {
+  if (transaction.amount <= 0 || transaction.isInternalFakeMayaTransfer) {
+    return false;
+  }
+  final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
+  return !text.contains('account opened') &&
+      (text.contains('income') ||
+          text.contains('salary') ||
+          text.contains('payroll') ||
+          text.contains('cash in') ||
+          text.contains('received'));
+}
+
 FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
   final transactions =
       state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
-  final incoming = transactions.where((transaction) {
-    if (transaction.amount <= 0 || transaction.isInternalFakeMayaTransfer) {
-      return false;
-    }
-    final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
-    return !text.contains('account opened') &&
-        (text.contains('income') ||
-            text.contains('salary') ||
-            text.contains('payroll') ||
-            text.contains('cash in') ||
-            text.contains('received'));
-  }).toList()
+  final incoming = transactions.where(_isIncomeTransaction).toList()
     ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
         .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
   return incoming.isEmpty ? null : incoming.first;
+}
+
+List<FakeMayaTransaction> _incomeTransactionsForInvestmentMonth(
+  AppState state,
+  DateTime monthStart,
+) {
+  final transactions =
+      state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
+  return transactions
+      .where((transaction) =>
+          _isIncomeTransaction(transaction) &&
+          transaction.createdAt != null &&
+          _sameMonth(transaction.createdAt!, monthStart))
+      .toList()
+    ..sort((a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+}
+
+double _investmentDepositsForIncome(AppState state, String transactionId) {
+  var total = 0.0;
+  for (final entry in state.d1Ledger) {
+    if (entry['type'] != 'investment_deposit') continue;
+    if (entry['sourceTransactionId']?.toString() != transactionId) continue;
+    total += (entry['amount'] as num?)?.toDouble() ?? 0;
+  }
+  return total;
 }
 
 class _EssentialExpensesActionPanel extends StatefulWidget {
@@ -19379,7 +19489,7 @@ class _InvestmentPortfolioTargetActionPanelState
     final state = AppScope.of(context);
     final target =
         _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
-    final balance = state.investmentBalance;
+    final balance = state.investmentPortfolioValue;
     final progress = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
     final remaining = math.max(0.0, target - balance);
     final complete = balance >= target && target > 0;
