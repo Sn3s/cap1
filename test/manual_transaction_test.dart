@@ -140,6 +140,141 @@ void main() {
     expect(state.pendingEssentialIncomeTransactions, isEmpty);
   });
 
+  test('labeling a cash-out from Basic Needs Fund updates action ledger',
+      () async {
+    final now = DateTime.now();
+    final state = AppState()
+      ..essentialExpensesBalance = 1000
+      ..fakeMayaLink = FakeMayaLink(
+        userId: 'user-1',
+        email: 'main@gmail.com',
+        name: 'Main',
+        phone: '+63 917 000 0000',
+        provider: 'email',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        expiresAt: now.add(const Duration(hours: 1)),
+        summary: FakeMayaAccountSummary(
+          wallet: 5000,
+          savings: 0,
+          timeDeposit: 0,
+          goalName: 'Essential Expense Fund',
+          goalEmoji: '🏠',
+          goalBalance: 1000,
+          goalTarget: 25000,
+          selectedGoalId: 'B1',
+          personalGoals: [
+            FakeMayaPersonalGoal.defaultForId('B1').copyWith(balance: 1000),
+          ],
+          creditLimit: 0,
+          creditUsed: 0,
+          transactions: [
+            FakeMayaTransaction(
+              id: 'expense-1',
+              title: 'Paid merchant',
+              detail: 'To: Grocery Mart',
+              age: 'Just now',
+              amountText: '- ₱250.00',
+              createdAt: now,
+              account: 'Wallet',
+            ),
+          ],
+          updatedAt: now,
+        ),
+      );
+
+    await state.labelFakeMayaTransaction(
+      transactionId: 'expense-1',
+      category: 'Food & drink',
+      source: 'Basic Needs Fund',
+    );
+    await state.labelFakeMayaTransaction(
+      transactionId: 'expense-1',
+      category: 'Food & drink',
+      source: 'Basic Needs Fund',
+    );
+
+    expect(state.essentialExpensesBalance, 750);
+    expect(
+      state.d1Ledger.where((entry) => entry['type'] == 'use_essential'),
+      hasLength(1),
+    );
+    expect(state.d1Ledger.single['sourceTransactionId'], 'expense-1');
+
+    await state.labelFakeMayaTransaction(
+      transactionId: 'expense-1',
+      category: 'Food & drink',
+      source: 'E-wallet',
+    );
+
+    expect(state.essentialExpensesBalance, 1000);
+    expect(
+      state.d1Ledger.where((entry) => entry['type'] == 'use_essential'),
+      isEmpty,
+    );
+  });
+
+  test('labeling a cash-out from Emergency Fund updates safety ledger',
+      () async {
+    final now = DateTime.now();
+    final state = AppState()
+      ..emergencyFundBalance = 5000
+      ..fakeMayaLink = FakeMayaLink(
+        userId: 'user-1',
+        email: 'main@gmail.com',
+        name: 'Main',
+        phone: '+63 917 000 0000',
+        provider: 'email',
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        expiresAt: now.add(const Duration(hours: 1)),
+        summary: FakeMayaAccountSummary(
+          wallet: 5000,
+          savings: 0,
+          timeDeposit: 0,
+          goalName: 'Emergency Fund',
+          goalEmoji: '🛟',
+          goalBalance: 5000,
+          goalTarget: 60000,
+          selectedGoalId: 'B2',
+          personalGoals: [
+            FakeMayaPersonalGoal.defaultForId('B2').copyWith(balance: 5000),
+          ],
+          creditLimit: 0,
+          creditUsed: 0,
+          transactions: [
+            FakeMayaTransaction(
+              id: 'emergency-expense-1',
+              title: 'Emergency payment',
+              detail: 'To: Urgent care',
+              age: 'Just now',
+              amountText: '- ₱1200.00',
+              createdAt: now,
+              account: 'Wallet',
+            ),
+          ],
+          updatedAt: now,
+        ),
+      );
+
+    await state.labelFakeMayaTransaction(
+      transactionId: 'emergency-expense-1',
+      category: 'Health',
+      source: 'Emergency Fund',
+    );
+
+    expect(state.emergencyFundBalance, 3800);
+    expect(state.pendingEmergencyReplenishment, 1200);
+    expect(
+      state.d1Ledger.where((entry) => entry['type'] == 'use_emergency'),
+      hasLength(1),
+    );
+    expect(
+      state.d1Ledger.single['sourceTransactionId'],
+      'emergency-expense-1',
+    );
+  });
+
   test('FakeMaya summary preserves personal goal balances', () {
     final summary = FakeMayaAccountSummary.fromMap({
       'wallet': 12500,

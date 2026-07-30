@@ -78,4 +78,47 @@ void main() {
     await state.refreshFakeMayaAccount();
     expect(state.fakeMayaLink!.summary.toMap(), beforeRefresh);
   });
+
+  test('Main mock buckets transfer locally and labels count for actions',
+      () async {
+    final state = AppState()..seedMainMockDataForTesting();
+    final summary = state.fakeMayaLink!.summary;
+    final essentialBefore = summary
+        .personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId)!
+        .balance;
+    final walletBefore = summary.wallet;
+
+    await state.fundTransactionFromBucket(
+      motivation: 'Cash Flow & Basic Needs',
+      amount: 500,
+    );
+
+    final afterTransfer = state.fakeMayaLink!.summary;
+    expect(afterTransfer.wallet, walletBefore + 500);
+    expect(
+      afterTransfer
+          .personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId)!
+          .balance,
+      essentialBefore - 500,
+    );
+
+    final transaction = afterTransfer.transactions.firstWhere(
+      (item) => item.amount < 0 && !item.isInternalFakeMayaTransfer,
+    );
+    final localBalanceBeforeLabel = state.essentialExpensesBalance;
+    await state.labelFakeMayaTransaction(
+      transactionId: transaction.transactionId,
+      category: 'Food & drink',
+      source: 'Basic Needs Fund',
+    );
+
+    expect(state.essentialExpensesBalance,
+        localBalanceBeforeLabel - transaction.amount.abs());
+    expect(
+      state.d1Ledger.where((entry) =>
+          entry['type'] == 'use_essential' &&
+          entry['sourceTransactionId'] == transaction.transactionId),
+      hasLength(1),
+    );
+  });
 }

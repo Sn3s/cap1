@@ -5906,6 +5906,165 @@ class AppState extends ChangeNotifier {
     _syncFakeMayaMoneyItems();
   }
 
+  bool _usesLocalFakeMayaMock(FakeMayaLink link) =>
+      mockDataEnabled || link.provider.trim().toLowerCase() == 'mock';
+
+  void _replaceFakeMayaSummary(
+      FakeMayaLink link, FakeMayaAccountSummary summary) {
+    fakeMayaLink = FakeMayaLink(
+      userId: link.userId,
+      email: link.email,
+      name: link.name,
+      phone: link.phone,
+      provider: link.provider,
+      accessToken: link.accessToken,
+      refreshToken: link.refreshToken,
+      expiresAt: link.expiresAt,
+      summary: summary,
+    );
+    _syncFakeMayaMoneyItems();
+  }
+
+  Future<void> _ensureLocalFakeMayaPersonalGoalBucket(
+    String personalGoalId,
+  ) async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final summary = link.summary;
+    if (summary.personalGoalById(personalGoalId) != null) return;
+    final goals = [
+      ...summary.personalGoals,
+      FakeMayaPersonalGoal.defaultForId(personalGoalId),
+    ];
+    final totalGoalBalance = goals.fold<double>(
+      0,
+      (total, goal) => total + goal.balance,
+    );
+    _replaceFakeMayaSummary(
+      link,
+      summary.copyWith(
+        personalGoals: goals,
+        goalBalance: totalGoalBalance,
+        selectedGoalId: personalGoalId,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  void _moveLocalFakeMayaWalletTo(
+    double amount,
+    FakeMayaGoalAccount account, {
+    String? personalGoalId,
+  }) {
+    final link = fakeMayaLink;
+    if (link == null || amount <= 0) return;
+    final summary = link.summary;
+    if (amount > summary.wallet) {
+      throw const FakeMayaException('Not enough in FakeMaya wallet.');
+    }
+    final now = DateTime.now();
+    final targetGoal = account == FakeMayaGoalAccount.personalGoal
+        ? summary.personalGoalById(personalGoalId) ??
+            FakeMayaPersonalGoal.defaultForId(
+              personalGoalId ?? summary.selectedGoalId,
+            )
+        : null;
+    final nextGoals = account == FakeMayaGoalAccount.personalGoal
+        ? summary.personalGoalsWithDeposit(
+            targetGoal?.id ?? personalGoalId, amount)
+        : summary.personalGoals;
+    final goalBalance = account == FakeMayaGoalAccount.personalGoal
+        ? nextGoals.fold<double>(0, (total, goal) => total + goal.balance)
+        : summary.goalBalance;
+    final transaction = FakeMayaTransaction(
+      title: account == FakeMayaGoalAccount.personalGoal
+          ? 'Deposited to goal'
+          : account == FakeMayaGoalAccount.savings
+              ? 'Deposited to'
+              : 'Express deposit',
+      detail: account == FakeMayaGoalAccount.personalGoal
+          ? targetGoal?.name ?? summary.goalName
+          : account == FakeMayaGoalAccount.savings
+              ? 'My Savings'
+              : 'Maya Black',
+      age: 'Just now',
+      amountText: '+ ${money(amount)}',
+      createdAt: now,
+    );
+    _replaceFakeMayaSummary(
+      link,
+      summary.copyWith(
+        wallet: summary.wallet - amount,
+        savings: account == FakeMayaGoalAccount.savings
+            ? summary.savings + amount
+            : summary.savings,
+        timeDeposit: account == FakeMayaGoalAccount.timeDeposit
+            ? summary.timeDeposit + amount
+            : summary.timeDeposit,
+        goalBalance: goalBalance,
+        goalName: account == FakeMayaGoalAccount.personalGoal
+            ? targetGoal?.name ?? summary.goalName
+            : summary.goalName,
+        goalEmoji: account == FakeMayaGoalAccount.personalGoal
+            ? targetGoal?.emoji ?? summary.goalEmoji
+            : summary.goalEmoji,
+        goalTarget: account == FakeMayaGoalAccount.personalGoal
+            ? targetGoal?.target ?? summary.goalTarget
+            : summary.goalTarget,
+        selectedGoalId: account == FakeMayaGoalAccount.personalGoal
+            ? targetGoal?.id ?? personalGoalId
+            : summary.selectedGoalId,
+        personalGoals: nextGoals,
+        transactions: [transaction, ...summary.transactions],
+        updatedAt: now,
+      ),
+    );
+  }
+
+  void _withdrawLocalFakeMayaPersonalGoalToWallet(
+    double amount, {
+    String? personalGoalId,
+  }) {
+    final link = fakeMayaLink;
+    if (link == null || amount <= 0) return;
+    final summary = link.summary;
+    final goal = summary.personalGoalById(personalGoalId) ??
+        summary.personalGoalById(summary.selectedGoalId) ??
+        summary.personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId);
+    if (goal == null) {
+      throw const FakeMayaException('Personal goal was not found.');
+    }
+    if (amount > goal.balance) {
+      throw const FakeMayaException('Not enough in this FakeMaya goal.');
+    }
+    final now = DateTime.now();
+    final nextGoals = summary.personalGoalsWithWithdrawal(goal.id, amount);
+    final transaction = FakeMayaTransaction(
+      title: 'Withdrawn from goal',
+      detail: goal.name,
+      age: 'Just now',
+      amountText: '- ${money(amount)}',
+      createdAt: now,
+    );
+    _replaceFakeMayaSummary(
+      link,
+      summary.copyWith(
+        wallet: summary.wallet + amount,
+        goalBalance: nextGoals.fold<double>(
+          0,
+          (total, item) => total + item.balance,
+        ),
+        goalName: goal.name,
+        goalEmoji: goal.emoji,
+        goalTarget: goal.target,
+        selectedGoalId: goal.id,
+        personalGoals: nextGoals,
+        transactions: [transaction, ...summary.transactions],
+        updatedAt: now,
+      ),
+    );
+  }
+
   Future<void> _moveFakeMayaWalletTo(
     double amount,
     FakeMayaGoalAccount account, {
@@ -5913,6 +6072,14 @@ class AppState extends ChangeNotifier {
   }) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
+    if (_usesLocalFakeMayaMock(link)) {
+      _moveLocalFakeMayaWalletTo(
+        amount,
+        account,
+        personalGoalId: personalGoalId,
+      );
+      return;
+    }
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.allocateFromWallet(
         link: link,
@@ -5930,6 +6097,13 @@ class AppState extends ChangeNotifier {
   }) async {
     final link = fakeMayaLink;
     if (link == null || amount <= 0) return;
+    if (_usesLocalFakeMayaMock(link)) {
+      _withdrawLocalFakeMayaPersonalGoalToWallet(
+        amount,
+        personalGoalId: personalGoalId,
+      );
+      return;
+    }
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.withdrawFromPersonalGoal(
         link: link,
@@ -5956,6 +6130,89 @@ class AppState extends ChangeNotifier {
       amount,
       personalGoalId: bucketId,
     );
+  }
+
+  void _recordBucketFundedExpense({
+    required String motivation,
+    required double amount,
+    String? transactionId,
+    String? category,
+    String? title,
+    DateTime? occurredAt,
+  }) {
+    if (amount <= 0) return;
+    if (transactionId?.trim().isNotEmpty == true &&
+        d1Ledger.any(
+          (entry) =>
+              entry['sourceTransactionId']?.toString() == transactionId!.trim(),
+        )) {
+      return;
+    }
+    final now = DateTime.now();
+    final date = occurredAt ?? now;
+    switch (motivation.trim()) {
+      case 'Cash Flow & Basic Needs':
+        essentialExpensesBalance =
+            math.max(0, essentialExpensesBalance - amount);
+        d1Ledger.insert(0, {
+          'type': 'use_essential',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          if (transactionId?.trim().isNotEmpty == true)
+            'sourceTransactionId': transactionId,
+          'amount': amount,
+          'category': category,
+          'label': title?.trim().isNotEmpty == true
+              ? title!.trim()
+              : 'Essential Expenses Fund expense',
+          'source': 'Essential Expenses Fund',
+        });
+      case 'Financial Safety':
+        emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
+        financialSafetyBalance = emergencyFundBalance;
+        shieldTrackedBalance = emergencyFundBalance;
+        _lastEfWithdrawalStr = date.toIso8601String();
+        d1Ledger.insert(0, {
+          'type': 'use_emergency',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          if (transactionId?.trim().isNotEmpty == true)
+            'sourceTransactionId': transactionId,
+          'amount': amount,
+          'category': category,
+          'label': title?.trim().isNotEmpty == true
+              ? title!.trim()
+              : 'Emergency Fund expense',
+        });
+      case 'Accumulating Wealth':
+        investmentBalance = math.max(0, investmentBalance - amount);
+        d1Ledger.insert(0, {
+          'type': 'investment_withdrawal',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          if (transactionId?.trim().isNotEmpty == true)
+            'sourceTransactionId': transactionId,
+          'amount': amount,
+          'category': category,
+          'label': title?.trim().isNotEmpty == true
+              ? title!.trim()
+              : 'Investment fund expense',
+        });
+      case 'Financial Freedom':
+        lifestyleFundBalance = math.max(0, lifestyleFundBalance - amount);
+        d1Ledger.insert(0, {
+          'type': 'lifestyle_spend',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          if (transactionId?.trim().isNotEmpty == true)
+            'sourceTransactionId': transactionId,
+          'amount': amount,
+          'category': category,
+          'label': title?.trim().isNotEmpty == true
+              ? title!.trim()
+              : 'Lifestyle Fund expense',
+        });
+    }
   }
 
   Future<void> _withdrawFakeMayaSavingsToWallet(double amount) async {
@@ -6099,12 +6356,15 @@ class AppState extends ChangeNotifier {
   /// FakeMaya linking step), the agreement is remembered and the bucket is
   /// created later by [reconcileFakeMayaBuckets] once linking succeeds.
   Future<void> ensureFakeMayaBucketForMotivation(String motivation) async {
+    confirmedFakeMayaBucketMotivations.add(motivation);
+    final bucketId = fakeMayaBucketIdForMotivation(motivation);
     if (mockDataEnabled) {
+      if (bucketId != null) {
+        await _ensureLocalFakeMayaPersonalGoalBucket(bucketId);
+      }
       notifyListeners();
       return;
     }
-    confirmedFakeMayaBucketMotivations.add(motivation);
-    final bucketId = fakeMayaBucketIdForMotivation(motivation);
     final link = fakeMayaLink;
     if (bucketId != null && link != null) {
       // Bucket creation is a best-effort side effect of adding a goal — if
@@ -6955,6 +7215,9 @@ class AppState extends ChangeNotifier {
       (transaction) => transaction.transactionId == transactionId,
     );
     if (manualIndex >= 0) {
+      _undoBucketFundedExpenseForTransaction(
+        manualTransactions[manualIndex].transactionId,
+      );
       final labeled = manualTransactions[manualIndex].copyWithLabel(
         category: category,
         source: source,
@@ -6970,6 +7233,7 @@ class AppState extends ChangeNotifier {
         transactionLabelRules[labeled.patternKey] =
             TransactionLabelRule.fromTransaction(labeled);
       }
+      _recordBucketFundedExpenseFromTransaction(labeled);
       if (isSignedIn) await saveProfile();
       notifyListeners();
       return;
@@ -6980,6 +7244,7 @@ class AppState extends ChangeNotifier {
         .where((transaction) => transaction.transactionId == transactionId)
         .firstOrNull;
     if (target == null) return;
+    _undoBucketFundedExpenseForTransaction(target.transactionId);
     final labeledTarget = target.copyWithLabel(
       category: category,
       source: source,
@@ -7009,6 +7274,7 @@ class AppState extends ChangeNotifier {
       expiresAt: link.expiresAt,
       summary: link.summary.copyWith(transactions: transactions),
     );
+    _recordBucketFundedExpenseFromTransaction(labeledTarget);
     // Auto-record bills funded from Basic Needs in the two-jar goal.
     if (source.trim().toLowerCase() == 'basic needs fund' &&
         selectedGoal == 'Irregular Income Buffer' &&
@@ -7021,8 +7287,64 @@ class AppState extends ChangeNotifier {
       );
       return; // onBillEvent already calls saveProfile + notifyListeners
     }
-    await saveProfile();
+    if (isSignedIn) await saveProfile();
     notifyListeners();
+  }
+
+  void _recordBucketFundedExpenseFromTransaction(
+    FakeMayaTransaction transaction,
+  ) {
+    if (transaction.amount >= 0 || transaction.excludedFromInsights) return;
+    final motivation = switch (transaction.source?.trim().toLowerCase()) {
+      'basic needs fund' => 'Cash Flow & Basic Needs',
+      'emergency fund' => 'Financial Safety',
+      'investment' => 'Accumulating Wealth',
+      'personal lifestyle fund' => 'Financial Freedom',
+      _ => null,
+    };
+    if (motivation == null) return;
+    _recordBucketFundedExpense(
+      motivation: motivation,
+      amount: transaction.amount.abs(),
+      transactionId: transaction.transactionId,
+      category: transaction.category,
+      title: transaction.title,
+      occurredAt: transaction.createdAt,
+    );
+  }
+
+  void _undoBucketFundedExpenseForTransaction(String transactionId) {
+    final trimmed = transactionId.trim();
+    if (trimmed.isEmpty) return;
+    final entries = d1Ledger
+        .where(
+          (entry) =>
+              entry['sourceTransactionId']?.toString() == trimmed &&
+              const {
+                'use_essential',
+                'use_emergency',
+                'investment_withdrawal',
+                'lifestyle_spend',
+              }.contains(entry['type']),
+        )
+        .toList();
+    if (entries.isEmpty) return;
+    for (final entry in entries) {
+      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+      switch (entry['type']) {
+        case 'use_essential':
+          essentialExpensesBalance += amount;
+        case 'use_emergency':
+          emergencyFundBalance += amount;
+          financialSafetyBalance = emergencyFundBalance;
+          shieldTrackedBalance = emergencyFundBalance;
+        case 'investment_withdrawal':
+          investmentBalance += amount;
+        case 'lifestyle_spend':
+          lifestyleFundBalance += amount;
+      }
+    }
+    d1Ledger.removeWhere(entries.contains);
   }
 
   Future<void> addManualCashTransaction({
