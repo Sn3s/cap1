@@ -106,6 +106,23 @@ void main() {
     );
   });
 
+  test('main saved account adopts cash flow and emergency goals', () {
+    final state = AppState()..email = 'main@gmail.com';
+
+    expect(state.backfillMainAccountGoalDefaults(), isTrue);
+
+    expect(state.selectedGoalId, 'G1');
+    expect(state.primaryConcern, 'Cash Flow & Basic Needs');
+    expect(state.addedGoalIds, contains('G3'));
+    expect(
+      state.selectedActionIds,
+      containsAll(['A1', 'A3', 'A20', 'A19', 'A9', 'A8', 'A22', 'A10']),
+    );
+    expect(state.actionFieldValues['A1']?['pct'], '55');
+    expect(state.actionFieldValues['A8']?['pct'], '10');
+    expect(state.actionFieldValues['A22']?['months'], '3');
+  });
+
   test('fresh onboarding draft clears previous selections', () async {
     final state = AppState()
       ..name = 'Old Name'

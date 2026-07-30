@@ -817,6 +817,13 @@ Integration balances:
 - Essential Expenses Fund balance: ${money(state.essentialExpensesBalance)}
 - Unallocated FakeMaya wallet: ${money(state.unallocatedFakeMayaWallet)}
 
+Cross-goal context with Financial Safety:
+- Emergency Fund balance: ${money(state.displayedEmergencyFundBalance)}
+- Emergency months covered: ${state.emergencyMonthsCovered.toStringAsFixed(1)}
+- Pending emergency replenishment: ${money(state.pendingEmergencyReplenishment)}
+- Current Emergency Fund monthly contribution action: ${jsonEncode(state.actionFieldValues['A9'] ?? const <String, String>{})}
+- Current Emergency Fund income percent action: ${jsonEncode(state.actionFieldValues['A8'] ?? const <String, String>{})}
+
 Latest 14-day totals:
 - Income: ${money(income)}
 - Spending: ${money(spending)}
@@ -894,6 +901,16 @@ Emergency Fund balances:
 - Monthly essential expenses: ${money(state.monthlyEssentialExpenseTotal)}
 - Months currently covered: ${state.emergencyMonthsCovered.toStringAsFixed(1)}
 - Pending replenishment: ${money(state.pendingEmergencyReplenishment)}
+
+Cross-goal context with Cash Flow:
+- Wallet: ${money(state.accountBalance('Wallet'))}
+- Cash on hand: ${money(state.cashOnHandBalance)}
+- Essential Expenses Fund balance: ${money(state.essentialExpensesBalance)}
+- Unallocated FakeMaya wallet: ${money(state.unallocatedFakeMayaWallet)}
+- Monthly income baseline: ${money(state.income)}
+- Monthly expenses baseline: ${money(state.expenses)}
+- Current Cash Flow floor action: ${jsonEncode(state.actionFieldValues['A19'] ?? const <String, String>{})}
+- Current Cash Flow income allocation action: ${jsonEncode(state.actionFieldValues['A1'] ?? const <String, String>{})}
 
 Latest 14-day totals:
 - Added to fund: ${money(added)}
@@ -1381,7 +1398,8 @@ Rules:
 - If the action is useful but the parameter looks too high/low, choose change_parameterized_target.
 - If A1 or A3 is missing and the data shows a need for it, choose suggest_new_action.
 - If an existing Maintain Available Cash action is less useful than the other allowed action, choose remove_and_replace_action.
-- Do not mention irregular income buffers, needs jars, buffer balances, or actions outside A1 and A3.
+- For accounts that also have Financial Safety, avoid improving available cash by starving the emergency fund; if emergency coverage is already far ahead while cash is weak, explain the rebalancing.
+- Do not recommend actions outside A1, A3, A19, and A20; if cross-goal context matters, mention it only as the reason for the Cash Flow recommendation.
 - Do not recommend products, banks, securities, borrowing, or regulated financial advice.
 - Keep reasons concrete and cite a relevant amount, category, balance, or 14-day pattern.
 - Use PHP amounts.
@@ -1394,7 +1412,7 @@ Return only valid JSON:
     {
       "priority": 1,
       "option": "retain_action | change_parameterized_target | suggest_new_action | remove_and_replace_action",
-      "action_id": "A1 | A3",
+      "action_id": "A1 | A3 | A19 | A20",
       "action_text": "short action label",
       "reason": "specific reason grounded in the data",
       "target": {
@@ -1433,7 +1451,8 @@ Rules:
 - If A9 or A8 is missing and the data shows contributions are inconsistent or behind target, choose suggest_new_action.
 - If there is a pending replenishment and no A10 configured, prioritize suggesting A10.
 - If an existing Build Emergency Fund action is less useful than another allowed action, choose remove_and_replace_action.
-- Do not mention available cash, essential expenses fund, or actions outside A8, A9, A10, and A22.
+- For accounts that also have Cash Flow, avoid improving the Emergency Fund by draining wallet or Essential Expenses coverage; if Cash Flow is already strong while safety is weak, explain the catch-up recommendation.
+- Do not recommend actions outside A8, A9, A10, and A22; if cross-goal context matters, mention it only as the reason for the Emergency Fund recommendation.
 - Do not recommend products, banks, securities, borrowing, or regulated financial advice.
 - Keep reasons concrete and cite a relevant amount, month count, or 14-day pattern.
 - Use PHP amounts.

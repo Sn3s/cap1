@@ -860,12 +860,18 @@ class AppState extends ChangeNotifier {
     _applyFinancialFreedomMockProfile(null);
   }
 
+  void seedMainMockDataForTesting() {
+    email = 'main@gmail.com';
+    _applyMainMockProfile(null);
+  }
+
   bool get canOverwriteWithMockData {
     final normalizedEmail = email.trim().toLowerCase();
     return normalizedEmail == 'cashflow@gmail.com' ||
         normalizedEmail == 'emergency@gmail.com' ||
         normalizedEmail == 'accumulating@gmail.com' ||
         normalizedEmail == 'freedom@gmail.com' ||
+        normalizedEmail == 'main@gmail.com' ||
         selectedGoalId == 'G1' ||
         selectedGoalId == 'G3' ||
         selectedGoalId == 'G5' ||
@@ -889,7 +895,10 @@ class AppState extends ChangeNotifier {
     }
     final user = FirebaseProfileService.currentUser;
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase();
-    if (normalizedEmail == 'cashflow@gmail.com' || selectedGoalId == 'G1') {
+    if (normalizedEmail == 'main@gmail.com') {
+      _applyMainMockProfile(user);
+    } else if (normalizedEmail == 'cashflow@gmail.com' ||
+        selectedGoalId == 'G1') {
       _applyCashFlowMockProfile(user);
     } else if (normalizedEmail == 'accumulating@gmail.com' ||
         selectedGoalId == 'G5') {
@@ -2056,6 +2065,205 @@ class AppState extends ChangeNotifier {
     fakeMayaSyncedAccounts
       ..clear()
       ..addAll(manualAccountBalances.keys);
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        transactionLabelRules[transaction.patternKey] =
+            TransactionLabelRule.fromTransaction(transaction);
+      }
+    }
+    _syncFakeMayaMoneyItems();
+  }
+
+  void _applyMainMockProfile(User? user) {
+    final now = DateTime.now();
+    _applyCashFlowMockProfile(user);
+    final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
+        ? 'main@gmail.com'
+        : (user?.email ?? email).trim().toLowerCase();
+
+    name = user?.displayName?.trim().isNotEmpty == true
+        ? user!.displayName!.trim()
+        : 'Main Account';
+    email = normalizedEmail;
+    primaryConcern = 'Cash Flow & Basic Needs';
+    motivation = 'Cash Flow & Basic Needs';
+    reflectedMotivation =
+        'Keep everyday cash steady while building Financial Safety in parallel.';
+    selectedGoalId = 'G1';
+    selectedGoal = 'Maintain Available Cash';
+    selectedGoalDescription =
+        'Maintain enough available cash while steadily building Financial Safety.';
+    selectedGoalMonthlyTarget = 12000;
+    selectedActionIds
+      ..clear()
+      ..addAll(const {'A1', 'A3', 'A20', 'A19', 'A9', 'A8', 'A22', 'A10'});
+    addedGoalIds
+      ..clear()
+      ..add('G3');
+    actionFieldValues
+      ..clear()
+      ..addAll({
+        'A1': {'pct': '55'},
+        'A3': {'amt': '12000', 'categories': 'Food & drink,Transport'},
+        'A20': {'amt': '30000'},
+        'A19': {'amt': '9000'},
+        'A9': {'amt': '4200'},
+        'A8': {'pct': '10'},
+        'A22': {'months': '3'},
+        'A10': {'days': '7'},
+      });
+    monthlySalary = 0;
+    irregularIncomeFloor = 36000;
+    income = 36000;
+    expenses = 12700;
+    safetyShieldAllocationPercent = 10;
+    safetyShieldTargetMonths = 6;
+
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final transactions = [...link.summary.transactions];
+    var emergencyBalance = 24000.0;
+    var walletAdjustment = 0.0;
+    final incomeTransactions = transactions
+        .where((transaction) =>
+            transaction.amount > 0 &&
+            !transaction.excludedFromInsights &&
+            (transaction.createdAt ?? now)
+                .isBefore(now.add(const Duration(seconds: 1))))
+        .toList()
+      ..sort((a, b) => (a.createdAt ?? now).compareTo(b.createdAt ?? now));
+
+    for (final transaction in incomeTransactions) {
+      final incomeDate = transaction.createdAt ?? now;
+      final depositAmount =
+          (transaction.amount * (incomeDate.month == now.month ? .08 : .10))
+              .roundToDouble();
+      if (depositAmount <= 0) continue;
+      emergencyBalance += depositAmount;
+      walletAdjustment -= depositAmount;
+      d1Ledger.add({
+        'type': 'emergency_deposit',
+        'date': incomeDate.add(const Duration(hours: 3)).toIso8601String(),
+        'sourceDate': incomeDate.toIso8601String(),
+        'sourceTransactionId': transaction.transactionId,
+        'incomeAmount': transaction.amount,
+        'percentage': (depositAmount / transaction.amount) * 100,
+        'amount': depositAmount,
+        'destination': 'Emergency Fund',
+        'label': depositAmount >= transaction.amount * .10
+            ? '10% income transfer to Emergency Fund'
+            : 'Partial income transfer to Emergency Fund',
+      });
+      transactions.add(_demoTransaction(
+        id: 'main-ef-transfer-${incomeDate.year}-${incomeDate.month}-${incomeDate.day}-${transaction.transactionId}',
+        title: 'Fund transfer',
+        detail: 'To: Emergency Fund',
+        amount: -depositAmount,
+        date: incomeDate.add(const Duration(hours: 3)),
+        category: 'Transfer',
+        source: 'E-wallet',
+      ));
+    }
+
+    final lastMonthEmergency = DateTime(now.year, now.month - 1, 12, 15);
+    emergencyBalance = math.max(0, emergencyBalance - 4200);
+    d1Ledger.add({
+      'type': 'use_emergency',
+      'date': lastMonthEmergency.toIso8601String(),
+      'amount': 4200.0,
+      'label': 'Dental x-ray and medicine',
+      'sourceTransactionId': 'main-ef-dental-emergency',
+    });
+    transactions.add(_demoTransaction(
+      id: 'main-ef-dental-emergency',
+      title: 'Emergency payment',
+      detail: 'To: Dental clinic',
+      amount: -4200,
+      date: lastMonthEmergency,
+      category: 'Health',
+      source: 'Emergency Fund',
+    ));
+    final replenishedAt = lastMonthEmergency.add(const Duration(days: 5));
+    emergencyBalance += 4200;
+    d1Ledger.add({
+      'type': 'ef_replenish',
+      'date': replenishedAt.toIso8601String(),
+      'amount': 4200.0,
+      'label': 'Dental emergency replenished from next cash-in',
+    });
+
+    final recentEmergency = now.subtract(const Duration(days: 9));
+    emergencyBalance = math.max(0, emergencyBalance - 3600);
+    d1Ledger.add({
+      'type': 'use_emergency',
+      'date': recentEmergency.toIso8601String(),
+      'amount': 3600.0,
+      'label': 'Urgent clinic visit',
+      'sourceTransactionId': 'main-ef-clinic-emergency',
+    });
+    transactions.add(_demoTransaction(
+      id: 'main-ef-clinic-emergency',
+      title: 'Emergency payment',
+      detail: 'To: Urgent care clinic',
+      amount: -3600,
+      date: recentEmergency,
+      category: 'Health',
+      source: 'Emergency Fund',
+    ));
+
+    emergencyFundBalance = emergencyBalance;
+    financialSafetyBalance = emergencyBalance;
+    shieldTrackedBalance = emergencyBalance;
+    emergencyMonths =
+        emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
+    onboardingBaselines['emergency_balance'] =
+        emergencyFundBalance.toStringAsFixed(2);
+    _lastEfWithdrawalStr = recentEmergency.toIso8601String();
+    confirmedFakeMayaBucketMotivations
+      ..clear()
+      ..addAll(const {'Cash Flow & Basic Needs', 'Financial Safety'});
+    fakeMayaBucketCreationAllowed = true;
+    d1Ledger.sort((a, b) => DateTime.parse(b['date'].toString())
+        .compareTo(DateTime.parse(a['date'].toString())));
+
+    final essentialGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
+    ).copyWith(
+      balance: essentialExpensesBalance,
+      target: needsTarget,
+      daysLeft: 30,
+    );
+    final emergencyGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.emergencyFundId,
+    ).copyWith(
+      balance: emergencyFundBalance,
+      target: monthlyEssentialExpenseTotal * 6,
+      daysLeft: 120,
+    );
+    transactions
+        .sort((a, b) => (b.createdAt ?? now).compareTo(a.createdAt ?? now));
+    fakeMayaLink = FakeMayaLink(
+      userId: 'mock-main-fakemaya',
+      email: normalizedEmail,
+      name: name,
+      phone: '+63 917 555 0100',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: link.summary.copyWith(
+        wallet: math.max(0, link.summary.wallet + walletAdjustment),
+        goalName: essentialGoal.name,
+        goalEmoji: essentialGoal.emoji,
+        goalBalance: essentialGoal.balance,
+        goalTarget: essentialGoal.target,
+        selectedGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+        personalGoals: [essentialGoal, emergencyGoal],
+        transactions: transactions,
+        updatedAt: now,
+      ),
+    );
+    transactionLabelRules.clear();
     for (final transaction in transactions) {
       if (transaction.isLabeled && !transaction.excludedFromInsights) {
         transactionLabelRules[transaction.patternKey] =
@@ -4041,6 +4249,7 @@ class AppState extends ChangeNotifier {
       data['confirmedFakeMayaBucketMotivations'],
     );
     backfillMissingOnboardingLedgers();
+    backfillMainAccountGoalDefaults();
     backfillFeasibleActionDefaults();
   }
 
@@ -4104,6 +4313,53 @@ class AppState extends ChangeNotifier {
       'amt': recommended,
     };
     return true;
+  }
+
+  bool backfillMainAccountGoalDefaults() {
+    if (email.trim().toLowerCase() != 'main@gmail.com') return false;
+    var changed = false;
+    if (primaryConcern.trim().isEmpty) {
+      primaryConcern = 'Cash Flow & Basic Needs';
+      motivation = 'Cash Flow & Basic Needs';
+      changed = true;
+    }
+    if (selectedGoalId.trim().isEmpty) {
+      selectedGoalId = 'G1';
+      selectedGoal = 'Maintain Available Cash';
+      selectedGoalDescription =
+          'Maintain enough available cash while also steadily building Financial Safety.';
+      changed = true;
+    }
+    if (addedGoalIds.add('G3')) changed = true;
+    for (final id in const {
+      'A1',
+      'A3',
+      'A20',
+      'A19',
+      'A9',
+      'A8',
+      'A22',
+      'A10'
+    }) {
+      if (selectedActionIds.add(id)) changed = true;
+    }
+    final defaults = <String, Map<String, String>>{
+      'A1': {'pct': '55'},
+      'A3': {'amt': '10000', 'categories': 'Food & drink,Transport'},
+      'A20': {'amt': '50000'},
+      'A19': {'amt': '12000'},
+      'A9': {'amt': '3500'},
+      'A8': {'pct': '10'},
+      'A22': {'months': '3'},
+      'A10': {'days': '7'},
+    };
+    for (final entry in defaults.entries) {
+      actionFieldValues.putIfAbsent(entry.key, () {
+        changed = true;
+        return entry.value;
+      });
+    }
+    return changed;
   }
 
   List<Map<String, dynamic>> _legacyIncomeLedger() {

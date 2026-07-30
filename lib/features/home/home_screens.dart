@@ -4324,6 +4324,8 @@ class _InsightsOverview extends StatelessWidget {
             );
           },
         ),
+        if (_hasCashFlowAndSafetyInsights(state))
+          _CashSafetyInterplayCard(state: state),
         _OverviewCard(
           title: 'Money Summary',
           child: Row(
@@ -4388,6 +4390,240 @@ class _InsightsOverview extends StatelessWidget {
       ],
     );
   }
+}
+
+bool _hasCashFlowAndSafetyInsights(AppState state) {
+  final visible = _insightsVisibleMotivations(state);
+  return visible.contains('Cash Flow & Basic Needs') &&
+      visible.contains('Financial Safety');
+}
+
+class _CashSafetyInterplayScore {
+  const _CashSafetyInterplayScore({
+    required this.cash,
+    required this.safety,
+    required this.total,
+  });
+
+  final int cash;
+  final int safety;
+  final int total;
+
+  int get gap => (cash - safety).abs();
+  String get leadingGoal => cash >= safety ? 'Cash Flow' : 'Financial Safety';
+  String get laggingGoal => cash < safety ? 'Cash Flow' : 'Financial Safety';
+}
+
+_CashSafetyInterplayScore _cashSafetyInterplayScore(AppState state) {
+  final cash = cashFlowGoalPercent(state).round().clamp(0, 100).toInt();
+  final safety = emergencyFundGoalPercent(state).round().clamp(0, 100).toInt();
+  final gap = (cash - safety).abs();
+  final balancePenalty = math.min(15, gap * .2).round();
+  final total =
+      (((cash + safety) / 2).round() - balancePenalty).clamp(0, 100).toInt();
+  return _CashSafetyInterplayScore(
+    cash: cash,
+    safety: safety,
+    total: total,
+  );
+}
+
+class _CashSafetyInterplayCard extends StatelessWidget {
+  const _CashSafetyInterplayCard({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final score = _cashSafetyInterplayScore(state);
+    final target = _financialSafetyGoalTarget(state);
+    final emergencyProgress = target <= 0
+        ? 0
+        : (state.displayedEmergencyFundBalance / target * 100)
+            .clamp(0, 100)
+            .round();
+    final cashColor = _resiliencyScoreColor(score.cash);
+    final safetyColor = _resiliencyScoreColor(score.safety);
+    final totalColor = _resiliencyScoreColor(score.total);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _CircularScoreGauge(
+                  label: 'Goals',
+                  percent: score.total,
+                  size: 72,
+                  strokeWidth: 7,
+                  valueFontSize: 17,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Total Goals Score',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _cashSafetyInterplayInsight(score),
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 11.5,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _InterplayMiniScore(
+                    label: 'Cash Flow',
+                    value: score.cash,
+                    color: cashColor,
+                    detail:
+                        '${money(state.essentialExpensesBalance)} Essential Fund',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _InterplayMiniScore(
+                    label: 'Financial Safety',
+                    value: score.safety,
+                    color: safetyColor,
+                    detail:
+                        '$emergencyProgress% of ${money(target)} safety target',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _AiInsightNote(
+              trend: score.gap <= 15
+                  ? _InsightTrend.up
+                  : score.total >= 60
+                      ? _InsightTrend.neutral
+                      : _InsightTrend.down,
+              text: _cashSafetyActionGuidance(score),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Cash Flow keeps bills and wallet movement stable; Financial Safety protects that same cash flow from shocks. The combined score rewards progress in both and subtracts a small penalty when one goal is far ahead of the other.',
+              style: TextStyle(
+                color: totalColor,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InterplayMiniScore extends StatelessWidget {
+  const _InterplayMiniScore({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.detail,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: .22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$value',
+            style: TextStyle(
+              color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            detail,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10,
+              height: 1.25,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _cashSafetyInterplayInsight(_CashSafetyInterplayScore score) {
+  if (score.gap <= 15) {
+    return 'Cash Flow and Financial Safety are moving together. Keep funding safety without draining everyday coverage.';
+  }
+  return '${score.leadingGoal} is ahead by ${score.gap} points. The next best move should help ${score.laggingGoal} catch up without undoing the stronger goal.';
+}
+
+String _cashSafetyActionGuidance(_CashSafetyInterplayScore score) {
+  if (score.gap <= 15) {
+    return 'Balanced progress: choose recommendations that preserve this spread, not just the highest single-goal score.';
+  }
+  if (score.cash < score.safety) {
+    return 'Cash Flow is the constraint: keep emergency contributions realistic until bills and weekly cash coverage recover.';
+  }
+  return 'Financial Safety is the constraint: cash flow has room to direct a steadier amount into the emergency fund.';
 }
 
 String _moneyFlowInsight(double inflow, double outflow) {

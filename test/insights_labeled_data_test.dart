@@ -127,6 +127,41 @@ void main() {
     expect(find.text('AI Analyze'), findsNothing);
   });
 
+  testWidgets(
+      'main account shows cash flow emergency and combined goal insight',
+      (tester) async {
+    final state = _reflectionState()
+      ..email = 'main@gmail.com'
+      ..selectedGoalId = ''
+      ..primaryConcern = ''
+      ..selectedGoal = ''
+      ..addedGoalIds.clear();
+    state.backfillMainAccountGoalDefaults();
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('Available cash'), findsOneWidget);
+    expect(find.text('Emergency fund'), findsOneWidget);
+    expect(find.text('Total Goals Score'), findsOneWidget);
+    expect(find.text('Cash Flow'), findsOneWidget);
+    expect(find.text('Financial Safety'), findsOneWidget);
+
+    await tester.tap(find.text('Emergency fund'));
+    await tester.pumpAndSettle();
+    expect(find.text('Emergency Fund'), findsOneWidget);
+
+    await tester.tap(find.text('Available cash'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('available cash cover bills'), findsOneWidget);
+  });
+
   testWidgets('available cash action resiliency opens score detail',
       (tester) async {
     final state = _reflectionState();
@@ -142,16 +177,12 @@ void main() {
     await tester.pumpAndSettle();
 
     final actionRow =
-        find.textContaining('Set aside X% of each income received');
+        find.textContaining('Set aside X% of each income received').first;
     await tester.ensureVisible(actionRow);
     await tester.pumpAndSettle();
-    await tester.tap(actionRow);
-    await tester.pumpAndSettle();
-
-    final fullBreakdown = find.text('Full breakdown');
-    await tester.ensureVisible(fullBreakdown);
-    await tester.pumpAndSettle();
-    await tester.tap(fullBreakdown);
+    await tester.tap(
+      find.ancestor(of: actionRow, matching: find.byType(InkWell)).first,
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Set aside income for essentials resiliency'),
@@ -237,8 +268,9 @@ void main() {
 AppState _reflectionState() {
   final start = DateTime(2026, 1, 5);
   final state = AppState()
-    ..selectedGoal = 'Irregular Income Buffer'
-    ..selectedGoalId = 'GOAL1C'
+    ..selectedGoal = 'Maintain Available Cash'
+    ..selectedGoalId = 'G1'
+    ..primaryConcern = 'Cash Flow & Basic Needs'
     ..needsTarget = 9000
     ..needsPercent = 70
     ..needsBalance = 7800
