@@ -6413,9 +6413,15 @@ class AppState extends ChangeNotifier {
 
   Set<String> _activeFakeMayaBucketMotivations() {
     final motivations = <String>{};
+    // The onboarding layer is saved independently from the selected goal.
+    // Prefer it so a valid Shape your path choice is never remapped merely
+    // because a goal appears under more than one layer.
     final onboardingMotivation =
-        _fakeMayaBucketMotivationForGoalId(selectedGoalId) ?? primaryConcern;
-    if (fakeMayaBucketIdForMotivation(onboardingMotivation) != null) {
+        fakeMayaBucketIdForMotivation(primaryConcern) != null
+            ? primaryConcern
+            : _fakeMayaBucketMotivationForGoalId(selectedGoalId);
+    if (onboardingMotivation != null &&
+        fakeMayaBucketIdForMotivation(onboardingMotivation) != null) {
       motivations.add(onboardingMotivation);
     }
     for (final goalId in addedGoalIds) {

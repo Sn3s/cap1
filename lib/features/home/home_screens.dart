@@ -2746,10 +2746,9 @@ double _goalPercent(String goalId, AppState state) {
   }
 }
 
-/// Which pyramid layer a given onboarding-catalog goal id belongs to (e.g.
-/// 'G8' -> 'Financial Freedom'), used as a fallback so the goal actually
-/// selected during onboarding is respected even if it isn't the layer's
-/// default pick.
+/// Which pyramid layer an added onboarding-catalog goal conventionally uses.
+/// Never use this to reinterpret the onboarding selection itself: the saved
+/// `primaryConcern` is the source of truth for that layer.
 String? _layerForGoalId(String goalId) {
   for (final entry in _motivationGoalIds.entries) {
     if (entry.value.contains(goalId)) return entry.key;
@@ -2757,14 +2756,21 @@ String? _layerForGoalId(String goalId) {
   return null;
 }
 
-String? _motivationForGoalId(String goalId) => _layerForGoalId(goalId);
+String? _motivationForGoalId(AppState state, String goalId) {
+  if (goalId == state.selectedGoalId &&
+      _layerCanonicalGoalId.containsKey(state.primaryConcern)) {
+    return state.primaryConcern;
+  }
+  return state._fakeMayaBucketMotivationForGoalId(goalId) ??
+      _layerForGoalId(goalId);
+}
 
 Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
   BuildContext context,
   AppState state,
   String goalId,
 ) async {
-  final motivation = _motivationForGoalId(goalId);
+  final motivation = _motivationForGoalId(state, goalId);
   if (motivation == null) {
     return;
   }
@@ -2808,13 +2814,15 @@ Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
   await state.ensureFakeMayaBucketForMotivation(motivation);
 }
 
-/// Which canonical goal cards should render on the Goals page. The
-/// Reflection Demo account always shows all of them (showcase account).
-/// Real accounts always see the goal for their onboarding pick —
-/// preferring the layer implied by `selectedGoalId` (falling back to
-/// `primaryConcern` when that's unset) — plus whatever goals were
-/// explicitly added via "+ Add Goal" (`AppState.addedGoalIds`). This is
-/// intentionally NOT based on action-selection overlap
+/// Which goal cards should render on the Goals page. The Reflection Demo
+/// account always shows all of them (showcase account). A real account sees
+/// exactly the goal selected in Shape your path, plus anything explicitly
+/// added through "+ Add Goal" (`AppState.addedGoalIds`). `primaryConcern` is
+/// intentionally not used to replace a selected goal: it records the
+/// onboarding layer, while `selectedGoalId` records the user's actual goal
+/// choice.
+///
+/// This is intentionally NOT based on action-selection overlap
 /// (`_insightsAdoptedMotivations`) — several goals share action ids across
 /// their catalogs (e.g. G4 and G3 both include 'A10'), which would falsely
 /// mark a goal "added" just because an unrelated goal's action overlaps.
@@ -2823,10 +2831,15 @@ Set<String> _visibleGoalIds(AppState state) {
     return _d1GoalMetas.map((g) => g.id).toSet();
   }
   final ids = <String>{...state.addedGoalIds};
-  final onboardingLayer =
-      _layerForGoalId(state.selectedGoalId) ?? state.primaryConcern;
-  final primaryGoalId = _layerCanonicalGoalId[onboardingLayer];
-  if (primaryGoalId != null) ids.add(primaryGoalId);
+  final selectedGoalId = state.selectedGoalId.trim();
+  if (_d1GoalMetas.any((goal) => goal.id == selectedGoalId)) {
+    ids.add(selectedGoalId);
+  } else {
+    // Backwards compatibility for profiles created before selectedGoalId was
+    // persisted. New onboarding completions always use the branch above.
+    final fallbackGoalId = _layerCanonicalGoalId[state.primaryConcern];
+    if (fallbackGoalId != null) ids.add(fallbackGoalId);
+  }
   return ids;
 }
 
@@ -3689,13 +3702,12 @@ Set<String> _insightsVisibleMotivations(AppState state) {
   }
   final motivations = <String>{};
   for (final goalId in _visibleGoalIds(state)) {
+    if (goalId == state.selectedGoalId) continue;
     final layer = _layerForGoalId(goalId);
     if (layer != null) motivations.add(layer);
   }
-  final onboardingLayer =
-      _layerForGoalId(state.selectedGoalId) ?? state.primaryConcern;
-  if (_layerCanonicalGoalId.containsKey(onboardingLayer)) {
-    motivations.add(onboardingLayer);
+  if (_layerCanonicalGoalId.containsKey(state.primaryConcern)) {
+    motivations.add(state.primaryConcern);
   }
   return motivations;
 }
@@ -15571,6 +15583,16 @@ const _d1GoalMetas = <_D1GoalMeta>[
     ],
   ),
   _D1GoalMeta(
+    id: 'G2',
+    emoji: '〰️',
+    title: 'Stable Cash Flow',
+    description:
+        'Maintain a stable cash flow even during months with irregular or changing income.',
+    layerColor: _brand,
+    layerLabel: 'Cash Flow',
+    actions: [],
+  ),
+  _D1GoalMeta(
     id: 'G3',
     emoji: '🛡️',
     title: 'Build Emergency Fund',
@@ -15718,6 +15740,16 @@ const _d1GoalMetas = <_D1GoalMeta>[
     ],
   ),
   _D1GoalMeta(
+    id: 'G4',
+    emoji: '🧾',
+    title: 'Pay Bills on Time',
+    description:
+        'Keep all bills, payments, and financial obligations paid on time to avoid penalties and disruptions.',
+    layerColor: _red,
+    layerLabel: 'Financial Safety',
+    actions: [],
+  ),
+  _D1GoalMeta(
     id: 'G5',
     emoji: '📈',
     title: 'Grow Investments',
@@ -15846,6 +15878,25 @@ const _d1GoalMetas = <_D1GoalMeta>[
         ],
       ),
     ],
+  ),
+  _D1GoalMeta(
+    id: 'G6',
+    emoji: '💳',
+    title: 'Reduce Debt',
+    description: 'Have total debt that steadily decreases over time.',
+    layerColor: _purple,
+    layerLabel: 'Accumulating Wealth',
+    actions: [],
+  ),
+  _D1GoalMeta(
+    id: 'G7',
+    emoji: '🎯',
+    title: 'Milestone Savings',
+    description:
+        'Have dedicated savings for specific milestones and experiences, each with a clear target amount and timeline.',
+    layerColor: const Color(0xFF4F86C6),
+    layerLabel: 'Financial Freedom',
+    actions: [],
   ),
   _D1GoalMeta(
     id: 'G8',
@@ -16667,7 +16718,9 @@ List<_D1ActionMeta> _goalDetailActionsFor(
       for (final id in ids) _lifestyleD1ActionMeta(id, state),
     ].whereType<_D1ActionMeta>().toList();
   }
-  if (goal.id != 'G1') return goal.actions;
+  if (goal.id != 'G1') {
+    return _onboardingGoalActionMetas(goal.id, state);
+  }
   final selected = state.selectedActionIds
       .where(_availableCashGoalActionIds.contains)
       .toList();
@@ -16676,6 +16729,96 @@ List<_D1ActionMeta> _goalDetailActionsFor(
     for (final id in ids) _availableCashD1ActionMeta(id, state),
   ].whereType<_D1ActionMeta>().toList();
 }
+
+/// G2, G4, G6, and G7 do not yet have specialised financial panels. Until
+/// they do, keep the action selected during onboarding visible with its saved
+/// configuration instead of substituting an unrelated canonical goal/action
+/// set. This makes the Shape your path handoff truthful without pretending
+/// that the pending tracking engines already exist.
+List<_D1ActionMeta> _onboardingGoalActionMetas(
+  String goalId,
+  AppState state,
+) {
+  final allowedActionIds = _goalActionIds[goalId] ?? const <String>[];
+  final selected = state.selectedActionIds
+      .where(allowedActionIds.contains)
+      .toList();
+  final actionIds = selected.isEmpty ? allowedActionIds : selected;
+  return [
+    for (final actionId in actionIds)
+      if (_onboardingGoalActionMeta(goalId, actionId, state)
+          case final actionMeta?)
+        actionMeta,
+  ];
+}
+
+_D1ActionMeta? _onboardingGoalActionMeta(
+  String goalId,
+  String actionId,
+  AppState state,
+) {
+  final action = _d2Actions[actionId];
+  if (action == null) return null;
+  final values = state.actionFieldValues[actionId] ?? const <String, String>{};
+  final configuredFields = [
+    for (final field in action.fields)
+      if ((values[field.key] ?? '').trim().isNotEmpty)
+        '${field.label}: ${values[field.key]}${field.isPercent ? '%' : ''}',
+  ];
+  final goalTitle = _d1GoalMetas.firstWhere((goal) => goal.id == goalId).title;
+  return _D1ActionMeta(
+    id: actionId,
+    text: _configuredOnboardingActionText(action.text, action.fields, values),
+    configLabel: configuredFields.length == 1 ? 'Saved setting' : 'Saved setup',
+    configValue: configuredFields.isEmpty
+        ? 'No value set yet'
+        : configuredFields.join(' · '),
+    destBucket: _onboardingGoalDestination(goalId),
+    metrics: [
+      (label: 'Status', value: 'Selected', icon: Icons.check_circle_rounded),
+      (
+        label: 'Saved inputs',
+        value: '${configuredFields.length} of ${action.fields.length}',
+        icon: Icons.tune_rounded
+      ),
+    ],
+    dataPoints: [
+      (label: 'Onboarding goal', type: 'I', value: goalTitle),
+      (label: 'Action selection', type: 'I', value: 'Saved in Shape your path'),
+    ],
+    activityLog: const [],
+  );
+}
+
+String _configuredOnboardingActionText(
+  String text,
+  List<ActionField> fields,
+  Map<String, String> values,
+) {
+  var configuredText = text;
+  for (final field in fields) {
+    final value = values[field.key]?.trim();
+    if (value == null || value.isEmpty) continue;
+    if (field.isPercent) {
+      configuredText = configuredText.replaceFirst('X%', '$value%');
+    } else if (field.key == 'amt') {
+      configuredText = configuredText.replaceFirst('₱X', '₱$value');
+    } else if (field.key == 'days') {
+      configuredText = configuredText.replaceFirst('X days', '$value days');
+    } else if (field.key == 'months') {
+      configuredText = configuredText.replaceFirst('X months', '$value months');
+    }
+  }
+  return configuredText;
+}
+
+String _onboardingGoalDestination(String goalId) => switch (goalId) {
+      'G2' => 'Cash flow plan',
+      'G4' => 'Bills and obligations',
+      'G6' => 'Debt repayment plan',
+      'G7' => 'Milestone savings plan',
+      _ => 'Goal plan',
+    };
 
 class _GoalActionPickerButton extends StatelessWidget {
   const _GoalActionPickerButton({required this.goal});
