@@ -9,9 +9,16 @@ void main() {
   });
 
   testWidgets('money rhythm continues to monthly income', (tester) async {
+    final state = AppState()
+      ..employmentStatus = 'Freelance'
+      ..incomeType = 'Variable'
+      ..incomeRhythm = 'Irregular'
+      ..billsRhythm = 'Add dates later'
+      ..responsibility = 'Mostly myself'
+      ..checkInRhythm = 'Weekly';
     await tester.pumpWidget(
       AppScope(
-        state: AppState(),
+        state: state,
         child: const MaterialApp(home: LifeRhythmScreen()),
       ),
     );
@@ -20,7 +27,7 @@ void main() {
     await tester.tap(find.text('Add Monthly Income'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Monthly income.'), findsOneWidget);
+    expect(find.text('Typical monthly income.'), findsOneWidget);
     expect(find.text('Phase 4/15'), findsOneWidget);
   });
 

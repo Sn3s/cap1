@@ -2452,7 +2452,7 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
       phase: 3,
       title: 'How does money move for you?',
       subtitle:
-          'Paydays, bills, shared responsibilities, and check-in habits all shape what Shelby should pay attention to.',
+          'Income timing, bill due dates, shared responsibilities, and check-in habits all shape what Shelby should pay attention to.',
       bottom: PrimaryButton(
         label: 'Add Monthly Income',
         icon: Icons.arrow_forward_rounded,
@@ -2484,29 +2484,31 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
           LabeledField(
             label: 'Income type',
             icon: Icons.payments_rounded,
-            child: Row(
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
               children: [
-                Expanded(
-                  child: ChoiceTile(
-                    label: 'Fixed',
-                    selected: state.incomeType == 'Fixed',
-                    onTap: () => setState(() => state.incomeType = 'Fixed'),
-                  ),
+                CompactChoice(
+                  label: 'Fixed income',
+                  selected: state.incomeType == 'Fixed',
+                  onTap: () => setState(() => state.incomeType = 'Fixed'),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ChoiceTile(
-                    label: 'Variable',
-                    selected: state.incomeType == 'Variable',
-                    onTap: () => setState(() => state.incomeType = 'Variable'),
-                  ),
+                CompactChoice(
+                  label: 'Variable income',
+                  selected: state.incomeType == 'Variable',
+                  onTap: () => setState(() => state.incomeType = 'Variable'),
+                ),
+                CompactChoice(
+                  label: 'Both',
+                  selected: state.incomeType == 'Both',
+                  onTap: () => setState(() => state.incomeType = 'Both'),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 18),
           LabeledField(
-            label: 'Income rhythm',
+            label: 'Income timing',
             icon: Icons.event_repeat_rounded,
             child: Wrap(
               spacing: 10,
@@ -2524,16 +2526,15 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
           ),
           const SizedBox(height: 18),
           LabeledField(
-            label: 'Bills rhythm',
+            label: 'Bill due-date pattern',
             icon: Icons.receipt_long_rounded,
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
-                'Predictable dates',
-                'Scattered dates',
-                'Mostly automatic',
-                'Often surprise me',
+                'Mostly predictable',
+                'Different each month',
+                'Add dates later',
               ]
                   .map(
                     (value) => CompactChoice(
@@ -2543,6 +2544,16 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
                     ),
                   )
                   .toList(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'This is about bill due dates, not income. You can record unexpected expenses when they happen.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 18),
@@ -4880,9 +4891,9 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
   Widget build(BuildContext context) {
     return OnboardingScaffold(
       phase: 4,
-      title: 'Monthly income.',
+      title: 'Typical monthly income.',
       subtitle:
-          'List each expected monthly income source, mark whether it is stable, and add a known last or next date for scheduled income. Shellby uses that date to infer future paydays.',
+          'Add a cautious typical amount for each income source. For freelance or side-hustle income, you do not need to declare future payment dates.',
       bottom: PrimaryButton(
         label: 'Continue to Expenses',
         icon: Icons.arrow_forward_rounded,
@@ -4903,7 +4914,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
                 border: Border.all(color: _border),
               ),
               child: const Text(
-                'Stable marks predictable income. Scheduled adds a known date and repeat pattern.',
+                'Use a future date only for income that follows a predictable schedule. Leave it off for irregular income; Shelby will use income you record as received for your cash-flow plan.',
                 style: TextStyle(
                   color: _body,
                   fontSize: 11,
@@ -5362,7 +5373,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: inputDecoration('Amount').copyWith(
-                    labelText: 'Monthly',
+                    labelText: 'Typical month',
                     prefixText: '₱ ',
                     isDense: true,
                   ),
@@ -5405,7 +5416,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                   size: 17,
                   color: income.scheduled ? _sage : _body,
                 ),
-                label: const Text('Scheduled income'),
+                label: const Text('Has a predictable schedule'),
                 onSelected: (value) {
                   income.scheduled = value;
                   if (value) {
@@ -7728,8 +7739,8 @@ class PreparationCommitmentScreen extends StatelessWidget {
             rows: [
               ('Employment status', state.employmentStatus),
               ('Income type', state.incomeType),
-              ('Income rhythm', state.incomeRhythm),
-              ('Bills rhythm', state.billsRhythm),
+              ('Income timing', state.incomeRhythm),
+              ('Bill due-date pattern', state.billsRhythm),
               ('Financial responsibility', state.responsibility),
               ('Check-in rhythm', state.checkInRhythm),
             ],
