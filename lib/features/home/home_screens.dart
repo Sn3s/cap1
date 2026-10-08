@@ -14049,14 +14049,15 @@ class _WalletAllocationsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wallet = state.accountBalance('Wallet');
-    final hasEssentialExpenseBucket = state.fakeMayaBucketExists(
-      FakeMayaPersonalGoal.essentialExpenseFundId,
-    );
+    // Once the Essential Expenses Fund lives in FakeMaya bucket B1 it is no
+    // longer part of the wallet, so only an unbacked local balance is listed.
+    final essentialFundInWallet =
+        state.fakeMayaLink?.summary.essentialExpenseFund == null;
     final hasEmergencyBucket = state.fakeMayaBucketExists(
       FakeMayaPersonalGoal.emergencyFundId,
     );
     final walletAllocations = <(String, double, Color, IconData)>[
-      if (hasEssentialExpenseBucket && state.essentialExpensesBalance > 0)
+      if (essentialFundInWallet && state.essentialExpensesBalance > 0)
         (
           'Essential Expenses Fund',
           state.essentialExpensesBalance,
@@ -19838,15 +19839,15 @@ class _EssentialExpensesActionPanelState
     if (mounted) setState(() => busy = true);
     final totalIncome =
         incomes.fold<double>(0, (total, income) => total + income.amount);
-    final allocation = totalIncome * confirmedPercentage / 100;
     final billReserve = math
         .min(
           state.openBasicNeedsBillNeed,
-          math.max(0, totalIncome - allocation),
+          math.max(0, totalIncome - totalIncome * confirmedPercentage / 100),
         )
         .toDouble();
     try {
-      await state.depositPendingIncomeToEssentialFund(
+      // Report what was actually moved, not what the UI expected to move.
+      final allocation = await state.depositPendingIncomeToEssentialFund(
         incomes: incomes,
         percentage: confirmedPercentage,
       );
