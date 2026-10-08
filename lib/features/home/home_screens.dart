@@ -1753,114 +1753,123 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
   );
   return showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        backgroundColor: _surface,
-        title: Text(entry == null ? 'Add income' : 'Edit income'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: name,
-                  decoration: inputDecoration('Income source'),
-                  textCapitalization: TextCapitalization.words,
-                  validator: (value) =>
-                      validateRequired(value, label: 'Income source'),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: amount,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: inputDecoration('Monthly amount')
-                      .copyWith(prefixText: '₱ '),
-                  validator: validatePositiveAmount,
-                ),
-                const SizedBox(height: 8),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: stable,
-                  onChanged: (value) =>
-                      setDialogState(() => stable = value ?? false),
-                  title: const Text('Stable income'),
-                ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: scheduled,
-                  onChanged: (value) =>
-                      setDialogState(() => scheduled = value ?? false),
-                  title: const Text('Scheduled income'),
-                ),
-                if (scheduled) ...[
-                  const SizedBox(height: 8),
-                  _ScheduleEditor(
-                    title: 'Income schedule',
-                    icon: Icons.payments_rounded,
-                    anchorType: scheduleAnchorType,
-                    lastLabel: 'Last received',
-                    nextLabel: 'Next expected',
-                    anchorDate: scheduleAnchorDate,
-                    repeatFrequency: repeatFrequency,
-                    missingDateMessage: 'Choose a known income date.',
-                    onAnchorTypeChanged: (value) =>
-                        setDialogState(() => scheduleAnchorType = value),
-                    onPickDate: () async {
-                      final now = AppClock.now();
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: scheduleAnchorDate ?? now,
-                        firstDate: DateTime(now.year - 5),
-                        lastDate: DateTime(now.year + 5),
-                      );
-                      if (picked == null) return;
-                      setDialogState(() {
-                        scheduleAnchorDate = picked;
-                        payDay = picked.day;
-                      });
-                    },
-                    onRepeatChanged: (value) =>
-                        setDialogState(() => repeatFrequency = value),
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        name.dispose();
+        amount.dispose();
+      },
+      child: Builder(
+          builder: (context) => StatefulBuilder(
+                builder: (context, setDialogState) => AlertDialog(
+                  backgroundColor: _surface,
+                  title: Text(entry == null ? 'Add income' : 'Edit income'),
+                  content: SingleChildScrollView(
+                    child: Form(
+                      key: formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            controller: name,
+                            decoration: inputDecoration('Income source'),
+                            textCapitalization: TextCapitalization.words,
+                            validator: (value) =>
+                                validateRequired(value, label: 'Income source'),
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: amount,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: inputDecoration('Monthly amount')
+                                .copyWith(prefixText: '₱ '),
+                            validator: validatePositiveAmount,
+                          ),
+                          const SizedBox(height: 8),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: stable,
+                            onChanged: (value) =>
+                                setDialogState(() => stable = value ?? false),
+                            title: const Text('Stable income'),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: scheduled,
+                            onChanged: (value) => setDialogState(
+                                () => scheduled = value ?? false),
+                            title: const Text('Scheduled income'),
+                          ),
+                          if (scheduled) ...[
+                            const SizedBox(height: 8),
+                            _ScheduleEditor(
+                              title: 'Income schedule',
+                              icon: Icons.payments_rounded,
+                              anchorType: scheduleAnchorType,
+                              lastLabel: 'Last received',
+                              nextLabel: 'Next expected',
+                              anchorDate: scheduleAnchorDate,
+                              repeatFrequency: repeatFrequency,
+                              missingDateMessage: 'Choose a known income date.',
+                              onAnchorTypeChanged: (value) => setDialogState(
+                                  () => scheduleAnchorType = value),
+                              onPickDate: () async {
+                                final now = AppClock.now();
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: scheduleAnchorDate ?? now,
+                                  firstDate: DateTime(now.year - 5),
+                                  lastDate: DateTime(now.year + 5),
+                                );
+                                if (picked == null) return;
+                                setDialogState(() {
+                                  scheduleAnchorDate = picked;
+                                  payDay = picked.day;
+                                });
+                              },
+                              onRepeatChanged: (value) =>
+                                  setDialogState(() => repeatFrequency = value),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              final parsed = _baselineAmount(amount.text);
-              final inferredPayDay = scheduleAnchorDate?.day ?? payDay;
-              Navigator.pop(context, {
-                'name': name.text.trim(),
-                'amount': parsed,
-                'stable': stable,
-                'scheduled': scheduled,
-                'payDay': scheduled ? inferredPayDay : null,
-                'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
-                'scheduleAnchorDate':
-                    scheduled ? scheduleAnchorDate?.toIso8601String() : null,
-                'repeatFrequency': scheduled ? repeatFrequency : null,
-                'layer': layer,
-              });
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        if (!(formKey.currentState?.validate() ?? false))
+                          return;
+                        final parsed = _baselineAmount(amount.text);
+                        final inferredPayDay =
+                            scheduleAnchorDate?.day ?? payDay;
+                        Navigator.pop(context, {
+                          'name': name.text.trim(),
+                          'amount': parsed,
+                          'stable': stable,
+                          'scheduled': scheduled,
+                          'payDay': scheduled ? inferredPayDay : null,
+                          'scheduleAnchorType':
+                              scheduled ? scheduleAnchorType : null,
+                          'scheduleAnchorDate': scheduled
+                              ? scheduleAnchorDate?.toIso8601String()
+                              : null,
+                          'repeatFrequency': scheduled ? repeatFrequency : null,
+                          'layer': layer,
+                        });
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              )),
     ),
-  ).whenComplete(() {
-    name.dispose();
-    amount.dispose();
-  });
+  );
 }
 
 Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
@@ -1897,146 +1906,160 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
   );
   return showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        backgroundColor: _surface,
-        title: Text(entry == null ? 'Add expense' : 'Edit expense'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: category,
-                  decoration: inputDecoration('Choose a category').copyWith(
-                    labelText: 'Category',
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        name.dispose();
+        amount.dispose();
+      },
+      child: Builder(
+          builder: (context) => StatefulBuilder(
+                builder: (context, setDialogState) => AlertDialog(
+                  backgroundColor: _surface,
+                  title: Text(entry == null ? 'Add expense' : 'Edit expense'),
+                  content: SingleChildScrollView(
+                    child: Form(
+                      key: formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DropdownButtonFormField<String>(
+                            value: category,
+                            decoration:
+                                inputDecoration('Choose a category').copyWith(
+                              labelText: 'Category',
+                            ),
+                            items: expenseCategoryPresets
+                                .map((value) => DropdownMenuItem(
+                                      value: value,
+                                      child: Text(value),
+                                    ))
+                                .toList(),
+                            onChanged: (value) => setDialogState(() {
+                              if (value == null) return;
+                              category = value;
+                              if (entry == null) {
+                                expenseLayer = suggestedExpenseLayer(value) ??
+                                    expenseLayer;
+                              }
+                            }),
+                            validator: (value) => value == null
+                                ? 'Choose an expense category.'
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: name,
+                            decoration:
+                                inputDecoration('Optional name or label'),
+                            textCapitalization: TextCapitalization.words,
+                            validator: (value) => category == 'Other'
+                                ? validateRequired(value,
+                                    label: 'Name or description')
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: amount,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: inputDecoration('Monthly amount')
+                                .copyWith(prefixText: '₱ '),
+                            validator: validatePositiveAmount,
+                          ),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<ExpenseLayer>(
+                            value: expenseLayer,
+                            decoration: inputDecoration('Expense type'),
+                            items: ExpenseLayer.values
+                                .map((layer) => DropdownMenuItem(
+                                      value: layer,
+                                      child: Text(layer.label),
+                                    ))
+                                .toList(),
+                            onChanged: (value) =>
+                                setDialogState(() => expenseLayer = value),
+                            validator: (value) => value == null
+                                ? 'Choose a financial layer.'
+                                : null,
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: scheduled,
+                            onChanged: (value) => setDialogState(
+                                () => scheduled = value ?? false),
+                            title: const Text('Scheduled bill'),
+                          ),
+                          if (scheduled) ...[
+                            const SizedBox(height: 8),
+                            _ScheduleEditor(
+                              title: 'Bill schedule',
+                              icon: Icons.receipt_long_rounded,
+                              anchorType: scheduleAnchorType,
+                              lastLabel: 'Last paid',
+                              nextLabel: 'Next due',
+                              anchorDate: scheduleAnchorDate,
+                              repeatFrequency: repeatFrequency,
+                              missingDateMessage: 'Choose a known bill date.',
+                              onAnchorTypeChanged: (value) => setDialogState(
+                                  () => scheduleAnchorType = value),
+                              onPickDate: () async {
+                                final now = AppClock.now();
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: scheduleAnchorDate ?? now,
+                                  firstDate: DateTime(now.year - 5),
+                                  lastDate: DateTime(now.year + 5),
+                                );
+                                if (picked == null) return;
+                                setDialogState(() {
+                                  scheduleAnchorDate = picked;
+                                  dueDay = picked.day;
+                                });
+                              },
+                              onRepeatChanged: (value) =>
+                                  setDialogState(() => repeatFrequency = value),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                  items: expenseCategoryPresets
-                      .map((value) => DropdownMenuItem(
-                            value: value,
-                            child: Text(value),
-                          ))
-                      .toList(),
-                  onChanged: (value) => setDialogState(() {
-                    if (value == null) return;
-                    category = value;
-                    if (entry == null) {
-                      expenseLayer =
-                          suggestedExpenseLayer(value) ?? expenseLayer;
-                    }
-                  }),
-                  validator: (value) =>
-                      value == null ? 'Choose an expense category.' : null,
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        if (!(formKey.currentState?.validate() ?? false))
+                          return;
+                        final parsed = _baselineAmount(amount.text);
+                        final inferredDueDay =
+                            scheduleAnchorDate?.day ?? dueDay;
+                        Navigator.pop(context, {
+                          'name': name.text.trim(),
+                          'category': category,
+                          'amount': parsed,
+                          'essential': expenseLayer == ExpenseLayer.basicNeeds,
+                          'expenseType': expenseLayer?.name,
+                          'scheduled': scheduled,
+                          'dueDay': scheduled ? inferredDueDay : null,
+                          'scheduleAnchorType':
+                              scheduled ? scheduleAnchorType : null,
+                          'scheduleAnchorDate': scheduled
+                              ? scheduleAnchorDate?.toIso8601String()
+                              : null,
+                          'repeatFrequency': scheduled ? repeatFrequency : null,
+                        });
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: name,
-                  decoration: inputDecoration('Optional name or label'),
-                  textCapitalization: TextCapitalization.words,
-                  validator: (value) => category == 'Other'
-                      ? validateRequired(value, label: 'Name or description')
-                      : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: amount,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: inputDecoration('Monthly amount')
-                      .copyWith(prefixText: '₱ '),
-                  validator: validatePositiveAmount,
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<ExpenseLayer>(
-                  value: expenseLayer,
-                  decoration: inputDecoration('Expense type'),
-                  items: ExpenseLayer.values
-                      .map((layer) => DropdownMenuItem(
-                            value: layer,
-                            child: Text(layer.label),
-                          ))
-                      .toList(),
-                  onChanged: (value) =>
-                      setDialogState(() => expenseLayer = value),
-                  validator: (value) =>
-                      value == null ? 'Choose a financial layer.' : null,
-                ),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: scheduled,
-                  onChanged: (value) =>
-                      setDialogState(() => scheduled = value ?? false),
-                  title: const Text('Scheduled bill'),
-                ),
-                if (scheduled) ...[
-                  const SizedBox(height: 8),
-                  _ScheduleEditor(
-                    title: 'Bill schedule',
-                    icon: Icons.receipt_long_rounded,
-                    anchorType: scheduleAnchorType,
-                    lastLabel: 'Last paid',
-                    nextLabel: 'Next due',
-                    anchorDate: scheduleAnchorDate,
-                    repeatFrequency: repeatFrequency,
-                    missingDateMessage: 'Choose a known bill date.',
-                    onAnchorTypeChanged: (value) =>
-                        setDialogState(() => scheduleAnchorType = value),
-                    onPickDate: () async {
-                      final now = AppClock.now();
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: scheduleAnchorDate ?? now,
-                        firstDate: DateTime(now.year - 5),
-                        lastDate: DateTime(now.year + 5),
-                      );
-                      if (picked == null) return;
-                      setDialogState(() {
-                        scheduleAnchorDate = picked;
-                        dueDay = picked.day;
-                      });
-                    },
-                    onRepeatChanged: (value) =>
-                        setDialogState(() => repeatFrequency = value),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              final parsed = _baselineAmount(amount.text);
-              final inferredDueDay = scheduleAnchorDate?.day ?? dueDay;
-              Navigator.pop(context, {
-                'name': name.text.trim(),
-                'category': category,
-                'amount': parsed,
-                'essential': expenseLayer == ExpenseLayer.basicNeeds,
-                'expenseType': expenseLayer?.name,
-                'scheduled': scheduled,
-                'dueDay': scheduled ? inferredDueDay : null,
-                'scheduleAnchorType': scheduled ? scheduleAnchorType : null,
-                'scheduleAnchorDate':
-                    scheduled ? scheduleAnchorDate?.toIso8601String() : null,
-                'repeatFrequency': scheduled ? repeatFrequency : null,
-              });
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+              )),
     ),
-  ).whenComplete(() {
-    name.dispose();
-    amount.dispose();
-  });
+  );
 }
 
 ExpenseLayer? _expenseLayerForType(String layer) {
@@ -19975,134 +19998,141 @@ class _EssentialExpensesActionPanelState
     );
     return showDialog<double>(
       context: context,
-      builder: (dialogContext) {
-        void syncController(double value) {
-          final text = value.toStringAsFixed(value % 1 == 0 ? 0 : 1);
-          controller.value = TextEditingValue(
-            text: text,
-            selection: TextSelection.collapsed(offset: text.length),
-          );
-        }
+      builder: (_) => _DisposeOnUnmount(
+        // Disposed once the dialog is unmounted, after its exit animation.
+        onDispose: () {
+          controller.dispose();
+        },
+        child: Builder(builder: (dialogContext) {
+          void syncController(double value) {
+            final text = value.toStringAsFixed(value % 1 == 0 ? 0 : 1);
+            controller.value = TextEditingValue(
+              text: text,
+              selection: TextSelection.collapsed(offset: text.length),
+            );
+          }
 
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            backgroundColor: _surface,
-            title: const Text(
-              'Adjust allocation',
-              style: TextStyle(color: _title, fontWeight: FontWeight.w900),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Percentage to transfer',
-                        style: TextStyle(
-                          color: _title,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
+          return StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              backgroundColor: _surface,
+              title: const Text(
+                'Adjust allocation',
+                style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Percentage to transfer',
+                          style: TextStyle(
+                            color: _title,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: widget.color.withValues(alpha: .12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${percentage.toStringAsFixed(percentage % 1 == 0 ? 0 : 1)}%',
-                        style: TextStyle(
-                          color: widget.color,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: widget.color.withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${percentage.toStringAsFixed(percentage % 1 == 0 ? 0 : 1)}%',
+                          style: TextStyle(
+                            color: widget.color,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Slider(
-                  value: percentage,
-                  min: 0,
-                  max: 100,
-                  divisions: 100,
-                  label: '${percentage.round()}%',
-                  activeColor: widget.color,
-                  onChanged: (value) {
-                    setDialogState(() {
-                      percentage = value;
-                      syncController(value);
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: controller,
-                  autofocus: true,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                      RegExp(r'^\d{0,3}(\.\d{0,1})?$'),
-                    ),
-                  ],
-                  decoration: inputDecoration('50').copyWith(suffixText: '%'),
-                  onChanged: (text) {
-                    final value =
-                        double.tryParse(text.replaceAll(',', '').trim());
-                    if (value == null) return;
-                    setDialogState(() {
-                      percentage = value.clamp(0, 100).toDouble();
-                    });
-                  },
-                  onEditingComplete: () {
-                    final value =
-                        double.tryParse(controller.text.replaceAll(',', '')) ??
-                            percentage;
-                    setDialogState(() {
-                      percentage = value.clamp(0, 100).toDouble();
-                      syncController(percentage);
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Drag the slider or type a percentage from 0 to 100.',
-                  style: TextStyle(
-                    color: _body,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    height: 1.3,
+                    ],
                   ),
+                  const SizedBox(height: 10),
+                  Slider(
+                    value: percentage,
+                    min: 0,
+                    max: 100,
+                    divisions: 100,
+                    label: '${percentage.round()}%',
+                    activeColor: widget.color,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        percentage = value;
+                        syncController(value);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d{0,3}(\.\d{0,1})?$'),
+                      ),
+                    ],
+                    decoration: inputDecoration('50').copyWith(suffixText: '%'),
+                    onChanged: (text) {
+                      final value =
+                          double.tryParse(text.replaceAll(',', '').trim());
+                      if (value == null) return;
+                      setDialogState(() {
+                        percentage = value.clamp(0, 100).toDouble();
+                      });
+                    },
+                    onEditingComplete: () {
+                      final value = double.tryParse(
+                              controller.text.replaceAll(',', '')) ??
+                          percentage;
+                      setDialogState(() {
+                        percentage = value.clamp(0, 100).toDouble();
+                        syncController(percentage);
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Drag the slider or type a percentage from 0 to 100.',
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final typed =
+                        double.tryParse(controller.text.replaceAll(',', ''));
+                    final value =
+                        (typed ?? percentage).clamp(0, 100).toDouble();
+                    Navigator.of(dialogContext).pop(value);
+                  },
+                  child: const Text('Use percentage'),
                 ),
               ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final typed =
-                      double.tryParse(controller.text.replaceAll(',', ''));
-                  final value = (typed ?? percentage).clamp(0, 100).toDouble();
-                  Navigator.of(dialogContext).pop(value);
-                },
-                child: const Text('Use percentage'),
-              ),
-            ],
-          ),
-        );
-      },
-    ).whenComplete(controller.dispose);
+          );
+        }),
+      ),
+    );
   }
 
   void _showIncomeBreakdown(
@@ -21515,38 +21545,44 @@ class _EmergencyFundIncomeActionPanelState
     final controller = TextEditingController();
     final amount = await showDialog<double>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: _surface,
-        title: const Text('Use Emergency Fund',
-            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: inputDecoration('Amount used').copyWith(
-              prefixText: '₱ ',
-              helperText:
-                  'Available: ${money(state.displayedEmergencyFundBalance)}'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              final value =
-                  double.tryParse(controller.text.replaceAll(',', '')) ?? 0;
-              Navigator.of(dialogContext).pop(
-                  value > 0 && value <= state.displayedEmergencyFundBalance
-                      ? value
-                      : null);
-            },
-            child: const Text('Record withdrawal'),
-          ),
-        ],
+      builder: (_) => _DisposeOnUnmount(
+        onDispose: controller.dispose,
+        child: Builder(
+            builder: (dialogContext) => AlertDialog(
+                  backgroundColor: _surface,
+                  title: const Text('Use Emergency Fund',
+                      style: TextStyle(
+                          color: _title, fontWeight: FontWeight.w900)),
+                  content: TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    decoration: inputDecoration('Amount used').copyWith(
+                        prefixText: '₱ ',
+                        helperText:
+                            'Available: ${money(state.displayedEmergencyFundBalance)}'),
+                  ),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                      onPressed: () {
+                        final value = double.tryParse(
+                                controller.text.replaceAll(',', '')) ??
+                            0;
+                        Navigator.of(dialogContext).pop(value > 0 &&
+                                value <= state.displayedEmergencyFundBalance
+                            ? value
+                            : null);
+                      },
+                      child: const Text('Record withdrawal'),
+                    ),
+                  ],
+                )),
       ),
     );
-    controller.dispose();
     if (amount == null) return;
     await state.useD1BucketFunds('emergency', amount);
     if (mounted) setState(() {});
@@ -23038,66 +23074,77 @@ Future<double?> _showMoneyTargetDialog({
       TextEditingController(text: initialAmount.toStringAsFixed(0));
   return showDialog<double>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) {
-        final amount =
-            double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
-        final valid = amount >= 100 && amount <= 1000000;
-        return AlertDialog(
-          backgroundColor: _surface,
-          title: Text(title,
-              style:
-                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: const TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}$')),
-                ],
-                decoration: inputDecoration('0').copyWith(prefixText: '₱ '),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                valid
-                    ? 'Shellby will use ${money(amount)} for this action.'
-                    : 'Use an amount from ₱100 to ₱1,000,000.',
-                style: TextStyle(
-                  color: valid ? color : _red,
-                  fontSize: 11,
-                  height: 1.3,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed:
-                  valid ? () => Navigator.of(dialogContext).pop(amount) : null,
-              child: const Text('Save'),
-            ),
-          ],
-        );
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        controller.dispose();
       },
+      child: Builder(
+          builder: (dialogContext) => StatefulBuilder(
+                builder: (dialogContext, setDialogState) {
+                  final amount = double.tryParse(
+                          controller.text.replaceAll(',', '').trim()) ??
+                      0;
+                  final valid = amount >= 100 && amount <= 1000000;
+                  return AlertDialog(
+                    backgroundColor: _surface,
+                    title: Text(title,
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w900)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label,
+                            style: const TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d{0,7}$')),
+                          ],
+                          decoration:
+                              inputDecoration('0').copyWith(prefixText: '₱ '),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          valid
+                              ? 'Shellby will use ${money(amount)} for this action.'
+                              : 'Use an amount from ₱100 to ₱1,000,000.',
+                          style: TextStyle(
+                            color: valid ? color : _red,
+                            fontSize: 11,
+                            height: 1.3,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: valid
+                            ? () => Navigator.of(dialogContext).pop(amount)
+                            : null,
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  );
+                },
+              )),
     ),
-  ).whenComplete(controller.dispose);
+  );
 }
 
 Future<double?> _showMonthsTargetDialog({
@@ -23112,66 +23159,79 @@ Future<double?> _showMonthsTargetDialog({
       TextEditingController(text: initialMonths.toStringAsFixed(0));
   return showDialog<double>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) {
-        final months =
-            double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
-        final valid =
-            months >= 1 && months <= 12 && months == months.roundToDouble();
-        return AlertDialog(
-          backgroundColor: _surface,
-          title: Text(title,
-              style:
-                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(fieldLabel,
-                  style: const TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: false),
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: inputDecoration('3').copyWith(suffixText: 'months'),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                valid
-                    ? validDescription ??
-                        'Shellby will target ${months.toStringAsFixed(0)} months of essential expenses.'
-                    : 'Use a whole number from 1 to 12 months.',
-                style: TextStyle(
-                  color: valid ? color : _red,
-                  fontSize: 11,
-                  height: 1.3,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed:
-                  valid ? () => Navigator.of(dialogContext).pop(months) : null,
-              child: const Text('Save'),
-            ),
-          ],
-        );
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        controller.dispose();
       },
+      child: Builder(
+          builder: (dialogContext) => StatefulBuilder(
+                builder: (dialogContext, setDialogState) {
+                  final months = double.tryParse(
+                          controller.text.replaceAll(',', '').trim()) ??
+                      0;
+                  final valid = months >= 1 &&
+                      months <= 12 &&
+                      months == months.roundToDouble();
+                  return AlertDialog(
+                    backgroundColor: _surface,
+                    title: Text(title,
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w900)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(fieldLabel,
+                            style: const TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          decoration: inputDecoration('3')
+                              .copyWith(suffixText: 'months'),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          valid
+                              ? validDescription ??
+                                  'Shellby will target ${months.toStringAsFixed(0)} months of essential expenses.'
+                              : 'Use a whole number from 1 to 12 months.',
+                          style: TextStyle(
+                            color: valid ? color : _red,
+                            fontSize: 11,
+                            height: 1.3,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: valid
+                            ? () => Navigator.of(dialogContext).pop(months)
+                            : null,
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  );
+                },
+              )),
     ),
-  ).whenComplete(controller.dispose);
+  );
 }
 
 typedef _HobbyDraft = ({String name, double target, int months});
@@ -23191,110 +23251,121 @@ Future<_HobbyDraft?> _showHobbyDialog({
       TextEditingController(text: initialMonths.toString());
   return showDialog<_HobbyDraft>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) {
-        final name = nameController.text.trim();
-        final target =
-            double.tryParse(amountController.text.replaceAll(',', '').trim()) ??
-                0;
-        final months =
-            int.tryParse(monthsController.text.replaceAll(',', '').trim()) ?? 0;
-        final valid = name.isNotEmpty &&
-            target >= 100 &&
-            target <= 1000000 &&
-            months >= 1 &&
-            months <= 24;
-        return AlertDialog(
-          backgroundColor: _surface,
-          title: Text(title,
-              style:
-                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Hobby or activity name',
-                  style: TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: nameController,
-                autofocus: true,
-                maxLength: 30,
-                decoration: inputDecoration('e.g. Photography')
-                    .copyWith(counterText: ''),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 10),
-              const Text('Target amount',
-                  style: TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: amountController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}$')),
-                ],
-                decoration: inputDecoration('0').copyWith(prefixText: '₱ '),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 10),
-              const Text('Target window',
-                  style: TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: monthsController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: false),
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: inputDecoration('6').copyWith(suffixText: 'months'),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                valid
-                    ? 'Save ${money(target)} for "$name" within $months months.'
-                    : 'Enter a name, an amount from ₱100 to ₱1,000,000, and 1-24 months.',
-                style: TextStyle(
-                  color: valid ? color : _red,
-                  fontSize: 11,
-                  height: 1.3,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: valid
-                  ? () => Navigator.of(dialogContext).pop(
-                        (name: name, target: target, months: months),
-                      )
-                  : null,
-              child: const Text('Save'),
-            ),
-          ],
-        );
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        nameController.dispose();
+        amountController.dispose();
+        monthsController.dispose();
       },
+      child: Builder(
+          builder: (dialogContext) => StatefulBuilder(
+                builder: (dialogContext, setDialogState) {
+                  final name = nameController.text.trim();
+                  final target = double.tryParse(
+                          amountController.text.replaceAll(',', '').trim()) ??
+                      0;
+                  final months = int.tryParse(
+                          monthsController.text.replaceAll(',', '').trim()) ??
+                      0;
+                  final valid = name.isNotEmpty &&
+                      target >= 100 &&
+                      target <= 1000000 &&
+                      months >= 1 &&
+                      months <= 24;
+                  return AlertDialog(
+                    backgroundColor: _surface,
+                    title: Text(title,
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w900)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Hobby or activity name',
+                            style: TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: nameController,
+                          autofocus: true,
+                          maxLength: 30,
+                          decoration: inputDecoration('e.g. Photography')
+                              .copyWith(counterText: ''),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text('Target amount',
+                            style: TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: amountController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d{0,7}$')),
+                          ],
+                          decoration:
+                              inputDecoration('0').copyWith(prefixText: '₱ '),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 10),
+                        const Text('Target window',
+                            style: TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: monthsController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          decoration: inputDecoration('6')
+                              .copyWith(suffixText: 'months'),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          valid
+                              ? 'Save ${money(target)} for "$name" within $months months.'
+                              : 'Enter a name, an amount from ₱100 to ₱1,000,000, and 1-24 months.',
+                          style: TextStyle(
+                            color: valid ? color : _red,
+                            fontSize: 11,
+                            height: 1.3,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: valid
+                            ? () => Navigator.of(dialogContext).pop(
+                                  (name: name, target: target, months: months),
+                                )
+                            : null,
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  );
+                },
+              )),
     ),
-  ).whenComplete(() {
-    nameController.dispose();
-    amountController.dispose();
-    monthsController.dispose();
-  });
+  );
 }
 
 Future<double?> _showPercentTargetDialog({
@@ -23308,64 +23379,76 @@ Future<double?> _showPercentTargetDialog({
       TextEditingController(text: initialPercent.toStringAsFixed(0));
   return showDialog<double>(
     context: context,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (dialogContext, setDialogState) {
-        final percent =
-            double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0;
-        final valid = percent >= 1 && percent <= 100;
-        return AlertDialog(
-          backgroundColor: _surface,
-          title: Text(title,
-              style:
-                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: const TextStyle(
-                      color: _title,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: false),
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: inputDecoration('8').copyWith(suffixText: '%'),
-                onChanged: (_) => setDialogState(() {}),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                valid
-                    ? 'Shellby will use ${percent.toStringAsFixed(0)}% for this action.'
-                    : 'Use a percentage from 1% to 100%.',
-                style: TextStyle(
-                  color: valid ? color : _red,
-                  fontSize: 11,
-                  height: 1.3,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed:
-                  valid ? () => Navigator.of(dialogContext).pop(percent) : null,
-              child: const Text('Save'),
-            ),
-          ],
-        );
+    builder: (_) => _DisposeOnUnmount(
+      // Disposed once the dialog is unmounted, after its exit animation.
+      onDispose: () {
+        controller.dispose();
       },
+      child: Builder(
+          builder: (dialogContext) => StatefulBuilder(
+                builder: (dialogContext, setDialogState) {
+                  final percent = double.tryParse(
+                          controller.text.replaceAll(',', '').trim()) ??
+                      0;
+                  final valid = percent >= 1 && percent <= 100;
+                  return AlertDialog(
+                    backgroundColor: _surface,
+                    title: Text(title,
+                        style: const TextStyle(
+                            color: _title, fontWeight: FontWeight.w900)),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label,
+                            style: const TextStyle(
+                                color: _title,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900)),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: controller,
+                          autofocus: true,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: false),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly
+                          ],
+                          decoration:
+                              inputDecoration('8').copyWith(suffixText: '%'),
+                          onChanged: (_) => setDialogState(() {}),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          valid
+                              ? 'Shellby will use ${percent.toStringAsFixed(0)}% for this action.'
+                              : 'Use a percentage from 1% to 100%.',
+                          style: TextStyle(
+                            color: valid ? color : _red,
+                            fontSize: 11,
+                            height: 1.3,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: valid
+                            ? () => Navigator.of(dialogContext).pop(percent)
+                            : null,
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  );
+                },
+              )),
     ),
-  ).whenComplete(controller.dispose);
+  );
 }
 
 double _configuredActionAmount(
