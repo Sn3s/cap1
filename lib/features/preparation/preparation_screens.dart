@@ -496,6 +496,9 @@ int _paydaysPerMonth(AppState state) {
 
 String _recommendedFrequency(AppState state) {
   final rhythm = state.incomeRhythm.toLowerCase();
+  if (rhythm.contains('twice') || rhythm.contains('semi')) {
+    return 'Twice a month';
+  }
   if (rhythm.contains('week') && rhythm.contains('2')) return 'Every 2 weeks';
   if (rhythm.contains('bi') || rhythm.contains('fortnight')) {
     return 'Every 2 weeks';
@@ -747,8 +750,9 @@ List<String> _recommendationsForActionField(
       best,
       if (best != 'Monthly') 'Monthly',
       if (best != 'Weekly') 'Weekly',
+      if (best != 'Twice a month') 'Twice a month',
       if (best != 'Every 2 weeks') 'Every 2 weeks',
-    ].take(3).toList();
+    ].take(4).toList();
   }
   if (field.key == 'days') {
     final predictable = state.billsRhythm.toLowerCase().contains('predict');
@@ -997,7 +1001,9 @@ String _recommendationFormulaForActionField(
 }
 
 List<String> _recommendationsForField(ActionField field) {
-  if (field.key == 'freq') return const ['Weekly', 'Every 2 weeks', 'Monthly'];
+  if (field.key == 'freq') {
+    return const ['Weekly', 'Twice a month', 'Every 2 weeks', 'Monthly'];
+  }
   final match = RegExp(r'\d+').firstMatch(field.hint);
   final example = int.tryParse(match?.group(0) ?? '') ?? 1;
   if (field.isPercent) {

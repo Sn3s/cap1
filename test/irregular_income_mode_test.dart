@@ -333,6 +333,8 @@ void main() {
 
     expect(state.needsBalance, 7000);
     expect(state.bufferBalance, 3000);
+    expect(state.cashOnHandBalance, 15000);
+    expect(state.manualTransactions, hasLength(2));
     expect(state.processedIncomeTransactionIds, contains('manual-freelance-1'));
     expect(state.processedIncomeTransactionIds,
         isNot(contains('manual-owned-transfer')));

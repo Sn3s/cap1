@@ -7571,13 +7571,19 @@ class AppState extends ChangeNotifier {
     String? transactionId,
   }) async {
     if (amount == 0) return;
+    final id = transactionId?.trim().isNotEmpty == true
+        ? transactionId!.trim()
+        : 'manual-${occurredAt.microsecondsSinceEpoch}';
+    // A retried manual submission must not change either the account balance
+    // or the Two-Jar allocation a second time.
+    if (manualTransactions
+        .any((transaction) => transaction.transactionId == id)) {
+      return;
+    }
     final balance = accountBalance(account);
     if (amount < 0 && amount.abs() > balance) {
       throw StateError('Not enough money in $account for this transaction.');
     }
-    final id = transactionId?.trim().isNotEmpty == true
-        ? transactionId!.trim()
-        : 'manual-${occurredAt.microsecondsSinceEpoch}';
     manualTransactions.add(
       FakeMayaTransaction(
         id: id,
