@@ -246,6 +246,27 @@ class AppState extends ChangeNotifier {
           fakeMayaLink!.summary.creditBillTransaction!,
       ];
 
+  /// Spending counted against the [budgetCategory] cap for [month]'s
+  /// calendar month (defaults to now): labeled money-out transactions from
+  /// FakeMaya and from manual/cash entries whose category matches.
+  double categoryBudgetSpent(String budgetCategory, {DateTime? month}) {
+    final target = canonicalExpenseCategory(budgetCategory);
+    final period = month ?? AppClock.now();
+    return [
+      ...manualTransactions,
+      ...?fakeMayaLink?.summary.transactions,
+    ].where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return transaction.amount < 0 &&
+          transaction.isLabeled &&
+          !transaction.excludedFromInsights &&
+          date != null &&
+          date.year == period.year &&
+          date.month == period.month &&
+          canonicalExpenseCategory(transaction.category ?? '') == target;
+    }).fold(0.0, (total, transaction) => total + transaction.amount.abs());
+  }
+
   double accountBalance(String account) {
     final summary = fakeMayaLink?.summary;
     if (fakeMayaSyncedAccounts.contains(account) && summary != null) {
@@ -1222,7 +1243,7 @@ class AppState extends ChangeNotifier {
     categorySpendingBudgets
       ..clear()
       ..addAll({
-        'Food & drink': 4500,
+        'Groceries / Food': 4500,
         'Entertainment': 1500,
       });
 
@@ -1934,7 +1955,7 @@ class AppState extends ChangeNotifier {
     categorySpendingBudgets
       ..clear()
       ..addAll({
-        'Food & drink': 6500,
+        'Groceries / Food': 6500,
         'Transport': 5500,
       });
     onboardingBaselines
@@ -2444,9 +2465,9 @@ class AppState extends ChangeNotifier {
     categorySpendingBudgets
       ..clear()
       ..addAll({
-        'Health': 2500,
+        'Healthcare': 2500,
         'Insurance': 2400,
-        'Bills & utilities': 2200,
+        'Utilities': 2200,
       });
 
     onboardingIncomeLedger
@@ -2953,8 +2974,8 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll({
         'Investment': 5800,
-        'Debt payment': 3500,
-        'Food & drink': 7000,
+        'Debt Payment': 3500,
+        'Groceries / Food': 7000,
         'Transport': 2500,
       });
 
@@ -3399,7 +3420,7 @@ class AppState extends ChangeNotifier {
       ..addAll({
         'Entertainment': 7000,
         'Travel': 9000,
-        'Food & drink': 8500,
+        'Groceries / Food': 8500,
         'Memberships': 2500,
       });
 
@@ -4064,11 +4085,10 @@ class AppState extends ChangeNotifier {
     if (savedCategoryBudgets != null) {
       categorySpendingBudgets
         ..clear()
-        ..addEntries(savedCategoryBudgets.entries
-            .map(
-              (entry) => MapEntry(entry.key, _doubleFrom(entry.value, 0)),
-            )
-            .where((entry) => entry.value > 0));
+        ..addAll(canonicalCategoryBudgets({
+          for (final entry in savedCategoryBudgets.entries)
+            entry.key.toString(): _doubleFrom(entry.value, 0),
+        }));
     }
     final savedBaselines = _mapFrom(
       data['onboardingBaselines'] ?? planSetup['onboardingBaselines'],
@@ -4919,7 +4939,7 @@ class AppState extends ChangeNotifier {
   ) async {
     categorySpendingBudgets
       ..clear()
-      ..addEntries(budgets.entries.where((entry) => entry.value > 0));
+      ..addAll(canonicalCategoryBudgets(budgets));
     await saveProfile();
     notifyListeners();
   }

@@ -776,7 +776,7 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
     final selectedCategorySpend = sortedCategories
         .where((entry) =>
             selectedCategoryNames.isEmpty ||
-            selectedCategoryNames.contains(entry.key))
+            selectedCategoryNames.contains(canonicalExpenseCategory(entry.key)))
         .toList();
     final currentActions = state.selectedActionIds
         .where(_availableCashGoalActionIds.contains)

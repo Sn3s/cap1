@@ -4965,7 +4965,7 @@ String _availableCashAnalysisContext(
       : Map.fromEntries(currentMonth.spendingCategories.entries.where(
           (entry) =>
               selectedCategories.isEmpty ||
-              selectedCategories.contains(entry.key),
+              selectedCategories.contains(canonicalExpenseCategory(entry.key)),
         ));
   final actionScores = currentMonth?.actionScores ?? const <_CashActionScore>[];
   final walletAvailable = math.max(
@@ -5497,16 +5497,17 @@ _CashActionScore? _cashActionScoreFor({
         .toSet();
     final selectedCategories = <String>{
       ...state.categorySpendingBudgets.keys,
-      ...configuredCategories,
+      ...configuredCategories.map(canonicalExpenseCategory),
     };
+    String budgetCategoryOf(FakeMayaTransaction transaction) =>
+        canonicalExpenseCategory(transaction.category ?? 'Unclassified');
     final categoryTotals = _transactionTotals(
       transactions.where((transaction) {
         if (transaction.amount >= 0) return false;
-        final category = transaction.category ?? 'Unclassified';
         return selectedCategories.isEmpty ||
-            selectedCategories.contains(category);
+            selectedCategories.contains(budgetCategoryOf(transaction));
       }),
-      (transaction) => transaction.category ?? 'Unclassified',
+      budgetCategoryOf,
     );
     final totalCap = state.categorySpendingBudgets.isNotEmpty
         ? state.categorySpendingBudgets.entries
@@ -5521,9 +5522,8 @@ _CashActionScore? _cashActionScoreFor({
           if (transaction.amount >= 0 || transaction.excludedFromInsights) {
             return false;
           }
-          final category = transaction.category ?? 'Unclassified';
           return selectedCategories.isEmpty ||
-              selectedCategories.contains(category);
+              selectedCategories.contains(budgetCategoryOf(transaction));
         },
       ).fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
       final weeklyCap = totalCap / weekCount;
@@ -8627,7 +8627,7 @@ void _applyActionStageCategoryBudgets(
       .where((item) => item.isNotEmpty);
   if (amount == null || amount <= 0 || categories.isEmpty) return;
   for (final category in categories) {
-    state.categorySpendingBudgets[category] = amount;
+    state.categorySpendingBudgets[canonicalExpenseCategory(category)] = amount;
   }
 }
 
@@ -21841,57 +21841,45 @@ class _CategoryBudgetActionPanel extends StatefulWidget {
 
 class _CategoryBudgetActionPanelState
     extends State<_CategoryBudgetActionPanel> {
-  static const _budgetCategories = [
-    'Food & drink',
-    'Transport',
-    'Bills & utilities',
-    'Housing',
-    'Groceries',
-    'Shopping',
-    'Education',
-    'Health',
-    'Insurance',
-    'Debt payment',
-    'Entertainment',
-    'Travel',
-    'Personal goal',
-    'Gifts & giving',
-    'Subscriptions',
-    'Dining',
+  // Same names as the transaction category picker, so a cap always matches
+  // the label on the spending it limits. "Other expense" allows a custom one.
+  static final _budgetCategories = [
+    for (final category in expenseCategoryPresets)
+      if (category != 'Other' && category != 'Investment Contribution')
+        category,
     'Other expense',
   ];
 
-  double _spentFor(AppState state, String budgetCategory) {
-    final now = AppClock.now();
-    return (state.fakeMayaLink?.summary.transactions ??
-            const <FakeMayaTransaction>[])
-        .where((transaction) {
-      final category = transaction.category?.trim() ?? '';
-      final normalized = category.toLowerCase();
-      final budgetNormalized = budgetCategory.toLowerCase();
-      final matches = normalized == budgetNormalized ||
-          (normalized.contains('food') && budgetNormalized.contains('food')) ||
-          (normalized.contains('shop') && budgetNormalized.contains('shop'));
-      return transaction.amount < 0 &&
-          transaction.isLabeled &&
-          !transaction.excludedFromInsights &&
-          transaction.createdAt?.year == now.year &&
-          transaction.createdAt?.month == now.month &&
-          matches;
-    }).fold(0.0, (total, transaction) => total + transaction.amount.abs());
-  }
+  double _spentFor(AppState state, String budgetCategory) =>
+      state.categoryBudgetSpent(budgetCategory);
 
   Future<void> _configure(AppState state) async {
     final categories = <String>{..._budgetCategories};
-    for (final transaction in state.fakeMayaLink?.summary.transactions ??
-        const <FakeMayaTransaction>[]) {
-      final category = transaction.category?.trim() ?? '';
-      if (category.isNotEmpty && category.toLowerCase() != 'transfer') {
+    for (final transaction in [
+      ...state.manualTransactions,
+      ...?state.fakeMayaLink?.summary.transactions,
+    ]) {
+      if (transaction.amount >= 0) continue;
+      final category = canonicalExpenseCategory(transaction.category ?? '');
+      if (category.isNotEmpty &&
+          category != 'Transfer' &&
+          category != 'Other' &&
+          category != 'Investment Contribution') {
         categories.add(category);
       }
     }
     categories.addAll(state.categorySpendingBudgets.keys);
-    final ordered = categories.toList()..sort();
+    // Presets first in picker order, then custom categories alphabetically,
+    // with "Other expense" last.
+    final custom = categories
+        .where((category) => !_budgetCategories.contains(category))
+        .toList()
+      ..sort();
+    final ordered = [
+      ..._budgetCategories.where((category) => category != 'Other expense'),
+      ...custom,
+      'Other expense',
+    ];
     final rows = state.categorySpendingBudgets.entries
         .map((entry) => (
               category: entry.key,
@@ -21906,7 +21894,7 @@ class _CategoryBudgetActionPanelState
     if (rows.isEmpty) {
       rows.addAll([
         (
-          category: 'Food & drink',
+          category: 'Groceries / Food',
           customController: TextEditingController(),
           controller: TextEditingController(text: '5000'),
         ),
@@ -21990,7 +21978,7 @@ class _CategoryBudgetActionPanelState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Add one monthly cap per spending category.',
+                        'Add one monthly cap per spending category. Spending from FakeMaya and cash you log both count.',
                         style: TextStyle(
                           color: _body,
                           fontSize: 12,

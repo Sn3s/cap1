@@ -72,6 +72,45 @@ const transactionExpenseCategoryPresets = [
   ...expenseCategoryPresets,
   'Transfer',
 ];
+
+/// Older category names (from the previous budget ledger list and seeded
+/// data) mapped onto [transactionExpenseCategoryPresets], so budgets and
+/// transaction labels compare against one list.
+const _legacyExpenseCategoryAliases = <String, String>{
+  'food & drink': 'Groceries / Food',
+  'food': 'Groceries / Food',
+  'groceries': 'Groceries / Food',
+  'dining': 'Groceries / Food',
+  'bills & utilities': 'Utilities',
+  'housing': 'Rent / Housing',
+  'rent': 'Rent / Housing',
+  'health': 'Healthcare',
+  'debt payment': 'Debt Payment',
+};
+
+/// The preset spelling of [category] (case-insensitive), with legacy names
+/// mapped to their preset. Custom categories are returned trimmed.
+String canonicalExpenseCategory(String category) {
+  final trimmed = category.trim();
+  final lower = trimmed.toLowerCase();
+  for (final preset in transactionExpenseCategoryPresets) {
+    if (preset.toLowerCase() == lower) return preset;
+  }
+  return _legacyExpenseCategoryAliases[lower] ?? trimmed;
+}
+
+/// [budgets] keyed by canonical category. Caps that collapse onto the same
+/// category (e.g. old "Food & drink" and "Groceries") are added together.
+Map<String, double> canonicalCategoryBudgets(Map<String, double> budgets) {
+  final result = <String, double>{};
+  for (final entry in budgets.entries) {
+    if (entry.value <= 0) continue;
+    final category = canonicalExpenseCategory(entry.key);
+    if (category.isEmpty) continue;
+    result[category] = (result[category] ?? 0) + entry.value;
+  }
+  return result;
+}
 const incomeCategoryPresets = [
   'Salary',
   'Business income',
