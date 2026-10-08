@@ -730,7 +730,7 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
   }
 
   String _availableCashActionStageInput(AppState state) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final allTransactions = state.allTransactions
         .where((transaction) => transaction.createdAt != null)
         .toList()
@@ -855,7 +855,7 @@ Analyze the integration data and recommend what to change first.
   }
 
   String _emergencyFundActionStageInput(AppState state) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final allTransactions = state.allTransactions
         .where((transaction) => transaction.createdAt != null)
         .toList()

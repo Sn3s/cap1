@@ -69,7 +69,7 @@ class _WalletPageState extends State<WalletPage> {
       return bTime.compareTo(aTime);
     });
 
-    final now = DateTime.now();
+    final now = AppClock.now();
     final monthTransactions = allTransactions.where((t) {
       final occurredAt = t.occurredAt;
       return occurredAt != null &&
@@ -366,7 +366,7 @@ String _dateLabel(DateTime? date) {
     'Nov',
     'Dec',
   ];
-  final year = date.year == DateTime.now().year ? '' : ', ${date.year}';
+  final year = date.year == AppClock.now().year ? '' : ', ${date.year}';
   return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} '
       '${date.day}$year';
 }

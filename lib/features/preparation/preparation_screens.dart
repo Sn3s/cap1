@@ -635,7 +635,7 @@ double _monthlySurplusBase(AppState state) {
 double _goalMonthlyNeedBase(AppState state) {
   final goals = state.onboardingBaselines['goals'] ?? '';
   var monthlyNeed = 0.0;
-  final now = DateTime.now();
+  final now = AppClock.now();
   for (final line in goals.split('\n')) {
     final parts = line.split('|').map((part) => part.trim()).toList();
     if (parts.length < 3) continue;
@@ -5382,7 +5382,7 @@ class _IncomeLedgerCard extends StatelessWidget {
   final VoidCallback onRemove;
 
   Future<void> _pickAnchorDate(BuildContext context) async {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final initial = income.scheduleAnchorDate ?? now;
     final picked = await showDatePicker(
       context: context,
@@ -5726,7 +5726,7 @@ class _ExpenseLedgerCard extends StatelessWidget {
   final VoidCallback onRemove;
 
   Future<void> _pickAnchorDate(BuildContext context) async {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final initial = expense.scheduleAnchorDate ?? now;
     final picked = await showDatePicker(
       context: context,
@@ -5939,7 +5939,7 @@ class _FakeMayaOnboardingScreenState extends State<FakeMayaOnboardingScreen> {
         'emergency_balance': summary.savings.toStringAsFixed(2),
         'investment_balance': summary.timeDeposit.toStringAsFixed(2),
         'goals':
-            '${summary.goalName} | ${summary.goalBalance.toStringAsFixed(2)} | ${summary.goalTarget.toStringAsFixed(2)} | ${DateTime.now().add(const Duration(days: 180)).toIso8601String().split('T').first} | 1',
+            '${summary.goalName} | ${summary.goalBalance.toStringAsFixed(2)} | ${summary.goalTarget.toStringAsFixed(2)} | ${AppClock.now().add(const Duration(days: 180)).toIso8601String().split('T').first} | 1',
       });
       state.fakeMayaBucketCreationAllowed = true;
       await state.reconcileFakeMayaBuckets();

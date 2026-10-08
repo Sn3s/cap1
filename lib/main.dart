@@ -21,12 +21,14 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'firebase_options.dart';
 
+part 'core/app_clock.dart';
 part 'core/app_scope.dart';
 part 'core/app_state.dart';
 part 'features/auth/auth_screens.dart';
 part 'features/home/add_goal_screen.dart';
 part 'features/home/home_screens.dart';
 part 'features/home/recent_activity_page.dart';
+part 'features/home/time_travel_screen.dart';
 part 'features/home/wallet_screen.dart';
 part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
@@ -41,6 +43,7 @@ part 'shared/widgets/shared_widgets.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _runtimeConfig = await _RuntimeConfig.load();
+  await AppClock.load();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await ShellbyNotificationService.instance.initialize();
   runApp(const ShellbyApp());
@@ -266,6 +269,17 @@ class _ShellbyAppState extends State<ShellbyApp> {
               ),
             ),
           ),
+        ),
+        builder: (context, child) => ValueListenableBuilder<Duration>(
+          valueListenable: AppClock.offset,
+          builder: (context, offset, _) => offset == Duration.zero
+              ? child!
+              : Banner(
+                  message: 'TIME TRAVEL',
+                  location: BannerLocation.topStart,
+                  color: _purple,
+                  child: child!,
+                ),
         ),
         home: const AuthGate(),
       ),
