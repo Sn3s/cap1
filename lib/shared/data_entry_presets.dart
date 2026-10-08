@@ -172,6 +172,13 @@ String inferExpenseCategory(String? category, String name) {
   return 'Other';
 }
 
+String expenseDisplayName({String? name, String? category}) {
+  final customName = name?.trim() ?? '';
+  if (customName.isNotEmpty) return customName;
+  final storedCategory = category?.trim() ?? '';
+  return storedCategory.isNotEmpty ? storedCategory : 'Expense';
+}
+
 ExpenseLayer? suggestedExpenseLayer(String category) => switch (category) {
       'Rent / Housing' ||
       'Utilities' ||

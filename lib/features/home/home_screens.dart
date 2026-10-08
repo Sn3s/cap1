@@ -2060,6 +2060,7 @@ class _PyramidBaselineEntry {
     required this.layer,
     required this.detail,
     required this.icon,
+    this.category,
     this.editable = true,
     this.hasDueDate = false,
   });
@@ -2072,6 +2073,7 @@ class _PyramidBaselineEntry {
   final String layer;
   final String detail;
   final IconData icon;
+  final String? category;
   final bool editable;
   final bool hasDueDate;
 }
@@ -2296,6 +2298,11 @@ _PyramidBaselineEntry _expenseBaselineEntry(
   int index,
   Map<String, dynamic> data,
 ) {
+  final storedCategory = data['category']?.toString();
+  final canonicalCategory = inferExpenseCategory(
+    storedCategory,
+    data['name']?.toString() ?? '',
+  );
   final layer = expenseLayerFromValue(data['expenseType'] ?? data['layer']);
   final scheduled = data['scheduled'] == true;
   final dueDay = (data['dueDay'] as num?)?.toInt();
@@ -2317,12 +2324,16 @@ _PyramidBaselineEntry _expenseBaselineEntry(
   return _PyramidBaselineEntry(
     index: index,
     data: data,
-    name: _baselineText(data['name'], 'Expense'),
+    name: expenseDisplayName(
+      name: data['name']?.toString(),
+      category: storedCategory,
+    ),
     amount: _baselineAmount(data['amount']),
     isIncome: false,
     layer: _pyramidLayerForExpenseLayer(layer),
     detail: detail,
     icon: layer == null ? Icons.receipt_long_rounded : _expenseLayerIcon(layer),
+    category: canonicalCategory,
     hasDueDate: _baselineExpenseHasDueDate(data),
   );
 }
@@ -26252,12 +26263,12 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       if (withDueDate.isNotEmpty) ...[
         const _TransactionCategoryOption.header('With due date'),
         for (final entry in withDueDate)
-          _TransactionCategoryOption.category(entry.name),
+          _TransactionCategoryOption.category(entry.category ?? entry.name),
       ],
       if (withoutDueDate.isNotEmpty) ...[
         const _TransactionCategoryOption.header('Without due date'),
         for (final entry in withoutDueDate)
-          _TransactionCategoryOption.category(entry.name),
+          _TransactionCategoryOption.category(entry.category ?? entry.name),
       ],
     ];
   }
@@ -26268,7 +26279,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final seen = <String>{};
     return [
       for (final entry in entries)
-        if (seen.add(entry.name.trim().toLowerCase())) entry,
+        if (seen.add((entry.category ?? entry.name).trim().toLowerCase()))
+          entry,
     ];
   }
 
