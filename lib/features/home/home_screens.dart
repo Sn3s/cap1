@@ -1808,7 +1808,7 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
                     onAnchorTypeChanged: (value) =>
                         setDialogState(() => scheduleAnchorType = value),
                     onPickDate: () async {
-                      final now = DateTime.now();
+                      final now = AppClock.now();
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: scheduleAnchorDate ?? now,
@@ -1983,7 +1983,7 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
                     onAnchorTypeChanged: (value) =>
                         setDialogState(() => scheduleAnchorType = value),
                     onPickDate: () async {
-                      final now = DateTime.now();
+                      final now = AppClock.now();
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: scheduleAnchorDate ?? now,
@@ -2585,7 +2585,7 @@ String _pyramidLayerForTransaction(FakeMayaTransaction transaction) {
 
 // Compute this-month layer-1 (essentials) spending from FakeMaya if available.
 double _cashFlowMonthlySpent(AppState state) {
-  final now = DateTime.now();
+  final now = AppClock.now();
   return (state.fakeMayaLink?.summary.transactions ?? [])
       .where((t) =>
           t.amount < 0 &&
@@ -2650,7 +2650,7 @@ double cashFlowGoalPercent(AppState state) {
 int maintainAvailableCashFeasibility(AppState state) {
   final total = _maintainAvailableCashExpectedSpend(state);
   if (total <= 0) return 0;
-  final now = DateTime.now();
+  final now = AppClock.now();
   final spent = (state.fakeMayaLink?.summary.transactions ??
           const <FakeMayaTransaction>[])
       .where((transaction) =>
@@ -2741,7 +2741,7 @@ double lifestyleGoalPercent(AppState state) {
 /// they moved from. Used as the neutral "+/-X%" stat on the Accumulating
 /// Wealth insights header — intentionally not colored green/red there.
 double investmentChangeLast14Days(AppState state) {
-  final cutoff = DateTime.now().subtract(const Duration(days: 14));
+  final cutoff = AppClock.now().subtract(const Duration(days: 14));
   var delta = 0.0;
   for (final entry in state.d1Ledger) {
     final type = entry['type']?.toString();
@@ -4326,7 +4326,7 @@ class _InsightsAiSummaryCard extends StatelessWidget {
   }
 }
 
-DateTime _insightsCutoff() => DateTime.now().subtract(const Duration(days: 14));
+DateTime _insightsCutoff() => AppClock.now().subtract(const Duration(days: 14));
 
 List<FakeMayaTransaction> _last14DaysTransactions(AppState state) {
   final cutoff = _insightsCutoff();
@@ -5804,7 +5804,7 @@ _CashActionScore? _cashActionScoreFor({
         .whereType<DateTime>()
         .toList()
       ..sort();
-    final now = DateTime.now();
+    final now = AppClock.now();
     final pattern = <double>[];
     final labels = <String>[];
     final elapsedDays = <int>[];
@@ -9548,7 +9548,7 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
     final months = _investmentInsightMonths(state);
     final activeMonth =
         months.where((month) => month == selectedMonth).firstOrNull ??
-            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+            (months.isEmpty ? _monthStart(AppClock.now()) : months.last);
     final totalValue = state.investmentPortfolioValue;
     final investmentScores =
         _investmentActionScores(state: state, monthStart: activeMonth);
@@ -9651,7 +9651,7 @@ List<DateTime> _investmentInsightMonths(AppState state) {
         .map(_monthStart),
   }.toList()
     ..sort();
-  if (months.isEmpty) return [_monthStart(DateTime.now())];
+  if (months.isEmpty) return [_monthStart(AppClock.now())];
   return months;
 }
 
@@ -10577,7 +10577,7 @@ List<DateTime> _lifestyleInsightMonths(AppState state) {
         .map(_monthStart),
   }.toList()
     ..sort();
-  if (months.isEmpty) return [_monthStart(DateTime.now())];
+  if (months.isEmpty) return [_monthStart(AppClock.now())];
   return months;
 }
 
@@ -10605,7 +10605,7 @@ class _FinancialFreedomExplorer extends StatelessWidget {
     final months = _lifestyleInsightMonths(state);
     final activeMonth =
         months.where((month) => month == selectedMonth).firstOrNull ??
-            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+            (months.isEmpty ? _monthStart(AppClock.now()) : months.last);
     final lifestyleScores =
         _lifestyleActionScores(state: state, monthStart: activeMonth);
     return Column(
@@ -10873,7 +10873,7 @@ class _HobbyProgressLine extends StatelessWidget {
     final saved = state.lifestyleHobbyBalance(id);
     final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
     final complete = saved >= target && target > 0;
-    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final started = state.lifestyleHobbyStartedAt(id) ?? AppClock.now();
     final due = DateTime(started.year, started.month + months, started.day);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -11283,7 +11283,7 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
       ..sort();
     final activeMonth =
         months.where((month) => month == selectedMonth).firstOrNull ??
-            (months.isEmpty ? _monthStart(DateTime.now()) : months.last);
+            (months.isEmpty ? _monthStart(AppClock.now()) : months.last);
     final weeks =
         allWeeks.where((week) => _sameMonth(week.start, activeMonth)).toList();
     final monthWeekRecords = service.weekRecords
@@ -12630,7 +12630,7 @@ class _SpendComparisonSection extends StatelessWidget {
               TransactionRow(
                 transaction.title,
                 transaction.category ?? 'Unclassified',
-                _shortDate(transaction.createdAt ?? DateTime.now()),
+                _shortDate(transaction.createdAt ?? AppClock.now()),
                 money(transaction.amount.abs()),
                 transaction.amount > 0 &&
                     !transaction.isInternalFakeMayaTransfer,
@@ -15362,7 +15362,7 @@ _InsightLayer _buildInsightLayer(
 
 bool _isInInsightPeriod(DateTime? timestamp, int period) {
   if (timestamp == null) return true;
-  final now = DateTime.now();
+  final now = AppClock.now();
   final local = timestamp.toLocal();
   return switch (period) {
     0 => local.isAfter(now.subtract(const Duration(days: 7))),
@@ -16154,13 +16154,13 @@ class _WeeklyProgressCard extends StatelessWidget {
 }
 
 String _daysRemainingThisWeekLabel() {
-  final daysLeft = 7 - DateTime.now().weekday;
+  final daysLeft = 7 - AppClock.now().weekday;
   if (daysLeft <= 0) return 'Last day of the week';
   return '$daysLeft day${daysLeft == 1 ? '' : 's'} remaining this week';
 }
 
 double _currentWeekLifestyleSpend(AppState state) {
-  final now = DateTime.now();
+  final now = AppClock.now();
   final start = DateTime(now.year, now.month, now.day)
       .subtract(Duration(days: now.weekday - 1));
   final lifestylePattern = RegExp(
@@ -16259,7 +16259,7 @@ List<_MonthlyContributionPoint> _lifestyleMonthlyContributions(
   AppState state, {
   int months = 6,
 }) {
-  final now = DateTime.now();
+  final now = AppClock.now();
   final buckets = <DateTime, double>{};
   for (var i = months - 1; i >= 0; i--) {
     final monthDate = DateTime(now.year, now.month - i, 1);
@@ -17604,7 +17604,7 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
       totalTarget += target;
       if (saved < target) {
         final started =
-            state.lifestyleHobbyStartedAt(hobbyId) ?? DateTime.now();
+            state.lifestyleHobbyStartedAt(hobbyId) ?? AppClock.now();
         final due = DateTime(started.year, started.month + months, started.day);
         if (nextDue == null || due.isBefore(nextDue)) nextDue = due;
       }
@@ -17914,7 +17914,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final now = DateTime.now();
+    final now = AppClock.now();
     final spent = (state.fakeMayaLink?.summary.transactions ??
             const <FakeMayaTransaction>[])
         .where((transaction) =>
@@ -18198,7 +18198,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
   final state = AppScope.of(context);
   final openBills = state.openBasicNeedsBillObligations;
   final scheduledBills = _scheduledBasicNeedsBills(state);
-  final currentMonth = _monthStart(DateTime.now());
+  final currentMonth = _monthStart(AppClock.now());
   final candidates = <({
     String label,
     String? obligationId,
@@ -18246,7 +18246,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
   final essentialController = TextEditingController();
   final walletController = TextEditingController();
   final savingsController = TextEditingController();
-  DateTime dueDate = initial.dueDate ?? DateTime.now();
+  DateTime dueDate = initial.dueDate ?? AppClock.now();
 
   void applyRecommendation() {
     final amount = _moneyFieldValue(amountController);
@@ -18363,7 +18363,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                             nameController.text = next.name;
                             amountController.text =
                                 next.amount.toStringAsFixed(0);
-                            dueDate = next.dueDate ?? DateTime.now();
+                            dueDate = next.dueDate ?? AppClock.now();
                             applyRecommendation();
                           });
                         },
@@ -21185,7 +21185,7 @@ class _LifestyleHobbyTile extends StatelessWidget {
     final remaining = math.max(0.0, target - saved);
     final progress = target <= 0 ? 0.0 : (saved / target).clamp(0.0, 1.0);
     final complete = saved >= target && target > 0;
-    final started = state.lifestyleHobbyStartedAt(id) ?? DateTime.now();
+    final started = state.lifestyleHobbyStartedAt(id) ?? AppClock.now();
     final due = DateTime(started.year, started.month + months, started.day);
     return Container(
       padding: const EdgeInsets.all(12),
@@ -21729,9 +21729,9 @@ class _EmergencyReplenishmentActionPanelState
     final deadline = incomeAfterWithdrawal
         ? incomeDate.add(Duration(days: configuredDays))
         : null;
-    final hoursLeft = deadline?.difference(DateTime.now()).inHours ?? 0;
+    final hoursLeft = deadline?.difference(AppClock.now()).inHours ?? 0;
     final daysLeft = math.max(0, (hoursLeft / 24).ceil());
-    final overdue = deadline != null && deadline.isBefore(DateTime.now());
+    final overdue = deadline != null && deadline.isBefore(AppClock.now());
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -21861,7 +21861,7 @@ class _CategoryBudgetActionPanelState
   ];
 
   double _spentFor(AppState state, String budgetCategory) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     return (state.fakeMayaLink?.summary.transactions ??
             const <FakeMayaTransaction>[])
         .where((transaction) {
@@ -23280,7 +23280,7 @@ Map<String, String> _configuredActionValues(AppState state, String actionId) {
 }
 
 DateTime _currentMonthStart() {
-  final now = DateTime.now();
+  final now = AppClock.now();
   return DateTime(now.year, now.month);
 }
 
@@ -23561,6 +23561,12 @@ class ProfilePage extends StatelessWidget {
         () => _push(context, const LinkedAccountsScreen()),
       ),
       const _SettingData('Appearance', Icons.palette_outlined, 'Light'),
+      _SettingData(
+        'Time travel',
+        Icons.history_toggle_off_rounded,
+        AppClock.isOverridden ? _shortDate(AppClock.now()) : 'Real time',
+        () => _push(context, const TimeTravelScreen()),
+      ),
     ];
     return Scaffold(
       backgroundColor: _bg,
@@ -25225,7 +25231,7 @@ class _ActivityCalendarSummary extends StatefulWidget {
 
 class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
   bool _expanded = false;
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime _month = DateTime(AppClock.now().year, AppClock.now().month);
 
   @override
   Widget build(BuildContext context) {
@@ -25336,9 +25342,9 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
                       return _CalendarDayTile(
                         day: day,
                         selected: day.inCurrentMonth &&
-                            day.day == DateTime.now().day &&
-                            _month.year == DateTime.now().year &&
-                            _month.month == DateTime.now().month,
+                            day.day == AppClock.now().day &&
+                            _month.year == AppClock.now().year &&
+                            _month.month == AppClock.now().month,
                       );
                     },
                   ),
@@ -25423,7 +25429,7 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
     List<_TxData> transactions,
     DateTime month,
   ) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final hasDatedTransactions =
         transactions.any((transaction) => transaction.occurredAt != null);
     return transactions.where((transaction) {
@@ -25845,7 +25851,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   String _account = 'Cash on Hand';
   String? _category;
   String? _source;
-  DateTime _occurredAt = DateTime.now();
+  DateTime _occurredAt = AppClock.now();
   bool _saving = false;
 
   @override
@@ -26017,7 +26023,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
       context: context,
       initialDate: _occurredAt,
       firstDate: DateTime(2000),
-      lastDate: DateTime.now(),
+      lastDate: AppClock.now(),
     );
     if (value == null || !mounted) return;
     setState(() {

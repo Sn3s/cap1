@@ -7,6 +7,17 @@
 part of '../main.dart';
 
 class AppState extends ChangeNotifier {
+  AppState() {
+    // Re-derive date-dependent state when the developer clock is shifted.
+    AppClock.offset.addListener(notifyListeners);
+  }
+
+  @override
+  void dispose() {
+    AppClock.offset.removeListener(notifyListeners);
+    super.dispose();
+  }
+
   String? uid;
   String name = '';
   String email = '';
@@ -373,7 +384,7 @@ class AppState extends ChangeNotifier {
   double get monthlySurplus =>
       income - expenses - variableExpenses - debtPayments;
   String get currentAnxietyWeekKey {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final monday = now.subtract(Duration(days: now.weekday - DateTime.monday));
     return '${monday.year}-${monday.month.toString().padLeft(2, '0')}-'
         '${monday.day.toString().padLeft(2, '0')}';
@@ -1191,7 +1202,7 @@ class AppState extends ChangeNotifier {
         'Entertainment': 1500,
       });
 
-    final today = DateTime.now();
+    final today = AppClock.now();
     final weekStart = today
         .subtract(Duration(days: today.weekday - DateTime.monday))
         .subtract(const Duration(days: 77));
@@ -1761,7 +1772,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _applyCashFlowMockProfile(User? user) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'cashflow@gmail.com'
         : (user?.email ?? email).trim().toLowerCase();
@@ -2146,7 +2157,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _applyMainMockProfile(User? user) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     _applyCashFlowMockProfile(user);
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'main@gmail.com'
@@ -2345,7 +2356,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _applyEmergencyFundMockProfile(User? user) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'emergency@gmail.com'
         : (user?.email ?? email).trim().toLowerCase();
@@ -2853,7 +2864,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _applyAccumulatingWealthMockProfile(User? user) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'accumulating@gmail.com'
         : (user?.email ?? email).trim().toLowerCase();
@@ -3295,7 +3306,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _applyFinancialFreedomMockProfile(User? user) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'freedom@gmail.com'
         : (user?.email ?? email).trim().toLowerCase();
@@ -4915,7 +4926,7 @@ class AppState extends ChangeNotifier {
       await _withdrawFakeMayaSavingsToWallet(savings);
     }
 
-    final now = DateTime.now();
+    final now = AppClock.now();
     final id = obligationId?.trim().isNotEmpty == true
         ? obligationId!.trim()
         : 'bill_${now.microsecondsSinceEpoch}';
@@ -4986,7 +4997,7 @@ class AppState extends ChangeNotifier {
   }
 
   List<FakeMayaTransaction> get pendingEssentialIncomeTransactions {
-    final now = DateTime.now();
+    final now = AppClock.now();
     return allTransactions
         .where((transaction) =>
             _isEssentialIncomeCandidate(transaction) &&
@@ -5102,7 +5113,7 @@ class AppState extends ChangeNotifier {
     essentialExpensesBalance += amount;
     d1Ledger.insert(0, {
       'type': 'essential_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'incomeAmount': incomeAmount,
@@ -5155,7 +5166,7 @@ class AppState extends ChangeNotifier {
     for (final income in pending) {
       d1Ledger.insert(0, {
         'type': 'essential_deposit',
-        'date': DateTime.now().toIso8601String(),
+        'date': AppClock.now().toIso8601String(),
         'sourceDate': income.createdAt!.toIso8601String(),
         'sourceTransactionId': income.transactionId,
         'incomeAmount': income.amount,
@@ -5183,11 +5194,11 @@ class AppState extends ChangeNotifier {
         'paidAmount': paid,
         'status':
             paid >= _doubleFrom(bill['expectedAmount'], 0) ? 'paid' : 'partial',
-        'updatedAt': DateTime.now().toIso8601String(),
+        'updatedAt': AppClock.now().toIso8601String(),
       };
       d1Ledger.insert(0, {
         'type': 'bill_shortfall_reserved',
-        'date': DateTime.now().toIso8601String(),
+        'date': AppClock.now().toIso8601String(),
         'billId': bill['id'],
         'billName': bill['name'],
         'amount': applied,
@@ -5224,7 +5235,7 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'incomeAmount': incomeAmount,
@@ -5247,7 +5258,7 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'emergency_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
       'destination': 'Emergency Fund',
       'label': 'Monthly Emergency Fund deposit',
@@ -5262,7 +5273,7 @@ class AppState extends ChangeNotifier {
           entry['sourceTransactionId'] == transactionId);
 
   String get currentInvestmentSweepMonthKey {
-    final now = DateTime.now();
+    final now = AppClock.now();
     return '${now.year}-${now.month.toString().padLeft(2, '0')}';
   }
 
@@ -5271,7 +5282,7 @@ class AppState extends ChangeNotifier {
       entry['monthKey'] == currentInvestmentSweepMonthKey);
 
   double get investedThisMonth {
-    final now = DateTime.now();
+    final now = AppClock.now();
     var total = 0.0;
     for (final entry in d1Ledger) {
       final type = entry['type'];
@@ -5299,7 +5310,7 @@ class AppState extends ChangeNotifier {
       investmentEarningsThisMonth - investmentLossesThisMonth;
 
   double _investmentPerformanceTotalForCurrentMonth(String type) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     var total = 0.0;
     for (final entry in d1Ledger) {
       if (entry['type'] != type) continue;
@@ -5331,7 +5342,7 @@ class AppState extends ChangeNotifier {
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'incomeAmount': incomeAmount,
@@ -5354,7 +5365,7 @@ class AppState extends ChangeNotifier {
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_monthly',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
       'destination': 'Investment Portfolio',
       'label': 'Monthly investment contribution',
@@ -5373,7 +5384,7 @@ class AppState extends ChangeNotifier {
     investmentBalance += isGain ? appliedAmount : -appliedAmount;
     d1Ledger.insert(0, {
       'type': isGain ? 'investment_gain' : 'investment_loss',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': appliedAmount,
       'balance': investmentBalance,
       'destination': 'Investment Portfolio',
@@ -5404,7 +5415,7 @@ class AppState extends ChangeNotifier {
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_windfall',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'sourceDate': cashInDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'cashInAmount': cashInAmount,
@@ -5431,7 +5442,7 @@ class AppState extends ChangeNotifier {
       {required int intervalDays}) async {
     d1Ledger.insert(0, {
       'type': 'investment_review',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'intervalDays': intervalDays,
       'balance': investmentBalance,
       'destination': 'Investment Portfolio',
@@ -5493,7 +5504,7 @@ class AppState extends ChangeNotifier {
   double get investmentAnnualizedReturnPercent {
     final baseline = investmentReturnBaselineDate;
     if (baseline == null || investmentReturnBaselineValue <= 0) return 0;
-    final elapsedDays = math.max(1, DateTime.now().difference(baseline).inDays);
+    final elapsedDays = math.max(1, AppClock.now().difference(baseline).inDays);
     return investmentReturnPercentSinceBaseline * (365 / elapsedDays);
   }
 
@@ -5508,7 +5519,7 @@ class AppState extends ChangeNotifier {
     // A brand-new tracking window sits at 0% return by definition - flagging
     // that as "behind target" on day one would be misleading, so give it a
     // week before judging performance.
-    if (DateTime.now().difference(baseline).inDays < 7) return true;
+    if (AppClock.now().difference(baseline).inDays < 7) return true;
     return investmentAnnualizedReturnPercent >=
         investmentTargetAnnualReturnPercent;
   }
@@ -5521,7 +5532,7 @@ class AppState extends ChangeNotifier {
   Future<void> startInvestmentReturnTracking() async {
     d1Ledger.insert(0, {
       'type': 'investment_return_baseline',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'balance': investmentBalance,
       'destination': 'Investment Portfolio',
       'label': 'Started annual return tracking',
@@ -5541,7 +5552,7 @@ class AppState extends ChangeNotifier {
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_sweep',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'monthKey': currentInvestmentSweepMonthKey,
       'unspentAmount': unspent,
       'percentage': percentage,
@@ -5562,7 +5573,7 @@ class AppState extends ChangeNotifier {
       _currentMonthLedgerTotal({'lifestyle_activity_deposit'});
 
   double _currentMonthLedgerTotal(Set<String> types) {
-    final now = DateTime.now();
+    final now = AppClock.now();
     return d1Ledger.where((entry) {
       if (!types.contains(entry['type'])) return false;
       final date = DateTime.tryParse(entry['date']?.toString() ?? '');
@@ -5602,7 +5613,7 @@ class AppState extends ChangeNotifier {
     lifestyleFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_subscription_reserve',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
       'destination': 'Lifestyle Fund',
       'label': 'Subscriptions and memberships reserve',
@@ -5626,7 +5637,7 @@ class AppState extends ChangeNotifier {
     lifestyleFundBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_payday',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
       'amount': amount,
@@ -5648,7 +5659,7 @@ class AppState extends ChangeNotifier {
     lifestyleActivityBalance += amount;
     d1Ledger.insert(0, {
       'type': 'lifestyle_activity_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
       'destination': 'Hobby or Activity Fund',
       'label': 'Hobby or activity contribution',
@@ -5697,11 +5708,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     lifestyleHobbies.add({
-      'id': 'hobby_${DateTime.now().microsecondsSinceEpoch}',
+      'id': 'hobby_${AppClock.now().microsecondsSinceEpoch}',
       'name': trimmed,
       'target': target,
       'months': months.clamp(1, 24),
-      'createdAt': DateTime.now().toIso8601String(),
+      'createdAt': AppClock.now().toIso8601String(),
     });
     await saveProfile();
     notifyListeners();
@@ -5750,7 +5761,7 @@ class AppState extends ChangeNotifier {
     );
     d1Ledger.insert(0, {
       'type': 'lifestyle_hobby_deposit',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'hobbyId': hobbyId,
       'amount': amount,
       'destination': 'Personal Lifestyle Fund',
@@ -5781,7 +5792,7 @@ class AppState extends ChangeNotifier {
       'target': legacyTarget ?? 10000.0,
       'months': legacyMonths.clamp(1, 24),
       'createdAt':
-          (lifestyleActivityStartedAt ?? DateTime.now()).toIso8601String(),
+          (lifestyleActivityStartedAt ?? AppClock.now()).toIso8601String(),
     });
   }
 
@@ -5799,7 +5810,7 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance += emergency;
     d1Ledger.insert(0, {
       'type': 'income',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
       'essential': essential,
       'bills': bills,
@@ -5818,11 +5829,11 @@ class AppState extends ChangeNotifier {
         billsObligationsBalance = math.max(0, billsObligationsBalance - amount);
       case 'emergency':
         emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
-        _lastEfWithdrawalStr = DateTime.now().toIso8601String();
+        _lastEfWithdrawalStr = AppClock.now().toIso8601String();
     }
     d1Ledger.insert(0, {
       'type': 'use_$bucket',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
     });
     await saveProfile();
@@ -5839,7 +5850,7 @@ class AppState extends ChangeNotifier {
     _lastEfWithdrawalStr = null;
     d1Ledger.insert(0, {
       'type': 'ef_replenish',
-      'date': DateTime.now().toIso8601String(),
+      'date': AppClock.now().toIso8601String(),
       'amount': amount,
     });
     await saveProfile();
@@ -6013,7 +6024,7 @@ class AppState extends ChangeNotifier {
         personalGoals: goals,
         goalBalance: totalGoalBalance,
         selectedGoalId: personalGoalId,
-        updatedAt: DateTime.now(),
+        updatedAt: AppClock.now(),
       ),
     );
   }
@@ -6029,7 +6040,7 @@ class AppState extends ChangeNotifier {
     if (amount > summary.wallet) {
       throw const FakeMayaException('Not enough in FakeMaya wallet.');
     }
-    final now = DateTime.now();
+    final now = AppClock.now();
     final targetGoal = account == FakeMayaGoalAccount.personalGoal
         ? summary.personalGoalById(personalGoalId) ??
             FakeMayaPersonalGoal.defaultForId(
@@ -6104,7 +6115,7 @@ class AppState extends ChangeNotifier {
     if (amount > goal.balance) {
       throw const FakeMayaException('Not enough in this FakeMaya goal.');
     }
-    final now = DateTime.now();
+    final now = AppClock.now();
     final nextGoals = summary.personalGoalsWithWithdrawal(goal.id, amount);
     final transaction = FakeMayaTransaction(
       title: 'Withdrawn from goal',
@@ -6215,7 +6226,7 @@ class AppState extends ChangeNotifier {
         )) {
       return;
     }
-    final now = DateTime.now();
+    final now = AppClock.now();
     final date = occurredAt ?? now;
     switch (motivation.trim()) {
       case 'Cash Flow & Basic Needs':
@@ -6724,7 +6735,7 @@ class AppState extends ChangeNotifier {
     shieldLedger.insert(
       0,
       ShieldEvent(
-        timestamp: DateTime.now(),
+        timestamp: AppClock.now(),
         amount: amount,
         sentence: '+${money(amount)} deposited to Safety Shield',
       ),
@@ -6751,7 +6762,7 @@ class AppState extends ChangeNotifier {
     shieldLedger.insert(
       0,
       ShieldEvent(
-        timestamp: DateTime.now(),
+        timestamp: AppClock.now(),
         amount: amount,
         sentence: link != null
             ? '+${money(amount)} moved wallet → Safety Shield savings'
@@ -6773,7 +6784,7 @@ class AppState extends ChangeNotifier {
     safetyShieldAllocationPercent = 0.10;
     safetyShieldTargetMonths = 3;
 
-    final now = DateTime.now();
+    final now = AppClock.now();
     final lm = DateTime(now.year, now.month - 1);
     final cm = DateTime(now.year, now.month);
 
@@ -6946,7 +6957,7 @@ class AppState extends ChangeNotifier {
     jarLedger.insert(
       0,
       JarEvent(
-        timestamp: DateTime.now(),
+        timestamp: AppClock.now(),
         type: JarEventType.transfer,
         needsIn: transfer,
         needsOut: 0,
@@ -6965,7 +6976,7 @@ class AppState extends ChangeNotifier {
     needsTarget = 12000;
     needsPercent = 70;
 
-    final now = DateTime.now();
+    final now = AppClock.now();
     final lm = DateTime(now.year, now.month - 1); // last month
     final cm = DateTime(now.year, now.month); // current month
 
@@ -7104,7 +7115,7 @@ class AppState extends ChangeNotifier {
     jarLedger.insert(
       0,
       JarEvent(
-        timestamp: DateTime.now(),
+        timestamp: AppClock.now(),
         type: JarEventType.income,
         needsIn: toNeeds,
         needsOut: 0,
@@ -7249,7 +7260,7 @@ class AppState extends ChangeNotifier {
     jarLedger.insert(
       0,
       JarEvent(
-        timestamp: DateTime.now(),
+        timestamp: AppClock.now(),
         type: JarEventType.billPaid,
         needsIn: 0,
         needsOut: needsOut,
@@ -7606,7 +7617,7 @@ class AppState extends ChangeNotifier {
         subcategory: subcategory,
         tag: tag,
         note: note,
-        labeledAt: DateTime.now(),
+        labeledAt: AppClock.now(),
       ),
     );
     if (account == 'Cash on Hand') {
@@ -8003,7 +8014,7 @@ class JarEvent {
     final typeStr = data['type'] as String? ?? 'income';
     return JarEvent(
       timestamp: DateTime.tryParse(data['timestamp'] as String? ?? '') ??
-          DateTime.now(),
+          AppClock.now(),
       type: JarEventType.values.firstWhere(
         (t) => t.name == typeStr,
         orElse: () => JarEventType.income,
@@ -8146,7 +8157,7 @@ class ShieldEvent {
 
   factory ShieldEvent.fromMap(Map<String, dynamic> data) => ShieldEvent(
         timestamp: DateTime.tryParse(data['timestamp'] as String? ?? '') ??
-            DateTime.now(),
+            AppClock.now(),
         amount: _num(data['amount']),
         sentence: data['sentence'] as String? ?? '',
       );

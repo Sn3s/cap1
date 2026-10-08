@@ -48,7 +48,7 @@ class FakeMayaService {
       provider: _provider(user),
       accessToken: accessToken,
       refreshToken: auth['refresh_token'] as String? ?? '',
-      expiresAt: DateTime.now().add(
+      expiresAt: AppClock.now().add(
         Duration(seconds: auth['expires_in'] as int? ?? 3600),
       ),
       summary: summary,
@@ -104,7 +104,7 @@ class FakeMayaService {
       provider: _provider(user, fallback: link.provider),
       accessToken: accessToken,
       refreshToken: auth['refresh_token'] as String? ?? link.refreshToken,
-      expiresAt: DateTime.now().add(
+      expiresAt: AppClock.now().add(
         Duration(seconds: auth['expires_in'] as int? ?? 3600),
       ),
       summary: summary,
@@ -384,7 +384,7 @@ class FakeMayaService {
           'time_deposit': fresh.timeDeposit,
           'goal_balance': fresh.goalBalance,
           'app_state': fresh.toFakeMayaAppState(),
-          'updated_at': DateTime.now().toIso8601String(),
+          'updated_at': AppClock.now().toIso8601String(),
         },
       );
     } on FakeMayaException catch (error) {
@@ -423,13 +423,13 @@ class FakeMayaService {
       detail: 'From savings',
       age: 'Just now',
       amountText: '- ${_formatPeso(amount)}',
-      createdAt: DateTime.now(),
+      createdAt: AppClock.now(),
     );
     final nextSummary = summary.copyWith(
       savings: summary.savings - amount,
       wallet: summary.wallet + amount,
       transactions: [transaction, ...summary.transactions],
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
     await _request(
       'PATCH',
@@ -443,7 +443,7 @@ class FakeMayaService {
         'time_deposit': nextSummary.timeDeposit,
         'goal_balance': nextSummary.goalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': AppClock.now().toIso8601String(),
       },
     );
     return FakeMayaSession(
@@ -482,7 +482,7 @@ class FakeMayaService {
     final nextSummary = summary.copyWith(
       personalGoals: updatedGoals,
       goalBalance: totalGoalBalance,
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
     await _request(
       'PATCH',
@@ -496,7 +496,7 @@ class FakeMayaService {
         'time_deposit': nextSummary.timeDeposit,
         'goal_balance': nextSummary.goalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': AppClock.now().toIso8601String(),
       },
     );
     return FakeMayaSession(
@@ -536,7 +536,7 @@ class FakeMayaService {
       selectedGoalId: selectedGoalId,
       personalGoals: keptGoals,
       goalBalance: totalGoalBalance,
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
     await _request(
       'PATCH',
@@ -550,7 +550,7 @@ class FakeMayaService {
         'time_deposit': nextSummary.timeDeposit,
         'goal_balance': nextSummary.goalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': AppClock.now().toIso8601String(),
       },
     );
     return FakeMayaSession(
@@ -594,7 +594,7 @@ class FakeMayaService {
       detail: personalGoal.name,
       age: 'Just now',
       amountText: '- ${_formatPeso(amount)}',
-      createdAt: DateTime.now(),
+      createdAt: AppClock.now(),
     );
     final nextSummary = summary.copyWith(
       wallet: summary.wallet + amount,
@@ -608,7 +608,7 @@ class FakeMayaService {
       selectedGoalId: personalGoal.id,
       personalGoals: nextPersonalGoals,
       transactions: [transaction, ...summary.transactions],
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
     await _request(
       'PATCH',
@@ -622,7 +622,7 @@ class FakeMayaService {
         'time_deposit': nextSummary.timeDeposit,
         'goal_balance': nextSummary.goalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': AppClock.now().toIso8601String(),
       },
     );
     return FakeMayaSession(
@@ -676,7 +676,7 @@ class FakeMayaService {
       detail: transactionDetail,
       age: 'Just now',
       amountText: '+ ${_formatPeso(amount)}',
-      createdAt: DateTime.now(),
+      createdAt: AppClock.now(),
     );
     final nextPersonalGoals = account == FakeMayaGoalAccount.personalGoal
         ? summary.personalGoalsWithDeposit(
@@ -712,7 +712,7 @@ class FakeMayaService {
           : summary.selectedGoalId,
       personalGoals: nextPersonalGoals,
       transactions: [transaction, ...summary.transactions],
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
 
     await _request(
@@ -727,7 +727,7 @@ class FakeMayaService {
         'time_deposit': nextSummary.timeDeposit,
         'goal_balance': nextSummary.goalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': AppClock.now().toIso8601String(),
       },
     );
 
@@ -771,10 +771,10 @@ class FakeMayaService {
           detail: 'Welcome wallet funds',
           age: 'Just now',
           amountText: '+ ₱1,000.00',
-          createdAt: DateTime.now(),
+          createdAt: AppClock.now(),
         ),
       ],
-      updatedAt: DateTime.now(),
+      updatedAt: AppClock.now(),
     );
   }
 
@@ -1051,7 +1051,7 @@ class FakeMayaAccountSummary {
   DateTime? get nextCreditCycleBillDate {
     if (creditUsed <= 0) return null;
     final billingDay = (creditBillingDay ?? 15).clamp(1, 27).toInt();
-    final now = DateTime.now();
+    final now = AppClock.now();
     var cycleDate = DateTime(now.year, now.month, billingDay);
     final today = DateTime(now.year, now.month, now.day);
     if (cycleDate.isBefore(today)) {
@@ -1086,7 +1086,7 @@ class FakeMayaAccountSummary {
           : 'Next cycle bill $creditCycleBillDateLabel',
       age: cycleDate == null ? 'Pending' : 'Cycle ${_formatDate(cycleDate)}',
       amountText: '- ${_moneyText(creditUsed)}',
-      createdAt: updatedAt ?? DateTime.now(),
+      createdAt: updatedAt ?? AppClock.now(),
       category: 'Liability',
       source: 'FakeMaya Credit',
       account: 'Credit',
@@ -1512,7 +1512,7 @@ class FakeMayaAccountSummary {
       'Dec',
     ];
     final local = value.toLocal();
-    final year = local.year == DateTime.now().year ? '' : ', ${local.year}';
+    final year = local.year == AppClock.now().year ? '' : ', ${local.year}';
     return '${months[local.month - 1]} ${local.day}$year';
   }
 
@@ -2066,7 +2066,7 @@ class FakeMayaTransaction {
       tag: tag,
       note: note,
       excludedFromInsights: excludedFromInsights,
-      labeledAt: labeledAt ?? DateTime.now(),
+      labeledAt: labeledAt ?? AppClock.now(),
     );
   }
 
@@ -2167,7 +2167,7 @@ class FakeMayaTransaction {
     final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
     final minute = local.minute.toString().padLeft(2, '0');
     final period = local.hour < 12 ? 'AM' : 'PM';
-    final year = local.year == DateTime.now().year ? '' : ', ${local.year}';
+    final year = local.year == AppClock.now().year ? '' : ', ${local.year}';
     return '${months[local.month - 1]} ${local.day}$year, '
         '$hour:$minute $period';
   }
