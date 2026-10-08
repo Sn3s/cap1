@@ -39,6 +39,11 @@ void main() {
       );
     });
 
+    test('separates monthly expense categories from transfers', () {
+      expect(expenseCategoryPresets, isNot(contains('Transfer')));
+      expect(transactionExpenseCategoryPresets, contains('Transfer'));
+    });
+
     test('suggests a default layer without making it mandatory', () {
       expect(
         suggestedExpenseLayer('Rent / Housing'),
@@ -57,6 +62,57 @@ void main() {
         ExpenseLayer.nonEssentials,
       );
       expect(suggestedExpenseLayer('Other'), isNull);
+      expect(
+        expenseCategoriesForLayer(ExpenseLayer.basicNeeds),
+        containsAll(<String>['Education', 'Family Support']),
+      );
+    });
+
+    test('requires a selected category for a new expense', () {
+      expect(
+        isExpenseEntryComplete(
+          category: null,
+          name: '',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: false,
+          scheduleAnchorDate: null,
+        ),
+        isFalse,
+      );
+      expect(
+        isExpenseEntryComplete(
+          category: 'Utilities',
+          name: '',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: false,
+          scheduleAnchorDate: null,
+        ),
+        isTrue,
+      );
+      expect(
+        isExpenseEntryComplete(
+          category: 'Other',
+          name: '',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: false,
+          scheduleAnchorDate: null,
+        ),
+        isFalse,
+      );
+      expect(
+        isExpenseEntryComplete(
+          category: 'Other',
+          name: 'Custom expense',
+          amount: 1200,
+          layer: ExpenseLayer.basicNeeds,
+          scheduled: false,
+          scheduleAnchorDate: null,
+        ),
+        isTrue,
+      );
     });
   });
 
@@ -86,6 +142,27 @@ void main() {
       expect(validatePassword(''), isNotNull);
       expect(validatePassword('12345'), isNotNull);
       expect(validatePassword('123456'), isNull);
+    });
+
+    test('AppState rejects malformed credentials before Firebase is called',
+        () async {
+      for (final email in ['', 'abc', 'abc@']) {
+        await expectLater(
+          AppState().stageEmailAccount(email: email, password: '123456'),
+          throwsA(isA<Exception>()),
+        );
+      }
+      await expectLater(
+        AppState().stageEmailAccount(email: 'user@example.com', password: ''),
+        throwsA(isA<Exception>()),
+      );
+      await expectLater(
+        AppState().stageEmailAccount(
+          email: 'user@example.com',
+          password: '12345',
+        ),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 }

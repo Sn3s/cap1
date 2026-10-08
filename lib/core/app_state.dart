@@ -273,10 +273,16 @@ class AppState extends ChangeNotifier {
     final repeatFrequency = switch (normalizedRhythm) {
       'weekly' => 'Weekly',
       'twice a month' => 'Twice a month',
+      'every 2 weeks' => 'Every 2 weeks',
       _ => 'Monthly',
     };
     final predictableTiming = normalizedRhythm != 'irregular' &&
-        const {'weekly', 'twice a month', 'monthly'}.contains(normalizedRhythm);
+        const {
+          'weekly',
+          'twice a month',
+          'every 2 weeks',
+          'monthly',
+        }.contains(normalizedRhythm);
     if (normalizedType == 'fixed') {
       return IncomeSourceDefaults(
         stable: true,
@@ -528,16 +534,18 @@ class AppState extends ChangeNotifier {
     required String password,
   }) async {
     final normalizedEmail = email.trim();
-    if (normalizedEmail.isEmpty || !normalizedEmail.contains('@')) {
+    final emailError = validateEmail(normalizedEmail);
+    if (emailError != null) {
       throw FirebaseAuthException(
         code: 'invalid-email',
-        message: 'Enter a valid email address.',
+        message: emailError,
       );
     }
-    if (password.length < 6) {
+    final passwordError = validatePassword(password);
+    if (passwordError != null) {
       throw FirebaseAuthException(
         code: 'weak-password',
-        message: 'Password should be at least 6 characters.',
+        message: passwordError,
       );
     }
 

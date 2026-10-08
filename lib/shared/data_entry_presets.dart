@@ -65,8 +65,11 @@ const expenseCategoryPresets = [
   'Entertainment',
   'Travel',
   'Family Support',
-  'Transfer',
   'Other',
+];
+const transactionExpenseCategoryPresets = [
+  ...expenseCategoryPresets,
+  'Transfer',
 ];
 const incomeCategoryPresets = [
   'Salary',
@@ -187,3 +190,38 @@ ExpenseLayer? suggestedExpenseLayer(String category) => switch (category) {
         ExpenseLayer.nonEssentials,
       _ => null,
     };
+
+List<String> expenseCategoriesForLayer(ExpenseLayer layer) => switch (layer) {
+      ExpenseLayer.basicNeeds => const [
+          'Rent / Housing',
+          'Utilities',
+          'Groceries / Food',
+          'Transport',
+          'Education',
+          'Family Support',
+        ],
+      ExpenseLayer.emergencyInsurance => const ['Healthcare', 'Insurance'],
+      ExpenseLayer.debtInvestments => const [
+          'Debt Payment',
+          'Investment Contribution',
+        ],
+      ExpenseLayer.nonEssentials => const [
+          'Subscriptions',
+          'Entertainment',
+          'Travel',
+        ],
+    };
+
+bool isExpenseEntryComplete({
+  required String? category,
+  required String name,
+  required double amount,
+  required ExpenseLayer? layer,
+  required bool scheduled,
+  required DateTime? scheduleAnchorDate,
+}) =>
+    category != null &&
+    (category != 'Other' || name.trim().isNotEmpty) &&
+    amount > 0 &&
+    layer != null &&
+    (!scheduled || scheduleAnchorDate != null);

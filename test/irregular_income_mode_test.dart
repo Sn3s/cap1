@@ -82,6 +82,34 @@ void main() {
     expect(fixedTwiceMonthly.scheduled, isTrue);
     expect(fixedTwiceMonthly.repeatFrequency, 'Twice a month');
 
+    final fixedBiweekly =
+        _state(incomeType: 'Fixed', incomeRhythm: 'Every 2 weeks')
+            .suggestedIncomeSourceDefaults;
+    expect(fixedBiweekly.stable, isTrue);
+    expect(fixedBiweekly.scheduled, isTrue);
+    expect(fixedBiweekly.repeatFrequency, 'Every 2 weeks');
+    expect(
+      _state(incomeType: 'Fixed', incomeRhythm: 'Every 2 weeks')
+          .usesIrregularIncomeMode,
+      isFalse,
+    );
+    final scheduledBiweekly =
+        _state(incomeType: 'Fixed', incomeRhythm: 'Every 2 weeks')
+          ..onboardingIncomeLedger.add({
+            'name': 'Salary',
+            'amount': 25000,
+            'scheduled': true,
+            'repeatFrequency': 'Every 2 weeks',
+          });
+    expect(scheduledBiweekly.usesEventBasedIncomeHandling, isFalse);
+
+    final variableBiweekly =
+        _state(incomeType: 'Variable', incomeRhythm: 'Every 2 weeks')
+            .suggestedIncomeSourceDefaults;
+    expect(variableBiweekly.stable, isFalse);
+    expect(variableBiweekly.scheduled, isTrue);
+    expect(variableBiweekly.repeatFrequency, 'Every 2 weeks');
+
     final variableMonthly =
         _state(incomeType: 'Variable', incomeRhythm: 'Monthly')
             .suggestedIncomeSourceDefaults;
