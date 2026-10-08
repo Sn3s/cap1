@@ -141,6 +141,18 @@ class AppState extends ChangeNotifier {
   final Set<String> addedGoalIds = {};
   final Map<String, Map<String, String>> actionFieldValues = {};
   final Map<String, double> categorySpendingBudgets = {};
+
+  /// Financial layer chosen for custom budget categories (standard
+  /// categories have a fixed layer via [suggestedExpenseLayer]).
+  final Map<String, ExpenseLayer> categoryBudgetLayers = {};
+
+  /// The financial layer a budget category is labeled under. Custom
+  /// categories default to Financial Freedom: they're almost always
+  /// discretionary, and essentials are covered by the standard categories.
+  ExpenseLayer budgetCategoryLayer(String category) =>
+      suggestedExpenseLayer(category) ??
+      categoryBudgetLayers[category] ??
+      ExpenseLayer.nonEssentials;
   final Map<String, String> onboardingBaselines = {};
   final List<Map<String, dynamic>> onboardingIncomeLedger = [];
   final List<Map<String, dynamic>> onboardingExpenseLedger = [];
@@ -929,6 +941,7 @@ class AppState extends ChangeNotifier {
     addedGoalIds.clear();
     actionFieldValues.clear();
     categorySpendingBudgets.clear();
+    categoryBudgetLayers.clear();
     onboardingBaselines.clear();
     onboardingIncomeLedger.clear();
     onboardingExpenseLedger.clear();
@@ -3920,6 +3933,10 @@ class AppState extends ChangeNotifier {
       'selectedGoalId': selectedGoalId,
       'actionFieldValues': actionFieldValues,
       'categorySpendingBudgets': categorySpendingBudgets,
+      'categoryBudgetLayers': {
+        for (final entry in categoryBudgetLayers.entries)
+          entry.key: entry.value.name,
+      },
       'onboardingBaselines': onboardingBaselines,
       'onboardingIncomeLedger': onboardingIncomeLedger,
       'onboardingExpenseLedger': onboardingExpenseLedger,
@@ -4089,6 +4106,19 @@ class AppState extends ChangeNotifier {
           for (final entry in savedCategoryBudgets.entries)
             entry.key.toString(): _doubleFrom(entry.value, 0),
         }));
+    }
+    final savedBudgetLayers = _mapFrom(data['categoryBudgetLayers']);
+    if (savedBudgetLayers != null) {
+      categoryBudgetLayers
+        ..clear()
+        ..addEntries(savedBudgetLayers.entries.map((entry) {
+          final layer = ExpenseLayer.values
+              .where((value) => value.name == entry.value?.toString())
+              .firstOrNull;
+          return layer == null
+              ? null
+              : MapEntry(canonicalExpenseCategory(entry.key.toString()), layer);
+        }).whereType<MapEntry<String, ExpenseLayer>>());
     }
     final savedBaselines = _mapFrom(
       data['onboardingBaselines'] ?? planSetup['onboardingBaselines'],
@@ -4935,11 +4965,21 @@ class AppState extends ChangeNotifier {
   // ── D1 goal bucket actions ────────────────────────────────────────
 
   Future<void> updateCategorySpendingBudgets(
-    Map<String, double> budgets,
-  ) async {
+    Map<String, double> budgets, {
+    Map<String, ExpenseLayer> layers = const {},
+  }) async {
     categorySpendingBudgets
       ..clear()
       ..addAll(canonicalCategoryBudgets(budgets));
+    // Keep a chosen layer only for custom categories that are still budgeted.
+    categoryBudgetLayers
+      ..clear()
+      ..addEntries(layers.entries
+          .map((entry) =>
+              MapEntry(canonicalExpenseCategory(entry.key), entry.value))
+          .where((entry) =>
+              categorySpendingBudgets.containsKey(entry.key) &&
+              suggestedExpenseLayer(entry.key) == null));
     await saveProfile();
     notifyListeners();
   }

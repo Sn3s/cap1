@@ -66,6 +66,7 @@ const expenseCategoryPresets = [
   'Travel',
   'Shopping',
   'Family Support',
+  'Gifts & Giving',
   'Other',
 ];
 const transactionExpenseCategoryPresets = [
@@ -234,7 +235,8 @@ ExpenseLayer? suggestedExpenseLayer(String category) => switch (category) {
       'Subscriptions' ||
       'Entertainment' ||
       'Travel' ||
-      'Shopping' =>
+      'Shopping' ||
+      'Gifts & Giving' =>
         ExpenseLayer.nonEssentials,
       _ => null,
     };
@@ -258,6 +260,7 @@ List<String> expenseCategoriesForLayer(ExpenseLayer layer) => switch (layer) {
           'Entertainment',
           'Travel',
           'Shopping',
+          'Gifts & Giving',
         ],
     };
 

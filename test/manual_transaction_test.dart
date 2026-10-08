@@ -194,11 +194,15 @@ void main() {
       source: 'Basic Needs Fund',
     );
 
-    expect(state.essentialExpensesBalance, 750);
+    // With FakeMaya linked, the fund balance is bucket B1. Labeling alone
+    // moves no money (pulling from the bucket is a separate step), so B1 is
+    // unchanged; the use is still recorded once in the action ledger.
+    expect(state.essentialExpensesBalance, 1000);
     expect(
       state.d1Ledger.where((entry) => entry['type'] == 'use_essential'),
       hasLength(1),
     );
+    expect(state.d1Ledger.single['amount'], 250);
     expect(state.d1Ledger.single['sourceTransactionId'], 'expense-1');
 
     await state.labelFakeMayaTransaction(

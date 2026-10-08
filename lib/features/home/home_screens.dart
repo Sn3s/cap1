@@ -21913,6 +21913,13 @@ class _CategoryBudgetActionPanelState
       TextEditingController customController,
       TextEditingController controller,
     })>[];
+    // Financial layer picked for custom categories, keyed by row.
+    final customLayers = <TextEditingController, ExpenseLayer>{
+      for (final row in rows)
+        if (state.categoryBudgetLayers[row.category] != null)
+          row.controller: state.categoryBudgetLayers[row.category]!,
+    };
+    var savedLayers = <String, ExpenseLayer>{};
     final result = await showDialog<Map<String, double>>(
       context: context,
       // showDialog completes when the pop starts, but the fields keep
@@ -21963,6 +21970,13 @@ class _CategoryBudgetActionPanelState
               ));
               setDialogState(() {});
             }
+
+            final categoryEntries = _categoryEntriesByLayer(
+              state,
+              ordered.where((category) => category != 'Other expense'),
+              trailingHeader: 'Custom',
+              trailing: const ['Other expense'],
+            );
 
             return AlertDialog(
               backgroundColor: _surface,
@@ -22038,16 +22052,13 @@ class _CategoryBudgetActionPanelState
                                       decoration: _budgetFieldDecoration(
                                         'Category',
                                       ),
-                                      items: [
-                                        for (final category in ordered)
-                                          DropdownMenuItem(
-                                            value: category,
-                                            child: Text(
-                                              category,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                      ],
+                                      items: _categoryDropdownItems(
+                                        categoryEntries,
+                                      ),
+                                      selectedItemBuilder: (context) =>
+                                          _categoryDropdownSelectedItems(
+                                        categoryEntries,
+                                      ),
                                       onChanged: (value) {
                                         if (value == null) return;
                                         rows[index] = (
@@ -22073,6 +22084,58 @@ class _CategoryBudgetActionPanelState
                                         onChanged: (_) => setDialogState(() {}),
                                       ),
                                     ],
+                                    const SizedBox(height: 10),
+                                    if (suggestedExpenseLayer(
+                                          rowCategory(index),
+                                        ) case final layer?)
+                                      // Standard categories have a fixed layer.
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.layers_outlined,
+                                            size: 16,
+                                            color: _body,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Layer: ${_budgetLayerName(layer)}',
+                                              style: const TextStyle(
+                                                color: _body,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      DropdownButtonFormField<ExpenseLayer>(
+                                        value: customLayers[
+                                                rows[index].controller] ??
+                                            ExpenseLayer.nonEssentials,
+                                        isExpanded: true,
+                                        decoration: _budgetFieldDecoration(
+                                          'Financial layer',
+                                        ),
+                                        items: [
+                                          for (final layer
+                                              in ExpenseLayer.values)
+                                            DropdownMenuItem(
+                                              value: layer,
+                                              child: Text(
+                                                _budgetLayerName(layer),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == null) return;
+                                          customLayers[
+                                              rows[index].controller] = value;
+                                          setDialogState(() {});
+                                        },
+                                      ),
                                     const SizedBox(height: 10),
                                     TextField(
                                       controller: rows[index].controller,
@@ -22123,7 +22186,16 @@ class _CategoryBudgetActionPanelState
                     child: const Text('Cancel')),
                 FilledButton(
                   onPressed: valid
-                      ? () => Navigator.of(dialogContext).pop({
+                      ? () {
+                          savedLayers = {
+                            for (var i = 0; i < rows.length; i++)
+                              if (suggestedExpenseLayer(rowCategory(i)) ==
+                                  null)
+                                rowCategory(i): customLayers[
+                                        rows[i].controller] ??
+                                    ExpenseLayer.nonEssentials,
+                          };
+                          Navigator.of(dialogContext).pop({
                             for (final row in rows)
                               (row.category == 'Other expense' &&
                                       row.customController.text
@@ -22133,7 +22205,8 @@ class _CategoryBudgetActionPanelState
                                   : row.category): double.parse(
                                 row.controller.text.replaceAll(',', ''),
                               ),
-                          })
+                          });
+                        }
                       : null,
                   child: const Text('Save budgets'),
                 ),
@@ -22144,7 +22217,7 @@ class _CategoryBudgetActionPanelState
       ),
     );
     if (result == null) return;
-    await state.updateCategorySpendingBudgets(result);
+    await state.updateCategorySpendingBudgets(result, layers: savedLayers);
     if (mounted) setState(() {});
   }
 
@@ -23539,21 +23612,26 @@ class _GoalSheetFrame extends StatelessWidget {
           color: _surface,
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: _border,
-                  borderRadius: BorderRadius.circular(999),
+        // Transparent Material so ListTiles and ink splashes paint above the
+        // colored sheet background instead of behind it.
+        child: Material(
+          type: MaterialType.transparency,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              child,
-            ],
+                const SizedBox(height: 18),
+                child,
+              ],
+            ),
           ),
         ),
       ),
@@ -24096,6 +24174,83 @@ class _DisposeOnUnmountState extends State<_DisposeOnUnmount> {
   @override
   Widget build(BuildContext context) => widget.child;
 }
+
+typedef _CategoryEntry = ({String value, String label, bool header});
+
+/// Expense [categories] grouped under financial layer headers (empty layers
+/// are skipped), followed by [trailing] under [trailingHeader].
+List<_CategoryEntry> _categoryEntriesByLayer(
+  AppState state,
+  Iterable<String> categories, {
+  required String trailingHeader,
+  required List<String> trailing,
+}) {
+  final list = categories.toList();
+  return [
+    for (final layer in ExpenseLayer.values)
+      if (list.any((category) => state.budgetCategoryLayer(category) == layer))
+        ...[
+        (
+          value: '__layer_${layer.name}__',
+          label: _budgetLayerName(layer),
+          header: true,
+        ),
+        for (final category in list)
+          if (state.budgetCategoryLayer(category) == layer)
+            (value: category, label: category, header: false),
+      ],
+    if (trailing.isNotEmpty) ...[
+      (value: '__layer_trailing__', label: trailingHeader, header: true),
+      for (final category in trailing)
+        (value: category, label: category, header: false),
+    ],
+  ];
+}
+
+/// Dropdown items for [entries]: headers are disabled items with sentinel
+/// values (like the transaction label picker); categories are indented.
+List<DropdownMenuItem<String>> _categoryDropdownItems(
+  List<_CategoryEntry> entries,
+) {
+  final grouped = entries.any((entry) => entry.header);
+  return [
+    for (final entry in entries)
+      DropdownMenuItem(
+        value: entry.value,
+        enabled: !entry.header,
+        child: entry.header
+            ? Text(
+                entry.label,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: _purple,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              )
+            : Padding(
+                padding: EdgeInsets.only(left: grouped ? 10 : 0),
+                child: Text(entry.label, overflow: TextOverflow.ellipsis),
+              ),
+      ),
+  ];
+}
+
+/// The closed field shows just the category name.
+List<Widget> _categoryDropdownSelectedItems(List<_CategoryEntry> entries) => [
+      for (final entry in entries)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(entry.label, overflow: TextOverflow.ellipsis),
+        ),
+    ];
+
+String _budgetLayerName(ExpenseLayer layer) => switch (layer) {
+      ExpenseLayer.basicNeeds => 'Cash Flow & Basic Needs',
+      ExpenseLayer.emergencyInsurance => 'Financial Safety',
+      ExpenseLayer.debtInvestments => 'Accumulating Wealth',
+      ExpenseLayer.nonEssentials => 'Financial Freedom',
+    };
 
 // Category budget fields use floating labels so "Category" / "Monthly cap"
 // stay visible after a value is entered.
@@ -25934,7 +26089,23 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final categories = _moneyIn ? _incomeCategories : _expenseCategories;
+    final categoryEntries = _moneyIn
+        ? [
+            for (final category in _incomeCategories)
+              (value: category, label: category, header: false),
+          ]
+        : _categoryEntriesByLayer(
+            state,
+            {
+              ..._expenseCategories.where(
+                (category) => category != 'Transfer' && category != 'Other',
+              ),
+              // Custom budget categories, so cash spent on them can be logged.
+              ...state.categorySpendingBudgets.keys,
+            },
+            trailingHeader: 'Other',
+            trailing: const ['Other', 'Transfer'],
+          );
     final accounts = [
       'Cash on Hand',
       for (final account in const [
@@ -26022,10 +26193,10 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               decoration: inputDecoration('Choose a category').copyWith(
                 labelText: 'Category',
               ),
-              items: categories
-                  .map((value) =>
-                      DropdownMenuItem(value: value, child: Text(value)))
-                  .toList(),
+              isExpanded: true,
+              items: _categoryDropdownItems(categoryEntries),
+              selectedItemBuilder: (context) =>
+                  _categoryDropdownSelectedItems(categoryEntries),
               onChanged: (value) => setState(() => _category = value),
               validator: (value) => value == null ? 'Choose a category.' : null,
             ),
@@ -26310,33 +26481,57 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     }
     final layer = _financialLayer;
     if (layer == null) return const [];
-    if (layer == _pyramidCashFlowLayer) {
-      final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
-      if (pyramidOptions.isNotEmpty) {
-        if (selectedCategory != null &&
-            _financialLayerForSuggestedCategory(selectedCategory) == layer &&
-            !pyramidOptions.any((option) => option.value == selectedCategory)) {
-          return [
-            ...pyramidOptions,
-            _TransactionCategoryOption.category(selectedCategory),
-          ];
-        }
-        return pyramidOptions;
-      }
-    }
     final expenseLayer = switch (layer) {
       'Financial Safety' => ExpenseLayer.emergencyInsurance,
       'Accumulating Wealth' => ExpenseLayer.debtInvestments,
       'Financial Freedom' => ExpenseLayer.nonEssentials,
       _ => ExpenseLayer.basicNeeds,
     };
+    // Every budgeted category stays pickable under its own layer (custom
+    // categories use the layer chosen in the budget ledger).
+    final budgetCategories = [
+      for (final category in state.categorySpendingBudgets.keys)
+        if (state.budgetCategoryLayer(category) == expenseLayer) category,
+    ];
     final allowed = {
       ..._genericCategories,
       ...expenseCategoriesForLayer(expenseLayer),
+      ...budgetCategories,
     };
-    final filtered = base.where(allowed.contains).toList();
+    final layerCategories = [
+      ...base.where(allowed.contains),
+      ...budgetCategories.where((category) => !base.contains(category)),
+    ];
+    if (layer == _pyramidCashFlowLayer) {
+      final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
+      if (pyramidOptions.isNotEmpty) {
+        // Onboarding expenses first, then the rest of the layer. Values are
+        // compared case-insensitively so each appears once in the dropdown.
+        final listed = {
+          for (final option in pyramidOptions)
+            if (option.value != null) option.value!.trim().toLowerCase(),
+        };
+        final more = [
+          for (final category in [
+            ...layerCategories,
+            if (selectedCategory != null &&
+                _financialLayerForSuggestedCategory(selectedCategory) == layer)
+              selectedCategory,
+          ])
+            if (listed.add(category.trim().toLowerCase())) category,
+        ];
+        return [
+          ...pyramidOptions,
+          if (more.isNotEmpty) ...[
+            const _TransactionCategoryOption.header('Other categories'),
+            for (final category in more)
+              _TransactionCategoryOption.category(category),
+          ],
+        ];
+      }
+    }
     return [
-      for (final category in filtered)
+      for (final category in layerCategories)
         _TransactionCategoryOption.category(category),
     ];
   }

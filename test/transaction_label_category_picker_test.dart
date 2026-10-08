@@ -77,7 +77,16 @@ void main() {
     final state = await _openLabelSheet(tester);
 
     expect(_selection(tester, 'Financial layer'), 'Cash Flow & Basic Needs');
-    expect(_categories(tester), ['Rent / Housing', 'Utilities', 'Transport']);
+    expect(_categories(tester), [
+      'Rent / Housing',
+      'Utilities',
+      'Groceries / Food',
+      'Transport',
+      'Education',
+      'Family Support',
+      'Other',
+      'Transfer',
+    ]);
     expect(_selection(tester, 'Category'), 'Transport');
     expect(find.text('Transport').hitTestable(), findsOneWidget);
     await tester.tap(_field('Category'));
@@ -167,7 +176,17 @@ void main() {
       (tester) async {
     await _openLabelSheet(tester,
         category: 'Shopping', source: 'Basic Needs Fund');
-    expect(_categories(tester), ['Rent / Housing', 'Utilities']);
+    expect(_categories(tester), [
+      'Rent / Housing',
+      'Utilities',
+      'Groceries / Food',
+      'Transport',
+      'Education',
+      'Family Support',
+      'Other',
+      'Transfer',
+    ]);
+    expect(_categories(tester), isNot(contains('Shopping')));
     expect(_selection(tester, 'Category'), isNull);
     expect(_saveButton(tester).enabled, isFalse);
   });
