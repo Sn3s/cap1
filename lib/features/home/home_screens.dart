@@ -26185,9 +26185,37 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     text: widget.transaction.note ?? '',
   );
   late bool _excluded = widget.transaction.excludedFromInsights;
+  MerchantCategorySuggestion? _merchantSuggestion;
+  bool _appliedMerchantSuggestion = false;
   bool _saving = false;
   // null = not answered yet for the current layer+category pair.
   bool? _pullFromBucket;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_appliedMerchantSuggestion) return;
+    _appliedMerchantSuggestion = true;
+
+    final suggestion =
+        AppScope.of(context).merchantCategorySuggestionFor(widget.transaction);
+    _merchantSuggestion = suggestion;
+    if (_category != null ||
+        suggestion == null ||
+        suggestion.source ==
+            MerchantCategorySuggestionSource.savedTransaction) {
+      return;
+    }
+
+    _category = suggestion.category;
+    if (widget.transaction.amount < 0 && _financialLayer == null) {
+      _financialLayer =
+          _financialLayerForSuggestedCategory(suggestion.category);
+      if (_financialLayer != null && _source == null) {
+        _source = _eWalletSource;
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -26216,7 +26244,16 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     if (layer == null) return const [];
     if (layer == _pyramidCashFlowLayer) {
       final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
-      if (pyramidOptions.isNotEmpty) return pyramidOptions;
+      if (pyramidOptions.isNotEmpty) {
+        if (selectedCategory != null &&
+            !pyramidOptions.any((option) => option.value == selectedCategory)) {
+          return [
+            ...pyramidOptions,
+            _TransactionCategoryOption.category(selectedCategory),
+          ];
+        }
+        return pyramidOptions;
+      }
     }
     final expenseLayer = switch (layer) {
       'Financial Safety' => ExpenseLayer.emergencyInsurance,
@@ -26483,6 +26520,19 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                   }
                 : null,
           ),
+          if (_merchantSuggestion != null &&
+              _merchantSuggestion!.source !=
+                  MerchantCategorySuggestionSource.savedTransaction) ...[
+            const SizedBox(height: 6),
+            Text(
+              _merchantSuggestionText(_merchantSuggestion!),
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           if (automaticDestination == null)
             if (isIncome)
@@ -26769,6 +26819,28 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       'personal lifestyle fund' => 'Financial Freedom',
       _ => null,
     };
+  }
+
+  static String? _financialLayerForSuggestedCategory(String category) {
+    return switch (suggestedExpenseLayer(category)) {
+      ExpenseLayer.basicNeeds => 'Cash Flow & Basic Needs',
+      ExpenseLayer.emergencyInsurance => 'Financial Safety',
+      ExpenseLayer.debtInvestments => 'Accumulating Wealth',
+      ExpenseLayer.nonEssentials => 'Financial Freedom',
+      null => null,
+    };
+  }
+
+  static String _merchantSuggestionText(MerchantCategorySuggestion suggestion) {
+    final basis = switch (suggestion.source) {
+      MerchantCategorySuggestionSource.merchantRule =>
+        'your most recent category for this merchant',
+      MerchantCategorySuggestionSource.patternRule =>
+        'a similar past transaction',
+      MerchantCategorySuggestionSource.builtIn => 'the merchant name',
+      MerchantCategorySuggestionSource.savedTransaction => 'the saved category',
+    };
+    return 'Suggested based on $basis. You can change it before saving.';
   }
 
   static String? _initialSource(FakeMayaTransaction transaction) {

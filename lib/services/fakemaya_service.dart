@@ -2043,6 +2043,12 @@ class FakeMayaTransaction {
   String get patternKey =>
       '${amount < 0 ? 'out' : 'in'}|$counterpartyKey|${amount.abs().toStringAsFixed(2)}';
 
+  /// A merchant-level key deliberately leaves the amount out, so a user
+  /// correction for one purchase can help with a later purchase at the same
+  /// merchant without treating it as the exact same transaction.
+  String get merchantCategoryKey =>
+      '${amount < 0 ? 'out' : 'in'}|$counterpartyKey';
+
   FakeMayaTransaction copyWithLabel({
     required String category,
     required String source,
@@ -2100,6 +2106,7 @@ class FakeMayaTransaction {
       'excludedFromInsights': excludedFromInsights,
       'labeledAt': labeledAt?.toIso8601String(),
       'patternKey': patternKey,
+      'merchantCategoryKey': merchantCategoryKey,
     };
   }
 
