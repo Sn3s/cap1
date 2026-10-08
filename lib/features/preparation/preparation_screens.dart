@@ -4652,7 +4652,7 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A3' =>
       'Shellby totals matching expenses during the month, compares them with the selected limit, and warns you before or when the limit is reached. It then updates $indicatorText.',
     'A19' =>
-      'Shellby uses your monthly expense baseline to calculate the Everyday Fund target, compares it with available cash, and reminds you when the fund drops below the configured months.',
+      'Shellby uses your monthly essential expense baseline to calculate the Everyday Fund target, compares it with available cash, and reminds you when the fund drops below the configured months.',
     'A20' =>
       'Shellby compares detected monthly income with the configured earnings target, tracks the monthly gap or surplus, and updates $indicatorText.',
     'A22' =>

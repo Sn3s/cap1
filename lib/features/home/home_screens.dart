@@ -17811,15 +17811,16 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
     );
   }
   if (id == 'A19') {
-    final monthlyExpenseBase = _monthlyExpenseBase(state);
+    // Months of basic needs covered, matching the essentials-based floor.
+    final monthlyEssentialBase = _monthlyEssentialBase(state);
     final recommended = d2 == null
         ? _recommendedEssentialFundFloor(state)
         : double.parse(
             _recommendationsForActionField(state, d2, d2.fields.first).first);
     final amount = double.tryParse(values['amt'] ?? '') ?? recommended;
     final currentFund = state.essentialExpensesBalance;
-    final monthlyExpenses = math.max(1.0, monthlyExpenseBase);
-    final monthsCovered = currentFund / monthlyExpenses;
+    final monthlyEssentials = math.max(1.0, monthlyEssentialBase);
+    final monthsCovered = currentFund / monthlyEssentials;
     return _D1ActionMeta(
       id: 'A19',
       text:
@@ -17839,8 +17840,8 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
           icon: Icons.savings_rounded
         ),
         (
-          label: 'Monthly expenses',
-          value: money(monthlyExpenses),
+          label: 'Monthly essentials',
+          value: money(monthlyEssentials),
           icon: Icons.receipt_long_rounded
         ),
         (
@@ -17861,9 +17862,9 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
           value: money(currentFund)
         ),
         (
-          label: 'Monthly expense baseline',
+          label: 'Monthly essential expense baseline',
           type: 'S',
-          value: money(monthlyExpenses)
+          value: money(monthlyEssentials)
         ),
       ],
       activityLog: const [],
@@ -22808,9 +22809,10 @@ class _EverydayFundFloorActionPanelState
     final recommended = _recommendedEssentialFundFloor(state);
     final floor = _configuredActionAmount(state, 'A19', recommended);
     final essentialFund = state.essentialExpensesBalance;
-    final monthlyExpenses = math.max(1.0, _monthlyExpenseBase(state));
-    final floorMonths = floor / monthlyExpenses;
-    final currentMonths = essentialFund / monthlyExpenses;
+    // Months of basic needs covered, matching the essentials-based floor.
+    final monthlyEssentials = math.max(1.0, _monthlyEssentialBase(state));
+    final floorMonths = floor / monthlyEssentials;
+    final currentMonths = essentialFund / monthlyEssentials;
     final shortfall = math.max(0.0, floor - essentialFund);
     final safe = essentialFund >= floor && floor > 0;
     final trackMax = math.max(floor * 1.25, essentialFund);
