@@ -2004,6 +2004,19 @@ class FakeMayaTransaction {
   bool get isInternalFakeMayaTransfer {
     final normalizedTitle = title.trim().toLowerCase();
     final normalizedDetail = detail.trim().toLowerCase();
+    final cashInFromOwnedAccount = normalizedTitle.contains('cash in') &&
+        const {
+          'from: wallet',
+          'from: e-wallet',
+          'from: my savings',
+          'from: savings',
+          'from: time deposit',
+          'from: goal savings',
+          'from: emergency fund',
+          'from: basic needs fund',
+          'from: investment',
+          'from: maya black',
+        }.contains(normalizedDetail);
     return normalizedTitle == 'deposited to goal' ||
         normalizedTitle == 'express deposit' ||
         normalizedTitle == 'transferred from' ||
@@ -2013,7 +2026,8 @@ class FakeMayaTransaction {
             (normalizedDetail == 'my savings' ||
                 normalizedDetail.contains('goal') ||
                 normalizedDetail.contains('fund') ||
-                normalizedDetail.contains('maya black')));
+                normalizedDetail.contains('maya black'))) ||
+        cashInFromOwnedAccount;
   }
 
   String? get automaticDestination => isFakeMayaCashIn ? 'E-wallet' : null;

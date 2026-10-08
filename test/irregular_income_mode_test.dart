@@ -56,16 +56,38 @@ void main() {
     );
   });
 
-  test('income source defaults match the onboarding profile', () {
-    final irregular = _state(incomeType: 'Variable', incomeRhythm: 'Irregular')
-        .suggestedIncomeSourceDefaults;
-    expect(irregular.stable, isFalse);
-    expect(irregular.scheduled, isFalse);
+  test('income source defaults preserve amount and timing distinctions', () {
+    final fixedIrregular =
+        _state(incomeType: 'Fixed', incomeRhythm: 'Irregular')
+            .suggestedIncomeSourceDefaults;
+    expect(fixedIrregular.stable, isTrue);
+    expect(fixedIrregular.scheduled, isFalse);
 
-    final fixed = _state(incomeType: 'Fixed', incomeRhythm: 'Weekly')
+    final variableIrregular =
+        _state(incomeType: 'Variable', incomeRhythm: 'Irregular')
+            .suggestedIncomeSourceDefaults;
+    expect(variableIrregular.stable, isFalse);
+    expect(variableIrregular.scheduled, isFalse);
+
+    final fixedWeekly = _state(incomeType: 'Fixed', incomeRhythm: 'Weekly')
         .suggestedIncomeSourceDefaults;
-    expect(fixed.stable, isTrue);
-    expect(fixed.scheduled, isTrue);
+    expect(fixedWeekly.stable, isTrue);
+    expect(fixedWeekly.scheduled, isTrue);
+    expect(fixedWeekly.repeatFrequency, 'Weekly');
+
+    final fixedTwiceMonthly =
+        _state(incomeType: 'Fixed', incomeRhythm: 'Twice a month')
+            .suggestedIncomeSourceDefaults;
+    expect(fixedTwiceMonthly.stable, isTrue);
+    expect(fixedTwiceMonthly.scheduled, isTrue);
+    expect(fixedTwiceMonthly.repeatFrequency, 'Twice a month');
+
+    final variableMonthly =
+        _state(incomeType: 'Variable', incomeRhythm: 'Monthly')
+            .suggestedIncomeSourceDefaults;
+    expect(variableMonthly.stable, isFalse);
+    expect(variableMonthly.scheduled, isTrue);
+    expect(variableMonthly.repeatFrequency, 'Monthly');
 
     final both = _state(incomeType: 'Both', incomeRhythm: 'Monthly')
         .suggestedIncomeSourceDefaults;
@@ -181,15 +203,45 @@ void main() {
       account: 'Wallet',
       excludedFromInsights: true,
     );
+    const ownedAccountCashIn = FakeMayaTransaction(
+      id: 'cash-in-owned-account',
+      title: 'Cash in',
+      detail: 'From: Savings',
+      age: 'Just now',
+      amountText: '+ ₱5000.00',
+      account: 'Wallet',
+    );
 
     expect(
       await state.processNewIrregularIncomeTransactions(
-        [transfer, excludedCashIn],
+        [transfer, excludedCashIn, ownedAccountCashIn],
       ),
       0,
     );
     expect(state.jarLedger, isEmpty);
     expect(state.processedIncomeTransactionIds, isEmpty);
+  });
+
+  test('the initial FakeMaya snapshot is a baseline, not retroactive income',
+      () {
+    final state = _state(incomeType: 'Variable', incomeRhythm: 'Irregular');
+    final historical = _cashIn(id: 'historical-cash-in', amount: 5000);
+    final newCashIn = _cashIn(id: 'new-cash-in', amount: 8000);
+
+    expect(
+      state.newFakeMayaTransactionsSince(
+        existingTransactions: [historical],
+        refreshedTransactions: [historical],
+      ),
+      isEmpty,
+    );
+    expect(
+      state.newFakeMayaTransactionsSince(
+        existingTransactions: [historical],
+        refreshedTransactions: [historical, newCashIn],
+      ).map((transaction) => transaction.transactionId),
+      ['new-cash-in'],
+    );
   });
 
   test('processed income IDs survive irregular-income state persistence',
@@ -229,14 +281,77 @@ void main() {
       ]);
 
     expect(state.usesIrregularIncomeMode, isFalse);
+    expect(state.hasScheduledIncomeSources, isTrue);
+    expect(state.hasUnscheduledIncomeSources, isTrue);
+    expect(state.usesEventBasedIncomeHandling, isTrue);
     expect(state.needsBalance, 0);
     expect(state.bufferBalance, 0);
     expect(
       await state.processNewIrregularIncomeTransactions([
         _cashIn(id: 'hybrid-freelance', amount: 8000),
       ]),
-      0,
+      1,
     );
-    expect(state.jarLedger, isEmpty);
+    expect(state.needsBalance, 5600);
+    expect(state.bufferBalance, 2400);
+  });
+
+  test('manual unscheduled income uses the same deduplicated allocation',
+      () async {
+    final state = _state(incomeType: 'Variable', incomeRhythm: 'Irregular')
+      ..needsTarget = 18000
+      ..needsPercent = 70;
+    final occurredAt = DateTime(2026, 10, 8, 10);
+
+    await state.addManualCashTransaction(
+      transactionId: 'manual-freelance-1',
+      title: 'Client payment',
+      detail: 'Freelance project',
+      amount: 10000,
+      occurredAt: occurredAt,
+      category: 'Business income',
+      source: 'Basic Needs Fund',
+    );
+    await state.addManualCashTransaction(
+      transactionId: 'manual-freelance-1',
+      title: 'Client payment duplicate',
+      detail: 'Freelance project',
+      amount: 10000,
+      occurredAt: occurredAt,
+      category: 'Business income',
+      source: 'Basic Needs Fund',
+    );
+    await state.addManualCashTransaction(
+      transactionId: 'manual-owned-transfer',
+      title: 'Transfer from savings',
+      detail: 'Move money between my accounts',
+      amount: 5000,
+      occurredAt: occurredAt,
+      category: 'Salary',
+      source: 'Basic Needs Fund',
+    );
+
+    expect(state.needsBalance, 7000);
+    expect(state.bufferBalance, 3000);
+    expect(state.processedIncomeTransactionIds, contains('manual-freelance-1'));
+    expect(state.processedIncomeTransactionIds,
+        isNot(contains('manual-owned-transfer')));
+  });
+
+  test('received income batches save one final allocation state', () async {
+    final state = _state(incomeType: 'Variable', incomeRhythm: 'Irregular')
+      ..needsTarget = 18000
+      ..needsPercent = 70;
+
+    expect(
+      await state.processNewIrregularIncomeTransactions([
+        _cashIn(id: 'batch-1', amount: 10000),
+        _cashIn(id: 'batch-2', amount: 10000),
+      ]),
+      2,
+    );
+    expect(state.needsBalance, 14000);
+    expect(state.bufferBalance, 6000);
+    expect(state.jarLedger, hasLength(2));
   });
 }

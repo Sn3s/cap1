@@ -664,9 +664,7 @@ double _availableEverydayCash(AppState state) {
 int _recommendedEverydayFundMonths(AppState state) {
   final expenses = _monthlyExpenseBase(state);
   final income = _monthlyIncomeBase(state);
-  final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
-      state.incomeType.toLowerCase().contains('irregular') ||
-      !state.incomeRhythm.toLowerCase().contains('monthly');
+  final irregularIncome = state.usesEventBasedIncomeHandling;
   final tightCash = income > 0 && income < expenses * 1.15;
   final lowStartingCash = _availableEverydayCash(state) < expenses * 0.5;
   if (irregularIncome || tightCash || lowStartingCash) return 2;
@@ -677,9 +675,7 @@ double _recommendedEssentialFundFloor(AppState state) {
   final income = _monthlyIncomeBase(state);
   final essentials = math.max(1.0, _monthlyEssentialBase(state));
   final surplus = _monthlySurplusBase(state);
-  final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
-      state.incomeType.toLowerCase().contains('irregular') ||
-      !state.incomeRhythm.toLowerCase().contains('monthly');
+  final irregularIncome = state.usesEventBasedIncomeHandling;
 
   final expenseCoveragePct = irregularIncome
       ? 0.90
@@ -757,8 +753,7 @@ List<String> _recommendationsForActionField(
   if (field.key == 'days') {
     final predictable = state.billsRhythm.toLowerCase().contains('predict');
     final highAnxiety = state.anxiety >= 7;
-    final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
-        state.incomeType.toLowerCase().contains('irregular');
+    final irregularIncome = state.usesEventBasedIncomeHandling;
     final recommended = switch (action.id) {
       'A5' => highAnxiety
           ? 7
@@ -795,7 +790,7 @@ List<String> _recommendationsForActionField(
   if (action.id == 'A7' && field.key == 'pct') {
     final recommended = lowEverydayCash
         ? 50
-        : state.effectiveVariableIncomeBaseline > 0
+        : state.usesEventBasedIncomeHandling
             ? 35
             : 25;
     return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 80);
@@ -4972,6 +4967,7 @@ class _IncomeLedgerDraft {
     return _IncomeLedgerDraft(
       stable: defaults.stable,
       scheduled: defaults.scheduled,
+      repeatFrequency: defaults.repeatFrequency,
     );
   }
 
@@ -5033,6 +5029,7 @@ class _IncomeLedgerDraft {
 const _scheduleRepeatOptions = [
   'Weekly',
   'Every 2 weeks',
+  'Twice a month',
   'Monthly',
   'Every 2 months',
   'Quarterly',

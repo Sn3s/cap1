@@ -252,23 +252,52 @@ class AppState extends ChangeNotifier {
   bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
   bool get usesIrregularIncomeMode =>
       incomeRhythm.trim().toLowerCase() == 'irregular';
+  bool get hasUnscheduledIncomeSources => onboardingIncomeLedger.any(
+        (source) => source['scheduled'] != true,
+      );
+  bool get hasScheduledIncomeSources => onboardingIncomeLedger.any(
+        (source) => source['scheduled'] == true,
+      );
+
+  /// Actual receipts need event-based allocation when the onboarding timing is
+  /// irregular or when at least one income source has no reliable schedule.
+  /// This does not turn scheduled sources into available cash before receipt.
+  bool get usesEventBasedIncomeHandling =>
+      usesIrregularIncomeMode || hasUnscheduledIncomeSources;
   double get effectiveVariableIncomeBaseline => variableIncomeBaseline > 0
       ? variableIncomeBaseline
       : irregularIncomeFloor;
   IncomeSourceDefaults get suggestedIncomeSourceDefaults {
     final normalizedType = incomeType.trim().toLowerCase();
     final normalizedRhythm = incomeRhythm.trim().toLowerCase();
-    final predictableTiming = const {
-      'weekly',
-      'twice a month',
-      'monthly',
-    }.contains(normalizedRhythm);
-    if (normalizedType == 'fixed' && predictableTiming) {
-      return const IncomeSourceDefaults(stable: true, scheduled: true);
+    final repeatFrequency = switch (normalizedRhythm) {
+      'weekly' => 'Weekly',
+      'twice a month' => 'Twice a month',
+      _ => 'Monthly',
+    };
+    final predictableTiming = normalizedRhythm != 'irregular' &&
+        const {'weekly', 'twice a month', 'monthly'}.contains(normalizedRhythm);
+    if (normalizedType == 'fixed') {
+      return IncomeSourceDefaults(
+        stable: true,
+        scheduled: predictableTiming,
+        repeatFrequency: repeatFrequency,
+      );
     }
-    // Variable, Both, and any irregular-timing profile leave each source
-    // unscheduled by default. The user can still mark a known source stable.
-    return const IncomeSourceDefaults(stable: false, scheduled: false);
+    if (normalizedType == 'variable' && predictableTiming) {
+      return IncomeSourceDefaults(
+        stable: false,
+        scheduled: true,
+        repeatFrequency: repeatFrequency,
+      );
+    }
+    // Both remains neutral so each source can describe its own amount and
+    // timing without inheriting one blanket classification.
+    return IncomeSourceDefaults(
+      stable: false,
+      scheduled: false,
+      repeatFrequency: repeatFrequency,
+    );
   }
 
   double get bufferMonthsCovered =>
@@ -4405,7 +4434,7 @@ class AppState extends ChangeNotifier {
         name: 'Salary or main income',
         amount: stableAmount,
         stable: true,
-        scheduled: incomeRhythm.toLowerCase().contains('monthly'),
+        scheduled: suggestedIncomeSourceDefaults.scheduled,
       ));
     }
     if (variableAmount > 0) {
@@ -4420,7 +4449,7 @@ class AppState extends ChangeNotifier {
         name: rows.isEmpty ? 'Monthly income baseline' : 'Other income',
         amount: remainingIncome,
         stable: incomeType.toLowerCase().contains('fixed'),
-        scheduled: incomeRhythm.toLowerCase().contains('monthly'),
+        scheduled: suggestedIncomeSourceDefaults.scheduled,
       ));
     }
     if (rows.isNotEmpty) return rows;
@@ -7044,7 +7073,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies the existing Two-Jar split without writing to Firebase. Received
+  /// income callers should use [processReceivedIncomeEvent] so deduplication
+  /// and persistence happen together.
   JarSplitResult onIncomeEvent(double amount, {String? sourceLabel}) {
+    final result = _applyIncomeEvent(amount, sourceLabel: sourceLabel);
+    notifyListeners();
+    return result;
+  }
+
+  JarSplitResult _applyIncomeEvent(double amount, {String? sourceLabel}) {
     final needsShare = amount * needsPercent / 100;
     final bufferShare = amount - needsShare;
     final roomInNeeds = math.max(0.0, needsTarget - needsBalance);
@@ -7067,8 +7105,6 @@ class AppState extends ChangeNotifier {
         sentence: sentence,
       ),
     );
-    saveProfile();
-    notifyListeners();
     return JarSplitResult(
       toNeeds: toNeeds,
       toBuffer: toBuffer,
@@ -7079,18 +7115,43 @@ class AppState extends ChangeNotifier {
   bool isQualifyingIrregularIncomeTransaction(
     FakeMayaTransaction transaction,
   ) {
-    return usesIrregularIncomeMode &&
+    return usesEventBasedIncomeHandling &&
         transaction.isFakeMayaCashIn &&
         !transaction.isInternalFakeMayaTransfer &&
         !transaction.excludedFromInsights;
   }
 
-  /// Routes only new, genuine FakeMaya cash-ins through the existing Two-Jar
-  /// logic. Baseline income from onboarding is intentionally never used here.
+  /// Records one real income receipt through the existing Two-Jar logic.
+  /// [transactionId] is durable across refreshes, profile reloads, and manual
+  /// entry retries, so the same receipt cannot be allocated twice.
+  Future<bool> processReceivedIncomeEvent({
+    required String transactionId,
+    required double amount,
+    required String sourceLabel,
+    bool persist = true,
+    bool notify = true,
+  }) async {
+    final normalizedId = transactionId.trim();
+    if (!usesEventBasedIncomeHandling ||
+        normalizedId.isEmpty ||
+        amount <= 0 ||
+        processedIncomeTransactionIds.contains(normalizedId)) {
+      return false;
+    }
+    processedIncomeTransactionIds.add(normalizedId);
+    _applyIncomeEvent(amount, sourceLabel: sourceLabel);
+    if (persist) await saveProfile();
+    if (notify) notifyListeners();
+    return true;
+  }
+
+  /// Compatibility wrapper for FakeMaya refreshes. It routes only newly seen,
+  /// genuine cash-ins through the shared received-income path; onboarding
+  /// baselines are never treated as cash.
   Future<int> processNewIrregularIncomeTransactions(
     Iterable<FakeMayaTransaction> transactions,
   ) async {
-    if (!usesIrregularIncomeMode) return 0;
+    if (!usesEventBasedIncomeHandling) return 0;
     final candidates = transactions
         .where(isQualifyingIrregularIncomeTransaction)
         .where(
@@ -7110,14 +7171,15 @@ class AppState extends ChangeNotifier {
           processedIncomeTransactionIds.contains(transactionId)) {
         continue;
       }
-      // Register before [onIncomeEvent] persists so either profile write
-      // includes this durable id if the app is interrupted mid-refresh.
-      processedIncomeTransactionIds.add(transactionId);
-      onIncomeEvent(
-        transaction.amount,
+      if (await processReceivedIncomeEvent(
+        transactionId: transactionId,
+        amount: transaction.amount,
         sourceLabel: _irregularIncomeSourceLabel(transaction),
-      );
-      processed += 1;
+        persist: false,
+        notify: false,
+      )) {
+        processed += 1;
+      }
     }
     if (processed > 0) {
       await saveProfile();
@@ -7261,6 +7323,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Returns activity that appeared after the account's last stored snapshot.
+  /// The first linked snapshot is intentionally only a baseline, never a
+  /// retroactive income-allocation batch.
+  List<FakeMayaTransaction> newFakeMayaTransactionsSince({
+    required Iterable<FakeMayaTransaction> existingTransactions,
+    required Iterable<FakeMayaTransaction> refreshedTransactions,
+  }) {
+    final knownIds = existingTransactions
+        .map((transaction) => transaction.transactionId)
+        .toSet();
+    return refreshedTransactions
+        .where((transaction) => !knownIds.contains(transaction.transactionId))
+        .toList();
+  }
+
   Future<void> refreshFakeMayaAccount({bool reconcileBuckets = true}) async {
     final link = fakeMayaLink;
     if (link == null) return;
@@ -7272,17 +7349,12 @@ class AppState extends ChangeNotifier {
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.refreshSession(link),
     );
-    final knownTransactionIds = link.summary.transactions
-        .map((transaction) => transaction.transactionId)
-        .toSet();
-    _applyFakeMayaSession(session, previousLink: link);
-    await processNewIrregularIncomeTransactions(
-      (fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
-          .where(
-        (transaction) =>
-            !knownTransactionIds.contains(transaction.transactionId),
-      ),
+    final newlyObservedTransactions = newFakeMayaTransactionsSince(
+      existingTransactions: link.summary.transactions,
+      refreshedTransactions: session.summary.transactions,
     );
+    _applyFakeMayaSession(session, previousLink: link);
+    await processNewIrregularIncomeTransactions(newlyObservedTransactions);
     if (reconcileBuckets) {
       await _pruneFakeMayaBucketsToActiveGoals();
       // Self-heal: retry creating any bucket that's been agreed to but is
@@ -7496,13 +7568,16 @@ class AppState extends ChangeNotifier {
     String? tag,
     String? note,
     String account = 'Cash on Hand',
+    String? transactionId,
   }) async {
     if (amount == 0) return;
     final balance = accountBalance(account);
     if (amount < 0 && amount.abs() > balance) {
       throw StateError('Not enough money in $account for this transaction.');
     }
-    final id = 'manual-${occurredAt.microsecondsSinceEpoch}';
+    final id = transactionId?.trim().isNotEmpty == true
+        ? transactionId!.trim()
+        : 'manual-${occurredAt.microsecondsSinceEpoch}';
     manualTransactions.add(
       FakeMayaTransaction(
         id: id,
@@ -7526,8 +7601,48 @@ class AppState extends ChangeNotifier {
       manualAccountBalances[account] =
           (manualAccountBalances[account] ?? 0) + amount;
     }
+    if (_isQualifyingManualIncome(
+      title: title,
+      detail: detail,
+      category: category,
+      amount: amount,
+    )) {
+      await processReceivedIncomeEvent(
+        transactionId: id,
+        amount: amount,
+        sourceLabel: detail.trim().isEmpty ? title.trim() : detail.trim(),
+        persist: false,
+        notify: false,
+      );
+    }
     if (isSignedIn) await saveProfile();
     notifyListeners();
+  }
+
+  /// Manual entry has an explicit income category, so use that signal rather
+  /// than treating every positive balance change as earned income.
+  bool _isQualifyingManualIncome({
+    required String title,
+    required String detail,
+    required String category,
+    required double amount,
+  }) {
+    if (amount <= 0) return false;
+    final normalizedCategory = category.trim().toLowerCase();
+    if (!const {'salary', 'business income', 'other income'}
+        .contains(normalizedCategory)) {
+      return false;
+    }
+    final text = '$title $detail'.toLowerCase();
+    return !const {
+      'transfer',
+      'refund',
+      'reversal',
+      'correction',
+      'adjustment',
+      'withdrawal',
+      'emergency',
+    }.any(text.contains);
   }
 
   Future<void> unlinkFakeMayaAccount() async {
@@ -7816,10 +7931,12 @@ class IncomeSourceDefaults {
   const IncomeSourceDefaults({
     required this.stable,
     required this.scheduled,
+    required this.repeatFrequency,
   });
 
   final bool stable;
   final bool scheduled;
+  final String repeatFrequency;
 }
 
 enum JarEventType { income, billPaid, transfer }

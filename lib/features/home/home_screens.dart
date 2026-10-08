@@ -24725,9 +24725,9 @@ class UserSelectionsScreen extends StatelessWidget {
                       ('Goal description', state.selectedGoalDescription),
                       if (state.selectedGoal == 'Irregular Income Buffer')
                         (
-                          'Income floor',
-                          state.irregularIncomeFloor > 0
-                              ? money(state.irregularIncomeFloor)
+                          'Typical variable income',
+                          state.effectiveVariableIncomeBaseline > 0
+                              ? money(state.effectiveVariableIncomeBaseline)
                               : 'Not set',
                         ),
                       ('Target rule', _targetRuleForGoal(state)),
