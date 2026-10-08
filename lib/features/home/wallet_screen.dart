@@ -126,6 +126,13 @@ class _WalletPageState extends State<WalletPage> {
             ),
           ),
         ],
+        if (state.usesIrregularIncomeMode) ...[
+          const SizedBox(height: 10),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _IrregularIncomePlanCard(),
+          ),
+        ],
         const SizedBox(height: 16),
         _WalletAccountSwitcher(
           accounts: accounts,
@@ -201,6 +208,55 @@ class _WalletPageState extends State<WalletPage> {
             onPeriodChanged: (p) => setState(() => _spendPeriod = p),
           ),
       ],
+    );
+  }
+}
+
+class _IrregularIncomePlanCard extends StatelessWidget {
+  const _IrregularIncomePlanCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _purple.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _purple.withValues(alpha: .22)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.account_balance_wallet_rounded, color: _purple, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'IRREGULAR INCOME PLAN',
+                  style: TextStyle(
+                    color: _purple,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: .7,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Shellby allocates only income you have actually received. Your typical monthly income is used for planning, not treated as available cash.',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

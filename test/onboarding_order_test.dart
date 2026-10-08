@@ -27,7 +27,7 @@ void main() {
     await tester.tap(find.text('Add Monthly Income'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Typical monthly income.'), findsOneWidget);
+    expect(find.text('Your income sources.'), findsOneWidget);
     expect(find.text('Phase 4/15'), findsOneWidget);
   });
 

@@ -52,6 +52,13 @@ class AppState extends ChangeNotifier {
   double investments = 0;
   double subscriptions = 0;
   double monthlySalary = 0;
+
+  /// Typical variable monthly income collected during onboarding. This is
+  /// planning context only; it is never treated as cash already received.
+  double variableIncomeBaseline = 0;
+
+  /// Legacy persisted name retained so older Firebase profiles can be read
+  /// safely. New logic uses [variableIncomeBaseline] instead.
   double irregularIncomeFloor = 0;
   double basicNeedsMonthlyTarget = 0;
   double basicNeedsAllocationPercent = 0.50;
@@ -125,6 +132,10 @@ class AppState extends ChangeNotifier {
   final Map<String, String> onboardingBaselines = {};
   final List<Map<String, dynamic>> onboardingIncomeLedger = [];
   final List<Map<String, dynamic>> onboardingExpenseLedger = [];
+
+  /// FakeMaya cash-in IDs already routed through the Two-Jar splitter.
+  /// Kept in the profile so refreshes and app restarts cannot split twice.
+  final Set<String> processedIncomeTransactionIds = {};
 
   // ── D1 goal bucket balances ──────────────────────────────────────
   double essentialExpensesBalance = 0;
@@ -239,6 +250,27 @@ class AppState extends ChangeNotifier {
   }
 
   bool get needsFull => needsTarget > 0 && needsBalance >= needsTarget;
+  bool get usesIrregularIncomeMode =>
+      incomeRhythm.trim().toLowerCase() == 'irregular';
+  double get effectiveVariableIncomeBaseline => variableIncomeBaseline > 0
+      ? variableIncomeBaseline
+      : irregularIncomeFloor;
+  IncomeSourceDefaults get suggestedIncomeSourceDefaults {
+    final normalizedType = incomeType.trim().toLowerCase();
+    final normalizedRhythm = incomeRhythm.trim().toLowerCase();
+    final predictableTiming = const {
+      'weekly',
+      'twice a month',
+      'monthly',
+    }.contains(normalizedRhythm);
+    if (normalizedType == 'fixed' && predictableTiming) {
+      return const IncomeSourceDefaults(stable: true, scheduled: true);
+    }
+    // Variable, Both, and any irregular-timing profile leave each source
+    // unscheduled by default. The user can still mark a known source stable.
+    return const IncomeSourceDefaults(stable: false, scheduled: false);
+  }
+
   double get bufferMonthsCovered =>
       needsTarget <= 0 ? 0 : bufferBalance / needsTarget;
   bool get shieldIsSetup => safetyShieldTargetMonths > 0;
@@ -681,9 +713,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveProfile({bool markOnboardingComplete = false}) async {
+    if (!markOnboardingComplete && !onboardingComplete) return;
     final user = FirebaseProfileService.currentUser;
     if (user == null) return;
-    if (!markOnboardingComplete && !onboardingComplete) return;
     uid = user.uid;
     if (markOnboardingComplete) {
       onboardingComplete = true;
@@ -748,6 +780,7 @@ class AppState extends ChangeNotifier {
     investments = 0;
     subscriptions = 0;
     monthlySalary = 0;
+    variableIncomeBaseline = 0;
     irregularIncomeFloor = 0;
     basicNeedsMonthlyTarget = 0;
     basicNeedsAllocationPercent = 0.50;
@@ -806,6 +839,7 @@ class AppState extends ChangeNotifier {
     onboardingBaselines.clear();
     onboardingIncomeLedger.clear();
     onboardingExpenseLedger.clear();
+    processedIncomeTransactionIds.clear();
     essentialExpensesBalance = 0;
     billsObligationsBalance = 0;
     emergencyFundBalance = 0;
@@ -3747,7 +3781,7 @@ class AppState extends ChangeNotifier {
       'emotionalLogsEnabled': emotionalLogsEnabled,
       'stressIndicatorsEnabled': stressIndicatorsEnabled,
       'monthlySalary': monthlySalary,
-      'irregularIncomeFloor': irregularIncomeFloor,
+      ...exportIrregularIncomeState(),
       'basicNeedsMonthlyTarget': basicNeedsMonthlyTarget,
       'basicNeedsAllocationPercent': basicNeedsAllocationPercent,
       'bufferAllocationPercent': bufferAllocationPercent,
@@ -3835,7 +3869,7 @@ class AppState extends ChangeNotifier {
         'selectedGoal': selectedGoal,
         'selectedGoalDescription': selectedGoalDescription,
         'selectedGoalMonthlyTarget': selectedGoalMonthlyTarget,
-        'irregularIncomeFloor': irregularIncomeFloor,
+        ...exportIrregularIncomeState(),
         'basicNeedsMonthlyTarget': basicNeedsMonthlyTarget,
         'basicNeedsAllocationPercent': basicNeedsAllocationPercent,
         'bufferAllocationPercent': bufferAllocationPercent,
@@ -4088,10 +4122,7 @@ class AppState extends ChangeNotifier {
         planSetup['stressIndicatorsEnabled'] as bool? ??
         stressIndicatorsEnabled;
     monthlySalary = _doubleFrom(data['monthlySalary'], monthlySalary);
-    irregularIncomeFloor = _doubleFrom(
-      data['irregularIncomeFloor'] ?? planSetup['irregularIncomeFloor'],
-      irregularIncomeFloor,
-    );
+    importIrregularIncomeState({...planSetup, ...data});
     basicNeedsMonthlyTarget = _doubleFrom(
       data['basicNeedsMonthlyTarget'] ?? planSetup['basicNeedsMonthlyTarget'],
       basicNeedsMonthlyTarget,
@@ -4365,8 +4396,7 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> _legacyIncomeLedger() {
     final rows = <Map<String, dynamic>>[];
     final stableAmount = monthlySalary > 0 ? monthlySalary : 0.0;
-    final variableAmount =
-        irregularIncomeFloor > 0 ? irregularIncomeFloor : 0.0;
+    final variableAmount = effectiveVariableIncomeBaseline;
     final remainingIncome =
         math.max(0.0, income - stableAmount - variableAmount);
 
@@ -4666,7 +4696,7 @@ class AppState extends ChangeNotifier {
         );
     income = incomeTotal;
     monthlySalary = stableTotal;
-    irregularIncomeFloor = variableTotal;
+    setVariableIncomeBaseline(variableTotal, notify: false);
     onboardingBaselines['income_baseline'] = incomeTotal.toStringAsFixed(2);
     onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
     onboardingBaselines['variable_income'] = variableTotal.toStringAsFixed(2);
@@ -4791,7 +4821,7 @@ class AppState extends ChangeNotifier {
         );
     income = incomeTotal;
     monthlySalary = stableTotal;
-    irregularIncomeFloor = variableTotal;
+    setVariableIncomeBaseline(variableTotal, notify: false);
     onboardingBaselines['income_baseline'] = incomeTotal.toStringAsFixed(2);
     onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
     onboardingBaselines['variable_income'] = variableTotal.toStringAsFixed(2);
@@ -6563,10 +6593,43 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setIrregularIncomeFloor(double amount) {
-    irregularIncomeFloor = math.max(0, amount);
-    notifyListeners();
+  Map<String, dynamic> exportIrregularIncomeState() => {
+        'variableIncomeBaseline': effectiveVariableIncomeBaseline,
+        // Continue writing the legacy field while older clients may exist.
+        'irregularIncomeFloor': effectiveVariableIncomeBaseline,
+        'processedIncomeTransactionIds': processedIncomeTransactionIds.toList()
+          ..sort(),
+      };
+
+  void importIrregularIncomeState(Map<String, dynamic> data) {
+    final baseline = _doubleFrom(
+      data['variableIncomeBaseline'] ?? data['irregularIncomeFloor'],
+      effectiveVariableIncomeBaseline,
+    );
+    variableIncomeBaseline = math.max(0.0, baseline);
+    irregularIncomeFloor = variableIncomeBaseline;
+    final savedIds = data['processedIncomeTransactionIds'];
+    processedIncomeTransactionIds
+      ..clear()
+      ..addAll(
+        savedIds is Iterable
+            ? savedIds
+                .map((value) => value.toString().trim())
+                .where((value) => value.isNotEmpty)
+            : const <String>[],
+      );
   }
+
+  void setVariableIncomeBaseline(double amount, {bool notify = true}) {
+    final normalized = math.max(0.0, amount);
+    variableIncomeBaseline = normalized;
+    // Keep the old storage value synchronized for backward compatibility.
+    irregularIncomeFloor = normalized;
+    if (notify) notifyListeners();
+  }
+
+  void setIrregularIncomeFloor(double amount) =>
+      setVariableIncomeBaseline(amount);
 
   void setBasicNeedsConfig({
     required double monthlyTarget,
@@ -7013,6 +7076,65 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  bool isQualifyingIrregularIncomeTransaction(
+    FakeMayaTransaction transaction,
+  ) {
+    return usesIrregularIncomeMode &&
+        transaction.isFakeMayaCashIn &&
+        !transaction.isInternalFakeMayaTransfer &&
+        !transaction.excludedFromInsights;
+  }
+
+  /// Routes only new, genuine FakeMaya cash-ins through the existing Two-Jar
+  /// logic. Baseline income from onboarding is intentionally never used here.
+  Future<int> processNewIrregularIncomeTransactions(
+    Iterable<FakeMayaTransaction> transactions,
+  ) async {
+    if (!usesIrregularIncomeMode) return 0;
+    final candidates = transactions
+        .where(isQualifyingIrregularIncomeTransaction)
+        .where(
+          (transaction) => !processedIncomeTransactionIds.contains(
+            transaction.transactionId,
+          ),
+        )
+        .toList()
+      ..sort(
+        (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      );
+    var processed = 0;
+    for (final transaction in candidates) {
+      final transactionId = transaction.transactionId.trim();
+      if (transactionId.isEmpty ||
+          processedIncomeTransactionIds.contains(transactionId)) {
+        continue;
+      }
+      // Register before [onIncomeEvent] persists so either profile write
+      // includes this durable id if the app is interrupted mid-refresh.
+      processedIncomeTransactionIds.add(transactionId);
+      onIncomeEvent(
+        transaction.amount,
+        sourceLabel: _irregularIncomeSourceLabel(transaction),
+      );
+      processed += 1;
+    }
+    if (processed > 0) {
+      await saveProfile();
+      notifyListeners();
+    }
+    return processed;
+  }
+
+  String _irregularIncomeSourceLabel(FakeMayaTransaction transaction) {
+    final detail = transaction.detail.trim();
+    if (detail.isEmpty || detail.toLowerCase() == 'cash in') {
+      return transaction.title;
+    }
+    return detail.replaceFirst(
+        RegExp(r'^from\s*:\s*', caseSensitive: false), '');
+  }
+
   Future<void> onBillEvent(
     double amount, {
     required JarSource shortfallSource,
@@ -7150,7 +7272,17 @@ class AppState extends ChangeNotifier {
     final session = await _withFakeMayaSessionRecovery(
       () => FakeMayaService.refreshSession(link),
     );
+    final knownTransactionIds = link.summary.transactions
+        .map((transaction) => transaction.transactionId)
+        .toSet();
     _applyFakeMayaSession(session, previousLink: link);
+    await processNewIrregularIncomeTransactions(
+      (fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[])
+          .where(
+        (transaction) =>
+            !knownTransactionIds.contains(transaction.transactionId),
+      ),
+    );
     if (reconcileBuckets) {
       await _pruneFakeMayaBucketsToActiveGoals();
       // Self-heal: retry creating any bucket that's been agreed to but is
@@ -7679,6 +7811,16 @@ class ActionStageSuggestion {
 }
 
 // ─── Two-jar system types ─────────────────────────────────────────────────────
+
+class IncomeSourceDefaults {
+  const IncomeSourceDefaults({
+    required this.stable,
+    required this.scheduled,
+  });
+
+  final bool stable;
+  final bool scheduled;
+}
 
 enum JarEventType { income, billPaid, transfer }
 

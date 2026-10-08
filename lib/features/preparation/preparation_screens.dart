@@ -664,7 +664,7 @@ double _availableEverydayCash(AppState state) {
 int _recommendedEverydayFundMonths(AppState state) {
   final expenses = _monthlyExpenseBase(state);
   final income = _monthlyIncomeBase(state);
-  final irregularIncome = state.irregularIncomeFloor > 0 ||
+  final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
       state.incomeType.toLowerCase().contains('irregular') ||
       !state.incomeRhythm.toLowerCase().contains('monthly');
   final tightCash = income > 0 && income < expenses * 1.15;
@@ -677,7 +677,7 @@ double _recommendedEssentialFundFloor(AppState state) {
   final income = _monthlyIncomeBase(state);
   final essentials = math.max(1.0, _monthlyEssentialBase(state));
   final surplus = _monthlySurplusBase(state);
-  final irregularIncome = state.irregularIncomeFloor > 0 ||
+  final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
       state.incomeType.toLowerCase().contains('irregular') ||
       !state.incomeRhythm.toLowerCase().contains('monthly');
 
@@ -757,7 +757,7 @@ List<String> _recommendationsForActionField(
   if (field.key == 'days') {
     final predictable = state.billsRhythm.toLowerCase().contains('predict');
     final highAnxiety = state.anxiety >= 7;
-    final irregularIncome = state.irregularIncomeFloor > 0 ||
+    final irregularIncome = state.effectiveVariableIncomeBaseline > 0 ||
         state.incomeType.toLowerCase().contains('irregular');
     final recommended = switch (action.id) {
       'A5' => highAnxiety
@@ -795,7 +795,7 @@ List<String> _recommendationsForActionField(
   if (action.id == 'A7' && field.key == 'pct') {
     final recommended = lowEverydayCash
         ? 50
-        : state.irregularIncomeFloor > 0
+        : state.effectiveVariableIncomeBaseline > 0
             ? 35
             : 25;
     return _percentOptions(recommended, spread: 10, minimum: 10, maximum: 80);
@@ -4846,7 +4846,11 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
       incomes
           .addAll(state.onboardingIncomeLedger.map(_IncomeLedgerDraft.fromMap));
     }
-    if (incomes.isEmpty) incomes.add(_IncomeLedgerDraft());
+    if (incomes.isEmpty) {
+      incomes.add(
+        _IncomeLedgerDraft.fromDefaults(state.suggestedIncomeSourceDefaults),
+      );
+    }
     seeded = true;
   }
 
@@ -4858,7 +4862,11 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
     super.dispose();
   }
 
-  void _addIncome() => setState(() => incomes.add(_IncomeLedgerDraft()));
+  void _addIncome(AppState state) => setState(
+        () => incomes.add(
+          _IncomeLedgerDraft.fromDefaults(state.suggestedIncomeSourceDefaults),
+        ),
+      );
 
   void _removeIncome(int index) {
     if (incomes.length == 1) return;
@@ -4879,7 +4887,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
     final variableTotal = math.max(0.0, total - stableTotal);
     state.income = total;
     state.monthlySalary = stableTotal;
-    state.irregularIncomeFloor = variableTotal;
+    state.setVariableIncomeBaseline(variableTotal, notify: false);
     state.onboardingBaselines['income_baseline'] = total.toStringAsFixed(2);
     state.onboardingBaselines['stable_income'] = stableTotal.toStringAsFixed(2);
     state.onboardingBaselines['variable_income'] =
@@ -4889,11 +4897,12 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     return OnboardingScaffold(
       phase: 4,
-      title: 'Typical monthly income.',
+      title: 'Your income sources.',
       subtitle:
-          'Add a cautious typical amount for each income source. For freelance or side-hustle income, you do not need to declare future payment dates.',
+          'Add a cautious typical monthly amount for each source. This helps Shelby understand your usual financial situation. Irregular income does not require a future payment date.',
       bottom: PrimaryButton(
         label: 'Continue to Expenses',
         icon: Icons.arrow_forward_rounded,
@@ -4935,7 +4944,7 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
               const SizedBox(height: 12),
             ],
             OutlinedButton.icon(
-              onPressed: _addIncome,
+              onPressed: () => _addIncome(state),
               icon: const Icon(Icons.add_rounded),
               label: const Text('Add another income'),
             ),
@@ -4958,6 +4967,13 @@ class _IncomeLedgerDraft {
     this.repeatFrequency = 'Monthly',
   })  : nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
+
+  factory _IncomeLedgerDraft.fromDefaults(IncomeSourceDefaults defaults) {
+    return _IncomeLedgerDraft(
+      stable: defaults.stable,
+      scheduled: defaults.scheduled,
+    );
+  }
 
   factory _IncomeLedgerDraft.fromMap(Map<String, dynamic> value) {
     final anchorDate = DateTime.tryParse(
