@@ -22306,7 +22306,15 @@ class _EmergencyFundIncomeActionPanelState
       ),
     );
     if (amount == null) return;
-    await state.useD1BucketFunds('emergency', amount);
+    try {
+      await state.useD1BucketFunds('emergency', amount);
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+      return;
+    }
     if (mounted) setState(() {});
   }
 

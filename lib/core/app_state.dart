@@ -6697,7 +6697,20 @@ class AppState extends ChangeNotifier {
       case 'bills':
         billsObligationsBalance = math.max(0, billsObligationsBalance - amount);
       case 'emergency':
+        // Move the money out of the FakeMaya Emergency Fund bucket (B2) back
+        // to the wallet so the bucket balance and both activity feeds show
+        // the withdrawal. Throws FakeMayaException before any local change.
+        if (fakeMayaLink?.summary
+                .personalGoalById(FakeMayaPersonalGoal.emergencyFundId) !=
+            null) {
+          await _withdrawFakeMayaPersonalGoalToWallet(
+            amount,
+            personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+          );
+        }
         emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
+        financialSafetyBalance = emergencyFundBalance;
+        shieldTrackedBalance = emergencyFundBalance;
         _lastEfWithdrawalStr = AppClock.now().toIso8601String();
     }
     d1Ledger.insert(0, {
