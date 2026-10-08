@@ -2365,6 +2365,60 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
     super.dispose();
   }
 
+  void _setOccupationFromPreset(AppState state, String value) {
+    final isOther = value == 'Other';
+    setState(() {
+      occupationOther = isOther;
+      if (isOther) {
+        state.occupation = occupationOtherController.text.trim();
+      } else {
+        occupationOtherController.clear();
+        state.occupation = value;
+      }
+    });
+  }
+
+  void _setIndustryFromPreset(AppState state, String value) {
+    final isOther = value == 'Other';
+    setState(() {
+      industryOther = isOther;
+      if (isOther) {
+        state.industry = industryOtherController.text.trim();
+      } else {
+        industryOtherController.clear();
+        state.industry = value;
+      }
+    });
+  }
+
+  void _handleOccupationText(AppState state, String value) {
+    final normalized = value.trim();
+    if (normalized == 'Other') {
+      _setOccupationFromPreset(state, normalized);
+    } else if (occupationPresets.contains(normalized)) {
+      _setOccupationFromPreset(state, normalized);
+    } else {
+      setState(() {
+        occupationOther = false;
+        state.occupation = '';
+      });
+    }
+  }
+
+  void _handleIndustryText(AppState state, String value) {
+    final normalized = value.trim();
+    if (normalized == 'Other') {
+      _setIndustryFromPreset(state, normalized);
+    } else if (industryPresets.contains(normalized)) {
+      _setIndustryFromPreset(state, normalized);
+    } else {
+      setState(() {
+        industryOther = false;
+        state.industry = '';
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
@@ -2416,20 +2470,13 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
                   text: occupationOther ? 'Other' : state.occupation),
               optionsBuilder: (value) => occupationPresets.where((option) =>
                   option.toLowerCase().contains(value.text.toLowerCase())),
-              onSelected: (value) => setState(() {
-                occupationOther = value == 'Other';
-                state.occupation = occupationOther ? '' : value;
-              }),
+              onSelected: (value) => _setOccupationFromPreset(state, value),
               fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
                   TextField(
                 controller: controller,
                 focusNode: focusNode,
                 decoration: inputDecoration('Search occupations'),
-                onChanged: (value) => setState(() {
-                  state.occupation = occupationPresets.contains(value.trim())
-                      ? value.trim()
-                      : '';
-                }),
+                onChanged: (value) => _handleOccupationText(state, value),
               ),
             ),
           ),
@@ -2450,21 +2497,13 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
                   text: industryOther ? 'Other' : state.industry),
               optionsBuilder: (value) => industryPresets.where((option) =>
                   option.toLowerCase().contains(value.text.toLowerCase())),
-              onSelected: (value) => setState(() {
-                industryOther = value == 'Other';
-                state.industry = industryOther ? '' : value;
-              }),
+              onSelected: (value) => _setIndustryFromPreset(state, value),
               fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
                   TextField(
                       controller: controller,
                       focusNode: focusNode,
                       decoration: inputDecoration('Search industries'),
-                      onChanged: (value) => setState(() {
-                            state.industry =
-                                industryPresets.contains(value.trim())
-                                    ? value.trim()
-                                    : '';
-                          })),
+                      onChanged: (value) => _handleIndustryText(state, value)),
             ),
           ),
           if (industryOther) ...[
@@ -5635,7 +5674,7 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
 
 class _ExpenseLedgerDraft {
   _ExpenseLedgerDraft(
-      {String category = 'Other',
+      {this.category,
       String name = '',
       String amount = '',
       this.layer,
@@ -5644,8 +5683,7 @@ class _ExpenseLedgerDraft {
       this.scheduleAnchorType = 'next',
       this.scheduleAnchorDate,
       this.repeatFrequency = 'Monthly'})
-      : category = category,
-        nameController = TextEditingController(text: name),
+      : nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
 
   factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) {
@@ -5670,7 +5708,7 @@ class _ExpenseLedgerDraft {
 
   final TextEditingController nameController;
   final TextEditingController amountController;
-  String category;
+  String? category;
   ExpenseLayer? layer;
   bool scheduled;
   int? dueDay;
@@ -5685,12 +5723,14 @@ class _ExpenseLedgerDraft {
 
   int? get inferredDueDay => scheduleAnchorDate?.day ?? dueDay;
 
-  bool get isComplete =>
-      category.isNotEmpty &&
-      (category != 'Other' || nameController.text.trim().isNotEmpty) &&
-      amountValue > 0 &&
-      layer != null &&
-      (!scheduled || scheduleAnchorDate != null);
+  bool get isComplete => isExpenseEntryComplete(
+        category: category,
+        name: nameController.text,
+        amount: amountValue,
+        layer: layer,
+        scheduled: scheduled,
+        scheduleAnchorDate: scheduleAnchorDate,
+      );
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
@@ -5795,9 +5835,11 @@ class _ExpenseLedgerCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: expenseCategoryPresets.contains(expense.category)
-                ? expense.category
-                : 'Other',
+            value: expense.category == null
+                ? null
+                : expenseCategoryPresets.contains(expense.category)
+                    ? expense.category
+                    : 'Other',
             decoration: inputDecoration('Choose a category')
                 .copyWith(labelText: 'Category', isDense: true),
             items: expenseCategoryPresets

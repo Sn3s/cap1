@@ -1735,6 +1735,7 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
   String layer, [
   _PyramidBaselineEntry? entry,
 ]) {
+  final formKey = GlobalKey<FormState>();
   final name = TextEditingController(text: entry?.name ?? '');
   final amount = TextEditingController(
     text: entry == null ? '' : entry.amount.toStringAsFixed(0),
@@ -1757,69 +1758,75 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
         backgroundColor: _surface,
         title: Text(entry == null ? 'Add income' : 'Edit income'),
         content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: inputDecoration('Income source'),
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: amount,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: inputDecoration('Monthly amount')
-                    .copyWith(prefixText: '₱ '),
-              ),
-              const SizedBox(height: 8),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: stable,
-                onChanged: (value) =>
-                    setDialogState(() => stable = value ?? false),
-                title: const Text('Stable income'),
-              ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: scheduled,
-                onChanged: (value) =>
-                    setDialogState(() => scheduled = value ?? false),
-                title: const Text('Scheduled income'),
-              ),
-              if (scheduled) ...[
-                const SizedBox(height: 8),
-                _ScheduleEditor(
-                  title: 'Income schedule',
-                  icon: Icons.payments_rounded,
-                  anchorType: scheduleAnchorType,
-                  lastLabel: 'Last received',
-                  nextLabel: 'Next expected',
-                  anchorDate: scheduleAnchorDate,
-                  repeatFrequency: repeatFrequency,
-                  missingDateMessage: 'Choose a known income date.',
-                  onAnchorTypeChanged: (value) =>
-                      setDialogState(() => scheduleAnchorType = value),
-                  onPickDate: () async {
-                    final now = AppClock.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: scheduleAnchorDate ?? now,
-                      firstDate: DateTime(now.year - 5),
-                      lastDate: DateTime(now.year + 5),
-                    );
-                    if (picked == null) return;
-                    setDialogState(() {
-                      scheduleAnchorDate = picked;
-                      payDay = picked.day;
-                    });
-                  },
-                  onRepeatChanged: (value) =>
-                      setDialogState(() => repeatFrequency = value),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: name,
+                  decoration: inputDecoration('Income source'),
+                  textCapitalization: TextCapitalization.words,
+                  validator: (value) =>
+                      validateRequired(value, label: 'Income source'),
                 ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: inputDecoration('Monthly amount')
+                      .copyWith(prefixText: '₱ '),
+                  validator: validatePositiveAmount,
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: stable,
+                  onChanged: (value) =>
+                      setDialogState(() => stable = value ?? false),
+                  title: const Text('Stable income'),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: scheduled,
+                  onChanged: (value) =>
+                      setDialogState(() => scheduled = value ?? false),
+                  title: const Text('Scheduled income'),
+                ),
+                if (scheduled) ...[
+                  const SizedBox(height: 8),
+                  _ScheduleEditor(
+                    title: 'Income schedule',
+                    icon: Icons.payments_rounded,
+                    anchorType: scheduleAnchorType,
+                    lastLabel: 'Last received',
+                    nextLabel: 'Next expected',
+                    anchorDate: scheduleAnchorDate,
+                    repeatFrequency: repeatFrequency,
+                    missingDateMessage: 'Choose a known income date.',
+                    onAnchorTypeChanged: (value) =>
+                        setDialogState(() => scheduleAnchorType = value),
+                    onPickDate: () async {
+                      final now = AppClock.now();
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: scheduleAnchorDate ?? now,
+                        firstDate: DateTime(now.year - 5),
+                        lastDate: DateTime(now.year + 5),
+                      );
+                      if (picked == null) return;
+                      setDialogState(() {
+                        scheduleAnchorDate = picked;
+                        payDay = picked.day;
+                      });
+                    },
+                    onRepeatChanged: (value) =>
+                        setDialogState(() => repeatFrequency = value),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [
@@ -1829,8 +1836,8 @@ Future<Map<String, dynamic>?> _showIncomeLedgerDialog(
           ),
           FilledButton(
             onPressed: () {
+              if (!(formKey.currentState?.validate() ?? false)) return;
               final parsed = _baselineAmount(amount.text);
-              if (name.text.trim().isEmpty || parsed <= 0) return;
               final inferredPayDay = scheduleAnchorDate?.day ?? payDay;
               Navigator.pop(context, {
                 'name': name.text.trim(),
@@ -1863,10 +1870,12 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
 ]) {
   final formKey = GlobalKey<FormState>();
   final name = TextEditingController(text: entry?.name ?? '');
-  var category = inferExpenseCategory(
-    entry?.data['category']?.toString(),
-    entry?.name ?? '',
-  );
+  String? category = entry == null
+      ? null
+      : inferExpenseCategory(
+          entry.data['category']?.toString(),
+          entry.name,
+        );
   final amount = TextEditingController(
     text: entry == null ? '' : entry.amount.toStringAsFixed(0),
   );
@@ -25813,30 +25822,8 @@ class _ManualTransactionSheet extends StatefulWidget {
 }
 
 class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
-  static const _incomeCategories = [
-    'Salary',
-    'Business income',
-    'Refund',
-    'Gift',
-    'Other income',
-  ];
-  static const _expenseCategories = [
-    'Food & drink',
-    'Transport',
-    'Bills & utilities',
-    'Housing',
-    'Groceries',
-    'Shopping',
-    'Education',
-    'Health',
-    'Insurance',
-    'Debt payment',
-    'Entertainment',
-    'Travel',
-    'Personal goal',
-    'Gifts & giving',
-    'Other expense',
-  ];
+  static const _incomeCategories = incomeCategoryPresets;
+  static const _expenseCategories = transactionExpenseCategoryPresets;
   static const _sources = [
     'Basic Needs Fund',
     'Emergency Fund',
@@ -26140,7 +26127,7 @@ class _TransactionSourceOption {
 
 class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   static const _incomeCategories = incomeCategoryPresets;
-  static const _expenseCategories = expenseCategoryPresets;
+  static const _expenseCategories = transactionExpenseCategoryPresets;
   static const _tags = [
     'Personal',
     'Work',
@@ -26174,31 +26161,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   static const _eWalletSource = 'E-wallet';
   // Categories not listed here (e.g. "Transfer", "Other expense/income")
   // are generic and stay available under every layer.
-  static const _layerCategories = {
-    'Cash Flow & Basic Needs': [
-      'Groceries / Food',
-      'Transport',
-      'Utilities',
-      'Rent / Housing',
-      'Salary',
-      'Refund',
-    ],
-    'Financial Safety': ['Healthcare', 'Insurance'],
-    'Accumulating Wealth': [
-      'Debt Payment',
-      'Investment Contribution',
-      'Education',
-      'Business income',
-    ],
-    'Financial Freedom': [
-      'Subscriptions',
-      'Entertainment',
-      'Travel',
-      'Family Support',
-      'Gift',
-    ],
-  };
-  static const _genericCategories = ['Transfer', 'Other', 'Other income'];
+  static const _genericCategories = ['Transfer', 'Other'];
 
   late String? _financialLayer = _initialFinancialLayer(widget.transaction);
   late String? _category = widget.transaction.category;
@@ -26244,9 +26207,15 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
       if (pyramidOptions.isNotEmpty) return pyramidOptions;
     }
+    final expenseLayer = switch (layer) {
+      'Financial Safety' => ExpenseLayer.emergencyInsurance,
+      'Accumulating Wealth' => ExpenseLayer.debtInvestments,
+      'Financial Freedom' => ExpenseLayer.nonEssentials,
+      _ => ExpenseLayer.basicNeeds,
+    };
     final allowed = {
       ..._genericCategories,
-      ...?_layerCategories[layer],
+      ...expenseCategoriesForLayer(expenseLayer),
       if (selectedCategory != null) selectedCategory,
     };
     final filtered = base.where(allowed.contains).toList();
