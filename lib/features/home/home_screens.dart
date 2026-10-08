@@ -21918,227 +21918,243 @@ class _CategoryBudgetActionPanelState
       ]);
     }
 
+    // Rows removed while the dialog is open; disposed with the rest once the
+    // dialog is gone, since their fields may still be in the current frame.
+    final removedRows = <({
+      String category,
+      TextEditingController customController,
+      TextEditingController controller,
+    })>[];
     final result = await showDialog<Map<String, double>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) {
-          String rowCategory(int index) {
-            final row = rows[index];
-            if (row.category == 'Other expense') {
-              final custom = row.customController.text.trim();
-              if (custom.isNotEmpty) return custom;
+      // showDialog completes when the pop starts, but the fields keep
+      // rebuilding through the exit animation, so the controllers are only
+      // disposed once the dialog is actually unmounted.
+      builder: (dialogContext) => _DisposeOnUnmount(
+        onDispose: () {
+          for (final row in [...rows, ...removedRows]) {
+            row.controller.dispose();
+            row.customController.dispose();
+          }
+        },
+        child: StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            String rowCategory(int index) {
+              final row = rows[index];
+              if (row.category == 'Other expense') {
+                final custom = row.customController.text.trim();
+                if (custom.isNotEmpty) return custom;
+              }
+              return row.category.trim();
             }
-            return row.category.trim();
-          }
 
-          final chosen = [
-            for (var i = 0; i < rows.length; i++) rowCategory(i),
-          ];
-          final hasDuplicates = chosen.toSet().length != chosen.length;
-          final valid = rows.isNotEmpty &&
-              !hasDuplicates &&
-              rows.indexed.every((item) {
-                final row = item.$2;
-                final category = rowCategory(item.$1);
-                final amount =
-                    double.tryParse(row.controller.text.replaceAll(',', '')) ??
-                        0;
-                return category.isNotEmpty && amount > 0 && amount <= 1000000;
-              });
-          void addRow() {
-            final used = rows.map((row) => row.category).toSet();
-            final category = ordered.firstWhere(
-              (category) => !used.contains(category),
-              orElse: () => 'Other expense',
-            );
-            rows.add((
-              category: category,
-              customController: TextEditingController(),
-              controller: TextEditingController(),
-            ));
-            setDialogState(() {});
-          }
+            final chosen = [
+              for (var i = 0; i < rows.length; i++) rowCategory(i),
+            ];
+            final hasDuplicates = chosen.toSet().length != chosen.length;
+            final valid = rows.isNotEmpty &&
+                !hasDuplicates &&
+                rows.indexed.every((item) {
+                  final row = item.$2;
+                  final category = rowCategory(item.$1);
+                  final amount = double.tryParse(
+                          row.controller.text.replaceAll(',', '')) ??
+                      0;
+                  return category.isNotEmpty && amount > 0 && amount <= 1000000;
+                });
+            void addRow() {
+              final used = rows.map((row) => row.category).toSet();
+              final category = ordered.firstWhere(
+                (category) => !used.contains(category),
+                orElse: () => 'Other expense',
+              );
+              rows.add((
+                category: category,
+                customController: TextEditingController(),
+                controller: TextEditingController(),
+              ));
+              setDialogState(() {});
+            }
 
-          return AlertDialog(
-            backgroundColor: _surface,
-            insetPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            title: const Text('Category budget ledger',
-                style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Add one monthly cap per spending category.',
-                      style: TextStyle(
-                        color: _body,
-                        fontSize: 12,
-                        height: 1.35,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // One stacked card per budget so the category name and
-                    // cap each get the full dialog width.
-                    for (var index = 0; index < rows.length; index++) ...[
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 4, 12),
-                        decoration: BoxDecoration(
-                          color: _bg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _border),
+            return AlertDialog(
+              backgroundColor: _surface,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              title: const Text('Category budget ledger',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Add one monthly cap per spending category.',
+                        style: TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Budget ${index + 1}',
-                                    style: const TextStyle(
-                                      color: _title,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Remove budget',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: rows.length == 1
-                                      ? null
-                                      : () {
-                                          final row = rows.removeAt(index);
-                                          row.controller.dispose();
-                                          row.customController.dispose();
-                                          setDialogState(() {});
-                                        },
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                              ],
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                      ),
+                      const SizedBox(height: 12),
+                      // One stacked card per budget so the category name and
+                      // cap each get the full dialog width.
+                      for (var index = 0; index < rows.length; index++) ...[
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 4, 12),
+                          decoration: BoxDecoration(
+                            color: _bg,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
                                 children: [
-                                  DropdownButtonFormField<String>(
-                                    value: rows[index].category,
-                                    isExpanded: true,
-                                    decoration: _budgetFieldDecoration(
-                                      'Category',
+                                  Expanded(
+                                    child: Text(
+                                      'Budget ${index + 1}',
+                                      style: const TextStyle(
+                                        color: _title,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
-                                    items: [
-                                      for (final category in ordered)
-                                        DropdownMenuItem(
-                                          value: category,
-                                          child: Text(
-                                            category,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                    ],
-                                    onChanged: (value) {
-                                      if (value == null) return;
-                                      rows[index] = (
-                                        category: value,
-                                        customController:
-                                            rows[index].customController,
-                                        controller: rows[index].controller,
-                                      );
-                                      setDialogState(() {});
-                                    },
                                   ),
-                                  if (rows[index].category ==
-                                      'Other expense') ...[
+                                  IconButton(
+                                    tooltip: 'Remove budget',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: rows.length == 1
+                                        ? null
+                                        : () {
+                                            removedRows
+                                                .add(rows.removeAt(index));
+                                            setDialogState(() {});
+                                          },
+                                    icon: const Icon(Icons.close_rounded),
+                                  ),
+                                ],
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    DropdownButtonFormField<String>(
+                                      value: rows[index].category,
+                                      isExpanded: true,
+                                      decoration: _budgetFieldDecoration(
+                                        'Category',
+                                      ),
+                                      items: [
+                                        for (final category in ordered)
+                                          DropdownMenuItem(
+                                            value: category,
+                                            child: Text(
+                                              category,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                      ],
+                                      onChanged: (value) {
+                                        if (value == null) return;
+                                        rows[index] = (
+                                          category: value,
+                                          customController:
+                                              rows[index].customController,
+                                          controller: rows[index].controller,
+                                        );
+                                        setDialogState(() {});
+                                      },
+                                    ),
+                                    if (rows[index].category ==
+                                        'Other expense') ...[
+                                      const SizedBox(height: 10),
+                                      TextField(
+                                        controller:
+                                            rows[index].customController,
+                                        textCapitalization:
+                                            TextCapitalization.words,
+                                        decoration: _budgetFieldDecoration(
+                                          'Custom category name',
+                                        ),
+                                        onChanged: (_) => setDialogState(() {}),
+                                      ),
+                                    ],
                                     const SizedBox(height: 10),
                                     TextField(
-                                      controller:
-                                          rows[index].customController,
-                                      textCapitalization:
-                                          TextCapitalization.words,
+                                      controller: rows[index].controller,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
                                       decoration: _budgetFieldDecoration(
-                                        'Custom category name',
+                                        'Monthly cap',
+                                      ).copyWith(
+                                        prefixText: '₱ ',
+                                        suffixText: 'per month',
                                       ),
                                       onChanged: (_) => setDialogState(() {}),
                                     ),
                                   ],
-                                  const SizedBox(height: 10),
-                                  TextField(
-                                    controller: rows[index].controller,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                    decoration: _budgetFieldDecoration(
-                                      'Monthly cap',
-                                    ).copyWith(
-                                      prefixText: '₱ ',
-                                      suffixText: 'per month',
-                                    ),
-                                    onChanged: (_) => setDialogState(() {}),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                      if (index < rows.length - 1) const SizedBox(height: 10),
-                    ],
-                    if (hasDuplicates) ...[
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Each budget needs a different category.',
-                        style: TextStyle(
-                          color: _red,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                        if (index < rows.length - 1) const SizedBox(height: 10),
+                      ],
+                      if (hasDuplicates) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Each budget needs a different category.',
+                          style: TextStyle(
+                            color: _red,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
+                      ],
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: addRow,
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Add another budget'),
                       ),
                     ],
-                    const SizedBox(height: 14),
-                    OutlinedButton.icon(
-                      onPressed: addRow,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add another budget'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel')),
-              FilledButton(
-                onPressed: valid
-                    ? () => Navigator.of(dialogContext).pop({
-                          for (final row in rows)
-                            (row.category == 'Other expense' &&
-                                    row.customController.text.trim().isNotEmpty
-                                ? row.customController.text.trim()
-                                : row.category): double.parse(
-                              row.controller.text.replaceAll(',', ''),
-                            ),
-                        })
-                    : null,
-                child: const Text('Save budgets'),
-              ),
-            ],
-          );
-        },
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: valid
+                      ? () => Navigator.of(dialogContext).pop({
+                            for (final row in rows)
+                              (row.category == 'Other expense' &&
+                                      row.customController.text
+                                          .trim()
+                                          .isNotEmpty
+                                  ? row.customController.text.trim()
+                                  : row.category): double.parse(
+                                row.controller.text.replaceAll(',', ''),
+                              ),
+                          })
+                      : null,
+                  child: const Text('Save budgets'),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
-    for (final row in rows) {
-      row.controller.dispose();
-      row.customController.dispose();
-    }
     if (result == null) return;
     await state.updateCategorySpendingBudgets(result);
     if (mounted) setState(() {});
@@ -24068,6 +24084,29 @@ class NotificationSettingsScreen extends StatelessWidget {
     }
     await ShellbyNotificationService.instance.showTestReminder();
   }
+}
+
+/// Runs [onDispose] when this subtree leaves the tree, e.g. after a dialog's
+/// exit animation, which is the safe point to dispose its controllers.
+class _DisposeOnUnmount extends StatefulWidget {
+  const _DisposeOnUnmount({required this.onDispose, required this.child});
+
+  final VoidCallback onDispose;
+  final Widget child;
+
+  @override
+  State<_DisposeOnUnmount> createState() => _DisposeOnUnmountState();
+}
+
+class _DisposeOnUnmountState extends State<_DisposeOnUnmount> {
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 // Category budget fields use floating labels so "Category" / "Monthly cap"
