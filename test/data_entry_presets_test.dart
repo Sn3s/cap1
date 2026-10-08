@@ -39,6 +39,21 @@ void main() {
       );
     });
 
+    test('keeps expense display labels separate from categories', () {
+      expect(
+        expenseDisplayName(name: '', category: 'Utilities'),
+        'Utilities',
+      );
+      expect(
+        expenseDisplayName(name: 'Meralco', category: 'Utilities'),
+        'Meralco',
+      );
+      expect(inferExpenseCategory('Utilities', 'Meralco'), 'Utilities');
+      expect(inferExpenseCategory(null, 'Rent share'), 'Rent / Housing');
+      expect(
+          expenseDisplayName(name: 'Rent share', category: null), 'Rent share');
+    });
+
     test('separates monthly expense categories from transfers', () {
       expect(expenseCategoryPresets, isNot(contains('Transfer')));
       expect(transactionExpenseCategoryPresets, contains('Transfer'));
