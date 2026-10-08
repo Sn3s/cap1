@@ -35,6 +35,7 @@ part 'services/firebase_profile_service.dart';
 part 'services/integration_service.dart';
 part 'services/notification_service.dart';
 part 'services/shellby_ai_coach.dart';
+part 'shared/data_entry_presets.dart';
 part 'shared/widgets/shared_widgets.dart';
 
 Future<void> main() async {

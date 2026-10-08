@@ -114,6 +114,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final formKey = GlobalKey<FormState>();
   static const _presetAccounts = [
     (email: 'main@gmail.com', password: 'mainaccount'),
     (email: 'cashflow@gmail.com', password: 'cashflow'),
@@ -134,8 +135,14 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _runAuth(Future<void> Function(AppState state) action) async {
-    if (busy) return;
+  Future<void> _runAuth(
+    Future<void> Function(AppState state) action, {
+    bool validateForm = true,
+  }) async {
+    if (busy ||
+        (validateForm && !(formKey.currentState?.validate() ?? false))) {
+      return;
+    }
     setState(() => busy = true);
     try {
       final state = AppScope.of(context);
@@ -213,117 +220,124 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextFormField(
-                      controller: emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      decoration: inputDecoration('Email address').copyWith(
-                        prefixIcon: const Icon(
-                          Icons.mail_rounded,
-                          color: _body,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextFormField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        decoration: inputDecoration('Email address').copyWith(
+                          prefixIcon: const Icon(
+                            Icons.mail_rounded,
+                            color: _body,
+                          ),
                         ),
+                        validator: validateEmail,
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: passwordController,
-                      obscureText: true,
-                      textInputAction: TextInputAction.done,
-                      decoration: inputDecoration('Password').copyWith(
-                        prefixIcon: const Icon(
-                          Icons.lock_rounded,
-                          color: _body,
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: passwordController,
+                        obscureText: true,
+                        textInputAction: TextInputAction.done,
+                        decoration: inputDecoration('Password').copyWith(
+                          prefixIcon: const Icon(
+                            Icons.lock_rounded,
+                            color: _body,
+                          ),
                         ),
+                        validator: validatePassword,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () {},
-                        child: const Text(
-                          'Forgot password?',
-                          style: TextStyle(
-                            color: _purple,
-                            fontWeight: FontWeight.w900,
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {},
+                          child: const Text(
+                            'Forgot password?',
+                            style: TextStyle(
+                              color: _purple,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    PrimaryButton(
-                      label: 'Login',
-                      icon: Icons.arrow_forward_rounded,
-                      enabled: !busy,
-                      onPressed: () => _runAuth(
-                        (state) => state.signInWithEmail(
-                          email: emailController.text,
-                          password: passwordController.text,
+                      const SizedBox(height: 8),
+                      PrimaryButton(
+                        label: 'Login',
+                        icon: Icons.arrow_forward_rounded,
+                        enabled: !busy,
+                        onPressed: () => _runAuth(
+                          (state) => state.signInWithEmail(
+                            email: emailController.text,
+                            password: passwordController.text,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    const _LoginDivider(),
-                    const SizedBox(height: 16),
-                    GoogleSignInButton(
-                      busy: busy,
-                      onPressed: () => _runAuth(
-                        (state) => state.signInWithGoogle(
-                          requireCompletedProfile: true,
+                      const SizedBox(height: 16),
+                      const _LoginDivider(),
+                      const SizedBox(height: 16),
+                      GoogleSignInButton(
+                        busy: busy,
+                        onPressed: () => _runAuth(
+                          (state) => state.signInWithGoogle(
+                            requireCompletedProfile: true,
+                          ),
+                          validateForm: false,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    SecondaryButton(
-                      label: 'Seed Reflection Demo User',
-                      icon: Icons.auto_awesome_rounded,
-                      onPressed: () => _runAuth(
-                        (state) => state.seedReflectionDemoUser(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedPresetEmail,
-                      isExpanded: true,
-                      decoration:
-                          inputDecoration('Login saved account').copyWith(
-                        prefixIcon: const Icon(
-                          Icons.account_circle_rounded,
-                          color: _body,
+                      const SizedBox(height: 12),
+                      SecondaryButton(
+                        label: 'Seed Reflection Demo User',
+                        icon: Icons.auto_awesome_rounded,
+                        onPressed: () => _runAuth(
+                          (state) => state.seedReflectionDemoUser(),
+                          validateForm: false,
                         ),
                       ),
-                      items: _presetAccounts
-                          .map(
-                            (account) => DropdownMenuItem(
-                              value: account.email,
-                              child: Text(account.email),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: busy
-                          ? null
-                          : (email) {
-                              if (email == null) return;
-                              final account = _presetAccounts.firstWhere(
-                                (account) => account.email == email,
-                              );
-                              setState(() {
-                                selectedPresetEmail = account.email;
-                                emailController.text = account.email;
-                                passwordController.text = account.password;
-                              });
-                              _runAuth(
-                                (state) => state.signInWithEmail(
-                                  email: account.email,
-                                  password: account.password,
-                                ),
-                              );
-                            },
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedPresetEmail,
+                        isExpanded: true,
+                        decoration:
+                            inputDecoration('Login saved account').copyWith(
+                          prefixIcon: const Icon(
+                            Icons.account_circle_rounded,
+                            color: _body,
+                          ),
+                        ),
+                        items: _presetAccounts
+                            .map(
+                              (account) => DropdownMenuItem(
+                                value: account.email,
+                                child: Text(account.email),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: busy
+                            ? null
+                            : (email) {
+                                if (email == null) return;
+                                final account = _presetAccounts.firstWhere(
+                                  (account) => account.email == email,
+                                );
+                                setState(() {
+                                  selectedPresetEmail = account.email;
+                                  emailController.text = account.email;
+                                  passwordController.text = account.password;
+                                });
+                                _runAuth(
+                                  (state) => state.signInWithEmail(
+                                    email: account.email,
+                                    password: account.password,
+                                  ),
+                                );
+                              },
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 20),

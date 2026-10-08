@@ -1027,21 +1027,7 @@ String? _actionFieldError(ActionField field, String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) return 'Choose or enter a value.';
   if (field.key == 'freq') {
-    if (RegExp(r'^(weekly|monthly)$', caseSensitive: false).hasMatch(trimmed)) {
-      return null;
-    }
-    final match = RegExp(r'^every\s+(\d+)\s+(days?|weeks?|months?)$',
-            caseSensitive: false)
-        .firstMatch(trimmed);
-    if (match == null) {
-      return 'Use Weekly, Monthly, or “Every N days/weeks/months.”';
-    }
-    final count = int.parse(match.group(1)!);
-    final unit = match.group(2)!.toLowerCase();
-    final maximum = unit.startsWith('day') ? 30 : 12;
-    return count >= 1 && count <= maximum
-        ? null
-        : 'Use 1–30 days, 1–12 weeks, or 1–12 months.';
+    return validateIncomeFrequency(trimmed);
   }
   final number = double.tryParse(trimmed.replaceAll(',', ''));
   if (number == null) return 'Enter a number.';
@@ -2239,6 +2225,7 @@ class PreparationCredentialsScreen extends StatefulWidget {
 
 class _PreparationCredentialsScreenState
     extends State<PreparationCredentialsScreen> {
+  final formKey = GlobalKey<FormState>();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool busy = false;
@@ -2255,8 +2242,14 @@ class _PreparationCredentialsScreenState
     super.dispose();
   }
 
-  Future<void> _runAuth(Future<void> Function(AppState state) action) async {
-    if (busy) return;
+  Future<void> _runAuth(
+    Future<void> Function(AppState state) action, {
+    bool validateForm = true,
+  }) async {
+    if (busy ||
+        (validateForm && !(formKey.currentState?.validate() ?? false))) {
+      return;
+    }
     setState(() => busy = true);
     try {
       final state = AppScope.of(context);
@@ -2279,53 +2272,59 @@ class _PreparationCredentialsScreenState
       subtitle:
           'Use email and password or continue with Google so Shelby can save your profile.',
       bottom: const SizedBox.shrink(),
-      child: Column(
-        children: [
-          LabeledField(
-            label: 'Email',
-            icon: Icons.mail_rounded,
-            child: TextField(
-              controller: emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              decoration: inputDecoration('you@example.com'),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(height: 18),
-          LabeledField(
-            label: 'Password',
-            icon: Icons.lock_rounded,
-            child: TextField(
-              controller: passwordController,
-              obscureText: true,
-              textInputAction: TextInputAction.done,
-              decoration: inputDecoration('At least 6 characters'),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(height: 18),
-          PrimaryButton(
-            label: 'Create account',
-            icon: Icons.person_add_alt_1_rounded,
-            enabled: _canCreateAccount,
-            onPressed: () => _runAuth(
-              (state) => state.createAccountWithEmail(
-                email: emailController.text,
-                password: passwordController.text,
+      child: Form(
+        key: formKey,
+        child: Column(
+          children: [
+            LabeledField(
+              label: 'Email',
+              icon: Icons.mail_rounded,
+              child: TextFormField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: inputDecoration('you@example.com'),
+                validator: validateEmail,
+                onChanged: (_) => setState(() {}),
               ),
             ),
-          ),
-          const SizedBox(height: 18),
-          const _LoginDivider(),
-          const SizedBox(height: 18),
-          GoogleSignInButton(
-            busy: busy,
-            onPressed: () => _runAuth(
-              (state) => state.stageGoogleAccount(),
+            const SizedBox(height: 18),
+            LabeledField(
+              label: 'Password',
+              icon: Icons.lock_rounded,
+              child: TextFormField(
+                controller: passwordController,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                decoration: inputDecoration('At least 6 characters'),
+                validator: validatePassword,
+                onChanged: (_) => setState(() {}),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 18),
+            PrimaryButton(
+              label: 'Create account',
+              icon: Icons.person_add_alt_1_rounded,
+              enabled: _canCreateAccount,
+              onPressed: () => _runAuth(
+                (state) => state.createAccountWithEmail(
+                  email: emailController.text,
+                  password: passwordController.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const _LoginDivider(),
+            const SizedBox(height: 18),
+            GoogleSignInButton(
+              busy: busy,
+              onPressed: () => _runAuth(
+                (state) => state.stageGoogleAccount(),
+                validateForm: false,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2339,11 +2338,30 @@ class LifeContextScreen extends StatefulWidget {
 }
 
 class _LifeContextScreenState extends State<LifeContextScreen> {
-  final occupationController = TextEditingController();
+  final occupationOtherController = TextEditingController();
+  final industryOtherController = TextEditingController();
+  bool occupationOther = false;
+  bool industryOther = false;
+  bool seeded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (seeded) return;
+    final state = AppScope.of(context);
+    occupationOther = state.occupation.isNotEmpty &&
+        !occupationPresets.contains(state.occupation);
+    industryOther =
+        state.industry.isNotEmpty && !industryPresets.contains(state.industry);
+    occupationOtherController.text = occupationOther ? state.occupation : '';
+    industryOtherController.text = industryOther ? state.industry : '';
+    seeded = true;
+  }
 
   @override
   void dispose() {
-    occupationController.dispose();
+    occupationOtherController.dispose();
+    industryOtherController.dispose();
     super.dispose();
   }
 
@@ -2393,39 +2411,70 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
           LabeledField(
             label: 'Occupation',
             icon: Icons.work_rounded,
-            child: TextField(
-              controller: occupationController,
-              decoration: inputDecoration('e.g. Software Engineer'),
-              onChanged: (value) => setState(() => state.occupation = value),
+            child: Autocomplete<String>(
+              initialValue: TextEditingValue(
+                  text: occupationOther ? 'Other' : state.occupation),
+              optionsBuilder: (value) => occupationPresets.where((option) =>
+                  option.toLowerCase().contains(value.text.toLowerCase())),
+              onSelected: (value) => setState(() {
+                occupationOther = value == 'Other';
+                state.occupation = occupationOther ? '' : value;
+              }),
+              fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
+                  TextField(
+                controller: controller,
+                focusNode: focusNode,
+                decoration: inputDecoration('Search occupations'),
+                onChanged: (value) => setState(() {
+                  state.occupation = occupationPresets.contains(value.trim())
+                      ? value.trim()
+                      : '';
+                }),
+              ),
             ),
           ),
+          if (occupationOther) ...[
+            const SizedBox(height: 10),
+            TextField(
+                controller: occupationOtherController,
+                decoration: inputDecoration('Your occupation'),
+                onChanged: (value) =>
+                    setState(() => state.occupation = value.trim())),
+          ],
           const SizedBox(height: 18),
           LabeledField(
             label: 'Industry',
             icon: Icons.business_center_rounded,
-            child: DropdownButtonFormField<String>(
-              value: state.industry.isEmpty ? null : state.industry,
-              decoration: inputDecoration('Select your industry'),
-              items: const [
-                'Technology',
-                'Finance',
-                'Healthcare',
-                'Education',
-                'Business Services',
-                'Retail & E-commerce',
-                'Creative & Media',
-                'Government',
-                'Manufacturing',
-                'Hospitality',
-                'Freelance / Self-employed',
-                'Other',
-              ].map((value) {
-                return DropdownMenuItem(value: value, child: Text(value));
-              }).toList(),
-              onChanged: (value) =>
-                  setState(() => state.industry = value ?? ''),
+            child: Autocomplete<String>(
+              initialValue: TextEditingValue(
+                  text: industryOther ? 'Other' : state.industry),
+              optionsBuilder: (value) => industryPresets.where((option) =>
+                  option.toLowerCase().contains(value.text.toLowerCase())),
+              onSelected: (value) => setState(() {
+                industryOther = value == 'Other';
+                state.industry = industryOther ? '' : value;
+              }),
+              fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
+                  TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      decoration: inputDecoration('Search industries'),
+                      onChanged: (value) => setState(() {
+                            state.industry =
+                                industryPresets.contains(value.trim())
+                                    ? value.trim()
+                                    : '';
+                          })),
             ),
           ),
+          if (industryOther) ...[
+            const SizedBox(height: 10),
+            TextField(
+                controller: industryOtherController,
+                decoration: inputDecoration('Your industry'),
+                onChanged: (value) =>
+                    setState(() => state.industry = value.trim())),
+          ],
         ],
       ),
     );
@@ -2514,7 +2563,7 @@ class _LifeRhythmScreenState extends State<LifeRhythmScreen> {
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: ['Weekly', 'Twice a month', 'Monthly', 'Irregular']
+              children: incomeFrequencyPresets
                   .map(
                     (value) => CompactChoice(
                       label: value,
@@ -5032,11 +5081,8 @@ class _IncomeLedgerDraft {
   }
 }
 
-const _scheduleRepeatOptions = [
-  'Weekly',
-  'Every 2 weeks',
-  'Twice a month',
-  'Monthly',
+final _scheduleRepeatOptions = [
+  ...incomeFrequencyPresets.where((value) => value != 'Irregular'),
   'Every 2 months',
   'Quarterly',
   'Yearly',
@@ -5397,14 +5443,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                     isDense: true,
                   ),
                   onChanged: (_) => onChanged(),
-                  validator: (value) {
-                    final amount = double.tryParse(
-                      (value ?? '').replaceAll(',', ''),
-                    );
-                    if (amount == null || amount <= 0) return 'Required';
-                    if (amount > 100000000) return 'Too high';
-                    return null;
-                  },
+                  validator: validatePositiveAmount,
                 ),
               ),
               if (canRemove)
@@ -5596,7 +5635,8 @@ class _InitialBaselineScreenState extends State<InitialBaselineScreen> {
 
 class _ExpenseLedgerDraft {
   _ExpenseLedgerDraft(
-      {String name = '',
+      {String category = 'Other',
+      String name = '',
       String amount = '',
       this.layer,
       this.scheduled = false,
@@ -5604,7 +5644,8 @@ class _ExpenseLedgerDraft {
       this.scheduleAnchorType = 'next',
       this.scheduleAnchorDate,
       this.repeatFrequency = 'Monthly'})
-      : nameController = TextEditingController(text: name),
+      : category = category,
+        nameController = TextEditingController(text: name),
         amountController = TextEditingController(text: amount);
 
   factory _ExpenseLedgerDraft.fromMap(Map<String, dynamic> value) {
@@ -5612,6 +5653,8 @@ class _ExpenseLedgerDraft {
       value['scheduleAnchorDate']?.toString() ?? '',
     );
     return _ExpenseLedgerDraft(
+      category: inferExpenseCategory(
+          value['category']?.toString(), value['name']?.toString() ?? ''),
       name: value['name']?.toString() ?? '',
       amount: value['amount']?.toString() ?? '',
       layer: expenseLayerForLedger(value),
@@ -5627,6 +5670,7 @@ class _ExpenseLedgerDraft {
 
   final TextEditingController nameController;
   final TextEditingController amountController;
+  String category;
   ExpenseLayer? layer;
   bool scheduled;
   int? dueDay;
@@ -5642,13 +5686,15 @@ class _ExpenseLedgerDraft {
   int? get inferredDueDay => scheduleAnchorDate?.day ?? dueDay;
 
   bool get isComplete =>
-      nameController.text.trim().isNotEmpty &&
+      category.isNotEmpty &&
+      (category != 'Other' || nameController.text.trim().isNotEmpty) &&
       amountValue > 0 &&
       layer != null &&
       (!scheduled || scheduleAnchorDate != null);
 
   Map<String, dynamic> toMap() => {
         'name': nameController.text.trim(),
+        'category': category,
         'amount': amountValue,
         'essential': essential,
         'expenseType': layer?.name,
@@ -5707,13 +5753,15 @@ class _ExpenseLedgerCard extends StatelessWidget {
                 child: TextFormField(
                   controller: expense.nameController,
                   textCapitalization: TextCapitalization.words,
-                  decoration: inputDecoration('Expense name').copyWith(
-                    labelText: 'Expense',
+                  decoration:
+                      inputDecoration('Optional name or label').copyWith(
+                    labelText: 'Name / description',
                     isDense: true,
                   ),
                   onChanged: (_) => onChanged(),
-                  validator: (value) =>
-                      (value ?? '').trim().isEmpty ? 'Enter a name.' : null,
+                  validator: (value) => expense.category == 'Other'
+                      ? validateRequired(value, label: 'Name or description')
+                      : null,
                 ),
               ),
               const SizedBox(width: 8),
@@ -5729,14 +5777,7 @@ class _ExpenseLedgerCard extends StatelessWidget {
                     isDense: true,
                   ),
                   onChanged: (_) => onChanged(),
-                  validator: (value) {
-                    final amount = double.tryParse(
-                      (value ?? '').replaceAll(',', ''),
-                    );
-                    if (amount == null || amount <= 0) return 'Required';
-                    if (amount > 1000000) return 'Too high';
-                    return null;
-                  },
+                  validator: validatePositiveAmount,
                 ),
               ),
               if (canRemove)
@@ -5751,6 +5792,25 @@ class _ExpenseLedgerCard extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(
+            value: expenseCategoryPresets.contains(expense.category)
+                ? expense.category
+                : 'Other',
+            decoration: inputDecoration('Choose a category')
+                .copyWith(labelText: 'Category', isDense: true),
+            items: expenseCategoryPresets
+                .map((value) =>
+                    DropdownMenuItem(value: value, child: Text(value)))
+                .toList(),
+            onChanged: (category) {
+              if (category == null) return;
+              expense.category = category;
+              expense.layer ??= suggestedExpenseLayer(category);
+              onChanged();
+            },
+            validator: validateRequired,
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<ExpenseLayer>(

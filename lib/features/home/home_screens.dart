@@ -1861,7 +1861,12 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
   String layer, [
   _PyramidBaselineEntry? entry,
 ]) {
+  final formKey = GlobalKey<FormState>();
   final name = TextEditingController(text: entry?.name ?? '');
+  var category = inferExpenseCategory(
+    entry?.data['category']?.toString(),
+    entry?.name ?? '',
+  );
   final amount = TextEditingController(
     text: entry == null ? '' : entry.amount.toStringAsFixed(0),
   );
@@ -1888,74 +1893,106 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
         backgroundColor: _surface,
         title: Text(entry == null ? 'Add expense' : 'Edit expense'),
         content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: name,
-                decoration: inputDecoration('Expense name'),
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: amount,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: inputDecoration('Monthly amount')
-                    .copyWith(prefixText: '₱ '),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<ExpenseLayer>(
-                value: expenseLayer,
-                decoration: inputDecoration('Expense type'),
-                items: ExpenseLayer.values
-                    .map((layer) => DropdownMenuItem(
-                          value: layer,
-                          child: Text(layer.label),
-                        ))
-                    .toList(),
-                onChanged: (value) =>
-                    setDialogState(() => expenseLayer = value),
-              ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: scheduled,
-                onChanged: (value) =>
-                    setDialogState(() => scheduled = value ?? false),
-                title: const Text('Scheduled bill'),
-              ),
-              if (scheduled) ...[
-                const SizedBox(height: 8),
-                _ScheduleEditor(
-                  title: 'Bill schedule',
-                  icon: Icons.receipt_long_rounded,
-                  anchorType: scheduleAnchorType,
-                  lastLabel: 'Last paid',
-                  nextLabel: 'Next due',
-                  anchorDate: scheduleAnchorDate,
-                  repeatFrequency: repeatFrequency,
-                  missingDateMessage: 'Choose a known bill date.',
-                  onAnchorTypeChanged: (value) =>
-                      setDialogState(() => scheduleAnchorType = value),
-                  onPickDate: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: scheduleAnchorDate ?? now,
-                      firstDate: DateTime(now.year - 5),
-                      lastDate: DateTime(now.year + 5),
-                    );
-                    if (picked == null) return;
-                    setDialogState(() {
-                      scheduleAnchorDate = picked;
-                      dueDay = picked.day;
-                    });
-                  },
-                  onRepeatChanged: (value) =>
-                      setDialogState(() => repeatFrequency = value),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: category,
+                  decoration: inputDecoration('Choose a category').copyWith(
+                    labelText: 'Category',
+                  ),
+                  items: expenseCategoryPresets
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ))
+                      .toList(),
+                  onChanged: (value) => setDialogState(() {
+                    if (value == null) return;
+                    category = value;
+                    if (entry == null) {
+                      expenseLayer =
+                          suggestedExpenseLayer(value) ?? expenseLayer;
+                    }
+                  }),
+                  validator: (value) =>
+                      value == null ? 'Choose an expense category.' : null,
                 ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: name,
+                  decoration: inputDecoration('Optional name or label'),
+                  textCapitalization: TextCapitalization.words,
+                  validator: (value) => category == 'Other'
+                      ? validateRequired(value, label: 'Name or description')
+                      : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: amount,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: inputDecoration('Monthly amount')
+                      .copyWith(prefixText: '₱ '),
+                  validator: validatePositiveAmount,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<ExpenseLayer>(
+                  value: expenseLayer,
+                  decoration: inputDecoration('Expense type'),
+                  items: ExpenseLayer.values
+                      .map((layer) => DropdownMenuItem(
+                            value: layer,
+                            child: Text(layer.label),
+                          ))
+                      .toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => expenseLayer = value),
+                  validator: (value) =>
+                      value == null ? 'Choose a financial layer.' : null,
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: scheduled,
+                  onChanged: (value) =>
+                      setDialogState(() => scheduled = value ?? false),
+                  title: const Text('Scheduled bill'),
+                ),
+                if (scheduled) ...[
+                  const SizedBox(height: 8),
+                  _ScheduleEditor(
+                    title: 'Bill schedule',
+                    icon: Icons.receipt_long_rounded,
+                    anchorType: scheduleAnchorType,
+                    lastLabel: 'Last paid',
+                    nextLabel: 'Next due',
+                    anchorDate: scheduleAnchorDate,
+                    repeatFrequency: repeatFrequency,
+                    missingDateMessage: 'Choose a known bill date.',
+                    onAnchorTypeChanged: (value) =>
+                        setDialogState(() => scheduleAnchorType = value),
+                    onPickDate: () async {
+                      final now = DateTime.now();
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: scheduleAnchorDate ?? now,
+                        firstDate: DateTime(now.year - 5),
+                        lastDate: DateTime(now.year + 5),
+                      );
+                      if (picked == null) return;
+                      setDialogState(() {
+                        scheduleAnchorDate = picked;
+                        dueDay = picked.day;
+                      });
+                    },
+                    onRepeatChanged: (value) =>
+                        setDialogState(() => repeatFrequency = value),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
         actions: [
@@ -1965,11 +2002,12 @@ Future<Map<String, dynamic>?> _showExpenseLedgerDialog(
           ),
           FilledButton(
             onPressed: () {
+              if (!(formKey.currentState?.validate() ?? false)) return;
               final parsed = _baselineAmount(amount.text);
-              if (name.text.trim().isEmpty || parsed <= 0) return;
               final inferredDueDay = scheduleAnchorDate?.day ?? dueDay;
               Navigator.pop(context, {
                 'name': name.text.trim(),
+                'category': category,
                 'amount': parsed,
                 'essential': expenseLayer == ExpenseLayer.basicNeeds,
                 'expenseType': expenseLayer?.name,
@@ -25801,6 +25839,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   ];
 
   final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
   final _detail = TextEditingController();
   final _amount = TextEditingController();
   final _note = TextEditingController();
@@ -25836,128 +25875,141 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
     ];
     if (!accounts.contains(_account)) _account = accounts.first;
     return _GoalSheetFrame(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Log transaction',
-            style: GoogleFonts.fredoka(
-              color: _title,
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _account,
-            decoration: inputDecoration('Choose an account').copyWith(
-              labelText: 'Account',
-            ),
-            items: accounts
-                .map((value) =>
-                    DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
-            onChanged: (value) => setState(() => _account = value ?? _account),
-          ),
-          const SizedBox(height: 16),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(
-                value: false,
-                icon: Icon(Icons.north_east_rounded),
-                label: Text('Money out'),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Log transaction',
+              style: GoogleFonts.fredoka(
+                color: _title,
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
               ),
-              ButtonSegment(
-                value: true,
-                icon: Icon(Icons.south_west_rounded),
-                label: Text('Money in'),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _account,
+              decoration: inputDecoration('Choose an account').copyWith(
+                labelText: 'Account',
               ),
-            ],
-            selected: {_moneyIn},
-            onSelectionChanged: (selection) => setState(() {
-              _moneyIn = selection.first;
-              _category = null;
-            }),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _nameController,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: inputDecoration('e.g. Lunch at campus').copyWith(
-              labelText: 'Transaction name',
+              items: accounts
+                  .map((value) =>
+                      DropdownMenuItem(value: value, child: Text(value)))
+                  .toList(),
+              onChanged: (value) =>
+                  setState(() => _account = value ?? _account),
+              validator: (value) => value == null ? 'Choose an account.' : null,
             ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _amount,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: inputDecoration('0.00').copyWith(
-              labelText: 'Amount',
-              prefixText: '₱ ',
+            const SizedBox(height: 16),
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.north_east_rounded),
+                  label: Text('Money out'),
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.south_west_rounded),
+                  label: Text('Money in'),
+                ),
+              ],
+              selected: {_moneyIn},
+              onSelectionChanged: (selection) => setState(() {
+                _moneyIn = selection.first;
+                _category = null;
+              }),
             ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _category,
-            decoration: inputDecoration('Choose a category').copyWith(
-              labelText: 'Category',
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _nameController,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: inputDecoration('e.g. Lunch at campus').copyWith(
+                labelText: 'Transaction name',
+              ),
+              validator: (value) =>
+                  validateRequired(value, label: 'Transaction name'),
             ),
-            items: categories
-                .map((value) =>
-                    DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
-            onChanged: (value) => setState(() => _category = value),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _source,
-            decoration: inputDecoration('Choose a fund').copyWith(
-              labelText: 'Fund source',
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _amount,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: inputDecoration('0.00').copyWith(
+                labelText: 'Amount',
+                prefixText: '₱ ',
+              ),
+              validator: validatePositiveAmount,
             ),
-            items: _sources
-                .map((value) =>
-                    DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
-            onChanged: (value) => setState(() => _source = value),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _detail,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: inputDecoration('Merchant, person, or context')
-                .copyWith(labelText: 'Details (optional)'),
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.calendar_today_rounded, color: _purple),
-            title: const Text(
-              'Transaction date',
-              style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _category,
+              decoration: inputDecoration('Choose a category').copyWith(
+                labelText: 'Category',
+              ),
+              items: categories
+                  .map((value) =>
+                      DropdownMenuItem(value: value, child: Text(value)))
+                  .toList(),
+              onChanged: (value) => setState(() => _category = value),
+              validator: (value) => value == null ? 'Choose a category.' : null,
             ),
-            subtitle: Text(
-              _manualDateLabel(_occurredAt),
-              style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _source,
+              decoration: inputDecoration('Choose a fund').copyWith(
+                labelText: 'Fund source',
+              ),
+              items: _sources
+                  .map((value) =>
+                      DropdownMenuItem(value: value, child: Text(value)))
+                  .toList(),
+              onChanged: (value) => setState(() => _source = value),
+              validator: (value) =>
+                  value == null ? 'Choose a fund source.' : null,
             ),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: _pickDate,
-          ),
-          TextField(
-            controller: _note,
-            maxLines: 2,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: inputDecoration('Anything useful to remember')
-                .copyWith(labelText: 'Note (optional)'),
-          ),
-          const SizedBox(height: 16),
-          PrimaryButton(
-            label: _saving ? 'Saving…' : 'Save transaction',
-            icon: Icons.check_rounded,
-            enabled: !_saving,
-            onPressed: _save,
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _detail,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: inputDecoration('Merchant, person, or context')
+                  .copyWith(labelText: 'Details (optional)'),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.calendar_today_rounded, color: _purple),
+              title: const Text(
+                'Transaction date',
+                style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+              ),
+              subtitle: Text(
+                _manualDateLabel(_occurredAt),
+                style:
+                    const TextStyle(color: _body, fontWeight: FontWeight.w700),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: _pickDate,
+            ),
+            TextField(
+              controller: _note,
+              maxLines: 2,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: inputDecoration('Anything useful to remember')
+                  .copyWith(labelText: 'Note (optional)'),
+            ),
+            const SizedBox(height: 16),
+            PrimaryButton(
+              label: _saving ? 'Saving…' : 'Save transaction',
+              icon: Icons.check_rounded,
+              enabled: !_saving,
+              onPressed: _save,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -25982,20 +26034,12 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   }
 
   Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     final title = _nameController.text.trim();
     final amount = double.tryParse(_amount.text.replaceAll(',', ''));
     final category = _category;
     final source = _source;
-    if (title.isEmpty ||
-        amount == null ||
-        amount <= 0 ||
-        category == null ||
-        source == null) {
-      showAppNotice(
-        context,
-        message: 'Enter a name and amount, then choose a category and fund.',
-        icon: Icons.warning_amber_rounded,
-      );
+    if (title.isEmpty || amount == null || category == null || source == null) {
       return;
     }
     setState(() => _saving = true);
@@ -26089,32 +26133,8 @@ class _TransactionSourceOption {
 }
 
 class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
-  static const _incomeCategories = [
-    'Salary',
-    'Business income',
-    'Transfer',
-    'Refund',
-    'Gift',
-    'Other income',
-  ];
-  static const _expenseCategories = [
-    'Food & drink',
-    'Transport',
-    'Bills & utilities',
-    'Housing',
-    'Groceries',
-    'Shopping',
-    'Education',
-    'Health',
-    'Insurance',
-    'Debt payment',
-    'Entertainment',
-    'Travel',
-    'Personal goal',
-    'Gifts & giving',
-    'Transfer',
-    'Other expense',
-  ];
+  static const _incomeCategories = incomeCategoryPresets;
+  static const _expenseCategories = expenseCategoryPresets;
   static const _tags = [
     'Personal',
     'Work',
@@ -26150,30 +26170,29 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   // are generic and stay available under every layer.
   static const _layerCategories = {
     'Cash Flow & Basic Needs': [
-      'Food & drink',
+      'Groceries / Food',
       'Transport',
-      'Bills & utilities',
-      'Housing',
-      'Groceries',
+      'Utilities',
+      'Rent / Housing',
       'Salary',
       'Refund',
     ],
-    'Financial Safety': ['Health', 'Insurance'],
-    'Accumulating Wealth': ['Debt payment', 'Education', 'Business income'],
+    'Financial Safety': ['Healthcare', 'Insurance'],
+    'Accumulating Wealth': [
+      'Debt Payment',
+      'Investment Contribution',
+      'Education',
+      'Business income',
+    ],
     'Financial Freedom': [
-      'Shopping',
+      'Subscriptions',
       'Entertainment',
       'Travel',
-      'Gifts & giving',
-      'Personal goal',
+      'Family Support',
       'Gift',
     ],
   };
-  static const _genericCategories = [
-    'Transfer',
-    'Other expense',
-    'Other income'
-  ];
+  static const _genericCategories = ['Transfer', 'Other', 'Other income'];
 
   late String? _financialLayer = _initialFinancialLayer(widget.transaction);
   late String? _category = widget.transaction.category;
@@ -26201,7 +26220,12 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     AppState state,
     bool isIncome,
   ) {
-    final base = isIncome ? _incomeCategories : _expenseCategories;
+    final base = [...(isIncome ? _incomeCategories : _expenseCategories)];
+    final selectedCategory = _category;
+    if (selectedCategory != null && !base.contains(selectedCategory)) {
+      // Keep saved categories that predate the shared preset list editable.
+      base.insert(0, selectedCategory);
+    }
     if (isIncome) {
       return [
         for (final category in base)
@@ -26214,7 +26238,11 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       final pyramidOptions = _cashFlowBasicNeedsCategoryOptions(state);
       if (pyramidOptions.isNotEmpty) return pyramidOptions;
     }
-    final allowed = {..._genericCategories, ...?_layerCategories[layer]};
+    final allowed = {
+      ..._genericCategories,
+      ...?_layerCategories[layer],
+      if (selectedCategory != null) selectedCategory,
+    };
     final filtered = base.where(allowed.contains).toList();
     return [
       for (final category in (filtered.isEmpty ? base : filtered))
