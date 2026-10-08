@@ -149,7 +149,24 @@ class AppState extends ChangeNotifier {
   final Set<String> processedIncomeTransactionIds = {};
 
   // ── D1 goal bucket balances ──────────────────────────────────────
-  double essentialExpensesBalance = 0;
+  // Local fallback for the Essential Expenses Fund. When FakeMaya is linked and
+  // bucket B1 exists, the bucket is the source of truth (see getter below);
+  // this value is only authoritative for manual (unlinked) users.
+  double _essentialExpensesLocalBalance = 0;
+
+  /// The FakeMaya B1 bucket when linked, otherwise the local tracked balance.
+  double get essentialExpensesBalance =>
+      _fakeMayaEssentialFundBalance ?? _essentialExpensesLocalBalance;
+  // While B1 backs the fund, FakeMaya transfers are what change it, so local
+  // writes are ignored (the local copy is kept in step by
+  // _syncFakeMayaMoneyItems and becomes the fallback if FakeMaya is unlinked).
+  set essentialExpensesBalance(double value) {
+    if (_fakeMayaEssentialFundBalance != null) return;
+    _essentialExpensesLocalBalance = value;
+  }
+
+  double? get _fakeMayaEssentialFundBalance =>
+      fakeMayaLink?.summary.essentialExpenseFund?.balance;
   double billsObligationsBalance = 0;
   double emergencyFundBalance = 0;
   double investmentBalance = 0;
@@ -358,10 +375,15 @@ class AppState extends ChangeNotifier {
       ? monthlyExpenseLedgerTotal
       : cashFlowBudgetForLayer(ExpenseLayer.basicNeeds);
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
+  // When the Essential Expenses Fund lives in FakeMaya bucket B1, transfers
+  // already moved that money out of the wallet, so it must not be subtracted
+  // again. Only a local (unbacked) Essential balance is earmarked wallet cash.
   double get unallocatedFakeMayaWallet => math.max(
         0,
         accountBalance('Wallet') -
-            essentialExpensesBalance -
+            (_fakeMayaEssentialFundBalance == null
+                ? _essentialExpensesLocalBalance
+                : 0) -
             billsObligationsBalance,
       );
   // Emergency Fund deposits go straight into their own FakeMaya personal-goal
@@ -888,7 +910,7 @@ class AppState extends ChangeNotifier {
     onboardingIncomeLedger.clear();
     onboardingExpenseLedger.clear();
     processedIncomeTransactionIds.clear();
-    essentialExpensesBalance = 0;
+    _essentialExpensesLocalBalance = 0;
     billsObligationsBalance = 0;
     emergencyFundBalance = 0;
     investmentBalance = 0;
@@ -1189,7 +1211,7 @@ class AppState extends ChangeNotifier {
       ]);
     jarLedger.clear();
     d1Ledger.clear();
-    essentialExpensesBalance = 3500;
+    _essentialExpensesLocalBalance = 3500;
     billsObligationsBalance = 1800;
     emergencyFundBalance = 24000;
     investmentBalance = 32000;
@@ -2102,7 +2124,7 @@ class AppState extends ChangeNotifier {
 
     needsBalance = needs;
     bufferBalance = buffer;
-    essentialExpensesBalance = needs;
+    _essentialExpensesLocalBalance = needs;
     billsObligationsBalance = 0;
     jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     d1Ledger.sort((a, b) => DateTime.parse(b['date'].toString())
@@ -2115,7 +2137,7 @@ class AppState extends ChangeNotifier {
     final essentialGoal = FakeMayaPersonalGoal.defaultForId(
       FakeMayaPersonalGoal.essentialExpenseFundId,
     ).copyWith(
-      balance: essentialExpensesBalance,
+      balance: _essentialExpensesLocalBalance,
       target: needsTarget,
       daysLeft: 30,
     );
@@ -2311,7 +2333,7 @@ class AppState extends ChangeNotifier {
     final essentialGoal = FakeMayaPersonalGoal.defaultForId(
       FakeMayaPersonalGoal.essentialExpenseFundId,
     ).copyWith(
-      balance: essentialExpensesBalance,
+      balance: _essentialExpensesLocalBalance,
       target: needsTarget,
       daysLeft: 30,
     );
@@ -2782,7 +2804,7 @@ class AppState extends ChangeNotifier {
         emergencyFundBalance / math.max(1, monthlyEssentialExpenseTotal);
     needsBalance = needs;
     bufferBalance = buffer;
-    essentialExpensesBalance = needs;
+    _essentialExpensesLocalBalance = needs;
     billsObligationsBalance = 0;
     _lastEfWithdrawalStr = recentEmergency.toIso8601String();
     billObligations
@@ -3243,7 +3265,7 @@ class AppState extends ChangeNotifier {
     investmentBalance = investmentBucket;
     needsBalance = needs;
     bufferBalance = buffer;
-    essentialExpensesBalance = needs;
+    _essentialExpensesLocalBalance = needs;
     emergencyFundBalance = financialSafetyBalance;
     shieldTrackedBalance = financialSafetyBalance;
     d1Ledger
@@ -3711,7 +3733,7 @@ class AppState extends ChangeNotifier {
     lifestyleActivityBalance = 0;
     needsBalance = needs;
     bufferBalance = buffer;
-    essentialExpensesBalance = needs;
+    _essentialExpensesLocalBalance = needs;
     d1Ledger
       ..clear()
       ..addAll(ledger
@@ -5125,18 +5147,27 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> depositPendingIncomeToEssentialFund({
+  /// Moves [percentage] of the pending [incomes] from the FakeMaya wallet into
+  /// the Essential Expenses Fund bucket (B1). Returns the amount transferred.
+  /// Throws [FakeMayaException] when nothing could be transferred, so callers
+  /// never report a transfer that didn't happen.
+  Future<double> depositPendingIncomeToEssentialFund({
     required Iterable<FakeMayaTransaction> incomes,
     double percentage = 50,
   }) async {
+    // Same date fallback as pendingEssentialIncomeTransactions, so every income
+    // the A1 panel lists is actually eligible here.
     final pending = incomes
         .where((income) =>
-            income.createdAt != null &&
+            (income.createdAt ?? income.labeledAt) != null &&
             income.amount > 0 &&
             !income.isInternalFakeMayaTransfer &&
             !hasEssentialAllocationForIncome(income.transactionId))
         .toList();
-    if (pending.isEmpty) return;
+    if (pending.isEmpty) {
+      throw const FakeMayaException(
+          'No unallocated income to transfer. It may already be allocated.');
+    }
     final clampedPercentage = percentage.clamp(0, 100).toDouble();
     final totalIncome =
         pending.fold<double>(0, (total, income) => total + income.amount);
@@ -5147,7 +5178,7 @@ class AppState extends ChangeNotifier {
           math.max(0, totalIncome - totalAllocation),
         )
         .toDouble();
-    if (totalAllocation <= 0 && obligationAmount <= 0) return;
+    if (totalAllocation <= 0 && obligationAmount <= 0) return 0;
     if (fakeMayaLink != null && totalAllocation > unallocatedFakeMayaWallet) {
       throw const FakeMayaException(
           'Not enough in FakeMaya wallet for this transfer.');
@@ -5167,7 +5198,7 @@ class AppState extends ChangeNotifier {
       d1Ledger.insert(0, {
         'type': 'essential_deposit',
         'date': AppClock.now().toIso8601String(),
-        'sourceDate': income.createdAt!.toIso8601String(),
+        'sourceDate': (income.createdAt ?? income.labeledAt)!.toIso8601String(),
         'sourceTransactionId': income.transactionId,
         'incomeAmount': income.amount,
         'percentage': clampedPercentage,
@@ -5178,6 +5209,7 @@ class AppState extends ChangeNotifier {
     }
     await _saveProfileAfterFakeMayaTransfer();
     notifyListeners();
+    return totalAllocation;
   }
 
   void _applyIncomeToOpenBasicNeedsBills(double amount) {
@@ -7694,6 +7726,10 @@ class AppState extends ChangeNotifier {
     _removeFakeMayaMoneyItems();
     final link = fakeMayaLink;
     if (link == null) return;
+    final essentialFund = link.summary.essentialExpenseFund;
+    if (essentialFund != null) {
+      _essentialExpensesLocalBalance = essentialFund.balance;
+    }
     if (link.summary.creditLimit > 0) {
       _removeStaleFakeMayaCreditPlaceholders();
     }
