@@ -126,6 +126,7 @@ class AppState extends ChangeNotifier {
   final Set<String> fakeMayaSyncedAccounts = {};
   final List<FakeMayaTransaction> manualTransactions = [];
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
+  final Map<String, String> merchantCategoryRules = {};
   final Map<String, String> planAdjustmentActions = {};
   final Map<String, double> anxietyCheckIns = {};
   double allocatedThisCycle = 0;
@@ -898,6 +899,7 @@ class AppState extends ChangeNotifier {
     fakeMayaSyncedAccounts.clear();
     manualTransactions.clear();
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns.clear();
     allocatedThisCycle = 0;
@@ -1955,6 +1957,7 @@ class AppState extends ChangeNotifier {
     lifestyleHobbies.clear();
     manualTransactions.clear();
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     goalBucketOverrides.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns
@@ -2368,6 +2371,7 @@ class AppState extends ChangeNotifier {
       ),
     );
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     for (final transaction in transactions) {
       if (transaction.isLabeled && !transaction.excludedFromInsights) {
         transactionLabelRules[transaction.patternKey] =
@@ -2830,6 +2834,7 @@ class AppState extends ChangeNotifier {
     jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     manualTransactions.clear();
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     goalBucketOverrides.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns
@@ -3053,6 +3058,7 @@ class AppState extends ChangeNotifier {
     lifestyleHobbies.clear();
     manualTransactions.clear();
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     goalBucketOverrides.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns
@@ -3490,6 +3496,7 @@ class AppState extends ChangeNotifier {
     billObligations.clear();
     manualTransactions.clear();
     transactionLabelRules.clear();
+    merchantCategoryRules.clear();
     goalBucketOverrides.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns
@@ -3878,6 +3885,7 @@ class AppState extends ChangeNotifier {
       'transactionLabelRules': transactionLabelRules.map(
         (key, value) => MapEntry(key, value.toMap()),
       ),
+      'merchantCategoryRules': merchantCategoryRules,
       'planAdjustmentActions': planAdjustmentActions,
       'anxietyCheckIns': anxietyCheckIns,
       'allocatedThisCycle': allocatedThisCycle,
@@ -4294,6 +4302,7 @@ class AppState extends ChangeNotifier {
         }
       }
     }
+    loadMerchantCategoryRules(_mapFrom(data['merchantCategoryRules']));
     final adjustmentData = _mapFrom(data['planAdjustmentActions']);
     planAdjustmentActions
       ..clear()
@@ -4320,6 +4329,7 @@ class AppState extends ChangeNotifier {
         );
       }
     }
+    seedMerchantCategoryRules(allTransactions);
     _syncFakeMayaMoneyItems();
     allocatedThisCycle = _doubleFrom(
       data['allocatedThisCycle'],
@@ -7493,6 +7503,7 @@ class AppState extends ChangeNotifier {
       } else {
         transactionLabelRules[labeled.patternKey] =
             TransactionLabelRule.fromTransaction(labeled);
+        _learnMerchantCategoryRule(labeled);
       }
       _recordBucketFundedExpenseFromTransaction(labeled);
       if (isSignedIn) await saveProfile();
@@ -7519,6 +7530,7 @@ class AppState extends ChangeNotifier {
       transactionLabelRules.remove(target.patternKey);
     } else {
       transactionLabelRules[target.patternKey] = rule;
+      _learnMerchantCategoryRule(labeledTarget);
     }
     final transactions = link.summary.transactions.map((transaction) {
       if (transaction.transactionId == transactionId) return labeledTarget;
@@ -7550,6 +7562,93 @@ class AppState extends ChangeNotifier {
     }
     if (isSignedIn) await saveProfile();
     notifyListeners();
+  }
+
+  /// Chooses a category without changing the transaction. The label sheet
+  /// presents this result as an editable default; only a later save teaches a
+  /// merchant rule.
+  MerchantCategorySuggestion? merchantCategorySuggestionFor(
+    FakeMayaTransaction transaction,
+  ) {
+    final explicitCategory = transaction.category?.trim();
+    if (explicitCategory != null && explicitCategory.isNotEmpty) {
+      return MerchantCategorySuggestion(
+        category: explicitCategory,
+        source: MerchantCategorySuggestionSource.savedTransaction,
+      );
+    }
+    if (!canSuggestMerchantExpenseCategory(transaction)) return null;
+
+    final learnedCategory =
+        merchantCategoryRules[transaction.merchantCategoryKey];
+    if (isMerchantExpenseCategory(learnedCategory)) {
+      return MerchantCategorySuggestion(
+        category: learnedCategory!,
+        source: MerchantCategorySuggestionSource.merchantRule,
+      );
+    }
+
+    final patternCategory =
+        transactionLabelRules[transaction.patternKey]?.category;
+    if (isMerchantExpenseCategory(patternCategory)) {
+      return MerchantCategorySuggestion(
+        category: patternCategory!,
+        source: MerchantCategorySuggestionSource.patternRule,
+      );
+    }
+
+    final builtInCategory = builtInMerchantCategoryFor(transaction);
+    if (builtInCategory == null) return null;
+    return MerchantCategorySuggestion(
+      category: builtInCategory,
+      source: MerchantCategorySuggestionSource.builtIn,
+    );
+  }
+
+  /// Restores only category choices. Fund, bucket, and source data are never
+  /// stored in a merchant rule.
+  void loadMerchantCategoryRules(Map<String, dynamic>? savedRules) {
+    merchantCategoryRules.clear();
+    if (savedRules == null) return;
+    for (final entry in savedRules.entries) {
+      final merchantKey = entry.key.trim();
+      final category = entry.value?.toString().trim();
+      if (merchantKey.isNotEmpty && isMerchantExpenseCategory(category)) {
+        merchantCategoryRules[merchantKey] = category!;
+      }
+    }
+  }
+
+  Map<String, String> exportMerchantCategoryRules() =>
+      Map<String, String>.unmodifiable(merchantCategoryRules);
+
+  /// Backfills profiles created before merchant rules were introduced. Saved
+  /// rules take priority, so migration never overwrites a later correction.
+  void seedMerchantCategoryRules(Iterable<FakeMayaTransaction> transactions) {
+    for (final transaction in transactions) {
+      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+        _learnMerchantCategoryRule(transaction, overwrite: false);
+      }
+    }
+  }
+
+  void _learnMerchantCategoryRule(
+    FakeMayaTransaction transaction, {
+    bool overwrite = true,
+  }) {
+    if (!canSuggestMerchantExpenseCategory(transaction) ||
+        !isMerchantExpenseCategory(transaction.category)) {
+      return;
+    }
+    if (overwrite) {
+      merchantCategoryRules[transaction.merchantCategoryKey] =
+          transaction.category!;
+    } else {
+      merchantCategoryRules.putIfAbsent(
+        transaction.merchantCategoryKey,
+        () => transaction.category!,
+      );
+    }
   }
 
   void _recordBucketFundedExpenseFromTransaction(
