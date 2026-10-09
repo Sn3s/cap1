@@ -956,9 +956,11 @@ Analyze the integration data and recommend what to change first.
     return '''
 Goal: Grow Investments (Accumulating Wealth).
 
-Investment Portfolio (cash contributions):
-- Current balance: ${money(state.investmentBalance)}
-- Portfolio value target: ${money(state.investmentPortfolioTarget)}
+Investment Portfolio:
+- Investment Fund balance (cash ready to invest): ${money(state.investmentBalance)}
+- Holdings value (crypto/stocks, priced weekly): ${money(state.investmentHoldingsValue)}
+- Portfolio balance (fund + holdings): ${money(state.investmentPortfolioValue)}
+- Portfolio value target: ${money(state.configuredInvestmentPortfolioTarget)}
 
 Annual return tracking:
 - Tracking started: ${baseline == null ? 'not started yet' : _shortDate(baseline)}

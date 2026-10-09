@@ -2741,12 +2741,8 @@ double investmentGoalPercent(AppState state) {
   return _clampPercent((state.investmentPortfolioValue / target) * 100);
 }
 
-double _configuredInvestmentGoalTarget(AppState state) {
-  final raw = _configuredActionValues(state, 'A23')['amt'];
-  final configured = double.tryParse((raw ?? '').replaceAll(',', '').trim());
-  if (configured != null && configured > 0) return configured;
-  return state.investmentPortfolioTarget;
-}
+double _configuredInvestmentGoalTarget(AppState state) =>
+    state.configuredInvestmentPortfolioTarget;
 
 double lifestyleGoalPercent(AppState state) {
   final weeklyLimit = _configuredActionAmount(
@@ -6004,7 +6000,7 @@ _CashActionScore? _investmentActionScoreFor({
     );
   }
   if (id == 'A23') {
-    final target = configuredNumber('amt', state.investmentPortfolioTarget);
+    final target = state.configuredInvestmentPortfolioTarget;
     final ratio = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
     return _CashActionScore(
       id: id,
@@ -6017,10 +6013,12 @@ _CashActionScore? _investmentActionScoreFor({
       actualLabel: money(balance),
       targetLabel: money(target),
       formula:
-          'Progress = current Investment Portfolio balance ÷ configured target.',
+          'Progress = (Investment Fund + holdings value) ÷ configured target.',
       evidence: [
         'Configured portfolio target: ${money(target)}',
-        'Investment Portfolio balance: ${money(balance)}',
+        'Investment Fund balance: ${money(state.investmentBalance)}',
+        'Holdings value (weekly): ${money(state.investmentHoldingsValue)}',
+        'Portfolio balance: ${money(balance)}',
       ],
       applicableMeasures: const ['Resiliency'],
     );
@@ -8592,6 +8590,12 @@ Future<String> _applyActionStageSuggestion(
     actionIds: ids.where(allowed.contains),
     clearRemovedValues: false,
   );
+  if (targetActionId == 'A23') {
+    // Mirror the new portfolio target onto the FakeMaya Investment Fund.
+    await state.setInvestmentPortfolioTarget(
+      state.configuredInvestmentPortfolioTarget,
+    );
+  }
   await state.saveProfile();
   final targetLabel = _d2Actions[targetActionId]?.text ?? targetActionId;
   return switch (option) {
@@ -16822,9 +16826,8 @@ List<_D1ActionMeta> _onboardingGoalActionMetas(
   AppState state,
 ) {
   final allowedActionIds = _goalActionIds[goalId] ?? const <String>[];
-  final selected = state.selectedActionIds
-      .where(allowedActionIds.contains)
-      .toList();
+  final selected =
+      state.selectedActionIds.where(allowedActionIds.contains).toList();
   final actionIds = selected.isEmpty ? allowedActionIds : selected;
   return [
     for (final actionId in actionIds)
@@ -17354,10 +17357,7 @@ _D1ActionMeta? _investmentD1ActionMeta(String id, AppState state) {
     );
   }
   if (id == 'A23') {
-    final amount = double.tryParse(
-          (values['amt'] ?? '').replaceAll(',', '').trim(),
-        ) ??
-        state.investmentPortfolioTarget;
+    final amount = state.configuredInvestmentPortfolioTarget;
     final remaining = math.max(0.0, amount - balance);
     return _D1ActionMeta(
       id: 'A23',
@@ -18871,6 +18871,16 @@ class _CashFlowTransactionRow extends StatelessWidget {
   }
 }
 
+/// Explains the Position card split and how fresh the holdings price is.
+String _holdingsValuationNote(AppState state) {
+  final valuedAt = state.investmentHoldingsValuedAt;
+  final when = valuedAt == null
+      ? 'at purchase cost until the first weekly valuation'
+      : 'weekly · last valued ${_shortDate(valuedAt)}';
+  return 'Investment Fund = cash ready to invest in FakeMaya. '
+      'Holdings value = your crypto/stocks, priced $when.';
+}
+
 class _GrowInvestmentsSummary extends StatelessWidget {
   const _GrowInvestmentsSummary();
 
@@ -18878,8 +18888,7 @@ class _GrowInvestmentsSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final balance = state.investmentPortfolioValue;
-    final target =
-        _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
+    final target = state.configuredInvestmentPortfolioTarget;
     final latestIncome = _latestIncomeTransaction(state);
     final contributionMade = latestIncome != null &&
         state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
@@ -18931,24 +18940,32 @@ class _GrowInvestmentsSummary extends StatelessWidget {
             children: [
               Expanded(
                 child: _CashPositionMetric(
-                  icon: Icons.show_chart_rounded,
-                  label: 'Portfolio balance',
-                  value: money(balance),
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: 'Investment Fund balance',
+                  value: money(state.investmentBalance),
                   color: _purple,
                 ),
               ),
               const SizedBox(width: 7),
               Expanded(
                 child: _CashPositionMetric(
-                  icon: state.investmentNetReturnThisMonth >= 0
-                      ? Icons.trending_up_rounded
-                      : Icons.trending_down_rounded,
-                  label: 'Net return this month',
-                  value: money(state.investmentNetReturnThisMonth),
-                  color: state.investmentNetReturnThisMonth >= 0 ? _sage : _red,
+                  icon: Icons.show_chart_rounded,
+                  label: 'Holdings value',
+                  value: money(state.investmentHoldingsValue),
+                  color: _sage,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _holdingsValuationNote(state),
+            style: const TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 14),
           Container(
@@ -20474,16 +20491,14 @@ class _InvestmentPortfolioTargetActionPanelState
       color: widget.color,
     );
     if (updated == null) return;
-    state.actionFieldValues['A23'] = {'amt': updated.toStringAsFixed(0)};
-    await state.saveProfile();
+    await state.setInvestmentPortfolioTarget(updated);
     if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final target =
-        _configuredActionAmount(state, 'A23', state.investmentPortfolioTarget);
+    final target = state.configuredInvestmentPortfolioTarget;
     final balance = state.investmentPortfolioValue;
     final progress = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
     final remaining = math.max(0.0, target - balance);
@@ -20510,6 +20525,16 @@ class _InvestmentPortfolioTargetActionPanelState
             label: 'Portfolio target',
             value: money(target),
             color: widget.color,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Investment Fund ${money(state.investmentBalance)} + '
+            'Holdings ${money(state.investmentHoldingsValue)}',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 14),
           _LabeledProgressBar(
@@ -22123,8 +22148,9 @@ class _CategoryBudgetActionPanelState
                                     ],
                                     const SizedBox(height: 10),
                                     if (suggestedExpenseLayer(
-                                          rowCategory(index),
-                                        ) case final layer?)
+                                      rowCategory(index),
+                                    )
+                                        case final layer?)
                                       // Standard categories have a fixed layer.
                                       Row(
                                         children: [
@@ -22168,8 +22194,8 @@ class _CategoryBudgetActionPanelState
                                         ],
                                         onChanged: (value) {
                                           if (value == null) return;
-                                          customLayers[
-                                              rows[index].controller] = value;
+                                          customLayers[rows[index].controller] =
+                                              value;
                                           setDialogState(() {});
                                         },
                                       ),
@@ -22226,11 +22252,10 @@ class _CategoryBudgetActionPanelState
                       ? () {
                           savedLayers = {
                             for (var i = 0; i < rows.length; i++)
-                              if (suggestedExpenseLayer(rowCategory(i)) ==
-                                  null)
-                                rowCategory(i): customLayers[
-                                        rows[i].controller] ??
-                                    ExpenseLayer.nonEssentials,
+                              if (suggestedExpenseLayer(rowCategory(i)) == null)
+                                rowCategory(i):
+                                    customLayers[rows[i].controller] ??
+                                        ExpenseLayer.nonEssentials,
                           };
                           Navigator.of(dialogContext).pop({
                             for (final row in rows)
@@ -24273,8 +24298,8 @@ List<_CategoryEntry> _categoryEntriesByLayer(
   final list = categories.toList();
   return [
     for (final layer in ExpenseLayer.values)
-      if (list.any((category) => state.budgetCategoryLayer(category) == layer))
-        ...[
+      if (list
+          .any((category) => state.budgetCategoryLayer(category) == layer)) ...[
         (
           value: '__layer_${layer.name}__',
           label: _budgetLayerName(layer),

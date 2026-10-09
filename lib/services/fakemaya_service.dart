@@ -512,6 +512,48 @@ class FakeMayaService {
     );
   }
 
+  /// Sets the target shown on a FakeMaya personal-goal bucket ("out of
+  /// ₱X"), e.g. when the user changes the A23 portfolio target in Shellby.
+  /// No-op if the bucket doesn't exist or already has this target.
+  static Future<FakeMayaSession> updatePersonalGoalTarget({
+    required FakeMayaLink link,
+    required String personalGoalId,
+    required double target,
+  }) async {
+    final session = await refreshSession(link);
+    final summary = session.summary;
+    final goal = summary.personalGoalById(personalGoalId);
+    if (goal == null || goal.target == target) return session;
+    final nextSummary = summary.copyWith(
+      personalGoals: summary.personalGoalsWithTarget(personalGoalId, target),
+      goalTarget:
+          summary.selectedGoalId == personalGoalId ? target : summary.goalTarget,
+      updatedAt: AppClock.now(),
+    );
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': AppClock.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
   static Future<FakeMayaSession> pruneZeroBalancePersonalGoals({
     required FakeMayaLink link,
     required Set<String> allowedPersonalGoalIds,
@@ -1100,6 +1142,9 @@ class FakeMayaAccountSummary {
   FakeMayaPersonalGoal? get essentialExpenseFund =>
       personalGoalById(FakeMayaPersonalGoal.essentialExpenseFundId);
 
+  FakeMayaPersonalGoal? get investmentFund =>
+      personalGoalById(FakeMayaPersonalGoal.investmentFundId);
+
   FakeMayaAccountSummary copyWith({
     double? wallet,
     double? savings,
@@ -1306,6 +1351,16 @@ class FakeMayaAccountSummary {
       );
     }
     return updated;
+  }
+
+  List<FakeMayaPersonalGoal> personalGoalsWithTarget(
+    String id,
+    double target,
+  ) {
+    return [
+      for (final goal in personalGoals)
+        if (goal.id == id) goal.copyWith(target: target) else goal,
+    ];
   }
 
   List<FakeMayaPersonalGoal> personalGoalsWithWithdrawal(

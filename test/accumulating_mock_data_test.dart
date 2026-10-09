@@ -40,8 +40,12 @@ void main() {
     expect(summary.investmentHoldings.map((holding) => holding.symbol),
         containsAll(['BTC', 'NVDA']));
     expect(summary.investmentTransactions.length, greaterThanOrEqualTo(3));
+    // Portfolio = Investment Fund (B3) cash + weekly-valued holdings.
     expect(
-        state.investmentPortfolioValue, greaterThan(state.investmentBalance));
+      state.investmentPortfolioValue,
+      closeTo(state.investmentBalance + state.investmentHoldingsValue, 0.01),
+    );
+    expect(state.investmentHoldingsValue, greaterThan(0));
     expect(state.investmentPortfolioValue / 120000, greaterThan(.75));
     expect(state.investmentPortfolioValue / 120000, lessThan(1));
     expect(state.investmentAnnualizedReturnPercent, greaterThan(0));

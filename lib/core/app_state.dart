@@ -182,7 +182,23 @@ class AppState extends ChangeNotifier {
       fakeMayaLink?.summary.essentialExpenseFund?.balance;
   double billsObligationsBalance = 0;
   double emergencyFundBalance = 0;
-  double investmentBalance = 0;
+  // Local fallback for the Investment Portfolio. Like B1 above, once FakeMaya
+  // is linked and bucket B3 (Investment Fund) exists, the bucket is the source
+  // of truth so Shellby's Portfolio Balance always matches FakeMaya.
+  double _investmentLocalBalance = 0;
+
+  /// The FakeMaya B3 bucket when linked, otherwise the local tracked balance.
+  double get investmentBalance =>
+      _fakeMayaInvestmentFundBalance ?? _investmentLocalBalance;
+  // While B3 backs the portfolio, FakeMaya transfers are what change it, so
+  // local writes are ignored (kept in step by _syncFakeMayaMoneyItems).
+  set investmentBalance(double value) {
+    if (_fakeMayaInvestmentFundBalance != null) return;
+    _investmentLocalBalance = value;
+  }
+
+  double? get _fakeMayaInvestmentFundBalance =>
+      fakeMayaLink?.summary.investmentFund?.balance;
   double lifestyleFundBalance = 0;
   double lifestyleActivityBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
@@ -210,8 +226,119 @@ class AppState extends ChangeNotifier {
       : math.max(2000, cashFlowPyramidBaseline * 0.10);
   double get investmentPortfolioTarget =>
       math.max(20000, investmentMonthlyTarget * 12);
+
+  /// The A23 portfolio target the user set at onboarding / on the Goals page,
+  /// falling back to the suggested [investmentPortfolioTarget].
+  double get configuredInvestmentPortfolioTarget {
+    final raw = actionFieldValues['A23']?['amt'] ?? '';
+    final configured = double.tryParse(raw.replaceAll(',', '').trim());
+    return configured != null && configured > 0
+        ? configured
+        : investmentPortfolioTarget;
+  }
+
+  /// A23 Portfolio Balance: cash still waiting in the Investment Fund (B3)
+  /// plus what that cash has been invested in. A FakeMaya buy moves money
+  /// from the fund into holdings, so this total doesn't change on a trade.
   double get investmentPortfolioValue =>
-      investmentBalance + (fakeMayaLink?.summary.investmentHoldingsValue ?? 0);
+      investmentBalance + investmentHoldingsValue;
+
+  // Holdings are marked to market once a week instead of on live prices.
+  // Snapshot shape: {'valuedAt': iso, 'prices': {sym: ₱}, 'units': {sym: n}}.
+  static const investmentRevaluationInterval = Duration(days: 7);
+  Map<String, dynamic>? _investmentValuation;
+
+  DateTime? get investmentHoldingsValuedAt => DateTime.tryParse(
+        _investmentValuation?['valuedAt']?.toString() ?? '',
+      );
+
+  /// Market value of FakeMaya stock/crypto holdings. Units held at the last
+  /// weekly valuation use that week's price; units bought since then count
+  /// at what was paid for them until the next valuation.
+  double get investmentHoldingsValue {
+    final summary = fakeMayaLink?.summary;
+    if (summary == null) return 0;
+    final valuedAt = investmentHoldingsValuedAt;
+    final prices = Map<String, dynamic>.from(
+        _investmentValuation?['prices'] as Map? ?? const {});
+    final snapshotUnits = Map<String, dynamic>.from(
+        _investmentValuation?['units'] as Map? ?? const {});
+    var total = 0.0;
+    for (final holding in summary.investmentHoldings) {
+      if (holding.units <= 0) continue;
+      final symbol = holding.symbol.toUpperCase();
+      final snapshotPrice = (prices[symbol] as num?)?.toDouble();
+      final valuedUnits = snapshotPrice == null
+          ? 0.0
+          : math.min(
+              holding.units, (snapshotUnits[symbol] as num?)?.toDouble() ?? 0);
+      total += valuedUnits * (snapshotPrice ?? 0);
+      final newUnits = holding.units - valuedUnits;
+      if (newUnits <= 0) continue;
+      var boughtUnits = 0.0;
+      var boughtCost = 0.0;
+      for (final tx in summary.investmentTransactions) {
+        if (!tx.isBuy || tx.symbol.toUpperCase() != symbol) continue;
+        final createdAt = tx.createdAt;
+        if (valuedAt != null &&
+            (createdAt == null || !createdAt.isAfter(valuedAt))) {
+          continue;
+        }
+        boughtUnits += tx.shares;
+        boughtCost += tx.amount;
+      }
+      final unitCost = boughtUnits > 0
+          ? boughtCost / boughtUnits
+          : holding.costBasis > 0
+              ? holding.costBasis / holding.units
+              : holding.price;
+      total += newUnits * unitCost;
+    }
+    return total;
+  }
+
+  /// Takes a new weekly price snapshot when the last one is a week old (or
+  /// there is none yet). Live prices are fetched only here; if that fails,
+  /// FakeMaya's last stored quote is used, and the old snapshot is kept when
+  /// neither is available.
+  Future<void> _revalueInvestmentHoldingsIfDue() async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    final holdings =
+        link.summary.investmentHoldings.where((h) => h.units > 0).toList();
+    if (holdings.isEmpty) return;
+    final valuedAt = investmentHoldingsValuedAt;
+    final now = AppClock.now();
+    if (valuedAt != null &&
+        now.difference(valuedAt) < investmentRevaluationInterval) {
+      return;
+    }
+    var livePrices = const <String, double>{};
+    if (!_usesLocalFakeMayaMock(link)) {
+      try {
+        livePrices = await FakeMayaService.loadLiveInvestmentPrices();
+      } catch (_) {
+        // Fall back to FakeMaya's stored quotes below.
+      }
+    }
+    final prices = <String, double>{};
+    final units = <String, double>{};
+    for (final holding in holdings) {
+      final symbol = holding.symbol.toUpperCase();
+      final price =
+          livePrices[symbol] ?? (holding.price > 0 ? holding.price : null);
+      if (price == null) continue;
+      prices[symbol] = price;
+      units[symbol] = holding.units;
+    }
+    if (prices.isEmpty) return;
+    _investmentValuation = {
+      'valuedAt': now.toIso8601String(),
+      'prices': prices,
+      'units': units,
+    };
+  }
+
   List<Map<String, dynamic>> get openBillObligations => billObligations
       .where((bill) => _billRemaining(bill) > 0)
       .toList()
@@ -949,7 +1076,8 @@ class AppState extends ChangeNotifier {
     _essentialExpensesLocalBalance = 0;
     billsObligationsBalance = 0;
     emergencyFundBalance = 0;
-    investmentBalance = 0;
+    _investmentLocalBalance = 0;
+    _investmentValuation = null;
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     _lastEfWithdrawalStr = null;
@@ -1250,7 +1378,8 @@ class AppState extends ChangeNotifier {
     _essentialExpensesLocalBalance = 3500;
     billsObligationsBalance = 1800;
     emergencyFundBalance = 24000;
-    investmentBalance = 32000;
+    _investmentLocalBalance = 32000;
+    _investmentValuation = null;
     lifestyleFundBalance = 13400;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
@@ -1803,7 +1932,7 @@ class AppState extends ChangeNotifier {
       summary: FakeMayaAccountSummary(
         wallet: 18000,
         savings: emergencyFundBalance,
-        timeDeposit: investmentBalance,
+        timeDeposit: _investmentLocalBalance,
         goalName: 'Lifestyle and Activity Funds',
         goalEmoji: '🎨',
         goalBalance: lifestyleFundBalance +
@@ -1889,7 +2018,8 @@ class AppState extends ChangeNotifier {
     safetyShieldAllocationPercent = 0;
     safetyShieldTargetMonths = 0;
     shieldTrackedBalance = 0;
-    investmentBalance = 0;
+    _investmentLocalBalance = 0;
+    _investmentValuation = null;
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 1200;
@@ -2472,7 +2602,8 @@ class AppState extends ChangeNotifier {
     safetyShieldAllocationPercent = 10;
     safetyShieldTargetMonths = 6;
     shieldTrackedBalance = 31500;
-    investmentBalance = 0;
+    _investmentLocalBalance = 0;
+    _investmentValuation = null;
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
@@ -3302,7 +3433,7 @@ class AppState extends ChangeNotifier {
         costBasis: 15800,
       ),
     ];
-    investmentBalance = investmentBucket;
+    _investmentLocalBalance = investmentBucket;
     needsBalance = needs;
     bufferBalance = buffer;
     _essentialExpensesLocalBalance = needs;
@@ -3322,7 +3453,7 @@ class AppState extends ChangeNotifier {
     final investmentGoal = FakeMayaPersonalGoal.defaultForId(
       FakeMayaPersonalGoal.investmentFundId,
     ).copyWith(
-      balance: investmentBalance,
+      balance: _investmentLocalBalance,
       target: 120000,
       daysLeft: 180,
     );
@@ -3355,6 +3486,12 @@ class AppState extends ChangeNotifier {
         updatedAt: now,
       ),
     );
+    // Last weekly valuation of the demo holdings, a few days ago.
+    _investmentValuation = {
+      'valuedAt': now.subtract(const Duration(days: 3)).toIso8601String(),
+      'prices': {for (final h in holdings) h.symbol: h.price},
+      'units': {for (final h in holdings) h.symbol: h.units},
+    };
     fakeMayaSyncedAccounts
       ..clear()
       ..addAll(manualAccountBalances.keys);
@@ -3424,7 +3561,8 @@ class AppState extends ChangeNotifier {
     safetyShieldAllocationPercent = 0;
     safetyShieldTargetMonths = 0;
     shieldTrackedBalance = 42000;
-    investmentBalance = 0;
+    _investmentLocalBalance = 0;
+    _investmentValuation = null;
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 2200;
@@ -3944,6 +4082,7 @@ class AppState extends ChangeNotifier {
       'billsObligationsBalance': billsObligationsBalance,
       'emergencyFundBalance': emergencyFundBalance,
       'investmentBalance': investmentBalance,
+      'investmentValuation': _investmentValuation,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4160,10 +4299,14 @@ class AppState extends ChangeNotifier {
       data['emergencyFundBalance'],
       emergencyFundBalance,
     );
-    investmentBalance = _doubleFrom(
+    _investmentLocalBalance = _doubleFrom(
       data['investmentBalance'],
-      investmentBalance,
+      _investmentLocalBalance,
     );
+    final investmentValuation = data['investmentValuation'];
+    _investmentValuation = investmentValuation is Map
+        ? Map<String, dynamic>.from(investmentValuation)
+        : null;
     lifestyleFundBalance = _doubleFrom(
       data['lifestyleFundBalance'],
       lifestyleFundBalance,
@@ -5424,6 +5567,70 @@ class AppState extends ChangeNotifier {
     return total;
   }
 
+  /// Moves [amount] from the FakeMaya wallet into the Investment Fund (B3)
+  /// bucket. Every Accumulating Wealth contribution (A12/A13/A14/A23) goes
+  /// through here so the B3 balance - and therefore Shellby's Portfolio
+  /// Balance - always reflects it. The bucket may be created by the deposit
+  /// itself, so the A23 target is pushed afterwards.
+  Future<void> _depositToInvestmentFund(double amount) async {
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.investmentFundId,
+    );
+    await _syncInvestmentFundTargetToFakeMaya();
+  }
+
+  /// A23: changes the portfolio target and mirrors it onto the FakeMaya
+  /// Investment Fund bucket ("out of ₱X").
+  Future<void> setInvestmentPortfolioTarget(double target) async {
+    if (target <= 0) return;
+    actionFieldValues['A23'] = {
+      ...?actionFieldValues['A23'],
+      'amt': target.toStringAsFixed(0),
+    };
+    await _syncInvestmentFundTargetToFakeMaya();
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// Keeps the B3 bucket's target equal to the A23 portfolio target. Shellby
+  /// owns this value; FakeMaya only displays it. Best-effort: a failed write
+  /// is retried on the next refresh.
+  Future<void> _syncInvestmentFundTargetToFakeMaya() async {
+    final link = fakeMayaLink;
+    final bucket = link?.summary.investmentFund;
+    if (link == null || bucket == null) return;
+    final target = configuredInvestmentPortfolioTarget;
+    if (bucket.target == target) return;
+    if (_usesLocalFakeMayaMock(link)) {
+      final summary = link.summary;
+      _replaceFakeMayaSummary(
+        link,
+        summary.copyWith(
+          personalGoals: summary.personalGoalsWithTarget(
+            FakeMayaPersonalGoal.investmentFundId,
+            target,
+          ),
+          updatedAt: AppClock.now(),
+        ),
+      );
+      return;
+    }
+    try {
+      final session = await _withFakeMayaSessionRecovery(
+        () => FakeMayaService.updatePersonalGoalTarget(
+          link: link,
+          personalGoalId: FakeMayaPersonalGoal.investmentFundId,
+          target: target,
+        ),
+      );
+      _applyFakeMayaSession(session, previousLink: link);
+    } on FakeMayaException {
+      // Retried by refreshFakeMayaAccount.
+    }
+  }
+
   /// A12: invest X% of every income received into selected investment accounts.
   Future<void> depositIncomeToInvestment({
     required String transactionId,
@@ -5436,11 +5643,7 @@ class AppState extends ChangeNotifier {
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(
-      amount,
-      FakeMayaGoalAccount.personalGoal,
-      personalGoalId: FakeMayaPersonalGoal.investmentFundId,
-    );
+    await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_deposit',
@@ -5459,11 +5662,7 @@ class AppState extends ChangeNotifier {
   Future<void> depositMonthlyInvestment(double amount) async {
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(
-      amount,
-      FakeMayaGoalAccount.personalGoal,
-      personalGoalId: FakeMayaPersonalGoal.investmentFundId,
-    );
+    await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_monthly',
@@ -5513,7 +5712,7 @@ class AppState extends ChangeNotifier {
     final amount = cashInAmount * percentage.clamp(0, 100) / 100;
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_windfall',
@@ -5650,7 +5849,7 @@ class AppState extends ChangeNotifier {
     final amount = unspent * percentage.clamp(0, 100) / 100;
     if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.timeDeposit);
+    await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
       'type': 'investment_sweep',
@@ -6542,6 +6741,9 @@ class AppState extends ChangeNotifier {
       if (bucketId != null) {
         await _ensureLocalFakeMayaPersonalGoalBucket(bucketId);
       }
+      if (bucketId == FakeMayaPersonalGoal.investmentFundId) {
+        await _syncInvestmentFundTargetToFakeMaya();
+      }
       notifyListeners();
       return;
     }
@@ -6567,6 +6769,9 @@ class AppState extends ChangeNotifier {
         // Swallowed - see comment above. _withFakeMayaSessionRecovery
         // already unlinked the account if the session was dead.
       }
+    }
+    if (bucketId == FakeMayaPersonalGoal.investmentFundId) {
+      await _syncInvestmentFundTargetToFakeMaya();
     }
     await saveProfile();
     notifyListeners();
@@ -7440,6 +7645,8 @@ class AppState extends ChangeNotifier {
     // attempt failed - not just when linking happens to go through the
     // onboarding flow.
     await reconcileFakeMayaBuckets();
+    await _syncInvestmentFundTargetToFakeMaya();
+    await _revalueInvestmentHoldingsIfDue();
     await saveProfile();
     notifyListeners();
   }
@@ -7464,6 +7671,7 @@ class AppState extends ChangeNotifier {
     if (link == null) return;
     if (mockDataEnabled) {
       _syncFakeMayaMoneyItems();
+      await _revalueInvestmentHoldingsIfDue();
       notifyListeners();
       return;
     }
@@ -7484,6 +7692,8 @@ class AppState extends ChangeNotifier {
       // needed from the user.
       await reconcileFakeMayaBuckets();
     }
+    await _syncInvestmentFundTargetToFakeMaya();
+    await _revalueInvestmentHoldingsIfDue();
     await saveProfile();
     notifyListeners();
   }
@@ -7888,6 +8098,10 @@ class AppState extends ChangeNotifier {
     final essentialFund = link.summary.essentialExpenseFund;
     if (essentialFund != null) {
       _essentialExpensesLocalBalance = essentialFund.balance;
+    }
+    final investmentFund = link.summary.investmentFund;
+    if (investmentFund != null) {
+      _investmentLocalBalance = investmentFund.balance;
     }
     if (link.summary.creditLimit > 0) {
       _removeStaleFakeMayaCreditPlaceholders();
