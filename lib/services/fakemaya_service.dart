@@ -526,8 +526,9 @@ class FakeMayaService {
     if (goal == null || goal.target == target) return session;
     final nextSummary = summary.copyWith(
       personalGoals: summary.personalGoalsWithTarget(personalGoalId, target),
-      goalTarget:
-          summary.selectedGoalId == personalGoalId ? target : summary.goalTarget,
+      goalTarget: summary.selectedGoalId == personalGoalId
+          ? target
+          : summary.goalTarget,
       updatedAt: AppClock.now(),
     );
     await _request(
@@ -2072,7 +2073,12 @@ class FakeMayaTransaction {
           'from: investment',
           'from: maya black',
         }.contains(normalizedDetail);
-    return normalizedTitle == 'deposited to goal' ||
+    // A FakeMaya crypto/stock buy paid from the Investment Fund moves money
+    // fund -> holdings; the wallet never changes, so it isn't spending.
+    final boughtFromInvestmentFund = normalizedTitle.startsWith('bought ') &&
+        normalizedDetail.contains('from investment fund');
+    return boughtFromInvestmentFund ||
+        normalizedTitle == 'deposited to goal' ||
         normalizedTitle == 'express deposit' ||
         normalizedTitle == 'transferred from' ||
         normalizedTitle == 'withdrawn from goal' ||

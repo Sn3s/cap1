@@ -2761,18 +2761,12 @@ double lifestyleGoalPercent(AppState state) {
 /// Wealth insights header — intentionally not colored green/red there.
 double investmentChangeLast14Days(AppState state) {
   final cutoff = AppClock.now().subtract(const Duration(days: 14));
-  var delta = 0.0;
-  for (final entry in state.d1Ledger) {
-    final type = entry['type']?.toString();
-    if (type != 'investment_gain' && type != 'investment_loss') continue;
-    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-    if (date == null || date.isBefore(cutoff)) continue;
-    final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
-    delta += type == 'investment_gain' ? amount : -amount;
+  var growth = 1.0;
+  for (final week in state.investmentWeeklyReturns) {
+    if (week.valuedAt.isBefore(cutoff)) continue;
+    growth *= 1 + week.rate;
   }
-  final baseline = state.investmentPortfolioValue - delta;
-  if (baseline <= 0) return 0;
-  return (delta / baseline) * 100;
+  return (growth - 1) * 100;
 }
 
 /// Layer -> canonical goal id shown on the Goals page (only these 4 goals
@@ -6048,21 +6042,38 @@ _CashActionScore? _investmentActionScoreFor({
       );
     }
     final ratio = target <= 0 ? 1.0 : (actual / target).clamp(0.0, 1.0);
+    final weeks = state.investmentWeeklyReturns
+        .where((week) => !week.valuedAt.isBefore(baseline))
+        .toList();
+    final recentWeeks =
+        weeks.length > 8 ? weeks.sublist(weeks.length - 8) : weeks;
+    final measuredThrough = state.investmentReturnMeasuredThrough;
     return _CashActionScore(
       id: id,
       title: 'Meet the annual return target',
-      score: ratio,
-      detail:
-          '${actual.toStringAsFixed(1)}% annualized return toward a ${target.toStringAsFixed(0)}% target.',
-      pattern: [ratio],
-      weekLabels: const ['Current'],
+      score: state.hasInvestmentReturnWeek ? ratio : 0,
+      detail: state.hasInvestmentReturnWeek
+          ? '${actual.toStringAsFixed(1)}% annualized return toward a ${target.toStringAsFixed(0)}% target.'
+          : 'Waiting for the first full week of holdings valuations.',
+      // Each bar: that week's return vs. the weekly pace the target needs.
+      pattern: [
+        for (final week in recentWeeks)
+          target <= 0 ? 1.0 : (week.rate * 100 / (target / 52)).clamp(0.0, 1.0),
+      ],
+      weekLabels: [for (final week in recentWeeks) _shortDate(week.valuedAt)],
       actualLabel: '${actual.toStringAsFixed(1)}%',
       targetLabel: '${target.toStringAsFixed(0)}%',
-      formula:
-          'Progress = annualized investment return since tracking started ÷ configured target annual return.',
+      formula: 'Weekly return = (holdings value − last week − net buys) ÷ '
+          '(last week + net buys). Return since start = product of '
+          '(1 + weekly return) − 1. Annualized = return since start × 365 ÷ '
+          'days tracked. Progress = annualized ÷ target annual return.',
       evidence: [
         'Configured target annual return: ${target.toStringAsFixed(0)}%',
         'Tracking since: ${_shortDate(baseline)}',
+        if (measuredThrough != null)
+          'Measured through the week ending ${_shortDate(measuredThrough)}',
+        'Return since start: ${state.investmentReturnPercentSinceBaseline.toStringAsFixed(2)}% over ${state.investmentReturnTrackedDays} days',
+        'Target return by now: ${state.investmentTargetReturnToDatePercent.toStringAsFixed(2)}%',
       ],
       applicableMeasures: const ['Resiliency'],
     );
@@ -9200,12 +9211,10 @@ class _InvestmentScoreSummaryCard extends StatelessWidget {
     final monthInvested =
         _investmentContributionAmountForMonth(state, monthStart);
     final expected = _investmentContributionTargetForMonth(state, monthStart);
-    final monthGain = _monthLedgerAmount(state, monthStart, 'investment_gain');
-    final monthLoss = _monthLedgerAmount(state, monthStart, 'investment_loss');
-    final monthReturn = monthGain - monthLoss;
     final annualReturn = state.investmentAnnualizedReturnPercent;
-    final unrealizedGain =
-        state.fakeMayaLink?.summary.investmentHoldingsUnrealizedGain ?? 0;
+    final hasReturn = state.investmentReturnBaselineDate != null &&
+        state.hasInvestmentReturnWeek;
+    final unrealizedGain = state.investmentUnrealizedGain;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
@@ -9257,15 +9266,10 @@ class _InvestmentScoreSummaryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 _InvestmentMetricLine(
-                  label: 'Month Return',
-                  value:
-                      '${monthReturn >= 0 ? '+' : '-'}${money(monthReturn.abs())}',
-                ),
-                const SizedBox(height: 8),
-                _InvestmentMetricLine(
                   label: 'Annualized',
-                  value:
-                      '${annualReturn >= 0 ? '+' : ''}${annualReturn.toStringAsFixed(1)}%',
+                  value: hasReturn
+                      ? '${annualReturn >= 0 ? '+' : ''}${annualReturn.toStringAsFixed(1)}%'
+                      : 'Not yet',
                 ),
                 const SizedBox(height: 8),
                 _InvestmentMetricLine(
@@ -9607,8 +9611,12 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
           },
         ),
         _PortfolioValueCard(holdings: holdings),
-        _InvestmentMetricsGrid(state: state, holdings: holdings),
-        _InvestmentHoldingsCard(holdings: holdings),
+        // Total Invested + Annualized, then Holdings, then BTC/NVDA cards.
+        _InvestmentMetricsGrid(
+          state: state,
+          holdings: holdings,
+          month: activeMonth,
+        ),
         _InsightMonthSelector(
           months: months,
           selected: activeMonth,
@@ -10236,9 +10244,14 @@ class _PortfolioLinePainter extends CustomPainter {
 }
 
 class _InvestmentMetricsGrid extends StatefulWidget {
-  const _InvestmentMetricsGrid({required this.state, required this.holdings});
+  const _InvestmentMetricsGrid({
+    required this.state,
+    required this.holdings,
+    required this.month,
+  });
   final AppState state;
   final List<FakeMayaInvestmentHolding> holdings;
+  final DateTime month;
 
   @override
   State<_InvestmentMetricsGrid> createState() => _InvestmentMetricsGridState();
@@ -10270,51 +10283,77 @@ class _InvestmentMetricsGridState extends State<_InvestmentMetricsGrid> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final totalInvested = state.investmentBalance +
-        (state.fakeMayaLink?.summary.investmentHoldingsCostBasis ?? 0);
+    final month = widget.month;
+    // Every ₱ moved from the Investment Fund into holdings up to the end of
+    // the selected month. Market moves and sales don't change it.
+    final totalInvested = state.investmentTotalInvestedBefore(
+      DateTime(month.year, month.month + 1),
+    );
     final tracking = state.investmentReturnBaselineDate != null;
+    final hasWeek = state.hasInvestmentReturnWeek;
     final annualizedReturn = state.investmentAnnualizedReturnPercent;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: GridView.count(
-        crossAxisCount: 2,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-        childAspectRatio: 1.5,
-        children: [
-          _MetricMiniCard(
-            label: 'Total Invested',
-            value: money(totalInvested),
-            icon: Icons.savings_rounded,
-            color: _purple,
-          ),
-          _MetricMiniCard(
-            label: 'Annualized Return',
-            value: tracking
-                ? '${annualizedReturn >= 0 ? '+' : ''}${annualizedReturn.toStringAsFixed(1)}%'
-                : 'Not tracking',
-            icon: annualizedReturn >= 0
-                ? Icons.trending_up_rounded
-                : Icons.trending_down_rounded,
-            color: !tracking ? _body : (annualizedReturn >= 0 ? _sage : _red),
-          ),
-          _StockPerformanceCard(
-            symbol: 'BTC',
-            name: 'Bitcoin',
-            quote: _quotes?['BTC'],
-            holding: _holdingFor('BTC'),
-          ),
-          _StockPerformanceCard(
-            symbol: 'NVDA',
-            name: 'NVIDIA',
-            quote: _quotes?['NVDA'],
-            holding: _holdingFor('NVDA'),
-          ),
-        ],
-      ),
+    GridView grid(List<Widget> children, double aspectRatio) => GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: aspectRatio,
+          children: children,
+        );
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: grid([
+            _MetricMiniCard(
+              label: 'Total Invested',
+              value: money(totalInvested),
+              icon: Icons.savings_rounded,
+              color: _purple,
+              caption: 'As of the month of ${_monthLabel(month)}',
+            ),
+            // Same figure as A30 on the Goals page.
+            _MetricMiniCard(
+              label: 'Annualized Return',
+              value: !tracking
+                  ? 'Not tracking'
+                  : hasWeek
+                      ? '${annualizedReturn >= 0 ? '+' : ''}${annualizedReturn.toStringAsFixed(1)}%'
+                      : 'After 1st week',
+              icon: annualizedReturn >= 0
+                  ? Icons.trending_up_rounded
+                  : Icons.trending_down_rounded,
+              color: !tracking || !hasWeek
+                  ? _body
+                  : (annualizedReturn >= 0 ? _sage : _red),
+              caption: tracking && hasWeek
+                  ? 'Through the week ending ${_shortDate(state.investmentReturnMeasuredThrough!)}'
+                  : null,
+            ),
+          ], 1.1),
+        ),
+        _InvestmentHoldingsCard(holdings: widget.holdings),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          child: grid([
+            _StockPerformanceCard(
+              symbol: 'BTC',
+              name: 'Bitcoin',
+              quote: _quotes?['BTC'],
+              holding: _holdingFor('BTC'),
+            ),
+            _StockPerformanceCard(
+              symbol: 'NVDA',
+              name: 'NVIDIA',
+              quote: _quotes?['NVDA'],
+              holding: _holdingFor('NVDA'),
+            ),
+          ], 1.5),
+        ),
+      ],
     );
   }
 }
@@ -10325,11 +10364,13 @@ class _MetricMiniCard extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
+    this.caption,
   });
   final String label;
   final String value;
   final IconData icon;
   final Color color;
+  final String? caption;
 
   @override
   Widget build(BuildContext context) {
@@ -10361,6 +10402,16 @@ class _MetricMiniCard extends StatelessWidget {
                   color: color, fontSize: 16, fontWeight: FontWeight.w900),
             ),
           ),
+          if (caption != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              caption!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: _body, fontSize: 9.5, fontWeight: FontWeight.w700),
+            ),
+          ],
         ],
       ),
     );
@@ -16449,25 +16500,29 @@ class _D1GoalCard extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: percent / 100,
-                      minHeight: 7,
-                      backgroundColor: _border,
-                      valueColor: AlwaysStoppedAnimation(accent),
+                  // Grow Investments has no single % to show here; its
+                  // progress lives on the goal page (Goal Progress).
+                  if (goal.id != 'G5') ...[
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: percent / 100,
+                        minHeight: 7,
+                        backgroundColor: _border,
+                        valueColor: AlwaysStoppedAnimation(accent),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${percent.round()}% of goal',
-                    style: const TextStyle(
-                      color: _body,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 6),
+                    Text(
+                      '${percent.round()}% of goal',
+                      style: const TextStyle(
+                        color: _body,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -18881,46 +18936,157 @@ String _holdingsValuationNote(AppState state) {
       'Holdings value = your crypto/stocks, priced $when.';
 }
 
+typedef _ProgressLine = ({IconData icon, Color color, String text});
+
+/// Goal Progress for Grow Investments: a big-picture read of how
+/// consistently the user is working the selected actions over the last 3
+/// months, so a single transaction doesn't swing it.
+({String label, Color color, List<_ProgressLine> lines, String nudge})
+    _investmentGoalProgress(AppState state) {
+  final now = AppClock.now();
+  final since = now.subtract(const Duration(days: 90));
+  final actions = state.selectedActionIds;
+  final lines = <_ProgressLine>[];
+
+  // A12: share of recent incomes that got their investment transfer.
+  double? incomeRate;
+  if (actions.contains('A12')) {
+    final incomes = (state.fakeMayaLink?.summary.transactions ??
+            const <FakeMayaTransaction>[])
+        .where((tx) =>
+            _isIncomeTransaction(tx) &&
+            tx.createdAt != null &&
+            tx.createdAt!.isAfter(since))
+        .toList();
+    if (incomes.isEmpty) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text: 'A12 · No income received in the last 3 months yet.',
+      ));
+    } else {
+      final invested = incomes
+          .where(
+              (tx) => state.hasInvestmentAllocationForIncome(tx.transactionId))
+          .length;
+      incomeRate = invested / incomes.length;
+      lines.add((
+        icon: incomeRate >= .8
+            ? Icons.check_circle_rounded
+            : Icons.error_outline_rounded,
+        color: incomeRate >= .8
+            ? _sage
+            : incomeRate >= .5
+                ? _amber
+                : _red,
+        text: 'A12 · Invested from $invested of ${incomes.length} incomes '
+            'in the last 3 months.',
+      ));
+    }
+  }
+
+  // A23: where the portfolio stands and the recent monthly pace.
+  final target = state.configuredInvestmentPortfolioTarget;
+  final portfolio = state.investmentPortfolioValue;
+  final reached = target > 0 && portfolio >= target;
+  const contributionTypes = {
+    'investment_deposit',
+    'investment_monthly',
+    'investment_windfall',
+    'investment_sweep',
+  };
+  final contributed = state.d1Ledger.where((entry) {
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    return contributionTypes.contains(entry['type']) &&
+        date != null &&
+        date.isAfter(since);
+  }).fold<double>(0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0));
+  final monthlyPace = contributed / 3;
+  if (actions.contains('A23')) {
+    final pct =
+        target <= 0 ? 0 : (portfolio / target * 100).clamp(0, 100).round();
+    final monthsLeft =
+        monthlyPace > 0 ? ((target - portfolio) / monthlyPace).ceil() : null;
+    lines.add((
+      icon: reached ? Icons.flag_rounded : Icons.trending_up_rounded,
+      color: reached ? _sage : _purple,
+      text: reached
+          ? 'A23 · ${money(target)} portfolio target reached.'
+          : 'A23 · Portfolio is $pct% of your ${money(target)} target'
+              '${monthsLeft == null ? '.' : ' - about $monthsLeft month${monthsLeft == 1 ? '' : 's'} away at your recent pace of ${money(monthlyPace)}/month.'}',
+    ));
+  }
+
+  // A30: return vs. target, judged only once weekly valuations exist.
+  var returnBehind = false;
+  if (actions.contains('A30')) {
+    final targetPct = state.investmentTargetAnnualReturnPercent;
+    if (state.investmentReturnBaselineDate == null) {
+      lines.add((
+        icon: Icons.timeline_rounded,
+        color: _body,
+        text: 'A30 · Start tracking to compare returns with your '
+            '${targetPct.toStringAsFixed(0)}% target.',
+      ));
+    } else if (!state.hasInvestmentReturnWeek) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text: 'A30 · Returns show after the first full week of valuations.',
+      ));
+    } else {
+      returnBehind = !state.isInvestmentAnnualReturnOnTrack;
+      final actual = state.investmentAnnualizedReturnPercent;
+      lines.add((
+        icon: returnBehind
+            ? Icons.trending_down_rounded
+            : Icons.check_circle_rounded,
+        color: returnBehind ? _red : _sage,
+        text: 'A30 · ${actual >= 0 ? '+' : ''}${actual.toStringAsFixed(1)}% '
+            'annualized vs. your ${targetPct.toStringAsFixed(0)}% target.',
+      ));
+    }
+  }
+
+  final started = incomeRate != null || monthlyPace > 0;
+  final (label, color) = reached
+      ? ('Target reached', _sage)
+      : !started
+          ? ('Getting started', _brand)
+          : (incomeRate ?? 1) >= .8 && monthlyPace > 0
+              ? ('Consistent', _sage)
+              : (incomeRate ?? 1) >= .5
+                  ? ('Building momentum', _brand)
+                  : ('Needs a restart', _amber);
+
+  final nudge = reached
+      ? "You've reached your portfolio target. Raise it in A23 to keep your "
+          'money growing.'
+      : !started
+          ? 'Make your first move: send part of your next income to the '
+              'Investment Fund with A12, or add to it directly in A23.'
+          : incomeRate != null && incomeRate < .8
+              ? 'Some incomes went by without an investment transfer. '
+                  'Investing from every income through A12 moves this goal '
+                  'more than any single market week.'
+              : returnBehind
+                  ? "Returns are behind target, but they're measured weekly "
+                      'and markets move. Keep contributing and review your '
+                      'holdings mix instead of reacting to one week.'
+                  : "You're investing steadily. Keep it up with each income to "
+                      'stay on pace.';
+  return (label: label, color: color, lines: lines, nudge: nudge);
+}
+
 class _GrowInvestmentsSummary extends StatelessWidget {
   const _GrowInvestmentsSummary();
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final balance = state.investmentPortfolioValue;
-    final target = state.configuredInvestmentPortfolioTarget;
-    final latestIncome = _latestIncomeTransaction(state);
-    final contributionMade = latestIncome != null &&
-        state.hasInvestmentAllocationForIncome(latestIncome.transactionId);
-    final targetProgress =
-        target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
-    final contributionScore = contributionMade ? 1.0 : 0.0;
-    final returnTarget = state.investmentTargetAnnualReturnPercent;
-    final returnTracking = state.investmentReturnBaselineDate != null;
-    final returnScore = !returnTracking
-        ? 0.5 // neutral until the user starts tracking an annual return
-        : returnTarget <= 0
-            ? 1.0
-            : (state.investmentAnnualizedReturnPercent / returnTarget)
-                .clamp(0.0, 1.0);
-    final feasibility =
-        ((targetProgress * .40 + returnScore * .35 + contributionScore * .25) *
-                100)
-            .round();
-    final scoreColor = feasibility >= 80
-        ? _sage
-        : feasibility >= 60
-            ? _brand
-            : feasibility >= 40
-                ? _amber
-                : _red;
-    final scoreLabel = feasibility >= 80
-        ? 'Strong'
-        : feasibility >= 60
-            ? 'Workable'
-            : feasibility >= 40
-                ? 'Needs attention'
-                : 'At risk';
+    final progress = _investmentGoalProgress(state);
+    final scoreColor = progress.color;
 
     return AppCard(
       child: Column(
@@ -18981,10 +19147,10 @@ class _GrowInvestmentsSummary extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Expanded(
+                    const Expanded(
                       child: Text(
-                        'Goal feasibility · $scoreLabel',
-                        style: const TextStyle(
+                        'Goal Progress',
+                        style: TextStyle(
                           color: _title,
                           fontSize: 12,
                           fontWeight: FontWeight.w900,
@@ -18992,28 +19158,39 @@ class _GrowInvestmentsSummary extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '$feasibility%',
+                      progress.label,
                       style: TextStyle(
                         color: scoreColor,
-                        fontSize: 15,
+                        fontSize: 13,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: feasibility / 100,
-                    minHeight: 9,
-                    color: scoreColor,
-                    backgroundColor: scoreColor.withValues(alpha: .14),
+                for (final line in progress.lines) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(line.icon, size: 15, color: line.color),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          line.text,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 11,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 7),
+                ],
+                const SizedBox(height: 10),
                 Text(
-                  'Your portfolio is ${(targetProgress * 100).round()}% of the ${money(target)} target. The score also considers whether the latest income was invested and how the annualized return compares with your ${returnTarget.toStringAsFixed(0)}% target.',
+                  progress.nudge,
                   style: const TextStyle(
                     color: _body,
                     fontSize: 10.5,
@@ -19361,6 +19538,34 @@ class _InvestmentTransactionsList extends StatelessWidget {
             ),
           );
       }
+    }
+    // FakeMaya trades: buys are paid from the Investment Fund, sales go to
+    // the wallet (and show on Home as a transaction to label).
+    final trades =
+        AppScope.of(context).fakeMayaLink?.summary.investmentTransactions ??
+            const <FakeMayaStockTransaction>[];
+    for (final trade in trades) {
+      final units =
+          '${trade.shares.toStringAsFixed(trade.type == 'stock' ? 4 : 8)} ${trade.unitLabel}';
+      activity.add(
+        trade.isBuy
+            ? _EmergencyActivityItem(
+                title: 'Bought Investment Holdings for ${trade.symbol}',
+                detail: '$units · paid from Investment Fund',
+                amount: trade.amount,
+                date: trade.createdAt,
+                incoming: false,
+                icon: Icons.add_chart_rounded,
+              )
+            : _EmergencyActivityItem(
+                title: 'Sold Investment Holdings for ${trade.symbol}',
+                detail: '$units · proceeds to FakeMaya Wallet',
+                amount: trade.amount,
+                date: trade.createdAt,
+                incoming: false,
+                icon: Icons.sell_rounded,
+              ),
+      );
     }
     activity.sort((a, b) => (b.date ?? DateTime.fromMillisecondsSinceEpoch(0))
         .compareTo(a.date ?? DateTime.fromMillisecondsSinceEpoch(0)));
@@ -19794,6 +19999,10 @@ bool _isIncomeTransaction(FakeMayaTransaction transaction) {
   if (transaction.amount <= 0 || transaction.isInternalFakeMayaTransfer) {
     return false;
   }
+  // Labelled by the user as income (e.g. a FakeMaya holdings sale labelled
+  // "Investment income"), so A12 can invest part of it again.
+  final category = transaction.category?.trim().toLowerCase() ?? '';
+  if (category.contains('income') || category.contains('salary')) return true;
   final text = '${transaction.title} ${transaction.detail}'.toLowerCase();
   return !text.contains('account opened') &&
       (text.contains('income') ||
@@ -20580,6 +20789,88 @@ class _InvestmentPortfolioTargetActionPanelState
   }
 }
 
+/// Holdings value with an up/down colour and % vs. what was invested.
+/// Prices update once a week, so the date shown is the valuation's week end.
+class _HoldingsPerformanceTile extends StatelessWidget {
+  const _HoldingsPerformanceTile({
+    required this.value,
+    required this.invested,
+    required this.returnPercent,
+    required this.valuedAt,
+  });
+  final double value;
+  final double invested;
+  final double returnPercent;
+  final DateTime? valuedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasHoldings = value > 0 || invested > 0;
+    final up = returnPercent >= 0;
+    final color = !hasHoldings ? _body : (up ? _sage : _red);
+    final date = valuedAt;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: .25)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            up ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Holdings value',
+                  style: TextStyle(
+                      color: _body, fontSize: 9.5, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  money(value),
+                  style: const TextStyle(
+                      color: _title, fontSize: 12, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  !hasHoldings
+                      ? 'No crypto or stock holdings yet'
+                      : date == null
+                          ? 'At purchase cost until the first weekly valuation'
+                          : 'For the week ending ${_numericDate(date)}',
+                  style: const TextStyle(
+                      color: _body, fontSize: 9.5, fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+          ),
+          if (hasHoldings)
+            Text(
+              '${up ? '+' : ''}${returnPercent.toStringAsFixed(1)}%',
+              style: TextStyle(
+                color: color,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _numericDate(DateTime date) =>
+    '${date.month.toString().padLeft(2, '0')}/'
+    '${date.day.toString().padLeft(2, '0')}/${date.year}';
+
 class _InvestmentAnnualReturnActionPanel extends StatefulWidget {
   const _InvestmentAnnualReturnActionPanel({required this.color});
   final Color color;
@@ -20657,8 +20948,10 @@ class _InvestmentAnnualReturnActionPanelState
     final tracking = state.investmentReturnBaselineDate != null;
     final actual = state.investmentAnnualizedReturnPercent;
     final onTrack = state.isInvestmentAnnualReturnOnTrack;
+    final hasWeek = state.hasInvestmentReturnWeek;
     final progress = target <= 0 ? 0.0 : (actual / target).clamp(0.0, 1.0);
-    final statusColor = tracking ? (onTrack ? _sage : _red) : widget.color;
+    final statusColor =
+        tracking && hasWeek ? (onTrack ? _sage : _red) : widget.color;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -20672,12 +20965,39 @@ class _InvestmentAnnualReturnActionPanelState
           ),
           const SizedBox(height: 14),
           _ActionMetricTile(
+            icon: Icons.trending_up_rounded,
+            label: 'Portfolio balance',
+            value: money(state.investmentPortfolioValue),
+            color: widget.color,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Investment Fund ${money(state.investmentBalance)} + '
+            'Holdings ${money(state.investmentHoldingsValue)}',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _HoldingsPerformanceTile(
+            value: state.investmentHoldingsValue,
+            invested: state.investmentHoldingsCostBasis,
+            returnPercent: state.investmentHoldingsReturnPercent,
+            valuedAt: state.investmentHoldingsValuedAt,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
             icon: actual >= 0
                 ? Icons.trending_up_rounded
                 : Icons.trending_down_rounded,
             label: 'Annualized return',
-            value:
-                tracking ? '${actual.toStringAsFixed(1)}%' : 'Not tracking yet',
+            value: !tracking
+                ? 'Not tracking yet'
+                : hasWeek
+                    ? '${actual >= 0 ? '+' : ''}${actual.toStringAsFixed(1)}%'
+                    : 'After the first full week',
             color: statusColor,
           ),
           const SizedBox(height: 10),
@@ -20688,7 +21008,7 @@ class _InvestmentAnnualReturnActionPanelState
             color: widget.color,
           ),
           const SizedBox(height: 14),
-          if (tracking) ...[
+          if (tracking && hasWeek) ...[
             _LabeledProgressBar(
               value: progress,
               color: statusColor,
@@ -20710,9 +21030,12 @@ class _InvestmentAnnualReturnActionPanelState
               ),
             ),
           ] else
-            const Text(
-              'Start tracking to compare portfolio performance with this '
-              'target over time.',
+            Text(
+              tracking
+                  ? 'Holdings are valued once a week. The annualized return '
+                      'appears after the first full week of tracking.'
+                  : 'Start tracking to compare portfolio performance with this '
+                      'target over time.',
               style: TextStyle(
                 color: _body,
                 fontSize: 11,

@@ -115,6 +115,7 @@ Map<String, double> canonicalCategoryBudgets(Map<String, double> budgets) {
 const incomeCategoryPresets = [
   'Salary',
   'Business income',
+  'Investment income',
   'Refund',
   'Gift',
   'Transfer',

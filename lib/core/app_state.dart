@@ -248,13 +248,48 @@ class AppState extends ChangeNotifier {
   static const investmentRevaluationInterval = Duration(days: 7);
   Map<String, dynamic>? _investmentValuation;
 
+  /// One entry per weekly valuation, oldest first:
+  /// {'valuedAt': iso, 'holdingsValue': ₱, 'netFlow': ₱}. netFlow is what was
+  /// bought minus what was sold since the previous valuation, so A30 can
+  /// separate market gains from money moved in or out of holdings.
+  final List<Map<String, dynamic>> investmentValuationHistory = [];
+
+  /// What is still invested in the current holdings (weighted-average cost).
+  double get investmentHoldingsCostBasis =>
+      fakeMayaLink?.summary.investmentHoldingsCostBasis ?? 0;
+
+  /// Unrealized gain/loss: what the holdings are worth now (weekly prices)
+  /// minus what is still invested in them. Nothing is realized until sold.
+  double get investmentUnrealizedGain =>
+      investmentHoldingsValue - investmentHoldingsCostBasis;
+
+  /// Total ₱ the user has put into holdings from the Investment Fund up to
+  /// (not including) [end]: the sum of every FakeMaya buy. Market moves and
+  /// sales don't change it.
+  double investmentTotalInvestedBefore(DateTime end) =>
+      (fakeMayaLink?.summary.investmentTransactions ??
+              const <FakeMayaStockTransaction>[])
+          .where((tx) =>
+              tx.isBuy && tx.createdAt != null && tx.createdAt!.isBefore(end))
+          .fold(0.0, (total, tx) => total + tx.amount);
+
+  /// Holdings value vs. what was paid for them, in %.
+  double get investmentHoldingsReturnPercent {
+    final cost = investmentHoldingsCostBasis;
+    if (cost <= 0) return 0;
+    return (investmentHoldingsValue - cost) / cost * 100;
+  }
+
   DateTime? get investmentHoldingsValuedAt => DateTime.tryParse(
         _investmentValuation?['valuedAt']?.toString() ?? '',
       );
 
-  /// Market value of FakeMaya stock/crypto holdings. Units held at the last
-  /// weekly valuation use that week's price; units bought since then count
-  /// at what was paid for them until the next valuation.
+  /// Market value of FakeMaya stock/crypto holdings, per holding:
+  ///   value = units at last weekly valuation × that week's price
+  ///           + bought since then (₱ paid) − sold since then (₱ received)
+  /// so a buy adds exactly what was paid and a sale removes exactly what it
+  /// sold for, until the next weekly valuation re-prices everything. A
+  /// holding that was never valued counts at what is still invested in it.
   double get investmentHoldingsValue {
     final summary = fakeMayaLink?.summary;
     if (summary == null) return 0;
@@ -268,31 +303,24 @@ class AppState extends ChangeNotifier {
       if (holding.units <= 0) continue;
       final symbol = holding.symbol.toUpperCase();
       final snapshotPrice = (prices[symbol] as num?)?.toDouble();
-      final valuedUnits = snapshotPrice == null
-          ? 0.0
-          : math.min(
-              holding.units, (snapshotUnits[symbol] as num?)?.toDouble() ?? 0);
-      total += valuedUnits * (snapshotPrice ?? 0);
-      final newUnits = holding.units - valuedUnits;
-      if (newUnits <= 0) continue;
-      var boughtUnits = 0.0;
-      var boughtCost = 0.0;
+      if (valuedAt == null || snapshotPrice == null) {
+        total += holding.costBasis > 0
+            ? holding.costBasis
+            : holding.units * holding.price;
+        continue;
+      }
+      var value =
+          ((snapshotUnits[symbol] as num?)?.toDouble() ?? 0) * snapshotPrice;
       for (final tx in summary.investmentTransactions) {
-        if (!tx.isBuy || tx.symbol.toUpperCase() != symbol) continue;
         final createdAt = tx.createdAt;
-        if (valuedAt != null &&
-            (createdAt == null || !createdAt.isAfter(valuedAt))) {
+        if (tx.symbol.toUpperCase() != symbol ||
+            createdAt == null ||
+            !createdAt.isAfter(valuedAt)) {
           continue;
         }
-        boughtUnits += tx.shares;
-        boughtCost += tx.amount;
+        value += tx.isBuy ? tx.amount : -tx.amount;
       }
-      final unitCost = boughtUnits > 0
-          ? boughtCost / boughtUnits
-          : holding.costBasis > 0
-              ? holding.costBasis / holding.units
-              : holding.price;
-      total += newUnits * unitCost;
+      total += math.max(0, value);
     }
     return total;
   }
@@ -332,12 +360,66 @@ class AppState extends ChangeNotifier {
       units[symbol] = holding.units;
     }
     if (prices.isEmpty) return;
+    var netFlow = 0.0;
+    if (valuedAt != null) {
+      for (final tx in link.summary.investmentTransactions) {
+        final createdAt = tx.createdAt;
+        if (createdAt == null ||
+            !createdAt.isAfter(valuedAt) ||
+            createdAt.isAfter(now)) {
+          continue;
+        }
+        netFlow += tx.isBuy ? tx.amount : -tx.amount;
+      }
+    }
     _investmentValuation = {
       'valuedAt': now.toIso8601String(),
       'prices': prices,
       'units': units,
     };
+    investmentValuationHistory.add({
+      'valuedAt': now.toIso8601String(),
+      'holdingsValue': investmentHoldingsValue,
+      'netFlow': netFlow,
+    });
+    if (investmentValuationHistory.length > 104) {
+      investmentValuationHistory.removeAt(0);
+    }
   }
+
+  /// Weekly market result between consecutive valuations (Modified Dietz,
+  /// flows treated as happening at the start of the week):
+  ///   gain_k = H_k - H_(k-1) - F_k
+  ///   rate_k = gain_k / (H_(k-1) + F_k)
+  List<({DateTime valuedAt, double gain, double rate})>
+      get investmentWeeklyReturns {
+    final result = <({DateTime valuedAt, double gain, double rate})>[];
+    for (var k = 1; k < investmentValuationHistory.length; k++) {
+      final previous = investmentValuationHistory[k - 1];
+      final current = investmentValuationHistory[k];
+      final valuedAt = DateTime.tryParse(current['valuedAt']?.toString() ?? '');
+      if (valuedAt == null) continue;
+      final before = (previous['holdingsValue'] as num?)?.toDouble() ?? 0;
+      final after = (current['holdingsValue'] as num?)?.toDouble() ?? 0;
+      final flow = (current['netFlow'] as num?)?.toDouble() ?? 0;
+      final gain = after - before - flow;
+      final base = before + flow;
+      result.add((
+        valuedAt: valuedAt,
+        gain: gain,
+        rate: base > 0 ? gain / base : 0,
+      ));
+    }
+    return result;
+  }
+
+  /// Market gain/loss (₱) from weekly valuations dated in [month].
+  double investmentMarketReturnForMonth(DateTime month) =>
+      investmentWeeklyReturns
+          .where((week) =>
+              week.valuedAt.year == month.year &&
+              week.valuedAt.month == month.month)
+          .fold(0.0, (total, week) => total + week.gain);
 
   List<Map<String, dynamic>> get openBillObligations => billObligations
       .where((bill) => _billRemaining(bill) > 0)
@@ -1078,6 +1160,7 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance = 0;
     _investmentLocalBalance = 0;
     _investmentValuation = null;
+    investmentValuationHistory.clear();
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     _lastEfWithdrawalStr = null;
@@ -1380,6 +1463,7 @@ class AppState extends ChangeNotifier {
     emergencyFundBalance = 24000;
     _investmentLocalBalance = 32000;
     _investmentValuation = null;
+    investmentValuationHistory.clear();
     lifestyleFundBalance = 13400;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
@@ -2020,6 +2104,7 @@ class AppState extends ChangeNotifier {
     shieldTrackedBalance = 0;
     _investmentLocalBalance = 0;
     _investmentValuation = null;
+    investmentValuationHistory.clear();
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 1200;
@@ -2604,6 +2689,7 @@ class AppState extends ChangeNotifier {
     shieldTrackedBalance = 31500;
     _investmentLocalBalance = 0;
     _investmentValuation = null;
+    investmentValuationHistory.clear();
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
@@ -3249,20 +3335,6 @@ class AppState extends ChangeNotifier {
       1: [2900.0, 3200.0],
       0: [2900.0, 2100.0],
     };
-    const monthlyReturns = {
-      3: [900.0, -350.0],
-      2: [1250.0, -250.0],
-      1: [780.0, -700.0],
-      0: [650.0, -200.0],
-    };
-
-    ledger.add({
-      'type': 'investment_return_baseline',
-      'date': DateTime(now.year, now.month - 4, 28).toIso8601String(),
-      'balance': 62000.0,
-      'destination': 'Investment Portfolio',
-      'label': 'Started annual return tracking',
-    });
 
     for (final offset in monthOffsets) {
       final month = DateTime(now.year, now.month - offset);
@@ -3327,24 +3399,6 @@ class AppState extends ChangeNotifier {
           category: 'Investment',
           source: 'E-wallet',
         ));
-      }
-
-      final firstReturn = monthlyReturns[offset]![0];
-      final secondReturn = monthlyReturns[offset]![1];
-      for (final item in [
-        (DateTime(month.year, month.month, 10, 10), firstReturn),
-        (DateTime(month.year, month.month, 24, 10), secondReturn),
-      ]) {
-        if (item.$1.isAfter(now)) continue;
-        final amount = item.$2.abs();
-        ledger.add({
-          'type': item.$2 >= 0 ? 'investment_gain' : 'investment_loss',
-          'date': item.$1.toIso8601String(),
-          'amount': amount,
-          'balance': investmentBucket,
-          'destination': 'Investment Portfolio',
-          'label': item.$2 >= 0 ? 'Investment earnings' : 'Investment loss',
-        });
       }
 
       final stockDate = DateTime(month.year, month.month, 28, 11);
@@ -3433,6 +3487,25 @@ class AppState extends ChangeNotifier {
         costBasis: 15800,
       ),
     ];
+    // Opening buys from before the demo window, so the trade history adds up
+    // to the holdings' units and cost (Total Invested = sum of all buys).
+    for (final holding in holdings) {
+      final recent =
+          stockTransactions.where((tx) => tx.symbol == holding.symbol);
+      final recentCost = recent.fold<double>(0, (t, tx) => t + tx.amount);
+      final recentUnits = recent.fold<double>(0, (t, tx) => t + tx.shares);
+      if (holding.costBasis - recentCost <= 0) continue;
+      stockTransactions.add(FakeMayaStockTransaction(
+        side: 'Bought',
+        symbol: holding.symbol,
+        name: holding.name,
+        shares: math.max(0, holding.units - recentUnits),
+        unitLabel: holding.unitLabel,
+        type: holding.type,
+        amount: holding.costBasis - recentCost,
+        createdAt: DateTime(now.year, now.month - 6, 12, 11),
+      ));
+    }
     _investmentLocalBalance = investmentBucket;
     needsBalance = needs;
     bufferBalance = buffer;
@@ -3486,12 +3559,65 @@ class AppState extends ChangeNotifier {
         updatedAt: now,
       ),
     );
-    // Last weekly valuation of the demo holdings, a few days ago.
+    // 16 weeks of weekly valuations ending a few days ago. Values are worked
+    // backwards from today's holdings so each week's market move (rate) and
+    // the demo's real buys (flows) reproduce the current value exactly:
+    //   H_(k-1) = H_k / (1 + rate_k) - F_k
+    final lastValuedAt = now.subtract(const Duration(days: 3));
     _investmentValuation = {
-      'valuedAt': now.subtract(const Duration(days: 3)).toIso8601String(),
+      'valuedAt': lastValuedAt.toIso8601String(),
       'prices': {for (final h in holdings) h.symbol: h.price},
       'units': {for (final h in holdings) h.symbol: h.units},
     };
+    const weeklyRates = [
+      0.011, -0.006, 0.008, 0.004, -0.009, 0.013, 0.002, -0.004, //
+      0.010, 0.005, -0.007, 0.009, 0.003, -0.002, 0.008, 0.006,
+    ];
+    final valuationDates = [
+      for (var week = weeklyRates.length; week >= 0; week--)
+        lastValuedAt.subtract(Duration(days: 7 * week)),
+    ];
+    final weeklyFlows = [
+      for (var k = 0; k < valuationDates.length; k++)
+        k == 0
+            ? 0.0
+            : stockTransactions
+                .where((tx) =>
+                    tx.createdAt != null &&
+                    tx.createdAt!.isAfter(valuationDates[k - 1]) &&
+                    !tx.createdAt!.isAfter(valuationDates[k]))
+                .fold<double>(
+                  0,
+                  (total, tx) => total + (tx.isBuy ? tx.amount : -tx.amount),
+                ),
+    ];
+    final weeklyValues = List<double>.filled(valuationDates.length, 0);
+    weeklyValues[weeklyValues.length - 1] = holdings.fold<double>(
+      0,
+      (total, h) => total + h.units * h.price,
+    );
+    for (var k = weeklyValues.length - 1; k > 0; k--) {
+      weeklyValues[k - 1] =
+          weeklyValues[k] / (1 + weeklyRates[k - 1]) - weeklyFlows[k];
+    }
+    investmentValuationHistory
+      ..clear()
+      ..addAll([
+        for (var k = 0; k < valuationDates.length; k++)
+          {
+            'valuedAt': valuationDates[k].toIso8601String(),
+            'holdingsValue': weeklyValues[k],
+            'netFlow': weeklyFlows[k],
+          },
+      ]);
+    d1Ledger.add({
+      'type': 'investment_return_baseline',
+      'date': valuationDates.first.toIso8601String(),
+      'anchorValuedAt': valuationDates.first.toIso8601String(),
+      'balance': weeklyValues.first,
+      'destination': 'Investment Portfolio',
+      'label': 'Started annual return tracking',
+    });
     fakeMayaSyncedAccounts
       ..clear()
       ..addAll(manualAccountBalances.keys);
@@ -3563,6 +3689,7 @@ class AppState extends ChangeNotifier {
     shieldTrackedBalance = 42000;
     _investmentLocalBalance = 0;
     _investmentValuation = null;
+    investmentValuationHistory.clear();
     lifestyleFundBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 2200;
@@ -4083,6 +4210,7 @@ class AppState extends ChangeNotifier {
       'emergencyFundBalance': emergencyFundBalance,
       'investmentBalance': investmentBalance,
       'investmentValuation': _investmentValuation,
+      'investmentValuationHistory': investmentValuationHistory,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4307,6 +4435,14 @@ class AppState extends ChangeNotifier {
     _investmentValuation = investmentValuation is Map
         ? Map<String, dynamic>.from(investmentValuation)
         : null;
+    final valuationHistory = data['investmentValuationHistory'];
+    investmentValuationHistory
+      ..clear()
+      ..addAll([
+        if (valuationHistory is List)
+          for (final entry in valuationHistory)
+            if (entry is Map) Map<String, dynamic>.from(entry),
+      ]);
     lifestyleFundBalance = _doubleFrom(
       data['lifestyleFundBalance'],
       lifestyleFundBalance,
@@ -5545,27 +5681,23 @@ class AppState extends ChangeNotifier {
     return total;
   }
 
-  double get investmentEarningsThisMonth =>
-      _investmentPerformanceTotalForCurrentMonth('investment_gain');
+  double get investmentEarningsThisMonth => _currentMonthInvestmentWeeks
+      .where((week) => week.gain > 0)
+      .fold(0.0, (total, week) => total + week.gain);
 
-  double get investmentLossesThisMonth =>
-      _investmentPerformanceTotalForCurrentMonth('investment_loss');
+  double get investmentLossesThisMonth => _currentMonthInvestmentWeeks
+      .where((week) => week.gain < 0)
+      .fold(0.0, (total, week) => total - week.gain);
+
+  Iterable<({DateTime valuedAt, double gain, double rate})>
+      get _currentMonthInvestmentWeeks {
+    final now = AppClock.now();
+    return investmentWeeklyReturns.where((week) =>
+        week.valuedAt.year == now.year && week.valuedAt.month == now.month);
+  }
 
   double get investmentNetReturnThisMonth =>
       investmentEarningsThisMonth - investmentLossesThisMonth;
-
-  double _investmentPerformanceTotalForCurrentMonth(String type) {
-    final now = AppClock.now();
-    var total = 0.0;
-    for (final entry in d1Ledger) {
-      if (entry['type'] != type) continue;
-      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-      if (date != null && date.year == now.year && date.month == now.month) {
-        total += (entry['amount'] as num?)?.toDouble() ?? 0;
-      }
-    }
-    return total;
-  }
 
   /// Moves [amount] from the FakeMaya wallet into the Investment Fund (B3)
   /// bucket. Every Accumulating Wealth contribution (A12/A13/A14/A23) goes
@@ -5754,11 +5886,9 @@ class AppState extends ChangeNotifier {
   }
 
   /// A30: keep the investment portfolio on track to meet a target annual
-  /// return. There's no natural "day one" for a return calculation, so
-  /// tracking starts explicitly and is anchored to the most recent
-  /// 'investment_return_baseline' ledger entry - mirroring how
-  /// [lastInvestmentReviewDate] reads its own marker entries rather than a
-  /// separate persisted field.
+  /// return. Tracking starts explicitly ('investment_return_baseline' ledger
+  /// entry) and is measured only from weekly holdings valuations - no live
+  /// market prices - so the return moves once a week.
   Map<String, dynamic>? get _investmentReturnBaselineEntry {
     for (final entry in d1Ledger) {
       if (entry['type'] == 'investment_return_baseline') return entry;
@@ -5771,43 +5901,81 @@ class AppState extends ChangeNotifier {
     return date == null ? null : DateTime.tryParse(date);
   }
 
+  /// Valuations inside the tracking window, oldest first. The first one is
+  /// the starting point: the valuation tracking was anchored to, or the
+  /// first valuation after tracking started.
+  List<Map<String, dynamic>> get _trackedInvestmentValuations {
+    final baseline = investmentReturnBaselineDate;
+    if (baseline == null) return const [];
+    final anchor = DateTime.tryParse(
+          _investmentReturnBaselineEntry?['anchorValuedAt']?.toString() ?? '',
+        ) ??
+        baseline;
+    return investmentValuationHistory.where((entry) {
+      final valuedAt = DateTime.tryParse(entry['valuedAt']?.toString() ?? '');
+      return valuedAt != null && !valuedAt.isBefore(anchor);
+    }).toList();
+  }
+
   double get investmentReturnBaselineValue =>
-      (_investmentReturnBaselineEntry?['balance'] as num?)?.toDouble() ?? 0;
+      (_trackedInvestmentValuations.firstOrNull?['holdingsValue'] as num?)
+          ?.toDouble() ??
+      0;
 
-  /// Sum of investment_gain/investment_loss ledger entries recorded since
-  /// tracking started. Contributions (investment_deposit/monthly/windfall)
-  /// are deliberately excluded so this reflects market performance only,
-  /// not money the user added.
-  double get investmentNetReturnSinceBaseline {
-    final baseline = investmentReturnBaselineDate;
-    if (baseline == null) return 0;
-    var total = 0.0;
-    for (final entry in d1Ledger) {
-      final type = entry['type'];
-      if (type != 'investment_gain' && type != 'investment_loss') continue;
-      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-      if (date == null || date.isBefore(baseline)) continue;
-      final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
-      total += type == 'investment_gain' ? amount : -amount;
-    }
-    return total;
+  /// Week ending date of the latest valuation counted by A30.
+  DateTime? get investmentReturnMeasuredThrough => DateTime.tryParse(
+        _trackedInvestmentValuations.lastOrNull?['valuedAt']?.toString() ?? '',
+      );
+
+  /// Days between the first and latest tracked valuations.
+  int get investmentReturnTrackedDays {
+    final tracked = _trackedInvestmentValuations;
+    if (tracked.length < 2) return 0;
+    final first = DateTime.parse(tracked.first['valuedAt'].toString());
+    final last = DateTime.parse(tracked.last['valuedAt'].toString());
+    return last.difference(first).inDays;
   }
 
+  /// At least one full week has been valued since tracking started.
+  bool get hasInvestmentReturnWeek => investmentReturnTrackedDays >= 7;
+
+  List<({DateTime valuedAt, double gain, double rate})>
+      get _trackedInvestmentWeeks {
+    final tracked = _trackedInvestmentValuations;
+    if (tracked.length < 2) return const [];
+    final first = DateTime.parse(tracked.first['valuedAt'].toString());
+    return investmentWeeklyReturns
+        .where((week) => week.valuedAt.isAfter(first))
+        .toList();
+  }
+
+  /// Market gain/loss (₱) since tracking started; buys and sells excluded.
+  double get investmentNetReturnSinceBaseline =>
+      _trackedInvestmentWeeks.fold(0.0, (total, week) => total + week.gain);
+
+  /// Time-weighted return since tracking started:
+  ///   R = (1 + rate_1) × (1 + rate_2) × … × (1 + rate_n) - 1
   double get investmentReturnPercentSinceBaseline {
-    final baselineValue = investmentReturnBaselineValue;
-    if (baselineValue <= 0) return 0;
-    return investmentNetReturnSinceBaseline / baselineValue * 100;
+    var growth = 1.0;
+    for (final week in _trackedInvestmentWeeks) {
+      growth *= 1 + week.rate;
+    }
+    return (growth - 1) * 100;
   }
 
-  /// Projects the return-to-date to a full year, so a tracking window
-  /// shorter than 12 months can still be compared fairly against an annual
-  /// target (e.g. +2% after 2 months reads as +12% annualized).
+  /// Simple annualization of the tracked return:
+  ///   annualized % = R% × 365 / days tracked
+  /// 0 until a full week has been valued.
   double get investmentAnnualizedReturnPercent {
-    final baseline = investmentReturnBaselineDate;
-    if (baseline == null || investmentReturnBaselineValue <= 0) return 0;
-    final elapsedDays = math.max(1, AppClock.now().difference(baseline).inDays);
-    return investmentReturnPercentSinceBaseline * (365 / elapsedDays);
+    if (!hasInvestmentReturnWeek) return 0;
+    return investmentReturnPercentSinceBaseline *
+        (365 / investmentReturnTrackedDays);
   }
+
+  /// Where the target says the return should be by now:
+  ///   target to date % = target annual % × days tracked / 365
+  double get investmentTargetReturnToDatePercent =>
+      investmentTargetAnnualReturnPercent * investmentReturnTrackedDays / 365;
 
   double get investmentTargetAnnualReturnPercent {
     final configured = double.tryParse(actionFieldValues['A30']?['pct'] ?? '');
@@ -5815,12 +5983,9 @@ class AppState extends ChangeNotifier {
   }
 
   bool get isInvestmentAnnualReturnOnTrack {
-    final baseline = investmentReturnBaselineDate;
-    if (baseline == null) return true;
-    // A brand-new tracking window sits at 0% return by definition - flagging
-    // that as "behind target" on day one would be misleading, so give it a
-    // week before judging performance.
-    if (AppClock.now().difference(baseline).inDays < 7) return true;
+    if (investmentReturnBaselineDate == null) return true;
+    // Nothing to judge until a full week has been valued.
+    if (!hasInvestmentReturnWeek) return true;
     return investmentAnnualizedReturnPercent >=
         investmentTargetAnnualReturnPercent;
   }
@@ -5831,10 +5996,17 @@ class AppState extends ChangeNotifier {
   /// tracking (e.g. after a large one-off deposit that isn't investment
   /// return).
   Future<void> startInvestmentReturnTracking() async {
+    // Anchor to the latest weekly valuation (taking the first one now if
+    // there is none yet), so returns are measured week to week from there.
+    if (investmentValuationHistory.isEmpty) {
+      await _revalueInvestmentHoldingsIfDue();
+    }
     d1Ledger.insert(0, {
       'type': 'investment_return_baseline',
       'date': AppClock.now().toIso8601String(),
-      'balance': investmentBalance,
+      if (investmentValuationHistory.lastOrNull?['valuedAt'] case final at?)
+        'anchorValuedAt': at,
+      'balance': investmentHoldingsValue,
       'destination': 'Investment Portfolio',
       'label': 'Started annual return tracking',
     });
