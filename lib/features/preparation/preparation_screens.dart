@@ -839,11 +839,9 @@ List<String> _recommendationsForActionField(
   if (action.id == 'A26' && field.key == 'amt') {
     return _moneyOptions(_monthlySubscriptionBase(state), step: 100);
   }
-  if (action.id == 'A27' && field.key == 'amt') {
-    return _moneyOptions(
-      _monthlyLifestyleBase(state) / _paydaysPerMonth(state),
-      step: 100,
-    );
+  if (action.id == 'A27' && field.key == 'pct') {
+    return _percentOptions(_monthlyLifestyleBase(state) / income * 100,
+        spread: 5, minimum: 5, maximum: 20);
   }
   if (action.id == 'A28' && field.key == 'amt') {
     return _moneyOptions(_monthlyLifestyleBase(state) / 4.33, step: 100);
@@ -973,7 +971,7 @@ String _recommendationFormulaForActionField(
     'A26' =>
       '$value: based on the subscriptions, memberships, and scheduled non-essential expenses you listed.',
     'A27' =>
-      '$value: your monthly lifestyle spending divided across your expected paydays.',
+      '$value: your monthly lifestyle spending as a share of your monthly income.',
     'A28' =>
       '$value: your monthly lifestyle spending spread across an average month.',
     'A29' when field.key == 'amt' =>
@@ -1476,19 +1474,19 @@ const _d2Actions = <String, D2Action>{
       ]),
   'A27': D2Action(
       id: 'A27',
-      text: 'Add ₱X to the Personal Lifestyle Fund every payday.',
+      text: 'Allocate X% of every income to the Personal Lifestyle Fund.',
       fields: [
         ActionField(
-            key: 'amt',
-            label: 'Amount to add every payday (₱)',
-            hint: 'e.g. 1000')
+            key: 'pct', label: 'Percentage', hint: 'e.g. 10', isPercent: true)
       ]),
   'A28': D2Action(
       id: 'A28',
-      text: 'Keep everyday enjoyment spending within ₱X each week.',
+      text: 'Keep non-essential spending within ₱X each week.',
       fields: [
         ActionField(
-            key: 'amt', label: 'Weekly enjoyment limit (₱)', hint: 'e.g. 1500')
+            key: 'amt',
+            label: 'Weekly non-essential spending limit (₱)',
+            hint: 'e.g. 1500')
       ]),
   'A29': D2Action(
       id: 'A29',
@@ -4600,7 +4598,7 @@ String _userCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A26' =>
       'Keep subscription and membership expenses updated, then confirm Lifestyle Fund transfers Shellby cannot detect.',
     'A27' =>
-      'Keep income deposits connected or logged and confirm each payday transfer to the Personal Lifestyle Fund.',
+      'Keep income deposits connected or logged and confirm each income transfer to the Personal Lifestyle Fund.',
     'A28' =>
       'Connect or log lifestyle purchases and keep entertainment, travel, and personal spending categories accurate.',
     'A29' =>
@@ -4643,9 +4641,9 @@ String _appCollectionStep(D2Action action, List<PlanDataPoint> data) {
     'A26' =>
       'Shellby totals monthly Lifestyle Fund reserves against the configured subscription and membership amount and updates $indicatorText.',
     'A27' =>
-      'When payday income arrives, Shellby tracks the configured transfer to the Personal Lifestyle Fund and updates $indicatorText.',
+      'When income arrives, Shellby tracks the configured percentage transfer to the Personal Lifestyle Fund and updates $indicatorText.',
     'A28' =>
-      'Shellby totals lifestyle spending for the current week, compares it with the configured limit, and updates $indicatorText.',
+      'Shellby totals non-essential spending for the current week, compares it with the configured limit, and updates $indicatorText.',
     'A29' =>
       'Shellby tracks contributions toward each configured hobby or activity target and calculates progress against its target window.',
     'A2' ||

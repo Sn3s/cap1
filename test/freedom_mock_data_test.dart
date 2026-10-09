@@ -33,7 +33,7 @@ void main() {
     expect(state.primaryConcern, 'Financial Freedom');
     expect(state.selectedActionIds, containsAll(['A26', 'A27', 'A28', 'A29']));
     expect(state.actionFieldValues['A26']?['amt'], '2500');
-    expect(state.actionFieldValues['A27']?['amt'], '1500');
+    expect(state.actionFieldValues['A27']?['pct'], '4');
     expect(state.actionFieldValues['A28']?['amt'], '2200');
     expect(state.actionFieldValues['A29']?['amt'], '45000');
     expect(transactionMonths.length, 4);
@@ -43,7 +43,7 @@ void main() {
     expect(
       currentMonthLifestylePaydays
           .map((entry) => (entry['amount'] as num).toDouble()),
-      contains(1500),
+      contains(1520),
     );
     expect(
       currentMonthSubscriptionReserve

@@ -555,6 +555,74 @@ class FakeMayaService {
     );
   }
 
+  /// Applies [change] to the freshly loaded account and saves the result.
+  static Future<FakeMayaSession> updateSummary({
+    required FakeMayaLink link,
+    required FakeMayaAccountSummary Function(FakeMayaAccountSummary) change,
+  }) async {
+    final session = await refreshSession(link);
+    final nextSummary = change(session.summary);
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'goal_balance': nextSummary.goalBalance,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': AppClock.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
+  /// Dev/demo reset: zeroes every balance on the linked FakeMaya account and
+  /// clears its transactions, trades and holdings. Personal-goal buckets are
+  /// kept (at ₱0, with their targets) so the user's motivations still work.
+  static Future<FakeMayaSession> resetAccount({
+    required FakeMayaLink link,
+  }) async {
+    final session = await refreshSession(link);
+    final nextSummary = session.summary.zeroed();
+    await _request(
+      'PATCH',
+      '/rest/v1/$_walletTable',
+      query: {'user_id': 'eq.${session.userId}'},
+      accessToken: session.accessToken,
+      headers: {'Prefer': 'return=minimal'},
+      body: {
+        'wallet': 0,
+        'savings': 0,
+        'time_deposit': 0,
+        'goal_balance': 0,
+        'app_state': nextSummary.toFakeMayaAppState(),
+        'updated_at': AppClock.now().toIso8601String(),
+      },
+    );
+    return FakeMayaSession(
+      userId: session.userId,
+      email: session.email,
+      name: session.name,
+      phone: session.phone,
+      provider: session.provider,
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      expiresAt: session.expiresAt,
+      summary: nextSummary,
+    );
+  }
+
   static Future<FakeMayaSession> pruneZeroBalancePersonalGoals({
     required FakeMayaLink link,
     required Set<String> allowedPersonalGoalIds,
@@ -1146,6 +1214,9 @@ class FakeMayaAccountSummary {
   FakeMayaPersonalGoal? get investmentFund =>
       personalGoalById(FakeMayaPersonalGoal.investmentFundId);
 
+  FakeMayaPersonalGoal? get personalLifestyleFund =>
+      personalGoalById(FakeMayaPersonalGoal.personalLifestyleFundId);
+
   FakeMayaAccountSummary copyWith({
     double? wallet,
     double? savings,
@@ -1353,6 +1424,98 @@ class FakeMayaAccountSummary {
     }
     return updated;
   }
+
+  /// Adds a sub-bucket (at ₱0) for each spec missing from the Personal
+  /// Lifestyle Fund and refreshes the name/target/deadline of existing ones.
+  /// Balances are never changed here.
+  FakeMayaAccountSummary withLifestyleSubBuckets(
+      List<FakeMayaSubBucket> specs) {
+    final fund = personalLifestyleFund;
+    if (fund == null) return this;
+    final subs = [...fund.subBuckets];
+    for (final spec in specs) {
+      final index = subs.indexWhere((sub) => sub.id == spec.id);
+      if (index == -1) {
+        subs.add(spec.copyWith(balance: 0));
+      } else {
+        subs[index] = subs[index].copyWith(
+          name: spec.name,
+          target: spec.target,
+          deadline: spec.deadline,
+        );
+      }
+    }
+    return _withLifestyleFund(fund.copyWith(subBuckets: subs));
+  }
+
+  /// Removes a sub-bucket; anything saved in it goes back to the fund.
+  FakeMayaAccountSummary withoutLifestyleSubBucket(String id) {
+    final fund = personalLifestyleFund;
+    final sub = fund?.subBucketById(id);
+    if (fund == null || sub == null) return this;
+    return _withLifestyleFund(fund.copyWith(
+      balance: fund.balance + sub.balance,
+      subBuckets: fund.subBuckets.where((s) => s.id != id).toList(),
+    ));
+  }
+
+  /// Moves [amount] from the Personal Lifestyle Fund into sub-bucket [id].
+  FakeMayaAccountSummary withLifestyleSubBucketTransfer(
+      String id, double amount) {
+    final fund = personalLifestyleFund;
+    final sub = fund?.subBucketById(id);
+    if (fund == null || sub == null) {
+      throw const FakeMayaException(
+          'That activity has no FakeMaya sub-bucket.');
+    }
+    if (amount <= 0) {
+      throw const FakeMayaException('Enter a valid transfer amount.');
+    }
+    if (amount > fund.balance + 0.005) {
+      throw const FakeMayaException('Not enough in the Lifestyle Fund.');
+    }
+    return _withLifestyleFund(fund.copyWith(
+      balance: fund.balance - amount,
+      subBuckets: [
+        for (final s in fund.subBuckets)
+          s.id == id ? s.copyWith(balance: s.balance + amount) : s,
+      ],
+    ));
+  }
+
+  FakeMayaAccountSummary _withLifestyleFund(FakeMayaPersonalGoal fund) {
+    final goals = [
+      for (final goal in personalGoals) goal.id == fund.id ? fund : goal,
+    ];
+    return copyWith(
+      personalGoals: goals,
+      goalBalance: goals.fold<double>(0, (total, goal) => total + goal.balance),
+      updatedAt: AppClock.now(),
+    );
+  }
+
+  /// Same account with every balance at ₱0 and no history (see
+  /// [FakeMayaService.resetAccount]).
+  FakeMayaAccountSummary zeroed() => copyWith(
+        wallet: 0,
+        savings: 0,
+        timeDeposit: 0,
+        goalBalance: 0,
+        personalGoals: [
+          for (final goal in personalGoals)
+            goal.copyWith(
+              balance: 0,
+              subBuckets: [
+                for (final sub in goal.subBuckets) sub.copyWith(balance: 0),
+              ],
+            ),
+        ],
+        investmentHoldings: const [],
+        investmentTransactions: const [],
+        creditUsed: 0,
+        transactions: const [],
+        updatedAt: AppClock.now(),
+      );
 
   List<FakeMayaPersonalGoal> personalGoalsWithTarget(
     String id,
@@ -1815,6 +1978,61 @@ FakeMayaInvestmentHolding _fakeMayaInvestmentTemplate(String symbol) {
   };
 }
 
+/// A sub-bucket inside the Personal Lifestyle Fund for one A29 hobby or
+/// activity. [id] is the Shellby hobby id; [target] and [deadline] come from
+/// the hobby's target and target window.
+class FakeMayaSubBucket {
+  const FakeMayaSubBucket({
+    required this.id,
+    required this.name,
+    required this.balance,
+    required this.target,
+    this.deadline,
+  });
+
+  final String id;
+  final String name;
+  final double balance;
+  final double target;
+  final DateTime? deadline;
+
+  FakeMayaSubBucket copyWith({
+    String? name,
+    double? balance,
+    double? target,
+    DateTime? deadline,
+  }) {
+    return FakeMayaSubBucket(
+      id: id,
+      name: name ?? this.name,
+      balance: balance ?? this.balance,
+      target: target ?? this.target,
+      deadline: deadline ?? this.deadline,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'name': name,
+        'balance': balance,
+        'target': target,
+        if (deadline != null) 'deadline': deadline!.toIso8601String(),
+      };
+
+  factory FakeMayaSubBucket.fromMap(Map<String, dynamic> data) {
+    double number(Object? value) => value is num
+        ? value.toDouble()
+        : double.tryParse(value?.toString() ?? '') ?? 0;
+    return FakeMayaSubBucket(
+      id: data['id']?.toString() ?? '',
+      name: data['name']?.toString() ?? 'Activity',
+      balance: number(data['balance']),
+      target: number(data['target']),
+      deadline: DateTime.tryParse(data['deadline']?.toString() ?? ''),
+    );
+  }
+}
+
 class FakeMayaPersonalGoal {
   const FakeMayaPersonalGoal({
     required this.id,
@@ -1826,6 +2044,7 @@ class FakeMayaPersonalGoal {
     required this.target,
     required this.daysLeft,
     required this.rate,
+    this.subBuckets = const [],
   });
 
   static const essentialExpenseFundId = 'B1';
@@ -1843,6 +2062,13 @@ class FakeMayaPersonalGoal {
   final int daysLeft;
   final double rate;
 
+  /// Personal Lifestyle Fund only: one sub-bucket per A29 hobby/activity.
+  /// Their balances are separate from this bucket's [balance].
+  final List<FakeMayaSubBucket> subBuckets;
+
+  FakeMayaSubBucket? subBucketById(String id) =>
+      subBuckets.where((sub) => sub.id == id).firstOrNull;
+
   FakeMayaPersonalGoal copyWith({
     String? id,
     String? name,
@@ -1853,6 +2079,7 @@ class FakeMayaPersonalGoal {
     double? target,
     int? daysLeft,
     double? rate,
+    List<FakeMayaSubBucket>? subBuckets,
   }) {
     return FakeMayaPersonalGoal(
       id: id ?? this.id,
@@ -1864,6 +2091,7 @@ class FakeMayaPersonalGoal {
       target: target ?? this.target,
       daysLeft: daysLeft ?? this.daysLeft,
       rate: rate ?? this.rate,
+      subBuckets: subBuckets ?? this.subBuckets,
     );
   }
 
@@ -1878,6 +2106,8 @@ class FakeMayaPersonalGoal {
       'target': target,
       'daysLeft': daysLeft,
       'rate': rate,
+      if (subBuckets.isNotEmpty)
+        'subBuckets': subBuckets.map((sub) => sub.toMap()).toList(),
     };
   }
 
@@ -1893,6 +2123,12 @@ class FakeMayaPersonalGoal {
       target: _doubleFrom(data['target'], defaults.target),
       daysLeft: _intFrom(data['daysLeft'], defaults.daysLeft),
       rate: _doubleFrom(data['rate'], defaults.rate),
+      subBuckets: [
+        if (data['subBuckets'] is List)
+          for (final sub in data['subBuckets'] as List)
+            if (sub is Map)
+              FakeMayaSubBucket.fromMap(Map<String, dynamic>.from(sub)),
+      ],
     );
   }
 

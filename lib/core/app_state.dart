@@ -199,7 +199,22 @@ class AppState extends ChangeNotifier {
 
   double? get _fakeMayaInvestmentFundBalance =>
       fakeMayaLink?.summary.investmentFund?.balance;
-  double lifestyleFundBalance = 0;
+  // Local fallback for the Personal Lifestyle Fund. Like B1/B3, once FakeMaya
+  // is linked and bucket B4 exists, the bucket is the source of truth so
+  // "Lifestyle Fund available" always matches FakeMaya (spending from the
+  // bucket in FakeMaya lowers it here too).
+  double _lifestyleLocalBalance = 0;
+
+  /// The FakeMaya B4 bucket when linked, otherwise the local tracked balance.
+  double get lifestyleFundBalance =>
+      _fakeMayaLifestyleFundBalance ?? _lifestyleLocalBalance;
+  set lifestyleFundBalance(double value) {
+    if (_fakeMayaLifestyleFundBalance != null) return;
+    _lifestyleLocalBalance = value;
+  }
+
+  double? get _fakeMayaLifestyleFundBalance =>
+      fakeMayaLink?.summary.personalLifestyleFund?.balance;
   double lifestyleActivityBalance = 0;
   String? _lastEfWithdrawalStr; // ISO date string, null = no pending withdrawal
   final List<Map<String, dynamic>> billObligations = [];
@@ -1046,6 +1061,67 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Dev/demo "Reset Account": every balance back to ₱0 and every
+  /// transaction, ledger entry and learned label erased, as if the account
+  /// had just been created - but onboarding answers, chosen goals/actions,
+  /// their settings and the FakeMaya link are kept, so onboarding doesn't
+  /// restart. The linked FakeMaya account is zeroed too, so both apps match.
+  Future<void> resetAccountData() async {
+    final link = fakeMayaLink;
+    if (link != null) {
+      if (_usesLocalFakeMayaMock(link)) {
+        _replaceFakeMayaSummary(link, link.summary.zeroed());
+      } else {
+        final session = await _withFakeMayaSessionRecovery(
+          () => FakeMayaService.resetAccount(link: link),
+        );
+        _applyFakeMayaSession(session, preserveLabels: false);
+      }
+    }
+    needsBalance = 0;
+    bufferBalance = 0;
+    jarLedger.clear();
+    financialSafetyBalance = 0;
+    shieldTrackedBalance = 0;
+    shieldLedger.clear();
+    cashOnHandBalance = 0;
+    for (final account in manualAccountBalances.keys.toList()) {
+      manualAccountBalances[account] = 0;
+    }
+    manualTransactions.clear();
+    transactionLabelRules.clear();
+    merchantCategoryRules.clear();
+    planAdjustmentActions.clear();
+    anxietyCheckIns.clear();
+    allocatedThisCycle = 0;
+    goalBucketOverrides.clear();
+    processedIncomeTransactionIds.clear();
+    d1Ledger.clear();
+    _essentialExpensesLocalBalance = 0;
+    billsObligationsBalance = 0;
+    emergencyFundBalance = 0;
+    _investmentLocalBalance = 0;
+    _investmentValuation = null;
+    investmentValuationHistory.clear();
+    _lifestyleLocalBalance = 0;
+    lifestyleActivityBalance = 0;
+    _lastEfWithdrawalStr = null;
+    for (var i = 0; i < billObligations.length; i++) {
+      billObligations[i] = {...billObligations[i], 'paidAmount': 0.0};
+    }
+    messages
+      ..clear()
+      ..add(
+        ChatMessage(
+          false,
+          "I'm Shellby. If you could achieve one financial milestone in the next 12 months, what would it be?",
+        ),
+      );
+    _syncFakeMayaMoneyItems();
+    await saveProfile();
+    notifyListeners();
+  }
+
   void _resetOnboardingDraftState() {
     uid = null;
     name = '';
@@ -1161,7 +1237,7 @@ class AppState extends ChangeNotifier {
     _investmentLocalBalance = 0;
     _investmentValuation = null;
     investmentValuationHistory.clear();
-    lifestyleFundBalance = 0;
+    _lifestyleLocalBalance = 0;
     lifestyleActivityBalance = 0;
     _lastEfWithdrawalStr = null;
     billObligations.clear();
@@ -1306,7 +1382,7 @@ class AppState extends ChangeNotifier {
         'A12': {'pct': '10'},
         'A23': {'amt': '50000'},
         'A26': {'amt': '2100'},
-        'A27': {'amt': '1200'},
+        'A27': {'pct': '10'},
         'A28': {'amt': '1500'},
       });
     onboardingComplete = true;
@@ -1464,7 +1540,7 @@ class AppState extends ChangeNotifier {
     _investmentLocalBalance = 32000;
     _investmentValuation = null;
     investmentValuationHistory.clear();
-    lifestyleFundBalance = 13400;
+    _lifestyleLocalBalance = 13400;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
       ..clear()
@@ -1695,7 +1771,7 @@ class AppState extends ChangeNotifier {
               today.subtract(Duration(days: entry.$1 - 2)).toIso8601String(),
           'amount': entry.$3,
           'destination': 'Personal Lifestyle Fund',
-          'label': 'Payday enjoyment contribution',
+          'label': 'Income allocation to Lifestyle Fund',
         },
       ],
       {
@@ -1712,7 +1788,7 @@ class AppState extends ChangeNotifier {
         'sourceTransactionId': 'income-9',
         'amount': 1200.0,
         'destination': 'Personal Lifestyle Fund',
-        'label': 'Payday enjoyment contribution',
+        'label': 'Income allocation to Lifestyle Fund',
       },
       // Hobby/activity targets: 3 named hobbies at different progress
       // levels (near-complete, mid-way, just started) so the Target Funds
@@ -2019,7 +2095,7 @@ class AppState extends ChangeNotifier {
         timeDeposit: _investmentLocalBalance,
         goalName: 'Lifestyle and Activity Funds',
         goalEmoji: '🎨',
-        goalBalance: lifestyleFundBalance +
+        goalBalance: _lifestyleLocalBalance +
             lifestyleHobbies.fold<double>(
               0,
               (total, hobby) =>
@@ -2105,7 +2181,7 @@ class AppState extends ChangeNotifier {
     _investmentLocalBalance = 0;
     _investmentValuation = null;
     investmentValuationHistory.clear();
-    lifestyleFundBalance = 0;
+    _lifestyleLocalBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 1200;
     manualAccountBalances
@@ -2690,7 +2766,7 @@ class AppState extends ChangeNotifier {
     _investmentLocalBalance = 0;
     _investmentValuation = null;
     investmentValuationHistory.clear();
-    lifestyleFundBalance = 0;
+    _lifestyleLocalBalance = 0;
     lifestyleActivityBalance = 0;
     categorySpendingBudgets
       ..clear()
@@ -3197,7 +3273,7 @@ class AppState extends ChangeNotifier {
     safetyShieldAllocationPercent = 0;
     safetyShieldTargetMonths = 0;
     shieldTrackedBalance = 18000;
-    lifestyleFundBalance = 0;
+    _lifestyleLocalBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 1500;
     categorySpendingBudgets
@@ -3666,7 +3742,7 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll({
         'A26': {'amt': '2500'},
-        'A27': {'amt': '1500'},
+        'A27': {'pct': '4'},
         'A28': {'amt': '2200'},
         'A29': {'amt': '45000', 'months': '8'},
       });
@@ -3690,7 +3766,7 @@ class AppState extends ChangeNotifier {
     _investmentLocalBalance = 0;
     _investmentValuation = null;
     investmentValuationHistory.clear();
-    lifestyleFundBalance = 0;
+    _lifestyleLocalBalance = 0;
     lifestyleActivityBalance = 0;
     cashOnHandBalance = 2200;
     categorySpendingBudgets
@@ -3838,14 +3914,17 @@ class AppState extends ChangeNotifier {
     var walletBalance = 32000.0;
     var needs = 7000.0;
     var buffer = 18000.0;
-    var lifestyleFund = 9000.0;
+    // Starts higher because hobby savings now move out of the fund into
+    // their sub-buckets (they used to arrive from the wallet instead).
+    var lifestyleFund = 35400.0;
     const monthOffsets = [3, 2, 1, 0];
     const subscriptionReserve = {3: 2200.0, 2: 2500.0, 1: 2700.0, 0: 2500.0};
+    // A27 = 4% of each ₱38,000 salary (₱1,520); one short and one extra.
     const paydayContributions = {
-      3: [1500.0, 1200.0],
-      2: [1500.0, 1500.0],
-      1: [1500.0, 1700.0],
-      0: [1500.0, 1500.0],
+      3: [1520.0, 1200.0],
+      2: [1520.0, 1520.0],
+      1: [1520.0, 1700.0],
+      0: [1520.0, 1520.0],
     };
     const hobbyDeposits = {
       3: [('freedom_travel', 2500.0), ('freedom_music', 1200.0)],
@@ -3908,9 +3987,11 @@ class AppState extends ChangeNotifier {
           'sourceTransactionId': transactionId,
           'amount': contribution,
           'destination': 'Personal Lifestyle Fund',
-          'label': contribution >= 1500
-              ? 'Payday enjoyment contribution'
-              : 'Partial payday enjoyment contribution',
+          'incomeAmount': 38000.0,
+          'percentage': contribution / 38000 * 100,
+          'label': contribution >= 1520
+              ? '4% of income to Lifestyle Fund'
+              : 'Partial income allocation to Lifestyle Fund',
         });
         transactions.add(_demoTransaction(
           id: 'ff-payday-transfer-${month.year}-${month.month}-$i',
@@ -3950,26 +4031,17 @@ class AppState extends ChangeNotifier {
         final date = DateTime(month.year, month.month, 21, 11)
             .add(Duration(days: hobbyDeposits[offset]!.indexOf(item) * 3));
         if (date.isAfter(now)) continue;
-        walletBalance = math.max(0, walletBalance - item.$2);
-        lifestyleFund += item.$2;
+        // A29: Lifestyle Fund -> the hobby's sub-bucket (wallet untouched).
+        lifestyleFund -= item.$2;
         ledger.add({
           'type': 'lifestyle_hobby_deposit',
           'date': date.toIso8601String(),
           'hobbyId': item.$1,
           'amount': item.$2,
-          'destination': 'Personal Lifestyle Fund',
-          'label': 'Hobby or activity contribution',
+          'source': 'Personal Lifestyle Fund',
+          'destination': 'Hobby sub-bucket',
+          'label': 'Transfer from Lifestyle Fund',
         });
-        transactions.add(_demoTransaction(
-          id: 'ff-hobby-transfer-${item.$1}-${month.year}-${month.month}',
-          title: 'Fund transfer',
-          detail:
-              'To: ${item.$1 == 'freedom_travel' ? 'Weekend Trips' : item.$1 == 'freedom_music' ? 'Music Lessons' : 'Camera Upgrade'}',
-          amount: -item.$2,
-          date: date,
-          category: 'Transfer',
-          source: 'E-wallet',
-        ));
       }
 
       for (final bill in [
@@ -4035,7 +4107,7 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    lifestyleFundBalance = lifestyleFund;
+    _lifestyleLocalBalance = lifestyleFund;
     lifestyleActivityBalance = 0;
     needsBalance = needs;
     bufferBalance = buffer;
@@ -4054,9 +4126,22 @@ class AppState extends ChangeNotifier {
     final lifestyleGoal = FakeMayaPersonalGoal.defaultForId(
       FakeMayaPersonalGoal.personalLifestyleFundId,
     ).copyWith(
-      balance: lifestyleFundBalance,
+      balance: _lifestyleLocalBalance,
       target: 54000,
       daysLeft: 210,
+      subBuckets: [
+        for (final hobby in lifestyleHobbies)
+          _subBucketSpec(hobby).copyWith(
+            balance: ledger
+                .where((entry) =>
+                    entry['type'] == 'lifestyle_hobby_deposit' &&
+                    entry['hobbyId'] == hobby['id'])
+                .fold<double>(
+                  0,
+                  (total, entry) => total + (entry['amount'] as num).toDouble(),
+                ),
+          ),
+      ],
     );
     fakeMayaLink = FakeMayaLink(
       userId: 'mock-freedom-fakemaya',
@@ -4443,9 +4528,9 @@ class AppState extends ChangeNotifier {
           for (final entry in valuationHistory)
             if (entry is Map) Map<String, dynamic>.from(entry),
       ]);
-    lifestyleFundBalance = _doubleFrom(
+    _lifestyleLocalBalance = _doubleFrom(
       data['lifestyleFundBalance'],
-      lifestyleFundBalance,
+      _lifestyleLocalBalance,
     );
     lifestyleActivityBalance = _doubleFrom(
       data['lifestyleActivityBalance'],
@@ -6095,12 +6180,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A27: the configured % of every income that goes to the Personal
+  /// Lifestyle Fund (default 10%).
+  double get lifestyleIncomePercent {
+    final configured = double.tryParse(
+      (actionFieldValues['A27']?['pct'] ?? '').replaceAll(',', '').trim(),
+    );
+    return configured != null && configured > 0 ? configured : 10;
+  }
+
+  /// A27: move [percentage]% of an income into the Personal Lifestyle Fund
+  /// (FakeMaya B4). One transfer per income, like A12 for investments.
   Future<void> depositLifestylePayday({
     required String transactionId,
-    required double amount,
+    required double incomeAmount,
     required DateTime incomeDate,
+    double? percentage,
   }) async {
-    if (amount <= 0 || hasLifestylePaydayAllocation(transactionId)) return;
+    if (incomeAmount <= 0 || hasLifestylePaydayAllocation(transactionId)) {
+      return;
+    }
+    final pct = (percentage ?? lifestyleIncomePercent).clamp(0, 100);
+    final amount = incomeAmount * pct / 100;
+    if (amount <= 0) return;
     if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
     await _moveFakeMayaWalletTo(
       amount,
@@ -6113,9 +6215,11 @@ class AppState extends ChangeNotifier {
       'date': AppClock.now().toIso8601String(),
       'sourceDate': incomeDate.toIso8601String(),
       'sourceTransactionId': transactionId,
+      'incomeAmount': incomeAmount,
+      'percentage': pct,
       'amount': amount,
       'destination': 'Personal Lifestyle Fund',
-      'label': 'Payday enjoyment contribution',
+      'label': '${pct.toStringAsFixed(0)}% of income to Lifestyle Fund',
     });
     await saveProfile();
     notifyListeners();
@@ -6149,6 +6253,8 @@ class AppState extends ChangeNotifier {
   /// [lifestyleActivityBalance] had already accumulated before hobbies
   /// existed as a list, so its progress doesn't appear to reset to zero.
   double lifestyleHobbyBalance(String hobbyId) {
+    final subBucket = lifestyleSubBucketFor(hobbyId);
+    if (subBucket != null) return subBucket.balance;
     final tagged = d1Ledger.where((entry) {
       return entry['type'] == 'lifestyle_hobby_deposit' &&
           entry['hobbyId'] == hobbyId;
@@ -6207,38 +6313,151 @@ class AppState extends ChangeNotifier {
       if (target != null && target > 0) 'target': target,
       if (months != null) 'months': months.clamp(1, 24),
     };
+    if (lifestyleSubBucketFor(hobbyId) != null) {
+      await _updateFakeMayaSummary((summary) => summary
+          .withLifestyleSubBuckets([_subBucketSpec(lifestyleHobbies[index])]));
+    }
     await saveProfile();
     notifyListeners();
   }
 
   Future<void> removeLifestyleHobby(String hobbyId) async {
     if (!lifestyleHobbies.any((entry) => entry['id'] == hobbyId)) return;
+    // Whatever was saved for it goes back to the Lifestyle Fund.
+    if (lifestyleSubBucketFor(hobbyId) != null) {
+      await _updateFakeMayaSummary(
+          (summary) => summary.withoutLifestyleSubBucket(hobbyId));
+    }
     lifestyleHobbies.removeWhere((entry) => entry['id'] == hobbyId);
     await saveProfile();
     notifyListeners();
   }
 
-  Future<void> depositLifestyleHobby({
+  /// Money earmarked for A29 hobbies/activities: the FakeMaya sub-bucket
+  /// balances when linked, otherwise the locally tracked hobby savings.
+  double get lifestyleEarmarkedBalance {
+    final fund = fakeMayaLink?.summary.personalLifestyleFund;
+    if (fund != null) {
+      return fund.subBuckets.fold(0.0, (total, sub) => total + sub.balance);
+    }
+    return lifestyleHobbies.fold(
+      0.0,
+      (total, hobby) => total + lifestyleHobbyBalance(hobby['id'].toString()),
+    );
+  }
+
+  /// Total Lifestyle Fund = available (free to spend) + earmarked for
+  /// activities. "Lifestyle Fund available" ([lifestyleFundBalance]) is only
+  /// the first part.
+  double get lifestyleFundTotal =>
+      lifestyleFundBalance + lifestyleEarmarkedBalance;
+
+  /// Money set aside INTO the Personal Lifestyle Fund in [month]: every
+  /// deposit, whether Shellby made it (A26, A27) or the user deposited in
+  /// FakeMaya directly. Moving money from the fund into a hobby sub-bucket
+  /// stays inside the fund, so it doesn't count.
+  double lifestyleFundInflowsForMonth(DateTime month) {
+    bool inMonth(DateTime? date) =>
+        date != null && date.year == month.year && date.month == month.month;
+    final summary = fakeMayaLink?.summary;
+    final fundName = summary?.personalLifestyleFund?.name.trim().toLowerCase();
+    if (summary == null || fundName == null) {
+      return d1Ledger.where((entry) {
+        const types = {'lifestyle_subscription_reserve', 'lifestyle_payday'};
+        return types.contains(entry['type']) &&
+            inMonth(DateTime.tryParse(entry['date']?.toString() ?? ''));
+      }).fold(
+          0.0,
+          (total, entry) =>
+              total + ((entry['amount'] as num?)?.toDouble() ?? 0));
+    }
+    var total = 0.0;
+    for (final tx in summary.transactions) {
+      if (!inMonth(tx.createdAt)) continue;
+      final title = tx.title.trim().toLowerCase();
+      final detail = tx.detail.trim().toLowerCase();
+      final depositedToFund =
+          (title == 'deposited to goal' || title == 'deposited to') &&
+              detail == fundName;
+      final transferredToFund =
+          title == 'fund transfer' && detail == 'to: $fundName';
+      if (depositedToFund || transferredToFund) total += tx.amount.abs();
+    }
+    return total;
+  }
+
+  /// A29 sub-bucket in the FakeMaya Personal Lifestyle Fund for [hobbyId].
+  FakeMayaSubBucket? lifestyleSubBucketFor(String hobbyId) =>
+      fakeMayaLink?.summary.personalLifestyleFund?.subBucketById(hobbyId);
+
+  /// The hobby's deadline: when it was added plus its target window.
+  DateTime lifestyleHobbyDeadline(Map<String, dynamic> hobby) {
+    final created = DateTime.tryParse(hobby['createdAt']?.toString() ?? '') ??
+        AppClock.now();
+    final months = (hobby['months'] as num?)?.toInt() ?? 6;
+    return DateTime(created.year, created.month + months, created.day);
+  }
+
+  FakeMayaSubBucket _subBucketSpec(Map<String, dynamic> hobby) =>
+      FakeMayaSubBucket(
+        id: hobby['id'].toString(),
+        name: hobby['name']?.toString() ?? 'Activity',
+        balance: 0,
+        target: (hobby['target'] as num?)?.toDouble() ?? 0,
+        deadline: lifestyleHobbyDeadline(hobby),
+      );
+
+  /// A29 hobbies that still need a FakeMaya sub-bucket. Only once the
+  /// Personal Lifestyle Fund itself exists in FakeMaya.
+  List<Map<String, dynamic>> get lifestyleHobbiesNeedingSubBuckets {
+    if (fakeMayaLink?.summary.personalLifestyleFund == null) return const [];
+    return lifestyleHobbies
+        .where((hobby) => lifestyleSubBucketFor(hobby['id'].toString()) == null)
+        .toList();
+  }
+
+  /// Creates the missing sub-buckets (each starts at ₱0).
+  Future<void> createLifestyleSubBuckets() async {
+    final missing = lifestyleHobbiesNeedingSubBuckets;
+    if (missing.isEmpty) return;
+    await _updateFakeMayaSummary((summary) => summary
+        .withLifestyleSubBuckets([for (final h in missing) _subBucketSpec(h)]));
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// A29 "Transfer from Lifestyle Fund": moves [amount] out of the Personal
+  /// Lifestyle Fund into the hobby's sub-bucket. The money only ever comes
+  /// from the fund, so it can't exceed "Lifestyle Fund available". Without a
+  /// linked FakeMaya account the same move happens on the local balances.
+  Future<void> transferToLifestyleHobby({
     required String hobbyId,
     required double amount,
   }) async {
-    if (amount <= 0) return;
     final hobby =
         lifestyleHobbies.where((entry) => entry['id'] == hobbyId).firstOrNull;
-    if (hobby == null) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(
-      amount,
-      FakeMayaGoalAccount.personalGoal,
-      personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
-    );
+    if (hobby == null || amount <= 0) return;
+    if (amount > lifestyleFundBalance + 0.005) {
+      throw const FakeMayaException('Not enough in the Lifestyle Fund.');
+    }
+    if (fakeMayaLink != null) {
+      if (lifestyleSubBucketFor(hobbyId) == null) {
+        throw const FakeMayaException(
+            'Create this activity\'s FakeMaya sub-bucket first.');
+      }
+      await _updateFakeMayaSummary(
+          (summary) => summary.withLifestyleSubBucketTransfer(hobbyId, amount));
+    } else {
+      _lifestyleLocalBalance = math.max(0, _lifestyleLocalBalance - amount);
+    }
     d1Ledger.insert(0, {
       'type': 'lifestyle_hobby_deposit',
       'date': AppClock.now().toIso8601String(),
       'hobbyId': hobbyId,
       'amount': amount,
-      'destination': 'Personal Lifestyle Fund',
-      'label': '${hobby['name']} contribution',
+      'source': 'Personal Lifestyle Fund',
+      'destination': hobby['name'],
+      'label': 'Transfer from Lifestyle Fund to ${hobby['name']}',
     });
     await saveProfile();
     notifyListeners();
@@ -6614,6 +6833,21 @@ class AppState extends ChangeNotifier {
         updatedAt: now,
       ),
     );
+  }
+
+  Future<void> _updateFakeMayaSummary(
+    FakeMayaAccountSummary Function(FakeMayaAccountSummary) change,
+  ) async {
+    final link = fakeMayaLink;
+    if (link == null) return;
+    if (_usesLocalFakeMayaMock(link)) {
+      _replaceFakeMayaSummary(link, change(link.summary));
+      return;
+    }
+    final session = await _withFakeMayaSessionRecovery(
+      () => FakeMayaService.updateSummary(link: link, change: change),
+    );
+    _applyFakeMayaSession(session, previousLink: link);
   }
 
   Future<void> _moveFakeMayaWalletTo(
@@ -8274,6 +8508,10 @@ class AppState extends ChangeNotifier {
     final investmentFund = link.summary.investmentFund;
     if (investmentFund != null) {
       _investmentLocalBalance = investmentFund.balance;
+    }
+    final lifestyleFund = link.summary.personalLifestyleFund;
+    if (lifestyleFund != null) {
+      _lifestyleLocalBalance = lifestyleFund.balance;
     }
     if (link.summary.creditLimit > 0) {
       _removeStaleFakeMayaCreditPlaceholders();

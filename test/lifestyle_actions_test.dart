@@ -59,7 +59,7 @@ void main() {
       ..selectedActionIds.addAll(['A26', 'A27', 'A28', 'A29'])
       ..actionFieldValues.addAll({
         'A26': {'amt': '1500'},
-        'A27': {'amt': '1000'},
+        'A27': {'pct': '10'},
         'A28': {'amt': '1200'},
         'A29': {'amt': '10000', 'months': '6'},
       });
@@ -82,6 +82,6 @@ void main() {
 
     expect(find.text('Lifestyle Fund'), findsOneWidget);
     expect(find.textContaining('subscriptions and memberships'), findsWidgets);
-    expect(find.textContaining('everyday enjoyment'), findsWidgets);
+    expect(find.textContaining('non-essential spending'), findsWidgets);
   });
 }
