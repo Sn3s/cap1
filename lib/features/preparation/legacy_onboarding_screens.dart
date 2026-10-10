@@ -551,7 +551,7 @@ class OnboardingSummary extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '${state.healthScore.round()}',
+                            '${state.healthScore?.round() ?? '—'}',
                             style: const TextStyle(
                               color: _brand,
                               fontSize: 42,

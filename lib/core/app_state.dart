@@ -279,11 +279,72 @@ class AppState extends ChangeNotifier {
 
   bool get openedAppToday => _lastOpenDay == _dayKey(AppClock.now());
 
+  /// Calendar days (yyyy-mm-dd) the app was opened, last 90 kept. Feeds the
+  /// Health Score's Engagement points.
+  final Set<String> appOpenDays = {};
+
+  /// Days the app was opened within [window] (today included).
+  int appOpenDaysWithin(Duration window) {
+    final now = AppClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final first = today.subtract(window - const Duration(days: 1));
+    return appOpenDays.where((key) {
+      final day = DateTime.tryParse(key);
+      return day != null && !day.isBefore(first) && !day.isAfter(today);
+    }).length;
+  }
+
+  /// Days in [window] since open tracking began, so new accounts aren't
+  /// scored against days before they started.
+  int appOpenTrackedDays(Duration window) {
+    if (appOpenDays.isEmpty) return 0;
+    final now = AppClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final firstOpen = appOpenDays
+        .map(DateTime.tryParse)
+        .whereType<DateTime>()
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final sinceFirst = today.difference(firstOpen).inDays + 1;
+    return math.min(window.inDays, math.max(1, sinceFirst));
+  }
+
+  void _rememberAppOpenDay(DateTime now) {
+    appOpenDays.add(_dayKey(now));
+    final cutoff = now.subtract(const Duration(days: 90));
+    appOpenDays
+        .removeWhere((key) => DateTime.tryParse(key)?.isBefore(cutoff) ?? true);
+  }
+
+  /// Demo accounts: 30 days of opens except [missedDaysAgo], with the
+  /// log-in streak matching that history.
+  void _seedDemoEngagement({Set<int> missedDaysAgo = const {9, 17, 24}}) {
+    final now = AppClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    appOpenDays.clear();
+    for (var daysAgo = 29; daysAgo >= 0; daysAgo--) {
+      if (missedDaysAgo.contains(daysAgo)) continue;
+      appOpenDays.add(_dayKey(today.subtract(Duration(days: daysAgo))));
+    }
+    var streak = 0;
+    while (!missedDaysAgo.contains(streak) && streak < 30) {
+      streak++;
+    }
+    loginStreak = streak;
+    longestLoginStreak = math.max(longestLoginStreak, streak);
+    _lastOpenDay = _dayKey(today);
+    loginStreakBreaks.clear();
+  }
+
   /// Call whenever the app is opened or brought back to the foreground.
   Future<void> recordAppOpen() async {
     final now = AppClock.now();
     final todayKey = _dayKey(now);
-    if (_lastOpenDay == todayKey) return;
+    final newDay = !appOpenDays.contains(todayKey);
+    _rememberAppOpenDay(now);
+    if (_lastOpenDay == todayKey) {
+      if (newDay) await saveProfile();
+      return;
+    }
     final today = DateTime(now.year, now.month, now.day);
     final last = DateTime.tryParse(_lastOpenDay ?? '');
     if (last != null && today.isBefore(last)) return; // clock moved back
@@ -747,14 +808,9 @@ class AppState extends ChangeNotifier {
         .clamp(0, 100);
   }
 
-  double get healthScore => (45 +
-          savingsRate * .35 +
-          emergencyMonths * 4 +
-          confidence * 2.2 -
-          anxiety * .9 -
-          debtToIncome * .25 +
-          (location == 'Urban' ? 2 : 4))
-      .clamp(0, 100);
+  /// Financial Health Score out of 100 (see health_score.dart), or null
+  /// until an active action has something due.
+  double? get healthScore => computeHealthScore(this).score;
 
   Future<bool> restoreSignedInUser() async {
     final user = FirebaseProfileService.currentUser;
@@ -1071,6 +1127,7 @@ class AppState extends ChangeNotifier {
     await user.updateDisplayName('Reflection Demo');
     _applyFirebaseUser(user);
     _applyReflectionDemoProfile(user);
+    _seedDemoEngagement();
     await saveProfile(markOnboardingComplete: true);
     notifyListeners();
   }
@@ -1157,6 +1214,9 @@ class AppState extends ChangeNotifier {
     longestLoginStreak = 1;
     _lastOpenDay = _dayKey(AppClock.now());
     loginStreakBreaks.clear();
+    appOpenDays
+      ..clear()
+      ..add(_dayKey(AppClock.now()));
     messages
       ..clear()
       ..add(
@@ -1294,6 +1354,7 @@ class AppState extends ChangeNotifier {
     longestLoginStreak = 0;
     _lastOpenDay = null;
     loginStreakBreaks.clear();
+    appOpenDays.clear();
     messages
       ..clear()
       ..add(
@@ -1317,31 +1378,37 @@ class AppState extends ChangeNotifier {
 
   void seedReflectionDemoDataForTesting() {
     _applyReflectionDemoProfile(null);
+    _seedDemoEngagement();
   }
 
   void seedEmergencyFundMockDataForTesting() {
     email = 'emergency@gmail.com';
     _applyEmergencyFundMockProfile(null);
+    _seedDemoEngagement();
   }
 
   void seedCashFlowMockDataForTesting() {
     email = 'cashflow@gmail.com';
     _applyCashFlowMockProfile(null);
+    _seedDemoEngagement();
   }
 
   void seedAccumulatingWealthMockDataForTesting() {
     email = 'accumulating@gmail.com';
     _applyAccumulatingWealthMockProfile(null);
+    _seedDemoEngagement();
   }
 
   void seedFinancialFreedomMockDataForTesting() {
     email = 'freedom@gmail.com';
     _applyFinancialFreedomMockProfile(null);
+    _seedDemoEngagement();
   }
 
   void seedMainMockDataForTesting() {
     email = 'main@gmail.com';
     _applyMainMockProfile(null);
+    _seedDemoEngagement();
   }
 
   bool get canOverwriteWithMockData {
@@ -1376,17 +1443,22 @@ class AppState extends ChangeNotifier {
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase();
     if (normalizedEmail == 'main@gmail.com') {
       _applyMainMockProfile(user);
+      _seedDemoEngagement();
     } else if (normalizedEmail == 'cashflow@gmail.com' ||
         selectedGoalId == 'G1') {
       _applyCashFlowMockProfile(user);
+      _seedDemoEngagement();
     } else if (normalizedEmail == 'accumulating@gmail.com' ||
         selectedGoalId == 'G5') {
       _applyAccumulatingWealthMockProfile(user);
+      _seedDemoEngagement();
     } else if (normalizedEmail == 'freedom@gmail.com' ||
         selectedGoalId == 'G8') {
       _applyFinancialFreedomMockProfile(user);
+      _seedDemoEngagement();
     } else {
       _applyEmergencyFundMockProfile(user);
+      _seedDemoEngagement();
     }
     mockDataEnabled = true;
     await saveProfile(markOnboardingComplete: true);
@@ -2561,6 +2633,7 @@ class AppState extends ChangeNotifier {
   void _applyMainMockProfile(User? user) {
     final now = AppClock.now();
     _applyCashFlowMockProfile(user);
+    _seedDemoEngagement();
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase().isEmpty
         ? 'main@gmail.com'
         : (user?.email ?? email).trim().toLowerCase();
@@ -4352,6 +4425,7 @@ class AppState extends ChangeNotifier {
       'longestLoginStreak': longestLoginStreak,
       'lastOpenDay': _lastOpenDay,
       'loginStreakBreaks': loginStreakBreaks,
+      'appOpenDays': appOpenDays.toList()..sort(),
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4580,6 +4654,13 @@ class AppState extends ChangeNotifier {
     longestLoginStreak =
         (data['longestLoginStreak'] as num?)?.toInt() ?? longestLoginStreak;
     _lastOpenDay = data['lastOpenDay']?.toString() ?? _lastOpenDay;
+    final openDays = data['appOpenDays'];
+    appOpenDays
+      ..clear()
+      ..addAll([
+        if (openDays is List)
+          for (final day in openDays) day.toString(),
+      ]);
     final streakBreaks = data['loginStreakBreaks'];
     loginStreakBreaks
       ..clear()

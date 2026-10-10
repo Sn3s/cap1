@@ -7600,7 +7600,7 @@ class PyramidPreviewScreen extends StatelessWidget {
                     children: [
                       const Text('Health Score', style: sliderCaption),
                       Text(
-                        '${state.healthScore.round()}',
+                        '${state.healthScore?.round() ?? '—'}',
                         style: const TextStyle(
                           color: _brand,
                           fontSize: 40,

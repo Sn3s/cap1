@@ -324,7 +324,7 @@ String _homeInsightGlimpse(AppState state) {
   if (state.allTransactions.isEmpty) {
     return "Log your first transaction and I'll start spotting patterns to help you save more!";
   }
-  final score = state.healthScore;
+  final score = state.healthScore ?? 0;
   if (score >= 75) {
     return "You're doing great this week — your habits are setting you up for real progress. Keep the streak going!";
   }
@@ -24739,10 +24739,16 @@ class ProfilePage extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: _ProfileStatTile(
-                                emoji: '🎯',
-                                value: '${state.healthScore.round()}',
-                                label: 'health',
+                              // Opens the Financial Health Score breakdown.
+                              child: GestureDetector(
+                                onTap: () => _push(context,
+                                    const FinancialHealthScoreScreen()),
+                                behavior: HitTestBehavior.opaque,
+                                child: _ProfileStatTile(
+                                  emoji: '🎯',
+                                  value: '${state.healthScore?.round() ?? '—'}',
+                                  label: 'health ›',
+                                ),
                               ),
                             ),
                             const SizedBox(width: 10),
