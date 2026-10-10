@@ -731,7 +731,7 @@ class FakeMayaService {
         'wallet': nextSummary.wallet,
         'savings': nextSummary.savings,
         'time_deposit': nextSummary.timeDeposit,
-        'goal_balance': nextSummary.goalBalance,
+        'goal_balance': nextSummary.selectedGoalBalance,
         'app_state': nextSummary.toFakeMayaAppState(),
         'updated_at': AppClock.now().toIso8601String(),
       },
@@ -1216,6 +1216,12 @@ class FakeMayaAccountSummary {
 
   FakeMayaPersonalGoal? get personalLifestyleFund =>
       personalGoalById(FakeMayaPersonalGoal.personalLifestyleFundId);
+
+  /// Balance mirrored to FakeMaya's legacy `goal_balance` column. FakeMaya
+  /// renders that column as the currently selected goal, while Shellby keeps
+  /// [goalBalance] as the total across all personal-goal buckets.
+  double get selectedGoalBalance =>
+      personalGoalById(selectedGoalId)?.balance ?? goalBalance;
 
   FakeMayaAccountSummary copyWith({
     double? wallet,

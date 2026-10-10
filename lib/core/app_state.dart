@@ -6700,15 +6700,20 @@ class AppState extends ChangeNotifier {
         // Move the money out of the FakeMaya Emergency Fund bucket (B2) back
         // to the wallet so the bucket balance and both activity feeds show
         // the withdrawal. Throws FakeMayaException before any local change.
-        if (fakeMayaLink?.summary
-                .personalGoalById(FakeMayaPersonalGoal.emergencyFundId) !=
-            null) {
+        final linkedEmergencyFund = fakeMayaLink?.summary
+            .personalGoalById(FakeMayaPersonalGoal.emergencyFundId);
+        if (linkedEmergencyFund != null) {
           await _withdrawFakeMayaPersonalGoalToWallet(
             amount,
             personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
           );
+          emergencyFundBalance = fakeMayaLink?.summary
+                  .personalGoalById(FakeMayaPersonalGoal.emergencyFundId)
+                  ?.balance ??
+              math.max(0, linkedEmergencyFund.balance - amount);
+        } else {
+          emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
         }
-        emergencyFundBalance = math.max(0, emergencyFundBalance - amount);
         financialSafetyBalance = emergencyFundBalance;
         shieldTrackedBalance = emergencyFundBalance;
         _lastEfWithdrawalStr = AppClock.now().toIso8601String();

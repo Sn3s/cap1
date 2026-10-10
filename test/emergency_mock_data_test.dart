@@ -2,6 +2,69 @@ import 'package:cap1/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('using Emergency Fund syncs the bucket, wallet, and activity feeds',
+      () async {
+    final state = AppState()
+      ..seedEmergencyFundMockDataForTesting()
+      ..onboardingComplete = false;
+    final initialLink = state.fakeMayaLink!;
+    final essentialGoal = FakeMayaPersonalGoal.defaultForId(
+      FakeMayaPersonalGoal.essentialExpenseFundId,
+    ).copyWith(balance: 500);
+    state.fakeMayaLink = FakeMayaLink(
+      userId: initialLink.userId,
+      email: initialLink.email,
+      name: initialLink.name,
+      phone: initialLink.phone,
+      provider: initialLink.provider,
+      accessToken: initialLink.accessToken,
+      refreshToken: initialLink.refreshToken,
+      expiresAt: initialLink.expiresAt,
+      summary: initialLink.summary.copyWith(
+        selectedGoalId: FakeMayaPersonalGoal.emergencyFundId,
+        personalGoals: [essentialGoal, ...initialLink.summary.personalGoals],
+        goalBalance: initialLink.summary.goalBalance + essentialGoal.balance,
+      ),
+    );
+    final before = state.fakeMayaLink!.summary;
+    final beforeGoal = before.personalGoalById(
+      FakeMayaPersonalGoal.emergencyFundId,
+    )!;
+    final beforeShellbyBalance = state.displayedEmergencyFundBalance;
+
+    await state.useD1BucketFunds('emergency', 300);
+
+    final after = state.fakeMayaLink!.summary;
+    final afterGoal = after.personalGoalById(
+      FakeMayaPersonalGoal.emergencyFundId,
+    )!;
+    final withdrawal = after.transactions.first;
+
+    expect(after.wallet, before.wallet + 300);
+    expect(afterGoal.balance, beforeGoal.balance - 300);
+    expect(after.goalBalance, afterGoal.balance + essentialGoal.balance);
+    expect(after.selectedGoalBalance, afterGoal.balance);
+    expect(
+      (after.toFakeMayaAppState()['goal'] as Map)['balance'],
+      after.selectedGoalBalance,
+    );
+    expect(state.displayedEmergencyFundBalance, beforeShellbyBalance - 300);
+    expect(withdrawal.title, 'Withdrawn from goal');
+    expect(withdrawal.detail, 'Emergency Fund');
+    expect(withdrawal.amount, -300);
+    expect(
+      state.allTransactions.any(
+        (transaction) => transaction.transactionId == withdrawal.transactionId,
+      ),
+      isTrue,
+    );
+    expect(
+      state.d1Ledger.first,
+      containsPair('type', 'use_emergency'),
+    );
+    expect(state.d1Ledger.first, containsPair('amount', 300));
+  });
+
   test('Emergency Fund mock overwrite seeds four months of actionable data',
       () async {
     final state = AppState()..seedEmergencyFundMockDataForTesting();
