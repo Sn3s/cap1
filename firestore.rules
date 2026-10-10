@@ -2,8 +2,153 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return request.auth.uid;
+    }
+
+    function validMessage(message) {
+      return message is string && message.size() > 0 && message.size() <= 250;
+    }
+
+    // Private financial profile: owner only (unchanged).
     match /profiles/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if signedIn() && me() == userId;
+    }
+
+    // ── Community ────────────────────────────────────────────────────────
+    // Exact-match email directory. `get` only: no listing, so nobody can
+    // enumerate users. You may only claim the entry for your own verified
+    // auth email.
+    match /userDirectory/{emailLower} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == emailLower
+        && request.resource.data.uid == me();
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // Pending friend requests; id is `{fromUid}_{toUid}`.
+    match /friendRequests/{requestId} {
+      allow read: if signedIn()
+        && (resource.data.fromUid == me() || resource.data.toUid == me());
+      allow create: if signedIn()
+        && request.resource.data.fromUid == me()
+        && request.resource.data.toUid != me()
+        && requestId == me() + '_' + request.resource.data.toUid
+        && request.resource.data.from.uid == me()
+        && request.resource.data.to.uid == request.resource.data.toUid
+        && request.resource.data.createdAt == request.time;
+      // Sender cancels, recipient declines / accepts (accept deletes it).
+      allow delete: if signedIn()
+        && (resource.data.fromUid == me() || resource.data.toUid == me());
+      allow update: if false;
+    }
+
+    // Accepted friendships; id is the two uids sorted and joined by `_`.
+    // Only the recipient can create one, and only while the matching
+    // request exists (accept is one batch: create friendship + delete
+    // request, and `exists` sees the pre-batch state).
+    match /friendships/{friendshipId} {
+      allow read: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.accepterUid == me()
+        && request.resource.data.members.size() == 2
+        && request.resource.data.members.hasAll(
+             [request.resource.data.requesterUid, me()])
+        && (friendshipId == request.resource.data.requesterUid + '_' + me()
+            || friendshipId == me() + '_' + request.resource.data.requesterUid)
+        && exists(/databases/$(database)/documents/friendRequests/$(request.resource.data.requesterUid + '_' + me()));
+      // Either friend can unfriend.
+      allow delete: if signedIn() && me() in resource.data.members;
+      allow update: if false;
+    }
+
+    // Community notifications (likes, replies, accepted requests). Only the
+    // owner reads them; only a current friend can drop one in, as
+    // themselves. Like notifications use a fixed id so the liker may
+    // overwrite their own; the owner may only flip `read`.
+    match /users/{userId}/notifications/{notificationId} {
+      function isFriendOf(other) {
+        return exists(/databases/$(database)/documents/friendships/$(me() + '_' + other))
+          || exists(/databases/$(database)/documents/friendships/$(other + '_' + me()));
+      }
+
+      function validFromActor() {
+        return userId != me()
+          && request.resource.data.actorUid == me()
+          && request.resource.data.actor.uid == me()
+          && request.resource.data.type in ['reply', 'like', 'friend_accepted']
+          && request.resource.data.read == false
+          && request.resource.data.preview is string
+          && request.resource.data.preview.size() <= 200
+          && request.resource.data.createdAt == request.time
+          && isFriendOf(userId);
+      }
+
+      allow read, delete: if signedIn() && me() == userId;
+      allow create: if signedIn() && validFromActor();
+      allow update: if signedIn() && (
+        (me() == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
+        || (resource.data.actorUid == me() && validFromActor())
+      );
+    }
+
+    // Posts are fanned out on write: `audience` holds every uid allowed
+    // to read the post (author + friends at post time, or just the author
+    // for "Only Me").
+    match /posts/{postId} {
+      allow read: if signedIn() && me() in resource.data.audience;
+
+      allow create: if signedIn()
+        && request.resource.data.authorUid == me()
+        && request.resource.data.author.uid == me()
+        && validMessage(request.resource.data.message)
+        && request.resource.data.visibility in ['friends', 'only_me']
+        && request.resource.data.audience is list
+        && me() in request.resource.data.audience
+        && request.resource.data.audience.size() <= 500
+        && (request.resource.data.visibility == 'friends'
+            || request.resource.data.audience.size() == 1)
+        && request.resource.data.likedBy.size() == 0
+        && request.resource.data.commentCount == 0
+        && request.resource.data.createdAt == request.time;
+
+      allow delete: if signedIn() && resource.data.authorUid == me();
+
+      // Audience members may only add/remove *their own* like, or bump the
+      // reply count by exactly one (alongside creating a reply).
+      allow update: if signedIn() && me() in resource.data.audience && (
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
+          && request.resource.data.likedBy.toSet()
+               .difference(resource.data.likedBy.toSet())
+               .union(resource.data.likedBy.toSet()
+                 .difference(request.resource.data.likedBy.toSet()))
+               .hasOnly([me()]))
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount'])
+          && request.resource.data.commentCount == resource.data.commentCount + 1)
+      );
+
+      match /comments/{commentId} {
+        function parentPost() {
+          return get(/databases/$(database)/documents/posts/$(postId)).data;
+        }
+        allow read: if signedIn() && me() in parentPost().audience;
+        allow create: if signedIn()
+          && me() in parentPost().audience
+          && parentPost().visibility == 'friends'
+          && request.resource.data.authorUid == me()
+          && request.resource.data.author.uid == me()
+          && validMessage(request.resource.data.message)
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
     }
   }
 }

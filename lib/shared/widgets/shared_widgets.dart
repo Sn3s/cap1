@@ -151,13 +151,18 @@ class PageHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          _AccountIconButton(
-            onTap: onAccountTap ?? () => _push(context, const ProfilePage()),
-          ),
-          const SizedBox(width: 8),
+          // Left → right: Notifications · Community · Profile.
           _TimeButton(
             onTap: onTimeTap ??
                 () => _push(context, const NotificationSettingsScreen()),
+          ),
+          const SizedBox(width: 8),
+          const _CommunityIconButton(),
+          const SizedBox(width: 8),
+          _FriendRequestBadge(
+            child: _AccountIconButton(
+              onTap: onAccountTap ?? () => _push(context, const ProfilePage()),
+            ),
           ),
         ],
       ),
@@ -2173,4 +2178,208 @@ void _pushAndRemoveAll(BuildContext context, Widget page) {
   Navigator.of(
     context,
   ).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => page), (_) => false);
+}
+
+// ─── Hero header (Community-style gradient card) ─────────────────────────────
+
+/// The app's signature header card: a deep gradient, soft decorative
+/// bubbles, a frosted icon tile, eyebrow/title/subtitle, and an optional
+/// trailing widget and footer. Used for Community, Goals and Insights
+/// headers so every section opens with the same look.
+class ShelbyHeroHeader extends StatelessWidget {
+  const ShelbyHeroHeader({
+    super.key,
+    required this.title,
+    required this.color,
+    this.icon,
+    this.leading,
+    this.eyebrow,
+    this.subtitle,
+    this.trailing,
+    this.footer,
+    this.bubbleColor,
+    this.minHeight = 0,
+  });
+
+  final String title;
+  final Color color;
+  final IconData? icon;
+
+  /// Replaces the icon inside the frosted tile (e.g. an emoji).
+  final Widget? leading;
+  final String? eyebrow;
+  final String? subtitle;
+  final Widget? trailing;
+  final Widget? footer;
+
+  /// Accent for the large corner bubble; defaults to the brand mint.
+  final Color? bubbleColor;
+  final double minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final deep = Color.lerp(color, _title, .45)!;
+    final accent = bubbleColor ?? _brand;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: .28),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          constraints: BoxConstraints(minHeight: minHeight),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [color, deep],
+            ),
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -24,
+                top: -30,
+                child: _HeroBubble(110, accent.withValues(alpha: .24)),
+              ),
+              Positioned(
+                left: -28,
+                bottom: -40,
+                child: _HeroBubble(96, Colors.white.withValues(alpha: .07)),
+              ),
+              Positioned(
+                right: 70,
+                bottom: -26,
+                child: _HeroBubble(52, Colors.white.withValues(alpha: .08)),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .16),
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: .18),
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: leading ??
+                              Icon(
+                                icon ?? Icons.auto_awesome_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (eyebrow != null) ...[
+                                Text(
+                                  eyebrow!.toUpperCase(),
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: .72),
+                                    fontSize: 10.5,
+                                    letterSpacing: 1.1,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                              ],
+                              Text(
+                                title,
+                                style: GoogleFonts.nunito(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  height: 1.2,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              if (subtitle != null) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  subtitle!,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: .76),
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (trailing != null) ...[
+                          const SizedBox(width: 10),
+                          trailing!,
+                        ],
+                      ],
+                    ),
+                    if (footer != null) ...[
+                      const SizedBox(height: 12),
+                      footer!,
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroBubble extends StatelessWidget {
+  const _HeroBubble(this.size, this.color);
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
+}
+
+/// Frosted pill used as a hero header's trailing stat.
+class HeroStatPill extends StatelessWidget {
+  const HeroStatPill(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
 }

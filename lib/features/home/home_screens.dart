@@ -40,9 +40,19 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   // Log-in streak: opening the app (or returning to it) counts for today.
-  void _recordAppOpen() {
+  // Afterwards, connect the community session and celebrate any badge the
+  // open (or recent activity) just unlocked.
+  Future<void> _recordAppOpen() async {
     if (!mounted) return;
-    AppScope.of(context).recordAppOpen();
+    final state = AppScope.of(context);
+    await state.recordAppOpen();
+    if (!mounted) return;
+    unawaited(state.connectCommunity());
+    final fresh = state.collectNewlyEarnedBadges();
+    if (fresh.isEmpty || !mounted) return;
+    // Celebrate the hardest-won badge; the rest wait in Profile → Badges.
+    fresh.sort((a, b) => b.target.compareTo(a.target));
+    await showBadgeUnlockedDialog(context, fresh.first);
   }
 
   void openGoal(String goalId) {
@@ -4009,6 +4019,9 @@ class _MotivationGoalsSummary extends StatelessWidget {
           statText: isWealth
               ? '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)}% · 14 days'
               : (onTrack ? 'On track' : null),
+          share: isWealth
+              ? (change > 0 ? wealthGrowthShareable(change) : null)
+              : (onTrack ? freedomOnTrackShareable() : null),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -8738,6 +8751,7 @@ class _GoalInsightHeader extends StatelessWidget {
     required this.color,
     this.subtitle,
     this.statText,
+    this.share,
   });
 
   final IconData icon;
@@ -8746,141 +8760,27 @@ class _GoalInsightHeader extends StatelessWidget {
   final String? subtitle;
   final String? statText;
 
+  /// When set, a "Share it!" chip sits in the card's bottom-right corner.
+  final ShareableAchievement? share;
+
   @override
   Widget build(BuildContext context) {
-    final deep = Color.lerp(color, Colors.black, .22)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [color, deep],
-            ),
-          ),
-          // clipBehavior: none lets the bubbles paint past the content's own
-          // bounds; the sizing spacer below gives them a full-card canvas to
-          // do that on, and the outer ClipRRect trims everything to the
-          // rounded card shape so the bubbles reach every edge cleanly.
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const SizedBox(width: double.infinity, height: 118),
-              const Positioned(
-                left: -26,
-                top: -30,
-                child: _HeaderBubble(size: 90, alpha: .10),
+      child: ShelbyHeroHeader(
+        color: color,
+        bubbleColor: Colors.white,
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+        minHeight: 104,
+        trailing: statText == null ? null : HeroStatPill(statText!),
+        footer: share == null
+            ? null
+            : Align(
+                alignment: Alignment.centerRight,
+                child: ShareItChip(achievement: share!, compact: true),
               ),
-              const Positioned(
-                left: 88,
-                bottom: -38,
-                child: _HeaderBubble(size: 62, alpha: .08),
-              ),
-              const Positioned(
-                right: -26,
-                top: -36,
-                child: _HeaderBubble(size: 104, alpha: .12),
-              ),
-              const Positioned(
-                right: 56,
-                bottom: -32,
-                child: _HeaderBubble(size: 58, alpha: .09),
-              ),
-              const Positioned(
-                right: -16,
-                bottom: -20,
-                child: _HeaderBubble(size: 52, alpha: .15),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(18),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .20),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(icon, color: Colors.white, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 19,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          if (subtitle != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              subtitle!,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: .80),
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (statText != null) ...[
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .18),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          statText!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderBubble extends StatelessWidget {
-  const _HeaderBubble({required this.size, required this.alpha});
-  final double size;
-  final double alpha;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: alpha),
-        shape: BoxShape.circle,
       ),
     );
   }
@@ -9589,6 +9489,13 @@ class _CoverageMilestoneRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (progress >= 1) ...[
+              ShareItChip(
+                achievement: milestoneShareable(title, subtitle),
+                compact: true,
+              ),
+              const SizedBox(width: 8),
+            ],
             Text(
               '${(progress * 100).round()}%',
               style: const TextStyle(
@@ -11471,6 +11378,9 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
           subtitle: 'Build a safety net',
           statText:
               '${state.emergencyMonthsCovered.toStringAsFixed(1)} mo. covered',
+          share: state.emergencyMonthsCovered >= .5
+              ? emergencyShareable(state.emergencyMonthsCovered)
+              : null,
         ),
         _GoalSuggestionBanner(
           goalLabel: 'emergency fund',
@@ -16239,70 +16149,40 @@ class _WeeklyProgressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [_purple, Color(0xFF5A3FA0)],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: _purple.withOpacity(0.30),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+    final progress = total == 0 ? 0.0 : onTrack / total;
+    return ShelbyHeroHeader(
+      color: _purple,
+      eyebrow: 'Weekly progress',
+      title: '$onTrack of $total goals on track!',
+      subtitle: _daysRemainingThisWeekLabel(),
+      leading: Padding(
+        padding: const EdgeInsets.all(5),
+        child: Image.asset('assets/images/shellby_wave.webp',
+            fit: BoxFit.contain),
       ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 48,
-            height: 48,
-            child: Image.asset(
-              'assets/images/shellby_wave.webp',
-              fit: BoxFit.contain,
+      trailing: SizedBox(
+        width: 48,
+        height: 48,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CircularProgressIndicator(
+              value: progress,
+              strokeWidth: 5,
+              strokeCap: StrokeCap.round,
+              backgroundColor: Colors.white.withValues(alpha: .18),
+              color: const Color(0xFFAEECD5),
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'WEEKLY PROGRESS',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '$onTrack of $total goals on track!',
-                  style: GoogleFonts.nunito(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _daysRemainingThisWeekLabel(),
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+            Text(
+              '${(progress * 100).round()}%',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -16879,45 +16759,13 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
         // Hero card
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: goal.layerColor,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(goal.emoji, style: const TextStyle(fontSize: 28)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        goal.title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  goal.description,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .85),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45,
-                  ),
-                ),
-              ],
-            ),
+          child: ShelbyHeroHeader(
+            color: goal.layerColor,
+            bubbleColor: Colors.white,
+            eyebrow: goal.layerLabel,
+            title: goal.title,
+            subtitle: goal.description,
+            leading: Text(goal.emoji, style: const TextStyle(fontSize: 24)),
           ),
         ),
         if (goal.id == 'G1') ...[
@@ -24707,7 +24555,12 @@ class ProfilePage extends StatelessWidget {
             : 'Off',
         () => _push(context, const NotificationSettingsScreen()),
       ),
-      const _SettingData('Privacy & security', Icons.shield_outlined, ''),
+      _SettingData(
+        'Privacy & security',
+        Icons.shield_outlined,
+        state.discoverableByEmail ? 'Findable' : 'Hidden',
+        () => _push(context, const CommunityPrivacyScreen()),
+      ),
       _SettingData(
         'Accounts',
         Icons.credit_card_outlined,
@@ -24741,6 +24594,8 @@ class ProfilePage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Stack(
+                    children: [
                   AppCard(
                     child: Column(
                       children: [
@@ -24825,6 +24680,19 @@ class ProfilePage extends StatelessWidget {
                       ],
                     ),
                   ),
+                      Positioned(
+                        top: 14,
+                        right: 14,
+                        child: ShareItChip(
+                          achievement: scorecardShareable(state),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const FriendRequestsCard(),
+                  const SizedBox(height: 14),
+                  const BadgesCard(),
                   const SizedBox(height: 24),
                   Text(
                     'Settings',
@@ -28485,8 +28353,32 @@ class _LoginStreakTile extends StatelessWidget {
   final int streak;
   final bool active;
 
+  /// Streaks worth celebrating get a corner share icon.
+  static const shareableFrom = 3;
+
   @override
   Widget build(BuildContext context) {
+    final tile = _buildTile();
+    if (streak < shareableFrom) return tile;
+    return Semantics(
+      button: true,
+      label: 'Share your $streak-day streak',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () =>
+            showShareAchievementSheet(context, streakShareable(streak)),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            tile,
+            const Positioned(top: -6, right: -6, child: _CornerShareDot()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(

@@ -835,6 +835,13 @@ class _HealthScoreHeader extends StatelessWidget {
                     height: 1.15,
                   ),
                 ),
+                if (score != null) ...[
+                  const SizedBox(height: 8),
+                  ShareItChip(
+                    achievement: healthScoreShareable(score, breakdown.band),
+                    compact: true,
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Container(
                   padding:

@@ -572,6 +572,91 @@ class AppState extends ChangeNotifier {
       );
 
   final List<Map<String, dynamic>> d1Ledger = [];
+  // ── Community & badges (cooperative personal informatics) ───────
+  // Friends/feed live in their own Firestore collections, not this
+  // profile. Badges are derived (see achievements.dart); only the ids the
+  // user has already been shown are persisted, which also keeps a badge
+  // earned after the underlying number dips. None of this feeds the
+  // Health Score.
+  final CommunityController community = CommunityController();
+  CommunityBackend? _communityBackend;
+  CommunityBackend? _communityBackendOverride;
+  final Set<String> seenBadgeIds = {};
+  bool _badgeBaselineSet = false;
+
+  /// "Let friends find me" (Settings → Privacy & security).
+  bool discoverableByEmail = true;
+
+  Future<void> setDiscoverableByEmail(bool value) async {
+    discoverableByEmail = value;
+    notifyListeners();
+    if (community.isConnected) await community.setDiscoverable(value);
+    await saveProfile();
+  }
+
+  /// Test hook: route community traffic to [backend] instead of Firestore.
+  set communityBackendForTesting(CommunityBackend backend) =>
+      _communityBackendOverride = backend;
+
+  SocialProfile get socialProfile => SocialProfile(
+        uid: uid ?? 'local-you',
+        displayName: name.trim().isEmpty ? 'You' : name.trim(),
+        email: email.trim().isEmpty ? 'you@shelby.app' : email.trim(),
+        photoUrl: photoUrl,
+      );
+
+  bool get _hasFirebaseUser {
+    try {
+      return Firebase.apps.isNotEmpty &&
+          FirebaseProfileService.currentUser != null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Connects the community session for the current user. Signed-in users
+  /// talk to Firestore; signed-out/demo sessions get a seeded in-memory
+  /// circle so the screens can be explored offline.
+  Future<void> connectCommunity() async {
+    final profile = socialProfile;
+    final override = _communityBackendOverride;
+    if (override != null) {
+      _communityBackend = override;
+    } else if (isSignedIn && _hasFirebaseUser) {
+      if (_communityBackend is! FirestoreCommunityBackend) {
+        _communityBackend = FirestoreCommunityBackend();
+      }
+    } else if (_communityBackend is! InMemoryCommunityBackend) {
+      final demo = InMemoryCommunityBackend();
+      await demo.seedDemoCircle(profile);
+      _communityBackend = demo;
+    }
+    await community.connect(
+      profile,
+      _communityBackend!,
+      discoverable: discoverableByEmail,
+    );
+  }
+
+  /// Badges earned since the last call, for the "Badge unlocked" moment.
+  /// The very first call for a profile only records a baseline, so people
+  /// updating the app aren't hit with a pile of celebrations at once.
+  List<ShelbyBadge> collectNewlyEarnedBadges() {
+    final earned = computeBadges(this).where((badge) => badge.earned).toList();
+    final fresh =
+        earned.where((badge) => !seenBadgeIds.contains(badge.id)).toList();
+    if (fresh.isEmpty && _badgeBaselineSet) return const [];
+    final firstRun = !_badgeBaselineSet;
+    _badgeBaselineSet = true;
+    seenBadgeIds.addAll(fresh.map((badge) => badge.id));
+    if (isSignedIn) {
+      unawaited(saveProfile().catchError((Object error) {
+        debugPrint('Saving badge progress failed: $error');
+      }));
+    }
+    return firstRun ? const [] : fresh;
+  }
+
   final Set<String> trackingVariables = {};
   final Set<String> interferingVariables = {};
   final List<MoneyItem> assets = [];
@@ -1167,6 +1252,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> signOut() async {
     await FirebaseProfileService.signOut();
+    await community.disconnect();
+    _communityBackend = null;
     _resetOnboardingDraftState();
     _removeFakeMayaMoneyItems();
     notifyListeners();
@@ -1366,6 +1453,9 @@ class AppState extends ChangeNotifier {
     _lastOpenDay = null;
     loginStreakBreaks.clear();
     appOpenDays.clear();
+    seenBadgeIds.clear();
+    _badgeBaselineSet = false;
+    discoverableByEmail = true;
     messages
       ..clear()
       ..add(
@@ -4437,6 +4527,9 @@ class AppState extends ChangeNotifier {
       'lastOpenDay': _lastOpenDay,
       'loginStreakBreaks': loginStreakBreaks,
       'appOpenDays': appOpenDays.toList()..sort(),
+      'seenBadgeIds': seenBadgeIds.toList()..sort(),
+      'badgeBaselineSet': _badgeBaselineSet,
+      'discoverableByEmail': discoverableByEmail,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4672,6 +4765,15 @@ class AppState extends ChangeNotifier {
         if (openDays is List)
           for (final day in openDays) day.toString(),
       ]);
+    final badgeIds = data['seenBadgeIds'];
+    seenBadgeIds
+      ..clear()
+      ..addAll([
+        if (badgeIds is List)
+          for (final id in badgeIds) id.toString(),
+      ]);
+    _badgeBaselineSet = data['badgeBaselineSet'] == true;
+    discoverableByEmail = data['discoverableByEmail'] != false;
     final streakBreaks = data['loginStreakBreaks'];
     loginStreakBreaks
       ..clear()
