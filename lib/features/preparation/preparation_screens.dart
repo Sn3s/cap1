@@ -1311,24 +1311,34 @@ const _backlogActionIds = {
   'A13', 'A14', 'A15', 'A16', 'A17', 'A18',
 };
 
-// DISPLAY NUMBERING (display-only): users see G1-G4 and A1-A15 in order;
-// saved profiles keep the original internal IDs.
+// DISPLAY NUMBERING (display-only): the single source of truth for the
+// action numbers users see. Users see A1-A15 in this exact order; saved
+// profiles keep the original internal IDs. Every label, list and sort in the
+// app goes through [_actionNumber] / [_compareActionIds], so one number
+// always means one action.
 // Goals are shown by name/motivation, never by code. Their display order
 // is G1 = G1, G3 = G2, G5 = G3, G8 = G4.
-const _actionDisplayNumbers = {
-  'A1': 'A1', 'A3': 'A2', 'A20': 'A3', 'A19': 'A4', // G1
-  'A9': 'A5', 'A8': 'A6', 'A22': 'A7', 'A10': 'A8', // G2
-  'A12': 'A9', 'A23': 'A10', 'A30': 'A11', // G3
-  'A26': 'A12', 'A27': 'A13', 'A28': 'A14', 'A29': 'A15', // G4
-};
-String _actionNumber(String id) => _actionDisplayNumbers[id] ?? id;
+const _actionDisplayOrder = [
+  ..._availableCashGoalActionIds, // M1 Cash Flow & Basic Needs: A1-A4
+  ..._emergencyFundGoalActionIds, // M2 Financial Safety: A5-A8
+  ..._investmentGoalActionIds, // M3 Accumulating Wealth: A9-A11
+  ..._lifestyleGoalActionIds, // M4 Financial Freedom: A12-A15
+];
+
+/// Internal ID -> the number users see ("A20" -> "A3").
+String _actionNumber(String id) {
+  final index = _actionDisplayOrder.indexOf(id);
+  return index < 0 ? id : 'A${index + 1}';
+}
 
 /// Orders action IDs by the number users see; IDs without a display number
 /// (backlog) go last, by their internal number.
 int _compareActionIds(String a, String b) {
-  int rank(String id) => _actionDisplayNumbers.containsKey(id)
-      ? int.parse(_actionNumber(id).substring(1))
-      : 1000 + (int.tryParse(id.substring(1)) ?? 0);
+  int rank(String id) {
+    final index = _actionDisplayOrder.indexOf(id);
+    return index >= 0 ? index : 1000 + (int.tryParse(id.substring(1)) ?? 0);
+  }
+
   final byRank = rank(a).compareTo(rank(b));
   return byRank != 0 ? byRank : a.compareTo(b);
 }
@@ -4745,7 +4755,7 @@ class _ActionCollectionProcessCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('$index. ${action.id}',
+          Text('$index. ${_actionNumber(action.id)}',
               style: const TextStyle(
                   color: _brand, fontSize: 12, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
@@ -6786,7 +6796,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: _surface,
-          title: Text('${action.id} details',
+          title: Text('${_actionNumber(action.id)} details',
               style:
                   const TextStyle(color: _title, fontWeight: FontWeight.w900)),
           content: SizedBox(

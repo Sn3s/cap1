@@ -20781,7 +20781,7 @@ class _EssentialExpensesActionPanelState
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
                     borderRadius: BorderRadius.circular(8)),
-                child: Text('A1',
+                child: Text(_actionNumber('A1'),
                     style: TextStyle(
                         color: widget.color,
                         fontSize: 11,
@@ -22346,7 +22346,7 @@ class _EmergencyFundIncomeActionPanelState
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
                     borderRadius: BorderRadius.circular(8)),
-                child: Text('A8',
+                child: Text(_actionNumber('A8'),
                     style: TextStyle(
                         color: widget.color,
                         fontSize: 11,
@@ -22517,7 +22517,7 @@ class _EmergencyReplenishmentActionPanelState
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
                     borderRadius: BorderRadius.circular(8)),
-                child: Text('A10',
+                child: Text(_actionNumber('A10'),
                     style: TextStyle(
                         color: widget.color,
                         fontSize: 11,
@@ -23025,7 +23025,7 @@ class _CategoryBudgetActionPanelState
                 decoration: BoxDecoration(
                     color: widget.color.withValues(alpha: .12),
                     borderRadius: BorderRadius.circular(8)),
-                child: Text('A3',
+                child: Text(_actionNumber('A3'),
                     style: TextStyle(
                         color: widget.color,
                         fontSize: 11,

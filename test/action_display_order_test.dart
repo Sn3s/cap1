@@ -23,8 +23,7 @@ void main() {
           if (RegExp(r'^A\d+$').hasMatch(text.data ?? '')) text.data!,
       ];
 
-  test('active actions iterate in display order, whatever the pick order',
-      () {
+  test('active actions iterate in display order, whatever the pick order', () {
     final state = AppState()
       ..selectedActionIds.addAll(['A29', 'A28', 'A26', 'A12', 'A1', 'A27']);
     expect(state.selectedActionIds.toList(),
@@ -71,8 +70,9 @@ void main() {
       for (final checkbox in tester.widgetList(find.byType(Checkbox)))
         tester
             .widgetList<Text>(find.descendant(
-                of: find.ancestor(
-                    of: find.byWidget(checkbox), matching: find.byType(Row))
+                of: find
+                    .ancestor(
+                        of: find.byWidget(checkbox), matching: find.byType(Row))
                     .first,
                 matching: find.byType(Text)))
             .first
@@ -80,6 +80,46 @@ void main() {
     ];
     expect(sheetBadges, ['A12', 'A13', 'A14', 'A15']);
   });
+
+  const goals = {
+    'G1': (['A1', 'A3', 'A20', 'A19'], ['A1', 'A2', 'A3', 'A4']),
+    'G3': (['A9', 'A8', 'A22', 'A10'], ['A5', 'A6', 'A7', 'A8']),
+    'G5': (['A12', 'A23', 'A30'], ['A9', 'A10', 'A11']),
+    'G8': (['A26', 'A27', 'A28', 'A29'], ['A12', 'A13', 'A14', 'A15']),
+  };
+  for (final entry in goals.entries) {
+    testWidgets('${entry.key} cards are numbered ${entry.value.$2}, once each',
+        (tester) async {
+      phone(tester);
+      final state = AppState()
+        ..selectedGoalId = entry.key
+        ..selectedActionIds.addAll(entry.value.$1.reversed);
+      await tester.pumpWidget(AppScope(
+        state: state,
+        child: MaterialApp(
+          home: Scaffold(body: GoalsPage(initialGoalId: entry.key)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      while (find.byType(Dialog).evaluate().isNotEmpty) {
+        Navigator.of(tester.element(find.byType(Dialog).first)).pop();
+        await tester.pumpAndSettle();
+      }
+      final seen = <String>[];
+      for (var i = 0; i < 25; i++) {
+        for (final text in tester.widgetList<Text>(find.byType(Text))) {
+          final data = text.data ?? '';
+          if (RegExp(r'^A\d+$').hasMatch(data) && !seen.contains(data)) {
+            seen.add(data);
+          }
+        }
+        await tester.drag(find.byType(Scrollable).first, const Offset(0, -300),
+            warnIfMissed: false);
+        await tester.pumpAndSettle();
+      }
+      expect(seen, entry.value.$2);
+    });
+  }
 
   test('a one-day-old account gets no credit for weeks before it existed', () {
     final state = AppState()
