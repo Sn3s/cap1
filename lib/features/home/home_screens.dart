@@ -16969,7 +16969,11 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
               _GoalActionPickerButton(goal: goal),
               const SizedBox(height: 12),
               for (var i = 0; i < actions.length; i++) ...[
-                _D1ActionPanel(action: actions[i], goalColor: goal.layerColor),
+                _D1ActionPanel(
+                  key: ValueKey(actions[i].id),
+                  action: actions[i],
+                  goalColor: goal.layerColor,
+                ),
                 if (i < actions.length - 1) const SizedBox(height: 16),
               ],
             ],
@@ -17018,66 +17022,30 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   _D1GoalMeta goal,
 ) {
   final state = AppScope.of(context);
-  if (goal.id == 'G3') {
-    final selected = state.selectedActionIds
-        .where(_emergencyFundGoalActionIds.contains)
-        .toList();
-    final ids = selected.isEmpty ? _emergencyFundGoalActionIds : selected;
-    return [
-      for (final id in ids) _emergencyFundD1ActionMeta(id, state),
-    ].whereType<_D1ActionMeta>().toList();
-  }
-  if (goal.id == 'G5') {
-    final selected = state.selectedActionIds
-        .where(_investmentGoalActionIds.contains)
-        .toList();
-    final ids = selected.isEmpty ? _investmentGoalActionIds : selected;
-    return [
-      for (final id in ids) _investmentD1ActionMeta(id, state),
-    ].whereType<_D1ActionMeta>().toList();
-  }
-  if (goal.id == 'G8') {
-    final selected = state.selectedActionIds
-        .where(_lifestyleGoalActionIds.contains)
-        .toList();
-    final ids = selected.isEmpty ? _lifestyleGoalActionIds : selected;
-    return [
-      for (final id in ids) _lifestyleD1ActionMeta(id, state),
-    ].whereType<_D1ActionMeta>().toList();
-  }
-  if (goal.id != 'G1') {
-    return _onboardingGoalActionMetas(goal.id, state);
-  }
-  final selected = state.selectedActionIds
-      .where(_availableCashGoalActionIds.contains)
-      .toList();
-  final ids = selected.isEmpty ? _availableCashGoalActionIds : selected;
+  final allowed = _goalActionIds[goal.id] ?? const <String>[];
+  final selected = state.selectedActionIds.where(allowed.contains).toList();
+  final ids = selected.isEmpty ? allowed : selected;
+  _D1ActionMeta? specialised(String id) => switch (goal.id) {
+        'G1' => _availableCashD1ActionMeta(id, state),
+        'G3' => _emergencyFundD1ActionMeta(id, state),
+        'G5' => _investmentD1ActionMeta(id, state),
+        'G8' => _lifestyleD1ActionMeta(id, state),
+        _ => null,
+      };
+  // Every active action gets a card, in display order: fall back to the
+  // saved-setup card when a goal has no dedicated panel for it.
   return [
-    for (final id in ids) _availableCashD1ActionMeta(id, state),
-  ].whereType<_D1ActionMeta>().toList();
+    for (final id in [...ids]..sort(_compareActionIds))
+      if (specialised(id) ?? _onboardingGoalActionMeta(goal.id, id, state)
+          case final meta?)
+        meta,
+  ];
 }
 
 /// G2, G4, G6, and G7 do not yet have specialised financial panels. Until
 /// they do, keep the action selected during onboarding visible with its saved
 /// configuration instead of substituting an unrelated canonical goal/action
-/// set. This makes the Shape your path handoff truthful without pretending
-/// that the pending tracking engines already exist.
-List<_D1ActionMeta> _onboardingGoalActionMetas(
-  String goalId,
-  AppState state,
-) {
-  final allowedActionIds = _goalActionIds[goalId] ?? const <String>[];
-  final selected =
-      state.selectedActionIds.where(allowedActionIds.contains).toList();
-  final actionIds = selected.isEmpty ? allowedActionIds : selected;
-  return [
-    for (final actionId in actionIds)
-      if (_onboardingGoalActionMeta(goalId, actionId, state)
-          case final actionMeta?)
-        actionMeta,
-  ];
-}
-
+/// set.
 _D1ActionMeta? _onboardingGoalActionMeta(
   String goalId,
   String actionId,
@@ -17322,7 +17290,7 @@ class _GoalActionToggle extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    actionId,
+                    _actionNumber(actionId),
                     style: const TextStyle(
                       color: _body,
                       fontSize: 11,
@@ -19043,14 +19011,17 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
                   : ('Needs a restart', _amber);
 
   final nudge = reached
-      ? "You've reached your portfolio target. Raise it in A23 to keep your "
+      ? "You've reached your portfolio target. Raise it in "
+          '${_actionNumber('A23')} to keep your '
           'money growing.'
       : !started
           ? 'Make your first move: send part of your next income to the '
-              'Investment Fund with A12, or add to it directly in A23.'
+              'Investment Fund with ${_actionNumber('A12')}, or add to it directly '
+              'in ${_actionNumber('A23')}.'
           : incomeRate != null && incomeRate < .8
               ? 'Some incomes went by without an investment transfer. '
-                  'Investing from every income through A12 moves this goal '
+                  'Investing from every income through ${_actionNumber('A12')} moves '
+                  'this goal '
                   'more than any single market week.'
               : returnBehind
                   ? "Returns are behind target, but they're measured weekly "
@@ -19271,15 +19242,19 @@ class _GoalProgressBox extends StatelessWidget {
       ? "You're funding your lifestyle steadily. Keep it up, and enjoy "
           'spending what you planned for.'
       : switch (weakest) {
-          'A26' => 'Reserve your subscriptions early each month (A26) so '
+          'A26' => 'Reserve your subscriptions early each month '
+              '(${_actionNumber('A26')}) so '
               'recurring costs never eat into your fun money.',
           'A27' => 'Some incomes went by without a Lifestyle Fund transfer. '
-              'Allocating from every income (A27) keeps the fund topped up.',
+              'Allocating from every income (${_actionNumber('A27')}) keeps '
+              'the fund topped up.',
           'A28' => 'Non-essential spending went over the weekly limit '
-              'several times. Try a realistic limit in A28 and check in '
+              'several times. Try a realistic limit in ${_actionNumber('A28')} '
+              'and check in '
               'mid-week.',
           _ => 'An activity is behind its target date. A small transfer from '
-              'the Lifestyle Fund each payday (A29) gets it back on pace.',
+              'the Lifestyle Fund each payday (${_actionNumber('A29')}) gets it '
+              'back on pace.',
         };
   return (label: label, color: color, lines: lines, nudge: nudge);
 }
@@ -20100,7 +20075,8 @@ class _EmergencyActivityRow extends StatelessWidget {
 // ─── Action panel (inside goal detail) ───────────────────────────────────────
 
 class _D1ActionPanel extends StatefulWidget {
-  const _D1ActionPanel({required this.action, required this.goalColor});
+  const _D1ActionPanel(
+      {super.key, required this.action, required this.goalColor});
   final _D1ActionMeta action;
   final Color goalColor;
 
@@ -21626,7 +21602,7 @@ class _LifestylePaydayActionPanelState
                       ? '${percentage.toStringAsFixed(0)}% allocated'
                       : busy
                           ? 'Allocating...'
-                          : 'Allocate ${percentage.toStringAsFixed(0)}% of latest income (${money(contribution)})',
+                          : 'Allocate ${money(contribution)}',
                   icon: deposited
                       ? Icons.check_circle_rounded
                       : Icons.savings_rounded,

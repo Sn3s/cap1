@@ -131,7 +131,10 @@ class AppState extends ChangeNotifier {
   final Map<String, double> anxietyCheckIns = {};
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
-  final Set<String> selectedActionIds = {};
+
+  /// Kept in the order users see (A1, A2, ... A15) so every list of active
+  /// actions reads chronologically, whatever order they were picked in.
+  final Set<String> selectedActionIds = SplayTreeSet(_compareActionIds);
 
   /// Canonical goal ids explicitly added via the Goals page "+ Add Goal"
   /// flow (post-onboarding). The onboarding goal itself is NOT stored here
@@ -296,6 +299,14 @@ class AppState extends ChangeNotifier {
 
   /// Days in [window] since open tracking began, so new accounts aren't
   /// scored against days before they started.
+  /// The first day the Health Score tracks: the earliest recorded open,
+  /// which "Reset account" moves to the reset day.
+  DateTime? get healthTrackingStart {
+    final days = appOpenDays.map(DateTime.tryParse).whereType<DateTime>();
+    if (days.isEmpty) return null;
+    return days.reduce((a, b) => a.isBefore(b) ? a : b);
+  }
+
   int appOpenTrackedDays(Duration window) {
     if (appOpenDays.isEmpty) return 0;
     final now = AppClock.now();

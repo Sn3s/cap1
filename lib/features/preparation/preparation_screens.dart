@@ -1323,6 +1323,16 @@ const _actionDisplayNumbers = {
 };
 String _actionNumber(String id) => _actionDisplayNumbers[id] ?? id;
 
+/// Orders action IDs by the number users see; IDs without a display number
+/// (backlog) go last, by their internal number.
+int _compareActionIds(String a, String b) {
+  int rank(String id) => _actionDisplayNumbers.containsKey(id)
+      ? int.parse(_actionNumber(id).substring(1))
+      : 1000 + (int.tryParse(id.substring(1)) ?? 0);
+  final byRank = rank(a).compareTo(rank(b));
+  return byRank != 0 ? byRank : a.compareTo(b);
+}
+
 /// Rewrites internal action codes in free text (e.g. AI coach reasons) to
 /// the numbers users see: "A12" -> "A9".
 String _withDisplayNumbers(String text) => text.replaceAllMapped(

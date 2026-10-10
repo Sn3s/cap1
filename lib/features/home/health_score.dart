@@ -100,7 +100,13 @@ class HealthScoreBreakdown {
 
 HealthScoreBreakdown computeHealthScore(AppState state) {
   final now = AppClock.now();
-  final since = now.subtract(_healthWindow);
+  // Nothing before tracking began counts: the first day Shellby was opened,
+  // which "Reset account" moves to the reset day.
+  final trackingStart = state.healthTrackingStart;
+  final windowStart = now.subtract(_healthWindow);
+  final since = trackingStart != null && trackingStart.isAfter(windowStart)
+      ? trackingStart.subtract(const Duration(microseconds: 1))
+      : windowStart;
   bool inWindow(DateTime? date) =>
       date != null && date.isAfter(since) && !date.isAfter(now);
 
@@ -410,12 +416,17 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
         final limit = _configuredActionAmount(state, 'A28', 1500);
         final today = DateTime(now.year, now.month, now.day + 1);
         var within = 0;
+        var weeks = 0;
         var weekDeduction = 0.0;
         for (var week = 1; week <= 4; week++) {
           final end = today.subtract(Duration(days: 7 * (week - 1)));
           final start = end.subtract(const Duration(days: 7));
           final spent = _lifestyleSpendInRange(state, start, end);
-          if (limit <= 0 || spent <= limit) {
+          final withinLimit = limit <= 0 || spent <= limit;
+          // A week that started before tracking only counts once it's over.
+          if (withinLimit && start.isBefore(since)) continue;
+          weeks++;
+          if (withinLimit) {
             within++;
             continue;
           }
@@ -433,9 +444,16 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
           ));
         }
         if (weekDeduction > 8) _capItems(deductions, 'D2', 8);
+        if (weeks == 0) {
+          return (
+            completion: null,
+            detail: 'First full week still in progress'
+          );
+        }
         return (
-          completion: within / 4,
-          detail: 'Within ${money(limit)} in $within of the last 4 weeks'
+          completion: within / weeks,
+          detail: 'Within ${money(limit)} in $within of the last $weeks '
+              'week${weeks == 1 ? '' : 's'}'
         );
 
       case 'A29':
@@ -578,7 +596,14 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
   final rawDeductions = deductions.fold(0.0, (acc, item) => acc + item.points);
   final deductionTotal = math.max(-30.0, rawDeductions);
 
-  final score = countedLines.isEmpty
+  // No money has moved since tracking began (a new or just-reset account):
+  // there's nothing to grade yet, so the score starts from zero.
+  final hasActivity =
+      state.allTransactions.any((tx) => inWindow(tx.createdAt)) ||
+          state.d1Ledger.any((entry) =>
+              inWindow(DateTime.tryParse(entry['date']?.toString() ?? '')));
+
+  final score = countedLines.isEmpty || !hasActivity
       ? null
       : (actionPoints + engagementPoints + deductionTotal)
           .clamp(0.0, 100.0)
