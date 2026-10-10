@@ -892,14 +892,6 @@ List<String> _recommendationsForActionField(
   if (action.id == 'A19' && field.key == 'amt') {
     return _essentialFundFloorOptions(state);
   }
-  if (action.id == 'A21' && field.key == 'days') {
-    final essentials = _monthlyEssentialBase(state);
-    final wallet = _availableEverydayCash(state);
-    final currentDays =
-        essentials <= 0 ? 7.0 : wallet / math.max(1, essentials / 30);
-    final recommended = currentDays < 7 ? 7 : math.min(21, currentDays + 3);
-    return _dayOptions(recommended);
-  }
   if (action.id == 'A20' && field.key == 'amt') {
     final recommended = _recommendedMonthlyEarnings(state).round();
     return [recommended, recommended * 1.1, recommended * 1.25]
@@ -1309,7 +1301,69 @@ const _d1Goals = <D1Goal>[
 ];
 
 // D1: motivation → goal IDs matrix
-const _motivationGoalIds = <String, List<String>>{
+// BACKLOG: goals and actions with no working features yet. They stay in
+// the catalog for future work, but users can never see or pick them: every
+// user-facing list below filters them out, and saved profiles drop them on
+// load (see AppState._dropBacklogSelections).
+const _backlogGoalIds = {'G2', 'G4', 'G6', 'G7'};
+const _backlogActionIds = {
+  'A2', 'A4', 'A5', 'A6', 'A7', 'A11', //
+  'A13', 'A14', 'A15', 'A16', 'A17', 'A18',
+};
+
+// DISPLAY NUMBERING (display-only): users see G1-G4 and A1-A15 in order;
+// saved profiles keep the original internal IDs.
+// Goals are shown by name/motivation, never by code. Their display order
+// is G1 = G1, G3 = G2, G5 = G3, G8 = G4.
+const _actionDisplayNumbers = {
+  'A1': 'A1', 'A3': 'A2', 'A20': 'A3', 'A19': 'A4', // G1
+  'A9': 'A5', 'A8': 'A6', 'A22': 'A7', 'A10': 'A8', // G2
+  'A12': 'A9', 'A23': 'A10', 'A30': 'A11', // G3
+  'A26': 'A12', 'A27': 'A13', 'A28': 'A14', 'A29': 'A15', // G4
+};
+String _actionNumber(String id) => _actionDisplayNumbers[id] ?? id;
+
+/// Rewrites internal action codes in free text (e.g. AI coach reasons) to
+/// the numbers users see: "A12" -> "A9".
+String _withDisplayNumbers(String text) => text.replaceAllMapped(
+      RegExp(r'\bA\d+\b'),
+      (match) => _actionNumber(match.group(0)!),
+    );
+
+/// The goal a motivation sets (one working goal per motivation).
+String _goalForMotivation(String layer) => _layerCanonicalGoalId[layer] ?? 'G1';
+
+/// What Shelby tracks for each goal, shown under "Your goal".
+String _goalTrackingLine(String goalId) => switch (goalId) {
+      'G3' => 'Shelby will track your Emergency Fund toward months of '
+          'essential expenses.',
+      'G5' => 'Shelby will track your Investment Fund and holdings toward a '
+          'target.',
+      'G8' => 'Shelby will track your Personal Lifestyle Fund and the '
+          'activities you save for.',
+      _ => 'Shelby will help you keep your Essential Expenses Fund covered, '
+          'so essentials never wait for payday.',
+    };
+
+/// Surface answer (A/B/C) -> the habit marked "★ Suggested for you".
+const _surfaceSuggestedAction = <String, Map<String, String>>{
+  'Cash Flow & Basic Needs': {'A': 'A1', 'B': 'A3', 'C': 'A19'},
+  'Financial Safety': {'A': 'A10', 'B': 'A22', 'C': 'A8'},
+  'Accumulating Wealth': {'A': 'A12', 'B': 'A12'},
+  'Financial Freedom': {'A': 'A29', 'B': 'A27', 'C': 'A28'},
+};
+
+/// Motivation -> goal IDs, user-facing (backlog goals removed).
+final _motivationGoalIds = <String, List<String>>{
+  for (final entry in _allMotivationGoalIds.entries)
+    entry.key: [
+      for (final id in entry.value)
+        if (!_backlogGoalIds.contains(id)) id,
+    ],
+};
+
+/// Backend catalog, including backlog goals.
+const _allMotivationGoalIds = <String, List<String>>{
   'Cash Flow & Basic Needs': ['G1', 'G2', 'G4'],
   'Financial Safety': ['G1', 'G3', 'G4'],
   'Accumulating Wealth': ['G1', 'G5', 'G6'],
@@ -1551,13 +1605,6 @@ const _d2Actions = <String, D2Action>{
         ActionField(
             key: 'amt', label: 'Monthly cash-in target (₱)', hint: 'e.g. 25000')
       ]),
-  'A21': D2Action(
-      id: 'A21',
-      text:
-          "Keep at least X days' worth of expenses available in your Everyday Fund at all times.",
-      fields: [
-        ActionField(key: 'days', label: 'Days of expenses', hint: 'e.g. 14')
-      ]),
   'A22': D2Action(
       id: 'A22',
       text:
@@ -1579,7 +1626,18 @@ const _lifestyleGoalActionIds = ['A26', 'A27', 'A28', 'A29'];
 const _lifestyleActionStageActionIds = ['A26', 'A27', 'A28'];
 
 // D2: goal → action IDs matrix
-const _goalActionIds = <String, List<String>>{
+/// Goal -> action IDs, user-facing (backlog goals and actions removed).
+final _goalActionIds = <String, List<String>>{
+  for (final entry in _allGoalActionIds.entries)
+    if (!_backlogGoalIds.contains(entry.key))
+      entry.key: [
+        for (final id in entry.value)
+          if (!_backlogActionIds.contains(id)) id,
+      ],
+};
+
+/// Backend catalog, including backlog goals and actions.
+const _allGoalActionIds = <String, List<String>>{
   'G1': _availableCashGoalActionIds,
   'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
   'G3': _emergencyFundGoalActionIds,
@@ -1832,8 +1890,7 @@ const _guidedPathways = [
     steps: [
       GuidedStep(
         title: 'Surface',
-        question:
-            'Surface: Before we turn this into a goal, what feels most true lately?',
+        question: 'Before we build your plan, what feels most true lately?',
         options: [
           GuidedOption(
             label: 'A',
@@ -1907,7 +1964,7 @@ const _guidedPathways = [
       GuidedStep(
         title: 'Surface',
         question:
-            'Surface: What has been making financial safety feel difficult lately?',
+            'What has been making financial safety feel difficult lately?',
         options: [
           GuidedOption(
             label: 'A',
@@ -1975,21 +2032,17 @@ const _guidedPathways = [
       GuidedStep(
         title: 'Surface',
         question:
-            'Surface: What has been on your mind when you think about growing your money?',
+            'What has been on your mind when you think about growing your money?',
         options: [
+          // No debt actions exist any more, so the debt choice was removed.
           GuidedOption(
             label: 'A',
-            text: 'Debt payments keep taking up budget space every month.',
-            keywords: ['debt', 'payment', 'budget', 'space'],
-          ),
-          GuidedOption(
-            label: 'B',
             text:
                 'I want to start investing, but I have not completed the setup steps.',
             keywords: ['invest', 'setup', 'steps', 'start'],
           ),
           GuidedOption(
-            label: 'C',
+            label: 'B',
             text:
                 'When more money comes in, it seems to disappear into more spending.',
             keywords: ['money', 'disappear', 'spending', 'income'],
@@ -2005,7 +2058,7 @@ const _guidedPathways = [
             label: 'Net Worth Sync',
             text: 'Net Worth Sync',
             detail:
-                'Show me a monthly recap of debt shrinking vs. investments growing.',
+                'Show me a monthly recap of how my investments are growing.',
             keywords: ['net worth', 'monthly', 'recap'],
           ),
           GuidedOption(
@@ -2044,7 +2097,7 @@ const _guidedPathways = [
       GuidedStep(
         title: 'Surface',
         question:
-            'Surface: What makes spending for life, hobbies, or milestones feel complicated right now?',
+            'What makes spending for life, hobbies, or milestones feel complicated right now?',
         options: [
           GuidedOption(
             label: 'A',
@@ -2762,7 +2815,9 @@ class MotivationSurfaceScreen extends StatefulWidget {
       _MotivationSurfaceScreenState();
 }
 
-// Steps: 0=Surface, 1=Goal Focus (D1), 2=Action Select (D2), 3=Configurables, 4=Situations, 5=Challenges
+// Steps: 0=Surface, 2=Your goal + first actions (the motivation sets the
+// goal), 3=Configurables, 4=Situations, 5=Challenges. Step 1 (goal choice)
+// was removed: each motivation now has exactly one goal.
 class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
@@ -2775,7 +2830,6 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final Map<int, List<GuidedOption>> answers = {};
   String? _selectedGoalId;
   Map<String, Map<String, String>> _actionConfigValues = {};
-  List<GuidedOption>? _cachedGoalOptions;
   List<GuidedOption>? _cachedActionOptions;
 
   @override
@@ -2814,7 +2868,6 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   }
 
   List<GuidedOption> get currentOptions {
-    if (stepIndex == 1) return _goalFocusOptions();
     if (stepIndex == 2) return _actionSelectOptions();
     return _pathwayStep.options;
   }
@@ -2824,34 +2877,35 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   bool get canContinueMulti =>
       _isMultiSelectStep && (answers[stepIndex]?.isNotEmpty ?? false);
 
-  List<GuidedOption> _goalFocusOptions() {
-    if (_cachedGoalOptions != null) return _cachedGoalOptions!;
-    final ids = _motivationGoalIds[pathway.layer] ?? ['G1'];
-    _cachedGoalOptions = [
-      for (var i = 0; i < ids.length; i++)
-        GuidedOption(
-          label: String.fromCharCode(65 + i),
-          text: _d1GoalById(ids[i]).description,
-          goalTitle: ids[i],
-          keywords: [ids[i].toLowerCase()],
-        ),
-    ];
-    return _cachedGoalOptions!;
+  String? get _suggestedActionId {
+    final surface = answers[0]?.firstOrNull?.label;
+    return _surfaceSuggestedAction[pathway.layer]?[surface];
   }
 
   List<GuidedOption> _actionSelectOptions() {
     if (_cachedActionOptions != null) return _cachedActionOptions!;
+    final suggested = _suggestedActionId;
     _cachedActionOptions = [
       for (final id in _goalActionIds[_selectedGoalId] ?? <String>[])
         GuidedOption(
-            label: id, text: _d2Actions[id]?.text ?? id, goalTitle: id),
+          label: _actionNumber(id),
+          text: _d2Actions[id]?.text ?? id,
+          detail: id == suggested ? '★ Suggested for you' : null,
+          goalTitle: id,
+        ),
     ];
     return _cachedActionOptions!;
   }
 
+  /// Internal action IDs picked in "Your goal + first actions".
+  List<String> get _pickedActionIds => [
+        for (final option in answers[2] ?? <GuidedOption>[])
+          option.goalTitle ?? option.label,
+      ];
+
   List<D2Action> get _selectedD2Actions {
-    return (answers[2] ?? <GuidedOption>[])
-        .map((o) => _d2Actions[o.goalTitle])
+    return _pickedActionIds
+        .map((id) => _d2Actions[id])
         .whereType<D2Action>()
         .toList();
   }
@@ -2861,12 +2915,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     setState(() {
       error = '';
       controller.clear();
-      if (stepIndex == 1) {
-        _selectedGoalId = option.goalTitle;
-        _cachedActionOptions = null;
-        answers[1] = [option];
-        _commitCurrentStep();
-      } else if (_isMultiSelectStep) {
+      if (_isMultiSelectStep) {
         final selected = [...answers[stepIndex] ?? <GuidedOption>[]];
         final idx = selected.indexWhere(
           (o) => o.goalTitle == option.goalTitle && o.label == option.label,
@@ -2899,12 +2948,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       messages.add(ChatMessage(true, typed));
       messages
           .add(ChatMessage(false, 'Closest fit: ${_trimPeriod(option.text)}'));
-      if (stepIndex == 1) {
-        _selectedGoalId = option.goalTitle;
-        _cachedActionOptions = null;
-        answers[1] = [option];
-        _advanceFromStep();
-      } else if (_isMultiSelectStep) {
+      if (_isMultiSelectStep) {
         answers[stepIndex] = [
           ...answers[stepIndex] ?? <GuidedOption>[],
           option
@@ -2925,8 +2969,8 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
           true, selected.map((o) => _trimPeriod(o.text)).join(', ')));
       if (stepIndex == 2) {
         stepIndex = 3;
-        messages.add(
-            ChatMessage(false, "Let's set the specifics for each action."));
+        messages
+            .add(ChatMessage(false, "Let's set the numbers for each action."));
       } else {
         _advanceFromStep();
       }
@@ -2945,14 +2989,20 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   void _advanceFromStep() {
     switch (stepIndex) {
       case 0:
-        stepIndex = 1;
-        messages.add(ChatMessage(
-            false, 'Specify: Which goal would you like to focus on first?'));
-      case 1:
+        // The motivation sets the goal; go straight to its first actions.
+        final goalId = _goalForMotivation(pathway.layer);
+        _selectedGoalId = goalId;
+        _cachedActionOptions = null;
         stepIndex = 2;
         answers[2] = <GuidedOption>[];
         messages.add(ChatMessage(
-            false, 'Choose at least one action for your goal, then confirm.'));
+            false,
+            '**Your goal: ${_d1GoalById(goalId).title}**\n'
+            'Because you chose ${pathway.layer}, ${_goalTrackingLine(goalId)}'));
+        messages.add(ChatMessage(
+            false,
+            'Which actions do you want to start with? Pick at least one. You '
+            'can change these anytime on the Goals page.'));
       case 4:
         stepIndex = 5;
         messages.add(ChatMessage(false, pathway.steps[2].question));
@@ -2976,9 +3026,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     final state = AppScope.of(context);
     final goalId = _selectedGoalId ?? 'G1';
     final goal = _d1GoalById(goalId);
-    final selectedActionIds = (answers[2] ?? <GuidedOption>[])
-        .map((o) => o.goalTitle ?? o.label)
-        .toList();
+    final selectedActionIds = _pickedActionIds;
     state.selectedGoalId = goalId;
     state.setRecommendedGoal(
       title: goal.title,
@@ -3023,7 +3071,6 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       stepIndex = 0;
       _selectedGoalId = null;
       _actionConfigValues = {};
-      _cachedGoalOptions = null;
       _cachedActionOptions = null;
       pathway = _pathwayForLayer(state.primaryConcern);
       controller.clear();
@@ -3056,7 +3103,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       phase: 7,
       title: 'Shape your path.',
       subtitle: stepIndex == 3
-          ? 'Set up the details for each action.'
+          ? 'Set the numbers for each action.'
           : 'Pick an answer or type one. Shelby maps typed replies to the closest choice.',
       scrollBody: false,
       bottom: Column(
@@ -3299,58 +3346,63 @@ class _ActionFieldSelectorState extends State<ActionFieldSelector> {
     final error = selectedIndex == recommendations.length
         ? _actionFieldError(widget.field, customValue)
         : null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(widget.field.label,
-            style: const TextStyle(
-                fontSize: 11, fontWeight: FontWeight.w800, color: _body)),
-        const SizedBox(height: 6),
-        for (var i = 0; i < recommendations.length; i++)
+    // Own Material layer: these radio rows sit on coloured cards, which
+    // would otherwise hide their ink (and assert in debug builds).
+    return Material(
+      type: MaterialType.transparency,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.field.label,
+              style: const TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w800, color: _body)),
+          const SizedBox(height: 6),
+          for (var i = 0; i < recommendations.length; i++)
+            RadioListTile<int>(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              activeColor: _brand,
+              value: i,
+              groupValue: selectedIndex,
+              title: Text(
+                '${_fieldValueLabel(widget.field, recommendations[i])}${i == 0 ? '  Recommended' : ''}',
+                style: const TextStyle(
+                    color: _title, fontSize: 12, fontWeight: FontWeight.w800),
+              ),
+              onChanged: (_) => _select(i),
+            ),
           RadioListTile<int>(
             dense: true,
             contentPadding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
             activeColor: _brand,
-            value: i,
+            value: recommendations.length,
             groupValue: selectedIndex,
-            title: Text(
-              '${_fieldValueLabel(widget.field, recommendations[i])}${i == 0 ? '  Recommended' : ''}',
-              style: const TextStyle(
-                  color: _title, fontSize: 12, fontWeight: FontWeight.w800),
-            ),
-            onChanged: (_) => _select(i),
+            title: const Text('Enter my own',
+                style: TextStyle(
+                    color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
+            onChanged: (_) => _select(recommendations.length),
           ),
-        RadioListTile<int>(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          activeColor: _brand,
-          value: recommendations.length,
-          groupValue: selectedIndex,
-          title: const Text('Enter my own',
-              style: TextStyle(
-                  color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
-          onChanged: (_) => _select(recommendations.length),
-        ),
-        if (selectedIndex == recommendations.length)
-          TextField(
-            controller: customController,
-            keyboardType: widget.field.key == 'freq'
-                ? TextInputType.text
-                : const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (value) {
-              setState(() {});
-              widget.onChanged(value.trim());
-            },
-            decoration: InputDecoration(
-              hintText: widget.field.hint,
-              suffixText: widget.field.isPercent ? '%' : null,
-              errorText: error,
-              isDense: true,
+          if (selectedIndex == recommendations.length)
+            TextField(
+              controller: customController,
+              keyboardType: widget.field.key == 'freq'
+                  ? TextInputType.text
+                  : const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (value) {
+                setState(() {});
+                widget.onChanged(value.trim());
+              },
+              decoration: InputDecoration(
+                hintText: widget.field.hint,
+                suffixText: widget.field.isPercent ? '%' : null,
+                errorText: error,
+                isDense: true,
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -4524,7 +4576,7 @@ class _PlanActionRow extends StatelessWidget {
           decoration: BoxDecoration(
               color: _brand.withValues(alpha: .12),
               borderRadius: BorderRadius.circular(8)),
-          child: Text(action.id,
+          child: Text(_actionNumber(action.id),
               style: const TextStyle(
                   color: _brand, fontSize: 11, fontWeight: FontWeight.w900)),
         ),
@@ -4920,9 +4972,30 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
   final formKey = GlobalKey<FormState>();
   final incomes = <_IncomeLedgerDraft>[];
   bool seeded = false;
+  // After the first Continue, fields re-check as the user fixes them.
+  bool _triedContinue = false;
 
-  bool get _canContinue =>
-      incomes.isNotEmpty && incomes.every((income) => income.isComplete);
+  // Continue stays tappable: a scheduled income without a date used to keep
+  // it greyed out with no visible reason. Missing details are now shown
+  // when the user taps it (see _continue).
+  bool get _canContinue => incomes.isNotEmpty;
+
+  /// What still needs filling in, in plain words, or null when complete.
+  String? get _missingDetails {
+    for (final income in incomes) {
+      final name = income.nameController.text.trim();
+      final label = name.isEmpty ? 'An income source' : name;
+      if (name.isEmpty) return 'Give each income source a name.';
+      if (income.amountValue <= 0) {
+        return 'Enter a typical monthly amount for $label.';
+      }
+      if (income.scheduled && income.scheduleAnchorDate == null) {
+        return 'Choose a date for $label, or turn off '
+            '"Has a predictable schedule".';
+      }
+    }
+    return null;
+  }
 
   @override
   void didChangeDependencies() {
@@ -4961,7 +5034,12 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
   }
 
   void _continue() {
-    if (!(formKey.currentState?.validate() ?? false)) return;
+    final missing = _missingDetails;
+    final valid = formKey.currentState?.validate() ?? false;
+    if (missing != null || !valid) {
+      setState(() => _triedContinue = true);
+      return;
+    }
     final state = AppScope.of(context);
     state.onboardingIncomeLedger
       ..clear()
@@ -4990,14 +5068,37 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
       title: 'Your income sources.',
       subtitle:
           'Add a cautious typical monthly amount for each source. This helps Shelby understand your usual financial situation. Irregular income does not require a future payment date.',
-      bottom: PrimaryButton(
-        label: 'Continue to Expenses',
-        icon: Icons.arrow_forward_rounded,
-        enabled: _canContinue,
-        onPressed: _continue,
+      bottom: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Shown after a Continue attempt; updates as the user fixes it.
+          if (_triedContinue && _missingDetails != null) ...[
+            Text(
+              _missingDetails!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: _red,
+                fontSize: 12.5,
+                height: 1.35,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          PrimaryButton(
+            label: 'Continue to Expenses',
+            icon: Icons.arrow_forward_rounded,
+            enabled: _canContinue,
+            onPressed: _continue,
+          ),
+        ],
       ),
       child: Form(
         key: formKey,
+        autovalidateMode: _triedContinue
+            ? AutovalidateMode.onUserInteraction
+            : AutovalidateMode.disabled,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -6592,62 +6693,6 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     });
   }
 
-  Future<void> _editGoal(BuildContext context) async {
-    final goalIds = _motivationGoalIds[pathway.layer] ?? const ['G1'];
-    final goals = goalIds.map(_d1GoalById).toList();
-    final selected = await showModalBottomSheet<D1Goal>(
-      context: context,
-      backgroundColor: _surface,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
-          children: [
-            const Text('Specify',
-                style: TextStyle(
-                    color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 10),
-            for (final goal in goals)
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                title: Text(goal.title,
-                    style: const TextStyle(
-                        color: _title, fontWeight: FontWeight.w900)),
-                subtitle: Text(goal.description,
-                    style: const TextStyle(
-                        color: _body, fontWeight: FontWeight.w700)),
-                trailing: goal.id == state.selectedGoalId
-                    ? const Icon(Icons.check_circle_rounded, color: _brand)
-                    : null,
-                onTap: () => Navigator.of(sheetContext).pop(goal),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (selected == null) return;
-    final actionIds = _goalActionIds[selected.id] ?? const <String>[];
-    final initialValues = <String, Map<String, String>>{
-      for (final id in actionIds)
-        if ((_d2Actions[id]?.hasFields ?? false))
-          id: _initialActionFieldValues(state, _d2Actions[id]!),
-    };
-    setState(() {
-      state.selectedGoalId = selected.id;
-      state.setRecommendedGoal(
-          title: selected.title,
-          description: selected.description,
-          monthlyTarget: 0);
-      state.configureGoalActions(actionIds: actionIds);
-      state.actionFieldValues
-        ..clear()
-        ..addAll(initialValues);
-      state.updateGuidedChatSummary(goalFocus: selected.title);
-    });
-    await state.saveProfile();
-  }
-
   Future<void> _editActions(BuildContext context) async {
     final actionIds = _goalActionIds[state.selectedGoalId] ?? const <String>[];
     final options =
@@ -6669,7 +6714,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
                     contentPadding: EdgeInsets.zero,
                     activeColor: _brand,
                     value: chosen.contains(action.id),
-                    title: Text('${action.id}: ${action.text}',
+                    title: Text('${_actionNumber(action.id)}: ${action.text}',
                         style: const TextStyle(
                             color: _title, fontWeight: FontWeight.w800)),
                     onChanged: (value) => setDialogState(() {
@@ -6698,9 +6743,17 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
       ),
     );
     if (result == null || result.isEmpty) return;
+    // Actions of other goals (e.g. one added with "+ Add Goal") stay as
+    // they are; only this goal's actions are edited here.
+    final otherGoalActions =
+        state.selectedActionIds.where((id) => !actionIds.contains(id)).toList();
     setState(() {
-      state.configureGoalActions(actionIds: actionIds.where(result.contains));
-      state.actionFieldValues.removeWhere((id, _) => !result.contains(id));
+      state.configureGoalActions(actionIds: [
+        ...actionIds.where(result.contains),
+        ...otherGoalActions,
+      ]);
+      state.actionFieldValues.removeWhere(
+          (id, _) => actionIds.contains(id) && !result.contains(id));
       for (final id in result) {
         final action = _d2Actions[id];
         if (action == null || !action.hasFields) continue;
@@ -6896,9 +6949,9 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
           const SizedBox(height: 10),
           GuidedSummaryEditRow(
             icon: Icons.flag_rounded,
-            label: 'Specify',
+            label: 'Your goal',
+            // Set by the motivation, so there's nothing to choose here.
             value: state.selectedGoal,
-            onTap: () => _editGoal(context),
           ),
           if (actions.isNotEmpty) ...[
             const SizedBox(height: 10),
@@ -6906,7 +6959,8 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
               icon: Icons.checklist_rounded,
               label: 'Selected actions',
               value: actions
-                  .map((action) => '${action.id}: ${action.text}')
+                  .map(
+                      (action) => '${_actionNumber(action.id)}: ${action.text}')
                   .join('\n'),
               onTap: () => _editActions(context),
             ),
@@ -6915,7 +6969,7 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
               const SizedBox(height: 10),
               GuidedSummaryEditRow(
                 icon: Icons.tune_rounded,
-                label: '${action.id} details',
+                label: '${_actionNumber(action.id)} details',
                 value: _actionDetails(action),
                 onTap: () => _editActionDetails(context, action),
               ),
@@ -7874,7 +7928,7 @@ class PreparationCommitmentScreen extends StatelessWidget {
               if (actions.isEmpty) ('Selected actions', 'No actions selected'),
               for (final action in actions)
                 (
-                  action.id,
+                  _actionNumber(action.id),
                   _configuredActionText(
                       action, state.actionFieldValues[action.id] ?? const {})
                 ),
@@ -7918,7 +7972,7 @@ class PreparationCommitmentScreen extends StatelessWidget {
                 ('Workflow', 'No action workflow configured'),
               for (final action in actions)
                 (
-                  action.id,
+                  _actionNumber(action.id),
                   'You: ${_userCollectionStep(action, (_actionDataMatrix[action.id] ?? const []).map((id) => _planDataPoints[id]).whereType<PlanDataPoint>().toList())}\n\nShellby: ${_appCollectionStep(action, (_actionDataMatrix[action.id] ?? const []).map((id) => _planDataPoints[id]).whereType<PlanDataPoint>().toList())}',
                 ),
             ],

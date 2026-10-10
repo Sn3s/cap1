@@ -25,7 +25,7 @@ void main() {
       actionId: 'A4',
       actionText:
           'Set aside ₱X from each income received for upcoming bill and payment obligations.',
-      replacedTitle: 'Maintain Available Cash',
+      replacedTitle: 'Build Emergency Fund',
     ),
     (
       goalId: 'G6',
@@ -49,7 +49,8 @@ void main() {
 
   for (final item in cases) {
     testWidgets(
-        'Shape your path keeps ${item.goalId} ${item.title} as the displayed goal',
+        'backlog goal ${item.goalId} ${item.title} is hidden; the working '
+        'goal for the motivation shows instead',
         (tester) async {
       final state = AppState()
         ..primaryConcern = item.layer
@@ -64,14 +65,11 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text(item.title), findsOneWidget);
-      expect(find.text(item.replacedTitle), findsNothing);
-
-      await tester.tap(find.text(item.title));
-      await tester.pumpAndSettle();
-
-      expect(find.text(item.title), findsOneWidget);
-      expect(find.text(item.actionText), findsOneWidget);
+      // G2, G4, G6 and G7 are backlog (no working features yet): profiles
+      // that picked one before they were hidden land on the working goal.
+      expect(find.text(item.title), findsNothing);
+      expect(find.text(item.replacedTitle), findsOneWidget);
+      expect(find.text(item.actionText), findsNothing);
     });
   }
 }

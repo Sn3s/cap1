@@ -15,9 +15,35 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell> {
+class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   int index = 0;
   final _goalsKey = GlobalKey<_GoalsPageState>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AppClock.offset.addListener(_recordAppOpen);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recordAppOpen());
+  }
+
+  @override
+  void dispose() {
+    AppClock.offset.removeListener(_recordAppOpen);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    if (lifecycle == AppLifecycleState.resumed) _recordAppOpen();
+  }
+
+  // Log-in streak: opening the app (or returning to it) counts for today.
+  void _recordAppOpen() {
+    if (!mounted) return;
+    AppScope.of(context).recordAppOpen();
+  }
 
   void openGoal(String goalId) {
     setState(() => index = 2);
@@ -5678,46 +5704,6 @@ _CashActionScore? _cashActionScoreFor({
       ],
     );
   }
-  if (id == 'A21') {
-    final recommended = action == null
-        ? 14.0
-        : double.parse(
-            _recommendationsForActionField(state, action, action.fields.first)
-                .first);
-    final days = configuredNumber('days', recommended);
-    final dailyExpense = math.max(1.0, state.monthlyEssentialExpenseTotal / 30);
-    final targetAmount = dailyExpense * days;
-    final currentFund = math.max(
-      state.essentialExpensesBalance,
-      math.max(state.needsBalance, state.accountBalance('Wallet')),
-    );
-    final currentDays = currentFund / dailyExpense;
-    final pattern = weeks.isEmpty
-        ? <double>[targetAmount <= 0 ? 0 : (currentFund / targetAmount)]
-        : weeks
-            .map((week) => targetAmount <= 0
-                ? 0.0
-                : (week.needsBalanceEnd / targetAmount).clamp(0.0, 1.0))
-            .toList();
-    return _CashActionScore(
-      id: id,
-      title: 'Keep Everyday Fund days covered',
-      score: _averageWeeklyResiliency(pattern),
-      detail:
-          '${currentDays.toStringAsFixed(1)} days available toward a ${days.toStringAsFixed(0)} day target.',
-      pattern: pattern,
-      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
-      actualLabel: '${currentDays.toStringAsFixed(1)} days',
-      targetLabel: '${days.toStringAsFixed(0)} days',
-      formula:
-          'Resiliency = average of each available week: Everyday Fund balance ÷ (${days.toStringAsFixed(0)} days × estimated daily essential expenses).',
-      evidence: [
-        'Daily essential expense estimate: ${money(dailyExpense)}',
-        'Everyday Fund amount counted: ${money(currentFund)}',
-        'Target amount: ${money(targetAmount)}',
-      ],
-    );
-  }
   if (id == 'A8') {
     final recommended = action == null
         ? 10.0
@@ -8099,7 +8085,7 @@ Future<bool?> _confirmActionStageSuggestion(
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Text(
-                      suggestion.reason,
+                      _withDisplayNumbers(suggestion.reason),
                       style: const TextStyle(
                         color: _body,
                         fontSize: 12,
@@ -8254,7 +8240,7 @@ class _ActionStageSuggestionCard extends StatelessWidget {
     final detail = [
       if (target.isNotEmpty) target,
       if (suggestion.replacementActionId?.isNotEmpty == true)
-        'Replace: ${suggestion.replacementActionId}',
+        'Replace: ${_actionNumber(suggestion.replacementActionId!)}',
     ].join(' · ');
     return InkWell(
       onTap: onTap,
@@ -8323,7 +8309,7 @@ class _ActionStageSuggestionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    suggestion.reason,
+                    _withDisplayNumbers(suggestion.reason),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -15660,7 +15646,13 @@ class _D1ActionMeta {
       activityLog;
 }
 
-const _d1GoalMetas = <_D1GoalMeta>[
+/// Goal cards users can see (backlog goals removed; see _backlogGoalIds).
+final _d1GoalMetas = _allD1GoalMetas
+    .where((goal) => !_backlogGoalIds.contains(goal.id))
+    .toList(growable: false);
+
+/// Backend catalog, including backlog goals.
+const _allD1GoalMetas = <_D1GoalMeta>[
   _D1GoalMeta(
     id: 'G1',
     emoji: '💵',
@@ -16203,7 +16195,7 @@ class _D1GoalsMenu extends StatelessWidget {
                 elevation: 0,
               ),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add Goal',
+              label: const Text('Add another motivation',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
             ),
           ),
@@ -16459,6 +16451,143 @@ class _MonthlyContributionPoint {
   final double amount;
 }
 
+/// How long an income can wait for its per-income action (A1, A8, A12, A27)
+/// before it counts as missed. Until then it's pending and doesn't break
+/// the streak.
+const _streakIncomeGrace = Duration(days: 3);
+
+/// Motivation streak (Goals page). Counts each time the user carries out one
+/// of the goal's ACTIVE actions when it was expected; resets to 0 only when
+/// an expected action was missed. Things that haven't come due yet never
+/// break it. Separate from the log-in streak and from the Health Score.
+///
+/// When an action is "expected":
+/// - per income (A1, A8, A12, A27): every income; missed if not allocated
+///   within 3 days.
+/// - monthly (A3, A9, A20, A26): every month, judged at month end with the
+///   same score Insights uses; the current month only counts once met.
+/// - weekly (A28): every week; going over the limit is a miss.
+/// - no fixed schedule (A10, A22, A23, A29): every contribution is +1.
+/// - A19: +1 while the Essential Expenses Fund is at or above its floor.
+/// - A30: +1 for each weekly valuation at or above the target's weekly pace.
+int _motivationStreak(String goalId, AppState state) {
+  final actions = (_goalActionIds[goalId] ?? const <String>[])
+      .where(state.selectedActionIds.contains)
+      .toSet();
+  if (actions.isEmpty) return 0;
+  final now = AppClock.now();
+  final since = DateTime(now.year, now.month - 3);
+  final events = <({DateTime at, bool done})>[];
+  void add(DateTime at, bool done) {
+    if (!at.isBefore(since) && !at.isAfter(now)) {
+      events.add((at: at, done: done));
+    }
+  }
+
+  // Per income.
+  final incomeChecks = <String, bool Function(String)>{
+    'A1': state.hasEssentialAllocationForIncome,
+    'A8': state.hasEmergencyAllocationForIncome,
+    'A12': state.hasInvestmentAllocationForIncome,
+    'A27': state.hasLifestylePaydayAllocation,
+  };
+  final incomes = (state.fakeMayaLink?.summary.transactions ??
+          const <FakeMayaTransaction>[])
+      .where((tx) => tx.createdAt != null && _isIncomeTransaction(tx))
+      .toList();
+  for (final entry in incomeChecks.entries) {
+    if (!actions.contains(entry.key)) continue;
+    for (final income in incomes) {
+      final at = income.createdAt!;
+      if (entry.value(income.transactionId)) {
+        add(at, true);
+      } else if (now.difference(at) > _streakIncomeGrace) {
+        add(at.add(_streakIncomeGrace), false);
+      }
+    }
+  }
+
+  // Monthly, judged with the Insights action scores.
+  const monthlyIds = {'A3', 'A9', 'A20', 'A26'};
+  if (actions.any(monthlyIds.contains)) {
+    final service = IntegrationService.fromState(state);
+    final currentMonth = DateTime(now.year, now.month);
+    for (var offset = 3; offset >= 0; offset--) {
+      final month = DateTime(now.year, now.month - offset);
+      final monthEnd = DateTime(month.year, month.month + 1)
+          .subtract(const Duration(seconds: 1));
+      final scores =
+          _monthlyActionScores(state, goalId, month, service: service);
+      for (final score in scores) {
+        if (!monthlyIds.contains(score.id) || !actions.contains(score.id)) {
+          continue;
+        }
+        final met = score.pattern.isNotEmpty && score.score >= .999;
+        if (month == currentMonth) {
+          if (met) add(now, true);
+        } else {
+          add(monthEnd, met);
+        }
+      }
+    }
+  }
+
+  // Weekly: A28 non-essential limit.
+  if (actions.contains('A28')) {
+    final limit = _configuredActionAmount(state, 'A28', 1500);
+    final today = DateTime(now.year, now.month, now.day);
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    for (var i = 12; i >= 0; i--) {
+      final start = weekStart.subtract(Duration(days: 7 * i));
+      final end = start.add(const Duration(days: 7));
+      final over = _lifestyleSpendInRange(state, start, end) > limit;
+      if (i == 0) {
+        if (over) add(now, false); // current week: a miss as soon as it's over
+      } else {
+        add(end.subtract(const Duration(seconds: 1)), !over);
+      }
+    }
+  }
+
+  // No fixed schedule: each contribution counts.
+  const contributionTypes = {
+    'A10': 'ef_replenish',
+    'A22': 'emergency_deposit',
+    'A23': 'investment_monthly',
+    'A29': 'lifestyle_hobby_deposit',
+  };
+  for (final entry in contributionTypes.entries) {
+    if (!actions.contains(entry.key)) continue;
+    for (final ledger in state.d1Ledger) {
+      if (ledger['type'] != entry.value) continue;
+      final at = DateTime.tryParse(ledger['date']?.toString() ?? '');
+      if (at != null) add(at, true);
+    }
+  }
+
+  // A19: keeping the Essential Expenses Fund at or above its floor.
+  if (actions.contains('A19')) {
+    final floor = _configuredActionAmount(
+        state, 'A19', _recommendedEssentialFundFloor(state));
+    if (state.essentialExpensesBalance >= floor) add(now, true);
+  }
+
+  // A30: weekly valuations at or above the target's weekly pace.
+  if (actions.contains('A30')) {
+    final weeklyPace = state.investmentTargetAnnualReturnPercent / 100 / 52;
+    for (final week in state.investmentWeeklyReturns) {
+      if (week.rate >= weeklyPace) add(week.valuedAt, true);
+    }
+  }
+
+  events.sort((a, b) => a.at.compareTo(b.at));
+  var streak = 0;
+  for (final event in events) {
+    streak = event.done ? streak + 1 : 0;
+  }
+  return streak;
+}
+
 class _D1GoalCard extends StatelessWidget {
   const _D1GoalCard({required this.goal, required this.onTap});
   final _D1GoalMeta goal;
@@ -16468,7 +16597,7 @@ class _D1GoalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final actionCount = _goalDetailActionsFor(context, goal).length;
-    final onTrack = _isGoalOnTrack(goal.id, state);
+    final streak = _motivationStreak(goal.id, state);
     final percent = _goalPercent(goal.id, state);
     final accent = _goalProgressColor(goal.id, percent);
     return GestureDetector(
@@ -16512,8 +16641,9 @@ class _D1GoalCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
+                    // Codes stay internal; users see the motivation.
                     child: Text(
-                      goal.id,
+                      goal.layerLabel.toUpperCase(),
                       style: const TextStyle(
                         color: _body,
                         fontSize: 12,
@@ -16522,23 +16652,28 @@ class _D1GoalCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (onTrack)
-                    Container(
+                  // Motivation streak (not the log-in streak).
+                  Tooltip(
+                    message: 'Motivation streak: actions done on time in a row',
+                    child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: accent.withValues(alpha: .12),
+                        color: streak > 0
+                            ? const Color(0xFFFF7A1A).withValues(alpha: .12)
+                            : _border.withValues(alpha: .6),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        'On Track',
+                        '$streak 🔥',
                         style: TextStyle(
-                          color: accent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                          color: streak > 0 ? const Color(0xFFE0610A) : _body,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -16548,16 +16683,6 @@ class _D1GoalCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    goal.layerLabel,
-                    style: const TextStyle(
-                      color: _body,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: .4,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
                   Text(
                     goal.title,
                     style: const TextStyle(
@@ -16577,30 +16702,8 @@ class _D1GoalCard extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
-                  // Grow Investments and Lifestyle Fund have no single % to
-                  // show here; their progress lives on the goal page (Goal
-                  // Progress).
-                  if (goal.id != 'G5' && goal.id != 'G8') ...[
-                    const SizedBox(height: 4),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: percent / 100,
-                        minHeight: 7,
-                        backgroundColor: _border,
-                        valueColor: AlwaysStoppedAnimation(accent),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${percent.round()}% of goal',
-                      style: const TextStyle(
-                        color: _body,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+                  // No progress bar on goal cards: progress lives in each
+                  // goal page's Goal Progress box.
                   const SizedBox(height: 14),
                   Row(
                     children: [
@@ -16734,7 +16837,7 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      goal.id,
+                      goal.layerLabel.toUpperCase(),
                       style: TextStyle(
                         color: goal.layerColor,
                         fontSize: 11,
@@ -17997,48 +18100,6 @@ _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
       activityLog: const [],
     );
   }
-  if (id == 'A21') {
-    final days = double.tryParse(values['days'] ?? '') ?? 14;
-    final daily = math.max(1.0, state.monthlyEssentialExpenseTotal / 30);
-    final target = daily * days;
-    return _D1ActionMeta(
-      id: 'A21',
-      text:
-          "Keep at least ${days.toStringAsFixed(0)} days' worth of expenses available in your Everyday Fund at all times.",
-      configLabel: 'Everyday fund floor',
-      configValue: '${days.toStringAsFixed(0)} days',
-      destBucket: 'Everyday Fund',
-      metrics: [
-        (label: 'Target floor', value: money(target), icon: Icons.flag_rounded),
-        (
-          label: 'Daily expenses',
-          value: money(daily),
-          icon: Icons.today_rounded
-        ),
-        (
-          label: 'Everyday fund',
-          value: money(
-              math.max(state.essentialExpensesBalance, state.needsBalance)),
-          icon: Icons.savings_rounded
-        ),
-        (
-          label: 'Wallet',
-          value: money(state.accountBalance('Wallet')),
-          icon: Icons.account_balance_wallet_rounded
-        ),
-      ],
-      dataPoints: [
-        (
-          label: 'Required days available',
-          type: 'I',
-          value: days.toStringAsFixed(0)
-        ),
-        (label: 'Target floor amount', type: 'S', value: money(target)),
-        (label: 'Daily essential estimate', type: 'S', value: money(daily)),
-      ],
-      activityLog: const [],
-    );
-  }
   return existing;
 }
 
@@ -18079,19 +18140,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
         .fold(0.0, (total, transaction) => total + transaction.amount.abs());
     final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
     final expected = _maintainAvailableCashExpectedSpend(state);
-    final remaining = math.max(0.0, expected - spent);
-    final feasibility = maintainAvailableCashFeasibility(state);
-    final feasibilityColor = _feasibilityColor(feasibility);
-    final feasibilityLabel = feasibility >= 80
-        ? 'Strong'
-        : feasibility >= 60
-            ? 'Workable'
-            : feasibility >= 40
-                ? 'Needs attention'
-                : 'At risk';
-    final coveragePercent = remaining <= 0
-        ? 100
-        : ((wallet / remaining).clamp(0.0, 1.0) * 100).round();
+    final progress = _cashFlowGoalProgress(state);
 
     return AppCard(
       child: Column(
@@ -18139,66 +18188,7 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: feasibilityColor.withValues(alpha: .07),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: feasibilityColor.withValues(alpha: .18),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Goal feasibility · $feasibilityLabel',
-                        style: const TextStyle(
-                          color: _title,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '$feasibility%',
-                      style: TextStyle(
-                        color: feasibilityColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: feasibility / 100,
-                    minHeight: 9,
-                    color: feasibilityColor,
-                    backgroundColor: feasibilityColor.withValues(alpha: .14),
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  expected <= 0
-                      ? 'Complete the Monthly Expenses baseline to calculate feasibility.'
-                      : 'Your wallet covers $coveragePercent% of the ${money(remaining)} still expected this month. The score also considers essential-fund allocation, spending against plan, and your latest income.',
-                  style: const TextStyle(
-                    color: _body,
-                    fontSize: 10.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _GoalProgressBox(progress: progress),
         ],
       ),
     );
@@ -18748,39 +18738,9 @@ class _EmergencyFundSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
     final current = state.displayedEmergencyFundBalance;
     final pending = state.pendingEmergencyReplenishment;
-    final target = _financialSafetyGoalTarget(state);
-    final coverageMonths =
-        monthlyEssentials > 0 ? current / monthlyEssentials : 0.0;
-    final latestIncome = _latestIncomeTransaction(state);
-    final contributionMade = latestIncome != null &&
-        state.hasEmergencyAllocationForIncome(latestIncome.transactionId);
-    final targetProgress = (current / target).clamp(0.0, 1.0);
-    final recoveryScore = pending <= 0
-        ? 1.0
-        : (state.unallocatedFakeMayaWallet / pending).clamp(0.0, 1.0);
-    final contributionScore = contributionMade ? 1.0 : 0.0;
-    final feasibility = ((targetProgress * .65 +
-                recoveryScore * .20 +
-                contributionScore * .15) *
-            100)
-        .round();
-    final scoreColor = feasibility >= 80
-        ? _sage
-        : feasibility >= 60
-            ? _brand
-            : feasibility >= 40
-                ? _amber
-                : _red;
-    final scoreLabel = feasibility >= 80
-        ? 'Strong'
-        : feasibility >= 60
-            ? 'Workable'
-            : feasibility >= 40
-                ? 'Needs attention'
-                : 'At risk';
+    final progress = _emergencyGoalProgress(state);
 
     return AppCard(
       child: Column(
@@ -18818,62 +18778,7 @@ class _EmergencyFundSummary extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: scoreColor.withValues(alpha: .07),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: scoreColor.withValues(alpha: .18)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Goal feasibility · $scoreLabel',
-                        style: const TextStyle(
-                          color: _title,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '$feasibility%',
-                      style: TextStyle(
-                        color: scoreColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: feasibility / 100,
-                    minHeight: 9,
-                    color: scoreColor,
-                    backgroundColor: scoreColor.withValues(alpha: .14),
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  'The fund covers ${coverageMonths.toStringAsFixed(1)} months of essential expenses toward a 3-month target of ${money(target)}. The score also considers pending replenishment and whether the latest income received its 10% contribution.',
-                  style: const TextStyle(
-                    color: _body,
-                    fontSize: 10.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _GoalProgressBox(progress: progress),
         ],
       ),
     );
@@ -19034,7 +18939,8 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
       lines.add((
         icon: Icons.schedule_rounded,
         color: _body,
-        text: 'A12 · No income received in the last 3 months yet.',
+        text:
+            '${_actionNumber('A12')} · No income received in the last 3 months yet.',
       ));
     } else {
       final invested = incomes
@@ -19051,7 +18957,8 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
             : incomeRate >= .5
                 ? _amber
                 : _red,
-        text: 'A12 · Invested from $invested of ${incomes.length} incomes '
+        text:
+            '${_actionNumber('A12')} · Invested from $invested of ${incomes.length} incomes '
             'in the last 3 months.',
       ));
     }
@@ -19084,8 +18991,8 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
       icon: reached ? Icons.flag_rounded : Icons.trending_up_rounded,
       color: reached ? _sage : _purple,
       text: reached
-          ? 'A23 · ${money(target)} portfolio target reached.'
-          : 'A23 · Portfolio is $pct% of your ${money(target)} target'
+          ? '${_actionNumber('A23')} · ${money(target)} portfolio target reached.'
+          : '${_actionNumber('A23')} · Portfolio is $pct% of your ${money(target)} target'
               '${monthsLeft == null ? '.' : ' - about $monthsLeft month${monthsLeft == 1 ? '' : 's'} away at your recent pace of ${money(monthlyPace)}/month.'}',
     ));
   }
@@ -19098,14 +19005,16 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
       lines.add((
         icon: Icons.timeline_rounded,
         color: _body,
-        text: 'A30 · Start tracking to compare returns with your '
+        text:
+            '${_actionNumber('A30')} · Start tracking to compare returns with your '
             '${targetPct.toStringAsFixed(0)}% target.',
       ));
     } else if (!state.hasInvestmentReturnWeek) {
       lines.add((
         icon: Icons.schedule_rounded,
         color: _body,
-        text: 'A30 · Returns show after the first full week of valuations.',
+        text:
+            '${_actionNumber('A30')} · Returns show after the first full week of valuations.',
       ));
     } else {
       returnBehind = !state.isInvestmentAnnualReturnOnTrack;
@@ -19115,7 +19024,8 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
             ? Icons.trending_down_rounded
             : Icons.check_circle_rounded,
         color: returnBehind ? _red : _sage,
-        text: 'A30 · ${actual >= 0 ? '+' : ''}${actual.toStringAsFixed(1)}% '
+        text:
+            '${_actionNumber('A30')} · ${actual >= 0 ? '+' : ''}${actual.toStringAsFixed(1)}% '
             'annualized vs. your ${targetPct.toStringAsFixed(0)}% target.',
       ));
     }
@@ -19274,7 +19184,7 @@ class _GoalProgressBox extends StatelessWidget {
     final hit = months.where(met).length;
     rates['A26'] = hit / months.length;
     lines.add(line(rates['A26']!,
-        'A26 · Subscriptions covered in $hit of the last ${months.length} months.'));
+        '${_actionNumber('A26')} · Subscriptions covered in $hit of the last ${months.length} months.'));
   }
 
   // A27: share of recent incomes that got their Lifestyle Fund transfer.
@@ -19291,7 +19201,8 @@ class _GoalProgressBox extends StatelessWidget {
       lines.add((
         icon: Icons.schedule_rounded,
         color: _body,
-        text: 'A27 · No income received in the last 3 months yet.',
+        text:
+            '${_actionNumber('A27')} · No income received in the last 3 months yet.',
       ));
     } else {
       final handled = incomes
@@ -19299,7 +19210,7 @@ class _GoalProgressBox extends StatelessWidget {
           .length;
       rates['A27'] = handled / incomes.length;
       lines.add(line(rates['A27']!,
-          'A27 · Allocated from $handled of ${incomes.length} incomes in the last 3 months.'));
+          '${_actionNumber('A27')} · Allocated from $handled of ${incomes.length} incomes in the last 3 months.'));
     }
   }
 
@@ -19316,7 +19227,7 @@ class _GoalProgressBox extends StatelessWidget {
     }
     rates['A28'] = within / weeks;
     lines.add(line(rates['A28']!,
-        'A28 · Stayed within ${money(limit)} in $within of the last $weeks weeks.'));
+        '${_actionNumber('A28')} · Stayed within ${money(limit)} in $within of the last $weeks weeks.'));
   }
 
   // A29: activities whose savings are on pace for their deadline.
@@ -19336,7 +19247,7 @@ class _GoalProgressBox extends StatelessWidget {
     final total = state.lifestyleHobbies.length;
     rates['A29'] = onPace / total;
     lines.add(line(rates['A29']!,
-        'A29 · $onPace of $total ${total == 1 ? 'activity is' : 'activities are'} on pace for ${total == 1 ? 'its' : 'their'} target date.'));
+        '${_actionNumber('A29')} · $onPace of $total ${total == 1 ? 'activity is' : 'activities are'} on pace for ${total == 1 ? 'its' : 'their'} target date.'));
   }
 
   if (rates.isEmpty) {
@@ -19371,6 +19282,300 @@ class _GoalProgressBox extends StatelessWidget {
               'the Lifestyle Fund each payday (A29) gets it back on pace.',
         };
   return (label: label, color: color, lines: lines, nudge: nudge);
+}
+
+/// Monthly action scores for [goalId] in [month], the same ones Insights
+/// shows (used by the motivation streak and Goal Progress).
+List<_CashActionScore> _monthlyActionScores(
+  AppState state,
+  String goalId,
+  DateTime month, {
+  IntegrationService? service,
+}) {
+  final svc = service ?? IntegrationService.fromState(state);
+  final monthTransactions = state.allTransactions
+      .where((tx) => tx.createdAt != null && _sameMonth(tx.createdAt!, month))
+      .toList();
+  return switch (goalId) {
+    'G1' => _cashMonthsFor(state, svc)
+            .where((m) => m.start == month)
+            .firstOrNull
+            ?.actionScores ??
+        const <_CashActionScore>[],
+    'G3' => _emergencyFundActionScores(
+        state: state,
+        monthStart: month,
+        weeks: svc.weekRecords
+            .where((week) => _sameMonth(week.start, month))
+            .toList(),
+        transactions: monthTransactions,
+        income: monthTransactions
+            .where((tx) => tx.amount > 0 && !tx.isInternalFakeMayaTransfer)
+            .fold(0.0, (sum, tx) => sum + tx.amount),
+      ),
+    'G8' => _lifestyleActionScores(state: state, monthStart: month),
+    _ => const <_CashActionScore>[],
+  };
+}
+
+/// Months a monthly action was fully met: the last 2 complete months, plus
+/// the current month once it's met (so early in the month isn't a miss).
+({int hit, int months}) _monthlyActionHits(
+  AppState state,
+  String goalId,
+  String actionId,
+) {
+  final now = AppClock.now();
+  final service = IntegrationService.fromState(state);
+  var hit = 0;
+  var months = 0;
+  for (var offset = 2; offset >= 0; offset--) {
+    final month = DateTime(now.year, now.month - offset);
+    final score = _monthlyActionScores(state, goalId, month, service: service)
+        .where((s) => s.id == actionId)
+        .firstOrNull;
+    final met =
+        score != null && score.pattern.isNotEmpty && score.score >= .999;
+    if (offset == 0 && !met) continue;
+    months++;
+    if (met) hit++;
+  }
+  return (hit: hit, months: months);
+}
+
+/// Share of incomes in the last 3 months that got [allocated] on time.
+({int done, int total}) _incomeAllocationHits(
+  AppState state,
+  bool Function(String transactionId) allocated,
+) {
+  final since = AppClock.now().subtract(const Duration(days: 90));
+  final incomes = (state.fakeMayaLink?.summary.transactions ??
+          const <FakeMayaTransaction>[])
+      .where((tx) =>
+          _isIncomeTransaction(tx) &&
+          tx.createdAt != null &&
+          tx.createdAt!.isAfter(since))
+      .toList();
+  return (
+    done: incomes.where((tx) => allocated(tx.transactionId)).length,
+    total: incomes.length,
+  );
+}
+
+_ProgressLine _rateLine(double rate, String text) => (
+      icon:
+          rate >= .8 ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+      color: rate >= .8
+          ? _sage
+          : rate >= .5
+              ? _amber
+              : _red,
+      text: text,
+    );
+
+/// Status + message from per-action rates (same rules as Lifestyle Fund).
+({String label, Color color, List<_ProgressLine> lines, String nudge})
+    _goalProgressFromRates({
+  required Map<String, double> rates,
+  required List<_ProgressLine> lines,
+  required Map<String, String> nudges,
+  required String startNudge,
+  required String steadyNudge,
+  String? reachedNudge,
+}) {
+  if (reachedNudge != null) {
+    return (
+      label: 'Target reached',
+      color: _sage,
+      lines: lines,
+      nudge: reachedNudge
+    );
+  }
+  if (rates.isEmpty) {
+    return (
+      label: 'Getting started',
+      color: _brand,
+      lines: lines,
+      nudge: startNudge
+    );
+  }
+  final average = rates.values.reduce((a, b) => a + b) / rates.length;
+  final (label, color) = average >= .8
+      ? ('Consistent', _sage)
+      : average >= .5
+          ? ('Building momentum', _brand)
+          : ('Needs a restart', _amber);
+  final weakest =
+      rates.entries.reduce((a, b) => a.value <= b.value ? a : b).key;
+  return (
+    label: label,
+    color: color,
+    lines: lines,
+    nudge: average >= .8 ? steadyNudge : (nudges[weakest] ?? steadyNudge),
+  );
+}
+
+/// Goal Progress for Maintain Available Cash (G1).
+({String label, Color color, List<_ProgressLine> lines, String nudge})
+    _cashFlowGoalProgress(AppState state) {
+  final actions = state.selectedActionIds;
+  final lines = <_ProgressLine>[];
+  final rates = <String, double>{};
+
+  if (actions.contains('A1')) {
+    final hits =
+        _incomeAllocationHits(state, state.hasEssentialAllocationForIncome);
+    if (hits.total == 0) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text: '${_actionNumber('A1')} · No income received in the last 3 '
+            'months yet.',
+      ));
+    } else {
+      rates['A1'] = hits.done / hits.total;
+      lines.add(_rateLine(
+          rates['A1']!,
+          '${_actionNumber('A1')} · Set aside from ${hits.done} of '
+          '${hits.total} incomes in the last 3 months.'));
+    }
+  }
+  for (final (id, what) in [
+    ('A3', 'Stayed within category budgets'),
+    ('A20', 'Hit the monthly cash-in target'),
+  ]) {
+    if (!actions.contains(id)) continue;
+    final hits = _monthlyActionHits(state, 'G1', id);
+    if (hits.months == 0) continue;
+    rates[id] = hits.hit / hits.months;
+    lines.add(_rateLine(
+        rates[id]!,
+        '${_actionNumber(id)} · $what in ${hits.hit} of the last '
+        '${hits.months} months.'));
+  }
+  if (actions.contains('A19')) {
+    final floor = _configuredActionAmount(
+        state, 'A19', _recommendedEssentialFundFloor(state));
+    final balance = state.essentialExpensesBalance;
+    rates['A19'] = floor <= 0 ? 1 : (balance / floor).clamp(0.0, 1.0);
+    lines.add(_rateLine(
+        rates['A19']!,
+        balance >= floor
+            ? '${_actionNumber('A19')} · Essential Expenses Fund is above '
+                'its ${money(floor)} floor.'
+            : '${_actionNumber('A19')} · Essential Expenses Fund is '
+                '${money(floor - balance)} below its ${money(floor)} floor.'));
+  }
+
+  return _goalProgressFromRates(
+    rates: rates,
+    lines: lines,
+    nudges: {
+      'A1': 'Some incomes went by without a transfer to the Essential '
+          'Expenses Fund. Setting aside your % as soon as income lands '
+          '(${_actionNumber('A1')}) keeps essentials covered.',
+      'A3': 'Some categories ran over budget. Check them mid-month so a '
+          'single week doesn\'t use up the whole budget '
+          '(${_actionNumber('A3')}).',
+      'A20': 'Cash-in fell short of your monthly target. Plan side income '
+          'or adjust the target so it stays realistic '
+          '(${_actionNumber('A20')}).',
+      'A19': 'Top up the Essential Expenses Fund so essentials are covered '
+          'until your next income (${_actionNumber('A19')}).',
+    },
+    startNudge: 'Once income arrives and you start setting money aside, '
+        'this shows how consistently you are covering your essentials.',
+    steadyNudge: "You're covering your essentials steadily. Keep it up with "
+        'each income.',
+  );
+}
+
+/// Goal Progress for Build Emergency Fund (G3).
+({String label, Color color, List<_ProgressLine> lines, String nudge})
+    _emergencyGoalProgress(AppState state) {
+  final actions = state.selectedActionIds;
+  final lines = <_ProgressLine>[];
+  final rates = <String, double>{};
+
+  if (actions.contains('A9')) {
+    final hits = _monthlyActionHits(state, 'G3', 'A9');
+    if (hits.months > 0) {
+      rates['A9'] = hits.hit / hits.months;
+      lines.add(_rateLine(
+          rates['A9']!,
+          '${_actionNumber('A9')} · Monthly deposit made in ${hits.hit} of '
+          'the last ${hits.months} months.'));
+    }
+  }
+  if (actions.contains('A8')) {
+    final hits =
+        _incomeAllocationHits(state, state.hasEmergencyAllocationForIncome);
+    if (hits.total == 0) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text: '${_actionNumber('A8')} · No income received in the last 3 '
+            'months yet.',
+      ));
+    } else {
+      rates['A8'] = hits.done / hits.total;
+      lines.add(_rateLine(
+          rates['A8']!,
+          '${_actionNumber('A8')} · Set aside from ${hits.done} of '
+          '${hits.total} incomes in the last 3 months.'));
+    }
+  }
+  var reached = false;
+  if (actions.contains('A22')) {
+    final essentials = state.monthlyEssentialExpenseTotal;
+    final targetMonths =
+        double.tryParse(state.actionFieldValues['A22']?['months'] ?? '') ?? 3;
+    final covered =
+        essentials > 0 ? state.displayedEmergencyFundBalance / essentials : 0.0;
+    reached = targetMonths > 0 && covered >= targetMonths;
+    rates['A22'] =
+        targetMonths <= 0 ? 1 : (covered / targetMonths).clamp(0.0, 1.0);
+    lines.add(_rateLine(
+        rates['A22']!,
+        '${_actionNumber('A22')} · Fund covers '
+        '${covered.toStringAsFixed(1)} of ${targetMonths.toStringAsFixed(0)} '
+        'months of essentials.'));
+  }
+  if (actions.contains('A10')) {
+    final pending = state.pendingEmergencyReplenishment;
+    rates['A10'] = pending <= 0 ? 1 : .4;
+    lines.add(_rateLine(
+        rates['A10']!,
+        pending <= 0
+            ? '${_actionNumber('A10')} · Nothing waiting to be replenished.'
+            : '${_actionNumber('A10')} · ${money(pending)} still to '
+                'replenish after a withdrawal.'));
+  }
+
+  return _goalProgressFromRates(
+    rates: rates,
+    lines: lines,
+    nudges: {
+      'A9': 'Some months went by without the monthly deposit. A small '
+          'transfer early each month (${_actionNumber('A9')}) keeps the '
+          'fund growing.',
+      'A8': 'Some incomes went by without an Emergency Fund transfer. '
+          'Setting aside your % from every income (${_actionNumber('A8')}) '
+          'builds the cushion automatically.',
+      'A22': 'Keep adding to the fund until it covers your target months '
+          '(${_actionNumber('A22')}). Steady deposits matter more than size.',
+      'A10': 'Refill what you withdrew from your next income '
+          '(${_actionNumber('A10')}) so the safety net is ready next time.',
+    },
+    startNudge: 'Once income arrives and you start saving, this shows how '
+        'consistently you are building your safety net.',
+    steadyNudge: "You're building your safety net steadily. Keep it up with "
+        'each income.',
+    reachedNudge: reached
+        ? "You've reached your Emergency Fund target. Keep it topped up, "
+            'and refill it after any withdrawal.'
+        : null,
+  );
 }
 
 class _GrowInvestmentsSummary extends StatelessWidget {
@@ -20019,7 +20224,7 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      action.id,
+                      _actionNumber(action.id),
                       style: TextStyle(
                           color: color,
                           fontSize: 11,
@@ -23482,7 +23687,7 @@ class _ActionPanelHeader extends StatelessWidget {
           decoration: BoxDecoration(
               color: color.withValues(alpha: .12),
               borderRadius: BorderRadius.circular(8)),
-          child: Text(id,
+          child: Text(_actionNumber(id),
               style: TextStyle(
                   color: color, fontSize: 11, fontWeight: FontWeight.w900)),
         ),
@@ -24542,10 +24747,10 @@ class ProfilePage extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Expanded(
-                              child: _ProfileStatTile(
-                                emoji: '💰',
-                                value: '₱320',
-                                label: 'saved',
+                              child: _LoginStreakTile(
+                                streak: state.loginStreak,
+                                active: state.openedAppToday &&
+                                    state.loginStreak > 0,
                               ),
                             ),
                           ],
@@ -28198,6 +28403,55 @@ class _CategoryRow extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Log-in streak: consecutive days the app was opened. Green with a lit
+/// fire while the streak is alive.
+class _LoginStreakTile extends StatelessWidget {
+  const _LoginStreakTile({required this.streak, required this.active});
+  final int streak;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      decoration: BoxDecoration(
+        color: active ? _sage.withValues(alpha: .16) : _bg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: active ? _sage.withValues(alpha: .45) : Colors.transparent,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.local_fire_department_rounded,
+            size: 26,
+            color:
+                active ? const Color(0xFFFF7A1A) : _body.withValues(alpha: .5),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$streak',
+            style: GoogleFonts.nunito(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _title,
+            ),
+          ),
+          Text(
+            'day streak',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],

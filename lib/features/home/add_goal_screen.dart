@@ -18,9 +18,16 @@ class AddGoalScreen extends StatefulWidget {
 }
 
 class _AddGoalScreenState extends State<AddGoalScreen> {
+  // Same 4 steps as onboarding: 1 motivation, 2 Surface, 3 your goal + first
+  // actions, 4 set the numbers.
   String? _chosenLayer;
-  String? _chosenGoalId;
+  GuidedOption? _surfaceAnswer;
+  bool _actionsConfirmed = false;
   final Set<String> _chosenActionIds = {};
+
+  String get _goalId => _goalForMotivation(_chosenLayer!);
+
+  List<String> get _pickedActionIds => [..._chosenActionIds];
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +53,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: _title),
         title: const Text(
-          'Add a Goal',
+          'Add another motivation',
           style: TextStyle(color: _title, fontWeight: FontWeight.w800),
         ),
       ),
@@ -56,9 +63,11 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
             : _chosenLayer == null
                 ? _buildLayerPicker(state,
                     isDemo: isDemo, unlockedLayer: unlockedLayer)
-                : _chosenGoalId == null
-                    ? _buildGoalPicker(state, _chosenLayer!)
-                    : _buildActionPicker(state, _chosenGoalId!),
+                : _surfaceAnswer == null
+                    ? _buildSurface(_chosenLayer!)
+                    : !_actionsConfirmed
+                        ? _buildActionPicker(state)
+                        : _buildNumbers(state),
       ),
     );
   }
@@ -108,8 +117,8 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
           text: isDemo
               ? "Reflection Demo account — pick any layer to explore its "
                   'goal and actions.'
-              : "Ready for a new goal? Here's the full pyramid — right "
-                  'now you can unlock the layer next in line.',
+              : 'Which motivation do you want to add next? Right now you '
+                  'can unlock the one next in line.',
         ),
         const SizedBox(height: 18),
         for (final branch in _goalBranches) ...[
@@ -130,30 +139,24 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     );
   }
 
-  /// Step 2, mirroring onboarding's own goal picker (`_editGoal` /
-  /// `_goalFocusOptions` in preparation_screens.dart): show the real goals
-  /// under the chosen layer and let the user pick exactly one, before
-  /// moving on to that goal's recommended actions.
-  Widget _buildGoalPicker(AppState state, String layer) {
+  /// Step 2: the same Surface question onboarding asks for this motivation.
+  /// The answer picks the "★ Suggested for you" habit in step 3.
+  Widget _buildSurface(String layer) {
+    final surface = _pathwayForLayer(layer).steps.first;
     final branch = _goalBranches.firstWhere((b) => b.layer == layer);
-    final goalIds = _motivationGoalIds[layer] ?? const <String>[];
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
-        ChatBubble(
-          fromUser: false,
-          text: '**$layer** — which goal fits best?',
-        ),
+        ChatBubble(fromUser: false, text: surface.question),
         const SizedBox(height: 18),
-        for (final id in goalIds) ...[
+        for (final option in surface.options) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: SelectableOption(
               icon: branch.icon,
-              title: _d1GoalById(id).title,
-              body: _d1GoalById(id).description,
+              title: option.text,
               selected: false,
-              onTap: () => setState(() => _chosenGoalId = id),
+              onTap: () => setState(() => _surfaceAnswer = option),
             ),
           ),
         ],
@@ -167,39 +170,108 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     );
   }
 
-  Widget _buildActionPicker(AppState state, String goalId) {
+  /// Step 3: the motivation sets the goal; the user picks its first actions.
+  Widget _buildActionPicker(AppState state) {
+    final layer = _chosenLayer!;
+    final goalId = _goalId;
     final goal = _d1GoalById(goalId);
     final actionIds = _goalActionIds[goalId] ?? const <String>[];
-    final canConfirm = _chosenActionIds.isNotEmpty;
+    final suggested = _surfaceSuggestedAction[layer]?[_surfaceAnswer?.label];
+    return _stepScaffold(
+      onBack: () => setState(() {
+        _surfaceAnswer = null;
+        _chosenActionIds.clear();
+      }),
+      confirmLabel: 'Continue',
+      canConfirm: _chosenActionIds.isNotEmpty,
+      onConfirm: () => setState(() => _actionsConfirmed = true),
+      children: [
+        ChatBubble(
+          fromUser: false,
+          text: '**Your goal: ${goal.title}**\nBecause you chose $layer, '
+              '${_goalTrackingLine(goalId)}\n\nWhich actions do you want to '
+              'start with? Pick at least one. You can change these anytime '
+              'on the Goals page.',
+        ),
+        const SizedBox(height: 18),
+        for (final id in actionIds) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _AddGoalActionTile(
+              action: _d2Actions[id],
+              number: _actionNumber(id),
+              suggested: id == suggested,
+              selected: _chosenActionIds.contains(id),
+              onTap: () => setState(() {
+                if (!_chosenActionIds.remove(id)) _chosenActionIds.add(id);
+              }),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Step 4: set the numbers for each action (same editor as onboarding).
+  Widget _buildNumbers(AppState state) {
+    final actions = _pickedActionIds
+        .map((id) => _d2Actions[id])
+        .whereType<D2Action>()
+        .toList();
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      children: [
+        const ChatBubble(
+          fromUser: false,
+          text: "Let's set the numbers for each action.",
+        ),
+        const SizedBox(height: 14),
+        ActionConfigWidget(
+          actions: actions,
+          onConfirm: (values) => _finish(state, values),
+        ),
+        const SizedBox(height: 4),
+        TextButton(
+          onPressed: () => setState(() => _actionsConfirmed = false),
+          child: const Text('Back',
+              style: TextStyle(color: _body, fontWeight: FontWeight.w800)),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _finish(
+    AppState state,
+    Map<String, Map<String, String>> values,
+  ) async {
+    final goalId = _goalId;
+    await _confirmAndEnsureFakeMayaBucketForGoal(context, state, goalId);
+    state.addUnlockedGoal(goalId);
+    state.addActionsForGoal(_pickedActionIds);
+    state.actionFieldValues.addAll(values);
+    for (final id in _pickedActionIds) {
+      final action = _d2Actions[id];
+      if (action == null || !action.hasFields) continue;
+      state.actionFieldValues
+          .putIfAbsent(id, () => _initialActionFieldValues(state, action));
+    }
+    await state.saveProfile();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Widget _stepScaffold({
+    required List<Widget> children,
+    required VoidCallback onBack,
+    required String confirmLabel,
+    required bool canConfirm,
+    required VoidCallback onConfirm,
+  }) {
     return Column(
       children: [
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            children: [
-              ChatBubble(
-                fromUser: false,
-                text: '**${goal.title}**\n${goal.description}\n\nPick the '
-                    "actions you'd like to track for this goal.",
-              ),
-              const SizedBox(height: 18),
-              for (final id in actionIds) ...[
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _AddGoalActionTile(
-                    action: _d2Actions[id],
-                    selected: _chosenActionIds.contains(id),
-                    onTap: () => setState(() {
-                      if (_chosenActionIds.contains(id)) {
-                        _chosenActionIds.remove(id);
-                      } else {
-                        _chosenActionIds.add(id);
-                      }
-                    }),
-                  ),
-                ),
-              ],
-            ],
+            children: children,
           ),
         ),
         Container(
@@ -211,12 +283,10 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
           child: Row(
             children: [
               TextButton(
-                onPressed: () => setState(() {
-                  _chosenGoalId = null;
-                  _chosenActionIds.clear();
-                }),
+                onPressed: onBack,
                 child: const Text('Back',
-                    style: TextStyle(color: _body, fontWeight: FontWeight.w800)),
+                    style:
+                        TextStyle(color: _body, fontWeight: FontWeight.w800)),
               ),
               const Spacer(),
               SizedBox(
@@ -231,24 +301,10 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  onPressed: canConfirm
-                      ? () async {
-                          final layer = _chosenLayer!;
-                          final canonicalId = _layerCanonicalGoalId[layer]!;
-                          await _confirmAndEnsureFakeMayaBucketForGoal(
-                            context,
-                            state,
-                            _chosenGoalId ?? canonicalId,
-                          );
-                          state.addUnlockedGoal(canonicalId);
-                          state.addActionsForGoal(_chosenActionIds);
-                          await state.saveProfile();
-                          if (mounted) Navigator.of(context).pop();
-                        }
-                      : null,
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Add goal',
-                      style: TextStyle(fontWeight: FontWeight.w900)),
+                  onPressed: canConfirm ? onConfirm : null,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: Text(confirmLabel,
+                      style: const TextStyle(fontWeight: FontWeight.w900)),
                 ),
               ),
             ],
@@ -264,15 +320,20 @@ class _AddGoalActionTile extends StatelessWidget {
     required this.action,
     required this.selected,
     required this.onTap,
+    this.number,
+    this.suggested = false,
   });
 
   final D2Action? action;
   final bool selected;
   final VoidCallback onTap;
+  final String? number;
+  final bool suggested;
 
   @override
   Widget build(BuildContext context) {
     if (action == null) return const SizedBox.shrink();
+    final detail = suggested ? '★ Suggested for you' : null;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -286,14 +347,30 @@ class _AddGoalActionTile extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                action!.text,
-                style: const TextStyle(
-                  color: _title,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  height: 1.3,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    number == null ? action!.text : '$number · ${action!.text}',
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.3,
+                    ),
+                  ),
+                  if (detail != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      detail,
+                      style: TextStyle(
+                        color: suggested ? _brand : _body,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(width: 10),

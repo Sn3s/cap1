@@ -263,6 +263,49 @@ class AppState extends ChangeNotifier {
   static const investmentRevaluationInterval = Duration(days: 7);
   Map<String, dynamic>? _investmentValuation;
 
+  // ── Log-in streak (User page) ───────────────────────────────────
+  // Consecutive calendar days the app was opened (AppClock days, so Time
+  // travel works). Missing a whole day resets it; the open that follows
+  // starts a new streak at 1. Breaks are kept for the future Health Score.
+  int loginStreak = 0;
+  int longestLoginStreak = 0;
+  String? _lastOpenDay;
+  final List<Map<String, dynamic>> loginStreakBreaks = [];
+
+  static String _dayKey(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  bool get openedAppToday => _lastOpenDay == _dayKey(AppClock.now());
+
+  /// Call whenever the app is opened or brought back to the foreground.
+  Future<void> recordAppOpen() async {
+    final now = AppClock.now();
+    final todayKey = _dayKey(now);
+    if (_lastOpenDay == todayKey) return;
+    final today = DateTime(now.year, now.month, now.day);
+    final last = DateTime.tryParse(_lastOpenDay ?? '');
+    if (last != null && today.isBefore(last)) return; // clock moved back
+    final gapDays = last == null ? null : today.difference(last).inDays;
+    if (gapDays == 1) {
+      loginStreak += 1;
+    } else {
+      if (gapDays != null && loginStreak > 0) {
+        loginStreakBreaks.add({
+          'date': now.toIso8601String(),
+          'lostStreak': loginStreak,
+          'missedDays': gapDays - 1,
+        });
+      }
+      loginStreak = 1;
+    }
+    longestLoginStreak = math.max(longestLoginStreak, loginStreak);
+    _lastOpenDay = todayKey;
+    await saveProfile();
+    notifyListeners();
+  }
+
   /// One entry per weekly valuation, oldest first:
   /// {'valuedAt': iso, 'holdingsValue': ₱, 'netFlow': ₱}. netFlow is what was
   /// bought minus what was sold since the previous valuation, so A30 can
@@ -1109,6 +1152,11 @@ class AppState extends ChangeNotifier {
     for (var i = 0; i < billObligations.length; i++) {
       billObligations[i] = {...billObligations[i], 'paidAmount': 0.0};
     }
+    // A brand-new account: today's open is day 1.
+    loginStreak = 1;
+    longestLoginStreak = 1;
+    _lastOpenDay = _dayKey(AppClock.now());
+    loginStreakBreaks.clear();
     messages
       ..clear()
       ..add(
@@ -1242,6 +1290,10 @@ class AppState extends ChangeNotifier {
     _lastEfWithdrawalStr = null;
     billObligations.clear();
     lifestyleHobbies.clear();
+    loginStreak = 0;
+    longestLoginStreak = 0;
+    _lastOpenDay = null;
+    loginStreakBreaks.clear();
     messages
       ..clear()
       ..add(
@@ -4296,6 +4348,10 @@ class AppState extends ChangeNotifier {
       'investmentBalance': investmentBalance,
       'investmentValuation': _investmentValuation,
       'investmentValuationHistory': investmentValuationHistory,
+      'loginStreak': loginStreak,
+      'longestLoginStreak': longestLoginStreak,
+      'lastOpenDay': _lastOpenDay,
+      'loginStreakBreaks': loginStreakBreaks,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4520,6 +4576,18 @@ class AppState extends ChangeNotifier {
     _investmentValuation = investmentValuation is Map
         ? Map<String, dynamic>.from(investmentValuation)
         : null;
+    loginStreak = (data['loginStreak'] as num?)?.toInt() ?? loginStreak;
+    longestLoginStreak =
+        (data['longestLoginStreak'] as num?)?.toInt() ?? longestLoginStreak;
+    _lastOpenDay = data['lastOpenDay']?.toString() ?? _lastOpenDay;
+    final streakBreaks = data['loginStreakBreaks'];
+    loginStreakBreaks
+      ..clear()
+      ..addAll([
+        if (streakBreaks is List)
+          for (final entry in streakBreaks)
+            if (entry is Map) Map<String, dynamic>.from(entry),
+      ]);
     final valuationHistory = data['investmentValuationHistory'];
     investmentValuationHistory
       ..clear()
@@ -4769,12 +4837,14 @@ class AppState extends ChangeNotifier {
       data['selectedActionIds'] ?? planSetup['selectedActionIds'],
     );
     _replaceSet(addedGoalIds, data['addedGoalIds']);
+    _dropBacklogSelections();
     _replaceSet(
       confirmedFakeMayaBucketMotivations,
       data['confirmedFakeMayaBucketMotivations'],
     );
     backfillMissingOnboardingLedgers();
     backfillMainAccountGoalDefaults();
+    removeCashFlowDemoEmergencyGoal();
     backfillFeasibleActionDefaults();
   }
 
@@ -4837,6 +4907,21 @@ class AppState extends ChangeNotifier {
       ...fields,
       'amt': recommended,
     };
+    return true;
+  }
+
+  /// Dev fix: the cashflow@gmail.com demo is a Cash Flow-only account, but
+  /// Emergency Fund (M2 / G3) was added to it by accident. Removes that goal
+  /// and its actions; runs on every load, so it also covers stale saves.
+  bool removeCashFlowDemoEmergencyGoal() {
+    if (email.trim().toLowerCase() != 'cashflow@gmail.com') return false;
+    final emergencyActions = _goalActionIds['G3'] ?? const <String>[];
+    final changed = addedGoalIds.remove('G3') |
+        selectedActionIds.any(emergencyActions.contains);
+    if (!changed) return false;
+    selectedActionIds.removeAll(emergencyActions);
+    actionFieldValues.removeWhere((id, _) => emergencyActions.contains(id));
+    confirmedFakeMayaBucketMotivations.remove('Financial Safety');
     return true;
   }
 
@@ -7085,6 +7170,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Backlog goals/actions (see _backlogGoalIds) are never available to
+  /// users. Profiles saved before they were hidden keep working: the picks
+  /// are dropped and a backlog goal falls back to the motivation's working
+  /// goal.
+  void _dropBacklogSelections() {
+    selectedActionIds.removeAll(_backlogActionIds);
+    addedGoalIds.removeAll(_backlogGoalIds);
+    if (_backlogGoalIds.contains(selectedGoalId)) {
+      selectedGoalId = _layerCanonicalGoalId[primaryConcern] ?? 'G1';
+    }
+  }
+
   void configureGoalActions({
     required Iterable<String> actionIds,
     bool enableEmotionalLogs = false,
@@ -7092,7 +7189,7 @@ class AppState extends ChangeNotifier {
   }) {
     selectedActionIds
       ..clear()
-      ..addAll(actionIds);
+      ..addAll(actionIds.where((id) => !_backlogActionIds.contains(id)));
     emotionalLogsEnabled = enableEmotionalLogs;
     stressIndicatorsEnabled = enableStressIndicators;
     notifyListeners();
@@ -7103,7 +7200,8 @@ class AppState extends ChangeNotifier {
   /// must NOT clear existing selections or it would wipe out the actions
   /// belonging to goals the user already has.
   void addActionsForGoal(Iterable<String> actionIds) {
-    selectedActionIds.addAll(actionIds);
+    selectedActionIds
+        .addAll(actionIds.where((id) => !_backlogActionIds.contains(id)));
     notifyListeners();
   }
 
