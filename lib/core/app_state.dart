@@ -5724,6 +5724,22 @@ class AppState extends ChangeNotifier {
     return latest;
   }
 
+  /// Every Goals-page transfer is paid for by the FakeMaya Wallet: nothing
+  /// moves without a linked account holding enough (after bill set-asides),
+  /// so no action can create money.
+  void _requireWalletFunds(double amount) {
+    if (fakeMayaLink == null) {
+      throw const FakeMayaException(
+          'Link your FakeMaya account to move money.');
+    }
+    if (unallocatedFakeMayaWallet <= 0) {
+      throw const FakeMayaException('Deposit into Fakemaya to proceed');
+    }
+    if (amount > unallocatedFakeMayaWallet + 0.005) {
+      throw const FakeMayaException('Not enough in your FakeMaya Wallet.');
+    }
+  }
+
   Future<void> depositIncomeToEssentialFund({
     required String transactionId,
     required double incomeAmount,
@@ -5734,10 +5750,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) {
-      throw const FakeMayaException(
-          'Not enough in FakeMaya wallet for this transfer.');
-    }
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -5790,10 +5803,7 @@ class AppState extends ChangeNotifier {
         )
         .toDouble();
     if (totalAllocation <= 0 && obligationAmount <= 0) return 0;
-    if (fakeMayaLink != null && totalAllocation > unallocatedFakeMayaWallet) {
-      throw const FakeMayaException(
-          'Not enough in FakeMaya wallet for this transfer.');
-    }
+    if (totalAllocation > 0) _requireWalletFunds(totalAllocation);
     if (totalAllocation > 0) {
       await _moveFakeMayaWalletTo(
         totalAllocation,
@@ -5869,7 +5879,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -5892,7 +5902,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> depositMonthlyEmergencyFund(double amount) async {
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -6036,7 +6046,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final amount = incomeAmount * percentage.clamp(0, 100) / 100;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
@@ -6058,13 +6068,7 @@ class AppState extends ChangeNotifier {
   /// linked FakeMaya account, or with too little in it, nothing moves.
   Future<void> depositMonthlyInvestment(double amount) async {
     if (amount <= 0) return;
-    if (fakeMayaLink == null) {
-      throw const FakeMayaException(
-          'Link your FakeMaya account to add investments.');
-    }
-    if (amount > unallocatedFakeMayaWallet) {
-      throw const FakeMayaException('Not enough in your FakeMaya Wallet.');
-    }
+    _requireWalletFunds(amount);
     await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
@@ -6114,7 +6118,7 @@ class AppState extends ChangeNotifier {
     }
     final amount = cashInAmount * percentage.clamp(0, 100) / 100;
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
@@ -6291,7 +6295,7 @@ class AppState extends ChangeNotifier {
     final unspent = math.max(0.0, monthlySurplus);
     final amount = unspent * percentage.clamp(0, 100) / 100;
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
@@ -6348,7 +6352,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> depositLifestyleSubscriptionReserve(double amount) async {
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -6389,7 +6393,7 @@ class AppState extends ChangeNotifier {
     final pct = (percentage ?? lifestyleIncomePercent).clamp(0, 100);
     final amount = incomeAmount * pct / 100;
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -6413,7 +6417,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> depositLifestyleActivity(double amount) async {
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    _requireWalletFunds(amount);
     await _moveFakeMayaWalletTo(
       amount,
       FakeMayaGoalAccount.personalGoal,
@@ -6736,9 +6740,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A10 (shown as A8): refills what was used from the Emergency Fund. The
+  /// money moves from the FakeMaya Wallet into the Emergency Fund bucket,
+  /// the same bucket A8/A9 deposits go to.
   Future<void> replenishD1EmergencyFund(double amount) async {
-    if (amount <= 0 || amount > unallocatedFakeMayaWallet) return;
-    await _moveFakeMayaWalletTo(amount, FakeMayaGoalAccount.savings);
+    if (amount <= 0) return;
+    _requireWalletFunds(amount);
+    await _moveFakeMayaWalletTo(
+      amount,
+      FakeMayaGoalAccount.personalGoal,
+      personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+    );
     emergencyFundBalance += math.min(
       amount,
       pendingRecordedEmergencyReplenishment,

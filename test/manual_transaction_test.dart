@@ -51,7 +51,7 @@ void main() {
     );
   });
 
-  test('essential fund allocation batches unallocated labeled incomes',
+  test('essential fund allocation is refused without a FakeMaya Wallet',
       () async {
     final state = AppState();
     final now = DateTime.now();
@@ -84,17 +84,18 @@ void main() {
 
     expect(state.pendingEssentialIncomeTransactions, hasLength(2));
 
-    await state.depositPendingIncomeToEssentialFund(
-      incomes: state.pendingEssentialIncomeTransactions,
-      percentage: 50,
+    // Without a FakeMaya Wallet to pay for it, nothing can be set aside:
+    // the transfer is refused instead of creating money.
+    await expectLater(
+      state.depositPendingIncomeToEssentialFund(
+        incomes: state.pendingEssentialIncomeTransactions,
+        percentage: 50,
+      ),
+      throwsA(isA<FakeMayaException>()),
     );
 
-    expect(state.essentialExpensesBalance, 6250);
-    expect(state.pendingEssentialIncomeTransactions, isEmpty);
-    expect(
-      state.d1Ledger.where((entry) => entry['type'] == 'essential_deposit'),
-      hasLength(2),
-    );
+    expect(state.essentialExpensesBalance, 0);
+    expect(state.pendingEssentialIncomeTransactions, hasLength(2));
   });
 
   test('essential fund allocation ignores FakeMaya goal transfers', () {

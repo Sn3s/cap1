@@ -20754,7 +20754,8 @@ class _EssentialExpensesActionPanelState
         incomes.fold<double>(0, (total, income) => total + income.amount);
     final percentage = widget.percentage;
     final allocation = totalIncome * percentage / 100;
-    final hasEnoughCash = allocation <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, allocation);
+    final hasEnoughCash = walletBlock == null;
     final remainingWallet = state.unallocatedFakeMayaWallet - allocation;
     final localizations = MaterialLocalizations.of(context);
 
@@ -20889,13 +20890,7 @@ class _EssentialExpensesActionPanelState
               enabled: !busy && hasEnoughCash,
               onPressed: () => _deposit(state, incomes, percentage: percentage),
             ),
-            if (!hasEnoughCash) ...[
-              const SizedBox(height: 7),
-              Text(
-                  'The unallocated FakeMaya wallet balance is too low for this transfer.',
-                  style: TextStyle(
-                      color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
-            ],
+            if (walletBlock != null) _walletBlockText(walletBlock),
           ],
         ],
       ),
@@ -20923,11 +20918,14 @@ class _InvestmentIncomeActionPanelState
   Future<void> _deposit(AppState state, FakeMayaTransaction? income) async {
     if (busy || income == null || income.createdAt == null) return;
     setState(() => busy = true);
-    await state.depositIncomeToInvestment(
-      transactionId: income.transactionId,
-      incomeAmount: income.amount,
-      incomeDate: income.createdAt!,
-      percentage: widget.percentage,
+    await _runWalletTransfer(
+      context,
+      () => state.depositIncomeToInvestment(
+        transactionId: income.transactionId,
+        incomeAmount: income.amount,
+        incomeDate: income.createdAt!,
+        percentage: widget.percentage,
+      ),
     );
     if (mounted) setState(() => busy = false);
   }
@@ -20940,7 +20938,8 @@ class _InvestmentIncomeActionPanelState
     final contribution = (income?.amount ?? 0) * percentage / 100;
     final deposited = income != null &&
         state.hasInvestmentAllocationForIncome(income.transactionId);
-    final canDeposit = contribution <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, contribution);
+    final canDeposit = walletBlock == null;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -20979,14 +20978,8 @@ class _InvestmentIncomeActionPanelState
                 !busy && !deposited && canDeposit && income?.createdAt != null,
             onPressed: () => _deposit(state, income),
           ),
-          if (!canDeposit) ...[
-            const SizedBox(height: 7),
-            const Text(
-              'The unallocated FakeMaya wallet balance is too low for this investment.',
-              style: TextStyle(
-                  color: _red, fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-          ],
+          if (walletBlock != null && income != null && !deposited)
+            _walletBlockText(walletBlock),
         ],
       ),
     );
@@ -21437,7 +21430,8 @@ class _LifestyleSubscriptionsActionPanelState
   Future<void> _reserve(AppState state, double amount) async {
     if (busy || amount <= 0) return;
     setState(() => busy = true);
-    await state.depositLifestyleSubscriptionReserve(amount);
+    await _runWalletTransfer(
+        context, () => state.depositLifestyleSubscriptionReserve(amount));
     if (mounted) setState(() => busy = false);
   }
 
@@ -21467,8 +21461,8 @@ class _LifestyleSubscriptionsActionPanelState
     final remaining = math.max(0.0, target - reserved);
     final progress = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
     final complete = reserved >= target && target > 0;
-    final canReserve = state.fakeMayaLink == null ||
-        remaining <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, remaining);
+    final canReserve = walletBlock == null;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -21531,6 +21525,7 @@ class _LifestyleSubscriptionsActionPanelState
               ),
             ],
           ),
+          if (walletBlock != null && !complete) _walletBlockText(walletBlock),
         ],
       ),
     );
@@ -21553,10 +21548,13 @@ class _LifestylePaydayActionPanelState
   Future<void> _deposit(AppState state, FakeMayaTransaction? income) async {
     if (busy || income?.createdAt == null) return;
     setState(() => busy = true);
-    await state.depositLifestylePayday(
-      transactionId: income!.transactionId,
-      incomeAmount: income.amount,
-      incomeDate: income.createdAt!,
+    await _runWalletTransfer(
+      context,
+      () => state.depositLifestylePayday(
+        transactionId: income!.transactionId,
+        incomeAmount: income.amount,
+        incomeDate: income.createdAt!,
+      ),
     );
     if (mounted) setState(() => busy = false);
   }
@@ -21583,8 +21581,8 @@ class _LifestylePaydayActionPanelState
     final contribution = (income?.amount ?? 0) * percentage / 100;
     final deposited = income != null &&
         state.hasLifestylePaydayAllocation(income.transactionId);
-    final canDeposit = state.fakeMayaLink == null ||
-        contribution <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, contribution);
+    final canDeposit = walletBlock == null;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -21638,14 +21636,8 @@ class _LifestylePaydayActionPanelState
               ),
             ],
           ),
-          if (!canDeposit) ...[
-            const SizedBox(height: 7),
-            const Text(
-              'The unallocated FakeMaya wallet balance is too low for this allocation.',
-              style: TextStyle(
-                  color: _red, fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-          ],
+          if (walletBlock != null && income != null && !deposited)
+            _walletBlockText(walletBlock),
         ],
       ),
     );
@@ -22052,7 +22044,8 @@ class _EmergencyMonthlyDepositActionPanelState
   Future<void> _deposit(AppState state, double amount) async {
     if (busy || amount <= 0) return;
     setState(() => busy = true);
-    await state.depositMonthlyEmergencyFund(amount);
+    await _runWalletTransfer(
+        context, () => state.depositMonthlyEmergencyFund(amount));
     if (mounted) setState(() => busy = false);
   }
 
@@ -22082,8 +22075,8 @@ class _EmergencyMonthlyDepositActionPanelState
     final progress = target <= 0 ? 0.0 : (deposited / target).clamp(0.0, 1.0);
     final remaining = math.max(0.0, target - deposited);
     final complete = deposited >= target && target > 0;
-    final canDeposit =
-        state.fakeMayaLink == null || target <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, target);
+    final canDeposit = walletBlock == null;
     return _ActionCardShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -22146,14 +22139,7 @@ class _EmergencyMonthlyDepositActionPanelState
               ),
             ],
           ),
-          if (!canDeposit) ...[
-            const SizedBox(height: 7),
-            const Text(
-              'The unallocated FakeMaya wallet balance is too low for this deposit.',
-              style: TextStyle(
-                  color: _red, fontSize: 11, fontWeight: FontWeight.w800),
-            ),
-          ],
+          if (walletBlock != null && !complete) _walletBlockText(walletBlock),
         ],
       ),
     );
@@ -22270,11 +22256,14 @@ class _EmergencyFundIncomeActionPanelState
   Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
     if (busy || income.createdAt == null) return;
     setState(() => busy = true);
-    await state.depositIncomeToEmergencyFund(
-      transactionId: income.transactionId,
-      incomeAmount: income.amount,
-      incomeDate: income.createdAt!,
-      percentage: widget.percentage,
+    await _runWalletTransfer(
+      context,
+      () => state.depositIncomeToEmergencyFund(
+        transactionId: income.transactionId,
+        incomeAmount: income.amount,
+        incomeDate: income.createdAt!,
+        percentage: widget.percentage,
+      ),
     );
     if (mounted) setState(() => busy = false);
   }
@@ -22342,7 +22331,8 @@ class _EmergencyFundIncomeActionPanelState
     final allocation = (income?.amount ?? 0) * percentage / 100;
     final deposited = income != null &&
         state.hasEmergencyAllocationForIncome(income.transactionId);
-    final canDeposit = allocation <= state.unallocatedFakeMayaWallet;
+    final walletBlock = _walletBlockReason(state, allocation);
+    final canDeposit = walletBlock == null;
     final date = income?.createdAt;
     final localizations = MaterialLocalizations.of(context);
     return Container(
@@ -22461,6 +22451,8 @@ class _EmergencyFundIncomeActionPanelState
               enabled: !busy && !deposited && canDeposit && date != null,
               onPressed: () => _deposit(state, income),
             ),
+            if (walletBlock != null && !deposited)
+              _walletBlockText(walletBlock),
           ],
           if (state.displayedEmergencyFundBalance > 0) ...[
             const SizedBox(height: 9),
@@ -22494,7 +22486,8 @@ class _EmergencyReplenishmentActionPanelState
 
   Future<void> _replenish(AppState state, double amount) async {
     setState(() => busy = true);
-    await state.replenishD1EmergencyFund(amount);
+    await _runWalletTransfer(
+        context, () => state.replenishD1EmergencyFund(amount));
     if (mounted) setState(() => busy = false);
   }
 
@@ -22592,18 +22585,11 @@ class _EmergencyReplenishmentActionPanelState
               PrimaryButton(
                 label: busy ? 'Replenishing...' : 'Replenish ${money(pending)}',
                 icon: Icons.restore_rounded,
-                enabled: !busy && pending <= state.unallocatedFakeMayaWallet,
+                enabled: !busy && _walletBlockReason(state, pending) == null,
                 onPressed: () => _replenish(state, pending),
               ),
-              if (pending > state.unallocatedFakeMayaWallet) ...[
-                const SizedBox(height: 7),
-                const Text(
-                    'The unallocated FakeMaya wallet balance is too low to replenish the full amount.',
-                    style: TextStyle(
-                        color: _red,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800)),
-              ],
+              if (_walletBlockReason(state, pending) case final reason?)
+                _walletBlockText(reason),
             ],
           ],
         ],
@@ -23809,6 +23795,43 @@ class _ThresholdProgressBar extends StatelessWidget {
     );
   }
 }
+
+/// Why a Wallet-funded action button can't run yet, or null when it can.
+/// Same rules as AppState._requireWalletFunds.
+String? _walletBlockReason(AppState state, double amount) {
+  if (state.fakeMayaLink == null) {
+    return 'Link your FakeMaya account to move money.';
+  }
+  if (state.unallocatedFakeMayaWallet <= 0) {
+    return 'Deposit into Fakemaya to proceed';
+  }
+  if (amount > state.unallocatedFakeMayaWallet + 0.005) {
+    return 'Your FakeMaya Wallet has ${money(state.unallocatedFakeMayaWallet)} '
+        'available. Deposit into Fakemaya to proceed.';
+  }
+  return null;
+}
+
+/// Runs a Wallet-funded transfer and shows why it was refused (no link,
+/// empty or short Wallet) instead of failing silently.
+Future<void> _runWalletTransfer(
+  BuildContext context,
+  Future<void> Function() transfer,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await transfer();
+  } on FakeMayaException catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.message)));
+  }
+}
+
+Widget _walletBlockText(String reason) => Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Text(reason,
+          style: const TextStyle(
+              color: _red, fontSize: 11, fontWeight: FontWeight.w800)),
+    );
 
 /// A29 transfer pop-up: Lifestyle Fund available is the most that can move.
 Future<double?> _showLifestyleTransferDialog({
