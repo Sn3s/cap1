@@ -21008,17 +21008,33 @@ class _InvestmentPortfolioTargetActionPanelState
 
   Future<void> _addInvestment(AppState state, double remaining) async {
     if (busy || remaining <= 0) return;
-    final amount = await _showMoneyTargetDialog(
+    final messenger = ScaffoldMessenger.of(context);
+    if (state.fakeMayaLink == null) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Link your FakeMaya account to add investments.')));
+      return;
+    }
+    final amount = await _showFundedTransferDialog(
       context: context,
-      title: 'Add to Investment Portfolio',
-      label: 'Amount to invest',
-      initialAmount:
-          math.max(100, math.min(remaining, state.investmentMonthlyTarget)),
+      title: 'Add to Investment Fund',
+      notice: 'This amount will be taken from your FakeMaya Wallet and moved '
+          'into your Investment Fund.',
+      sourceLabel: 'FakeMaya Wallet available',
+      available: state.unallocatedFakeMayaWallet,
+      suggested: math.min(remaining, state.investmentMonthlyTarget),
+      emptyMessage: 'Deposit into Fakemaya to proceed',
+      helper: '${money(remaining)} still needed to reach your portfolio '
+          'target.',
+      confirmLabel: 'Confirm transfer',
       color: widget.color,
     );
-    if (amount == null || amount <= 0) return;
+    if (amount == null || amount <= 0 || !mounted) return;
     setState(() => busy = true);
-    await state.depositMonthlyInvestment(amount);
+    try {
+      await state.depositMonthlyInvestment(amount);
+    } on FakeMayaException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    }
     if (mounted) setState(() => busy = false);
   }
 
@@ -23801,10 +23817,39 @@ Future<double?> _showLifestyleTransferDialog({
   required double available,
   required double remaining,
   required Color color,
+}) =>
+    _showFundedTransferDialog(
+      context: context,
+      title: 'Transfer to $hobbyName',
+      sourceLabel: 'Lifestyle Fund available',
+      available: available,
+      suggested: math.min(available, remaining),
+      emptyMessage:
+          'Deposit into Lifestyle Fund Balance on FakeMaya to proceed',
+      helper: '${money(remaining)} still needed for $hobbyName.',
+      confirmLabel: 'Transfer',
+      color: color,
+    );
+
+/// Amount pop-up for any action that moves real money: shows where the money
+/// comes from, caps the amount at what that source holds, and blocks the
+/// transfer (with [emptyMessage] under the field) when the source is empty.
+/// Nothing moves without a source, so actions can't create money.
+Future<double?> _showFundedTransferDialog({
+  required BuildContext context,
+  required String title,
+  required String sourceLabel,
+  required double available,
+  required double suggested,
+  required String emptyMessage,
+  required String helper,
+  required String confirmLabel,
+  required Color color,
+  String? notice,
 }) {
-  final suggested = math.min(available, remaining);
+  final initial = math.min(available, suggested);
   final controller = TextEditingController(
-    text: suggested > 0 ? suggested.floor().toString() : '',
+    text: initial > 0 ? initial.floor().toString() : '',
   );
   return showDialog<double>(
     context: context,
@@ -23819,13 +23864,22 @@ Future<double?> _showLifestyleTransferDialog({
           final valid = !empty && amount > 0 && !tooMuch;
           return AlertDialog(
             backgroundColor: _surface,
-            title: Text('Transfer to $hobbyName',
+            title: Text(title,
                 style: const TextStyle(
                     color: _title, fontWeight: FontWeight.w900)),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (notice != null) ...[
+                  Text(notice,
+                      style: const TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 12),
+                ],
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
@@ -23837,8 +23891,8 @@ Future<double?> _showLifestyleTransferDialog({
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Lifestyle Fund available',
-                          style: TextStyle(
+                      Text(sourceLabel,
+                          style: const TextStyle(
                               color: _body,
                               fontSize: 11,
                               fontWeight: FontWeight.w800)),
@@ -23874,10 +23928,10 @@ Future<double?> _showLifestyleTransferDialog({
                 const SizedBox(height: 8),
                 Text(
                   empty
-                      ? 'Deposit into Lifestyle Fund Balance on FakeMaya to proceed'
+                      ? emptyMessage
                       : tooMuch
                           ? 'You can transfer up to ${money(available)}.'
-                          : '${money(remaining)} still needed for $hobbyName.',
+                          : helper,
                   style: TextStyle(
                     color: empty || tooMuch ? _red : _body,
                     fontSize: 11,
@@ -23896,7 +23950,7 @@ Future<double?> _showLifestyleTransferDialog({
                 onPressed: valid
                     ? () => Navigator.of(dialogContext).pop(amount)
                     : null,
-                child: const Text('Transfer'),
+                child: Text(confirmLabel),
               ),
             ],
           );

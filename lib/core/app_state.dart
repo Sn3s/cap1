@@ -6053,9 +6053,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A23 "Add investment": moves [amount] from the FakeMaya Wallet into the
+  /// Investment Fund bucket. The wallet is the only source, so without a
+  /// linked FakeMaya account, or with too little in it, nothing moves.
   Future<void> depositMonthlyInvestment(double amount) async {
     if (amount <= 0) return;
-    if (fakeMayaLink != null && amount > unallocatedFakeMayaWallet) return;
+    if (fakeMayaLink == null) {
+      throw const FakeMayaException(
+          'Link your FakeMaya account to add investments.');
+    }
+    if (amount > unallocatedFakeMayaWallet) {
+      throw const FakeMayaException('Not enough in your FakeMaya Wallet.');
+    }
     await _depositToInvestmentFund(amount);
     investmentBalance += amount;
     d1Ledger.insert(0, {
