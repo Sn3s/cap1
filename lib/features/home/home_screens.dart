@@ -9543,7 +9543,7 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
     final activeMonth =
         months.where((month) => month == selectedMonth).firstOrNull ??
             (months.isEmpty ? _monthStart(AppClock.now()) : months.last);
-    final totalValue = state.investmentPortfolioValue;
+    final totalValue = state.investmentPortfolioLiveValue;
     final investmentScores =
         _investmentActionScores(state: state, monthStart: activeMonth);
 
@@ -18892,11 +18892,12 @@ class _CashFlowTransactionRow extends StatelessWidget {
 /// Explains the Position card split and how fresh the holdings price is.
 String _holdingsValuationNote(AppState state) {
   final valuedAt = state.investmentHoldingsValuedAt;
-  final when = valuedAt == null
-      ? 'at purchase cost until the first weekly valuation'
-      : 'weekly · last valued ${_shortDate(valuedAt)}';
+  final chart = valuedAt == null
+      ? 'Charts start at the first weekly valuation.'
+      : 'Charts use weekly valuations (last ${_shortDate(valuedAt)}).';
   return 'Investment Fund = cash ready to invest in FakeMaya. '
-      'Holdings value = your crypto/stocks, priced $when.';
+      'Holdings value = your crypto/stocks at FakeMaya’s latest price, '
+      'updated each time Shelby syncs. $chart';
 }
 
 typedef _ProgressLine = ({IconData icon, Color color, String text});
@@ -19608,7 +19609,7 @@ class _GrowInvestmentsSummary extends StatelessWidget {
                 child: _CashPositionMetric(
                   icon: Icons.show_chart_rounded,
                   label: 'Holdings value',
-                  value: money(state.investmentHoldingsValue),
+                  value: money(state.investmentHoldingsLiveValue),
                   color: _sage,
                 ),
               ),
@@ -21066,7 +21067,8 @@ class _InvestmentPortfolioTargetActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final target = state.configuredInvestmentPortfolioTarget;
-    final balance = state.investmentPortfolioValue;
+    // Display matches FakeMaya; scoring elsewhere uses the weekly value.
+    final balance = state.investmentPortfolioLiveValue;
     final progress = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
     final remaining = math.max(0.0, target - balance);
     final complete = balance >= target && target > 0;
@@ -21096,7 +21098,7 @@ class _InvestmentPortfolioTargetActionPanelState
           const SizedBox(height: 6),
           Text(
             'Investment Fund ${money(state.investmentBalance)} + '
-            'Holdings ${money(state.investmentHoldingsValue)}',
+            'Holdings ${money(state.investmentHoldingsLiveValue)}',
             style: const TextStyle(
               color: _body,
               fontSize: 11,
@@ -21147,26 +21149,23 @@ class _InvestmentPortfolioTargetActionPanelState
   }
 }
 
-/// Holdings value with an up/down colour and % vs. what was invested.
-/// Prices update once a week, so the date shown is the valuation's week end.
+/// Holdings value with an up/down colour and % vs. what was invested,
+/// at FakeMaya's latest synced price (matches FakeMaya's own screen).
 class _HoldingsPerformanceTile extends StatelessWidget {
   const _HoldingsPerformanceTile({
     required this.value,
     required this.invested,
     required this.returnPercent,
-    required this.valuedAt,
   });
   final double value;
   final double invested;
   final double returnPercent;
-  final DateTime? valuedAt;
 
   @override
   Widget build(BuildContext context) {
     final hasHoldings = value > 0 || invested > 0;
     final up = returnPercent >= 0;
     final color = !hasHoldings ? _body : (up ? _sage : _red);
-    final date = valuedAt;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -21201,9 +21200,7 @@ class _HoldingsPerformanceTile extends StatelessWidget {
                 Text(
                   !hasHoldings
                       ? 'No crypto or stock holdings yet'
-                      : date == null
-                          ? 'At purchase cost until the first weekly valuation'
-                          : 'For the week ending ${_numericDate(date)}',
+                      : 'At FakeMaya’s latest price',
                   style: const TextStyle(
                       color: _body, fontSize: 9.5, fontWeight: FontWeight.w700),
                 ),
@@ -21224,10 +21221,6 @@ class _HoldingsPerformanceTile extends StatelessWidget {
     );
   }
 }
-
-String _numericDate(DateTime date) =>
-    '${date.month.toString().padLeft(2, '0')}/'
-    '${date.day.toString().padLeft(2, '0')}/${date.year}';
 
 class _InvestmentAnnualReturnActionPanel extends StatefulWidget {
   const _InvestmentAnnualReturnActionPanel({required this.color});
@@ -21325,13 +21318,13 @@ class _InvestmentAnnualReturnActionPanelState
           _ActionMetricTile(
             icon: Icons.trending_up_rounded,
             label: 'Portfolio balance',
-            value: money(state.investmentPortfolioValue),
+            value: money(state.investmentPortfolioLiveValue),
             color: widget.color,
           ),
           const SizedBox(height: 4),
           Text(
             'Investment Fund ${money(state.investmentBalance)} + '
-            'Holdings ${money(state.investmentHoldingsValue)}',
+            'Holdings ${money(state.investmentHoldingsLiveValue)}',
             style: const TextStyle(
               color: _body,
               fontSize: 11,
@@ -21340,10 +21333,9 @@ class _InvestmentAnnualReturnActionPanelState
           ),
           const SizedBox(height: 10),
           _HoldingsPerformanceTile(
-            value: state.investmentHoldingsValue,
+            value: state.investmentHoldingsLiveValue,
             invested: state.investmentHoldingsCostBasis,
-            returnPercent: state.investmentHoldingsReturnPercent,
-            valuedAt: state.investmentHoldingsValuedAt,
+            returnPercent: state.investmentHoldingsLiveReturnPercent,
           ),
           const SizedBox(height: 10),
           _ActionMetricTile(

@@ -455,6 +455,38 @@ class AppState extends ChangeNotifier {
     return total;
   }
 
+  /// Display-only "Holdings value" that matches FakeMaya's own screen:
+  /// units × the price FakeMaya last fetched (synced with every FakeMaya
+  /// refresh, so no extra price calls). A holding with no synced price
+  /// falls back to what is still invested in it.
+  ///
+  /// Only the headline tiles use this. The weekly chart, weekly gains,
+  /// Health Score, goal progress and Shelby's AI context keep using the
+  /// weekly [investmentHoldingsValue].
+  double get investmentHoldingsLiveValue {
+    final summary = fakeMayaLink?.summary;
+    if (summary == null) return 0;
+    var total = 0.0;
+    for (final holding in summary.investmentHoldings) {
+      if (holding.units <= 0) continue;
+      total += holding.price > 0
+          ? holding.units * holding.price
+          : math.max(0, holding.costBasis);
+    }
+    return total;
+  }
+
+  /// Live holdings value vs. what was paid for them, in %.
+  double get investmentHoldingsLiveReturnPercent {
+    final cost = investmentHoldingsCostBasis;
+    if (cost <= 0) return 0;
+    return (investmentHoldingsLiveValue - cost) / cost * 100;
+  }
+
+  /// Investment Fund + live holdings, for display beside the live tile.
+  double get investmentPortfolioLiveValue =>
+      investmentBalance + investmentHoldingsLiveValue;
+
   /// Takes a new weekly price snapshot when the last one is a week old (or
   /// there is none yet). Live prices are fetched only here; if that fails,
   /// FakeMaya's last stored quote is used, and the old snapshot is kept when
