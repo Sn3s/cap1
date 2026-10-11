@@ -5507,10 +5507,6 @@ class _ScheduleSummaryPill extends StatelessWidget {
   }
 }
 
-// Typed values in dark ink (the theme's body text is grey, which made
-// entered income look disabled).
-const _incomeInputStyle = TextStyle(color: _title, fontWeight: FontWeight.w700);
-
 class _IncomeLedgerCard extends StatelessWidget {
   const _IncomeLedgerCard({
     required this.index,
@@ -5553,7 +5549,6 @@ class _IncomeLedgerCard extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   controller: income.nameController,
-                  style: _incomeInputStyle,
                   textCapitalization: TextCapitalization.words,
                   decoration: inputDecoration('Income source').copyWith(
                     labelText: 'Income',
@@ -5569,7 +5564,6 @@ class _IncomeLedgerCard extends StatelessWidget {
                 width: 112,
                 child: TextFormField(
                   controller: income.amountController,
-                  style: _incomeInputStyle,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: inputDecoration('Amount').copyWith(
@@ -5790,12 +5784,15 @@ class _ExpenseLedgerDraft {
     final anchorDate = DateTime.tryParse(
       value['scheduleAnchorDate']?.toString() ?? '',
     );
+    final category = inferExpenseCategory(
+        value['category']?.toString(), value['name']?.toString() ?? '');
     return _ExpenseLedgerDraft(
-      category: inferExpenseCategory(
-          value['category']?.toString(), value['name']?.toString() ?? ''),
+      category: category,
       name: value['name']?.toString() ?? '',
       amount: value['amount']?.toString() ?? '',
-      layer: expenseLayerForLedger(value),
+      // A category with a fixed layer always uses it, which also corrects
+      // older saves where the two were picked separately and disagreed.
+      layer: suggestedExpenseLayer(category) ?? expenseLayerForLedger(value),
       scheduled: value['scheduled'] as bool? ?? false,
       dueDay: (value['dueDay'] as num?)?.toInt(),
       scheduleAnchorType:
@@ -5882,6 +5879,15 @@ class _ExpenseLedgerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final categoryEntries = _categoryEntriesByLayer(
+      AppScope.of(context),
+      expenseCategoryPresets.where((category) => category != 'Other'),
+      trailingHeader: 'Other',
+      trailing: const ['Other'],
+    );
+    final category = expense.category;
+    final fixedLayer =
+        category == null ? null : suggestedExpenseLayer(category);
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5934,58 +5940,87 @@ class _ExpenseLedgerCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
+          // One decision: categories are grouped under their financial layer
+          // (as in the budget ledger and cash sheet), and picking one sets the
+          // expense type. Only "Other" needs its type chosen separately.
           DropdownButtonFormField<String>(
             value: expense.category == null
                 ? null
                 : expenseCategoryPresets.contains(expense.category)
                     ? expense.category
                     : 'Other',
+            isExpanded: true,
             decoration: inputDecoration('Choose a category')
                 .copyWith(labelText: 'Category', isDense: true),
-            items: expenseCategoryPresets
-                .map((value) =>
-                    DropdownMenuItem(value: value, child: Text(value)))
-                .toList(),
+            items: _categoryDropdownItems(categoryEntries),
+            selectedItemBuilder: (context) =>
+                _categoryDropdownSelectedItems(categoryEntries),
             onChanged: (category) {
               if (category == null) return;
               expense.category = category;
-              expense.layer ??= suggestedExpenseLayer(category);
+              // Always follow the category, so changing it can't leave a
+              // stale type behind; "Other" asks for a type instead.
+              expense.layer = suggestedExpenseLayer(category);
               onChanged();
             },
             validator: validateRequired,
           ),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<ExpenseLayer>(
-            value: expense.layer,
-            isExpanded: true,
-            decoration: inputDecoration('Choose expense type').copyWith(
-              labelText: 'Expense type',
-              isDense: true,
-              prefixIcon: expense.layer == null
-                  ? const Icon(Icons.layers_rounded, color: _body)
-                  : Icon(
-                      _expenseLayerIcon(expense.layer!),
-                      color: _expenseLayerColor(expense.layer!),
-                    ),
-            ),
-            items: ExpenseLayer.values
-                .map(
-                  (layer) => DropdownMenuItem(
-                    value: layer,
-                    child: Text(
-                      layer.label,
-                      overflow: TextOverflow.ellipsis,
+          if (fixedLayer != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  _expenseLayerIcon(fixedLayer),
+                  size: 18,
+                  color: _expenseLayerColor(fixedLayer),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Expense type: ${_budgetLayerName(fixedLayer)}',
+                    style: TextStyle(
+                      color: _expenseLayerColor(fixedLayer),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                )
-                .toList(),
-            onChanged: (layer) {
-              expense.layer = layer;
-              onChanged();
-            },
-            validator: (layer) =>
-                layer == null ? 'Choose an expense type.' : null,
-          ),
+                ),
+              ],
+            ),
+          ] else if (expense.category != null) ...[
+            const SizedBox(height: 10),
+            DropdownButtonFormField<ExpenseLayer>(
+              value: expense.layer,
+              isExpanded: true,
+              decoration: inputDecoration('Choose expense type').copyWith(
+                labelText: 'Expense type',
+                isDense: true,
+                prefixIcon: expense.layer == null
+                    ? const Icon(Icons.layers_rounded, color: _body)
+                    : Icon(
+                        _expenseLayerIcon(expense.layer!),
+                        color: _expenseLayerColor(expense.layer!),
+                      ),
+              ),
+              items: ExpenseLayer.values
+                  .map(
+                    (layer) => DropdownMenuItem(
+                      value: layer,
+                      child: Text(
+                        _budgetLayerName(layer),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (layer) {
+                expense.layer = layer;
+                onChanged();
+              },
+              validator: (layer) =>
+                  layer == null ? 'Choose an expense type.' : null,
+            ),
+          ],
           if (expense.layer != null) ...[
             const SizedBox(height: 7),
             Text(
