@@ -27039,7 +27039,17 @@ class _ActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final positive = data.countsAsIncome;
+    // The sign follows the real amount. Internal transfers (money moving
+    // between your own accounts) aren't income, but they aren't money lost
+    // either, so they're shown in a neutral color instead of red/green.
+    final positive = data.amount >= 0;
+    final isInternalTransfer =
+        data.transaction?.isInternalFakeMayaTransfer == true;
+    final amountColor = isInternalTransfer
+        ? _body
+        : positive
+            ? _green
+            : _red;
     final needsLabel = data.needsLabel;
     return Material(
       color: Colors.transparent,
@@ -27118,7 +27128,7 @@ class _ActivityRow extends StatelessWidget {
                   Text(
                     '${positive ? '+' : '-'}₱${data.amount.abs().toStringAsFixed(2)}',
                     style: TextStyle(
-                      color: positive ? _green : _red,
+                      color: amountColor,
                       fontWeight: FontWeight.w900,
                       fontSize: 15,
                     ),
