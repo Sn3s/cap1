@@ -4985,9 +4985,15 @@ class _MonthlyIncomeScreenState extends State<MonthlyIncomeScreen> {
     super.dispose();
   }
 
+  // Extra sources start with both toggles off ("Same amount each month",
+  // "Has a predictable schedule") instead of copying the main income's
+  // defaults; only the suggested repeat frequency carries over.
   void _addIncome(AppState state) => setState(
         () => incomes.add(
-          _IncomeLedgerDraft.fromDefaults(state.suggestedIncomeSourceDefaults),
+          _IncomeLedgerDraft(
+            repeatFrequency:
+                state.suggestedIncomeSourceDefaults.repeatFrequency,
+          ),
         ),
       );
 
@@ -5501,6 +5507,10 @@ class _ScheduleSummaryPill extends StatelessWidget {
   }
 }
 
+// Typed values in dark ink (the theme's body text is grey, which made
+// entered income look disabled).
+const _incomeInputStyle = TextStyle(color: _title, fontWeight: FontWeight.w700);
+
 class _IncomeLedgerCard extends StatelessWidget {
   const _IncomeLedgerCard({
     required this.index,
@@ -5543,6 +5553,7 @@ class _IncomeLedgerCard extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   controller: income.nameController,
+                  style: _incomeInputStyle,
                   textCapitalization: TextCapitalization.words,
                   decoration: inputDecoration('Income source').copyWith(
                     labelText: 'Income',
@@ -5558,6 +5569,7 @@ class _IncomeLedgerCard extends StatelessWidget {
                 width: 112,
                 child: TextFormField(
                   controller: income.amountController,
+                  style: _incomeInputStyle,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: inputDecoration('Amount').copyWith(
