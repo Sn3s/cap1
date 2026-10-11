@@ -27518,9 +27518,19 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     super.didChangeDependencies();
     if (_appliedMerchantSuggestion) return;
     _appliedMerchantSuggestion = true;
+    final state = AppScope.of(context);
 
-    final suggestion =
-        AppScope.of(context).merchantCategorySuggestionFor(widget.transaction);
+    // Reopening a labeled expense: restore its layer from the saved category
+    // when the source doesn't imply one (e.g. "E-wallet"). Otherwise the
+    // category and source dropdowns wait for a layer and look reset.
+    final savedCategory = _category;
+    if (widget.transaction.amount < 0 &&
+        _financialLayer == null &&
+        savedCategory != null) {
+      _financialLayer = _financialLayerForSavedCategory(state, savedCategory);
+    }
+
+    final suggestion = state.merchantCategorySuggestionFor(widget.transaction);
     _merchantSuggestion = suggestion;
     if (_category != null ||
         suggestion == null ||
@@ -27817,6 +27827,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
           const SizedBox(height: 16),
           if (!isIncome) ...[
             DropdownButtonFormField<String>(
+              isExpanded: true,
               value: _financialLayers.contains(_financialLayer)
                   ? _financialLayer
                   : null,
@@ -27845,6 +27856,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             const SizedBox(height: 12),
           ],
           DropdownButtonFormField<String>(
+            isExpanded: true,
             value: canChooseCategory && enabledCategories.contains(_category)
                 ? _category
                 : null,
@@ -27898,6 +27910,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               )
             else
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 value: enabledSourceValues.contains(_source) ? _source : null,
                 decoration: inputDecoration(canChooseSource
                         ? 'Choose a source'
@@ -27913,6 +27926,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                           enabled: option.enabled,
                           child: Text(
                             option.label,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: option.enabled ? _title : _body,
                               fontWeight: option.enabled
@@ -28174,6 +28188,23 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       'investment' => 'Accumulating Wealth',
       'personal lifestyle fund' => 'Financial Freedom',
       _ => null,
+    };
+  }
+
+  /// The layer a saved category was labeled under: an onboarding basic-needs
+  /// expense, a standard category, or a budgeted custom category's layer.
+  String? _financialLayerForSavedCategory(AppState state, String category) {
+    final isOnboardingBasicNeed = _cashFlowBasicNeedsCategoryOptions(state)
+        .any((option) => option.value == category);
+    if (isOnboardingBasicNeed) return _pyramidCashFlowLayer;
+    final standard = _financialLayerForSuggestedCategory(category);
+    if (standard != null) return standard;
+    if (!state.categorySpendingBudgets.containsKey(category)) return null;
+    return switch (state.budgetCategoryLayer(category)) {
+      ExpenseLayer.basicNeeds => 'Cash Flow & Basic Needs',
+      ExpenseLayer.emergencyInsurance => 'Financial Safety',
+      ExpenseLayer.debtInvestments => 'Accumulating Wealth',
+      ExpenseLayer.nonEssentials => 'Financial Freedom',
     };
   }
 
