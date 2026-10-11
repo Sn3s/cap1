@@ -5154,14 +5154,31 @@ class _OverviewMetric extends StatelessWidget {
     required this.value,
     required this.color,
     required this.icon,
+    this.onExplain,
   });
   final String label;
   final String value;
   final Color color;
   final IconData icon;
 
+  /// When set, the tile shows an ⓘ and tapping it explains the number.
+  final VoidCallback? onExplain;
+
   @override
   Widget build(BuildContext context) {
+    final tile = _buildTile();
+    if (onExplain == null) return tile;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onExplain,
+        borderRadius: BorderRadius.circular(8),
+        child: tile,
+      ),
+    );
+  }
+
+  Widget _buildTile() {
     return Container(
       constraints: const BoxConstraints(minHeight: 88),
       padding: const EdgeInsets.all(9),
@@ -5174,9 +5191,22 @@ class _OverviewMetric extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 17),
           const SizedBox(height: 7),
-          Text(label,
-              style: const TextStyle(
-                  color: _body, fontSize: 9, fontWeight: FontWeight.w800)),
+          Row(
+            children: [
+              Flexible(
+                child: Text(label,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800)),
+              ),
+              if (onExplain != null) ...[
+                const SizedBox(width: 3),
+                const Icon(Icons.info_outline_rounded,
+                    size: 11, color: _body),
+              ],
+            ],
+          ),
           const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
@@ -5191,6 +5221,150 @@ class _OverviewMetric extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showScoreExplanation(
+  BuildContext context, {
+  required String title,
+  required String formula,
+  required List<Widget> children,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: _surface,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .8,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+          children: [
+            Text(title,
+                style: const TextStyle(
+                    color: _title, fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(formula,
+                  style: const TextStyle(
+                      color: _purple, fontWeight: FontWeight.w900)),
+            ),
+            const SizedBox(height: 14),
+            ...children,
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _explanationLine(String label, String value, {bool bold = false}) {
+  final style = TextStyle(
+    color: _title,
+    fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+  );
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: Text(label, style: style)),
+        const SizedBox(width: 12),
+        Text(value, style: style),
+      ],
+    ),
+  );
+}
+
+Widget _explanationNote(String text) => Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(text,
+          style: const TextStyle(
+              color: _body, fontSize: 12, height: 1.4, fontWeight: FontWeight.w600)),
+    );
+
+void _showBillReadinessExplanation(
+  BuildContext context,
+  _CashMonthInsight month,
+) {
+  _showScoreExplanation(
+    context,
+    title: 'How bill readiness is calculated',
+    formula: 'Bill readiness = Have ÷ Need (up to 100%)',
+    children: [
+      _explanationLine('Have', money(month.walletAvailable)),
+      _explanationLine('Need', money(month.billNeed)),
+      _explanationLine(
+          'Bill readiness', '${_scorePercent(month.billScore)}%',
+          bold: true),
+      _explanationNote(
+        'Need: your scheduled Basic Needs bills due in '
+        '${_monthLabel(month.start)}, plus what is still unpaid on open '
+        'Basic Needs bills. If nothing is due, readiness is 100%.',
+      ),
+      _explanationNote(
+        'Have: the larger of your Wallet and Cash on Hand balances right now.',
+      ),
+      _explanationNote(
+        '100% means your wallet can cover this month\'s bills.',
+      ),
+    ],
+  );
+}
+
+void _showGoalResiliencyExplanation(
+  BuildContext context,
+  _CashMonthInsight month,
+) {
+  final scores = month.actionScores;
+  _showScoreExplanation(
+    context,
+    title: 'How goal resiliency is calculated',
+    formula: 'Goal resiliency = average of your actions\' scores',
+    children: [
+      if (scores.isEmpty)
+        _explanationNote(
+          'No actions are active for this goal yet, so it is 0%.',
+        )
+      else ...[
+        for (final score in scores) ...[
+          _explanationLine(
+            '${_actionNumber(score.id)} · ${score.title}',
+            '${_scorePercent(score.score)}%',
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(score.formula,
+                style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ],
+        const Divider(height: 16, color: _border),
+        _explanationLine(
+          'Average of ${scores.length} action${scores.length == 1 ? '' : 's'}',
+          '${_scorePercent(month.goalResiliencyScore)}%',
+          bold: true,
+        ),
+        _explanationNote(
+          'Each action is scored week by week in '
+          '${_monthLabel(month.start)}, then those weeks are averaged.',
+        ),
+      ],
+    ],
+  );
 }
 
 class _CashMonthInsight {
@@ -6686,6 +6860,8 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                         child: _OverviewMetric(
                           label: 'Bill readiness',
                           value: '$billScore%',
+                          onExplain: () =>
+                              _showBillReadinessExplanation(context, month),
                           color: month.canPayBills ? _sage : _red,
                           icon: month.canPayBills
                               ? Icons.check_circle_rounded
@@ -6747,6 +6923,8 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                         child: _OverviewMetric(
                           label: 'Goal resiliency',
                           value: '$resiliencyScore%',
+                          onExplain: () =>
+                              _showGoalResiliencyExplanation(context, month),
                           color: _resiliencyScoreColor(resiliencyScore),
                           icon: Icons.task_alt_rounded,
                         ),
@@ -6792,6 +6970,8 @@ class _CashMonthStatusSection extends StatelessWidget {
                 child: _OverviewMetric(
                   label: 'Bill readiness',
                   value: '$billScore%',
+                  onExplain: () =>
+                      _showBillReadinessExplanation(context, month),
                   color: month.canPayBills ? _sage : _red,
                   icon: month.canPayBills
                       ? Icons.check_circle_rounded
@@ -6850,6 +7030,8 @@ class _CashMonthStatusSection extends StatelessWidget {
                 child: _OverviewMetric(
                   label: 'Goal resiliency',
                   value: '$resiliencyScore%',
+                  onExplain: () =>
+                      _showGoalResiliencyExplanation(context, month),
                   color: _resiliencyScoreColor(resiliencyScore),
                   icon: Icons.task_alt_rounded,
                 ),
