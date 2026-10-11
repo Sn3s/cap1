@@ -26555,82 +26555,230 @@ class _ActivityCalendarSummary extends StatefulWidget {
 }
 
 class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
+  // Summary period: the dropdown picks it, the arrows step through it.
+  static const _periods = ['Daily', 'Weekly', 'Monthly', 'Yearly'];
+  String _period = 'Monthly';
+  late DateTime _anchor = _periodStart('Monthly', AppClock.now());
   bool _expanded = false;
-  DateTime _month = DateTime(AppClock.now().year, AppClock.now().month);
+
+  static DateTime _periodStart(String period, DateTime date) =>
+      switch (period) {
+        'Daily' => DateTime(date.year, date.month, date.day),
+        'Weekly' => DateTime(
+            date.year, date.month, date.day - (date.weekday - DateTime.monday)),
+        'Yearly' => DateTime(date.year),
+        _ => DateTime(date.year, date.month),
+      };
+
+  DateTime _shifted(int periods) => switch (_period) {
+        'Daily' => DateTime(_anchor.year, _anchor.month, _anchor.day + periods),
+        'Weekly' =>
+          DateTime(_anchor.year, _anchor.month, _anchor.day + 7 * periods),
+        'Yearly' => DateTime(_anchor.year + periods),
+        _ => DateTime(_anchor.year, _anchor.month + periods),
+      };
+
+  String get _periodLabel {
+    final start = _anchor;
+    switch (_period) {
+      case 'Daily':
+        return '${_monthLabel(start.month)} ${start.day}, ${start.year}';
+      case 'Weekly':
+        final end = DateTime(start.year, start.month, start.day + 6);
+        return end.month == start.month
+            ? '${_monthLabel(start.month)} ${start.day}–${end.day}'
+            : '${_monthLabel(start.month)} ${start.day}–'
+                '${_monthLabel(end.month)} ${end.day}';
+      case 'Yearly':
+        return '${start.year}';
+      default:
+        return '${start.year} ${_monthLabel(start.month)}';
+    }
+  }
+
+  /// The dates shown in the calendar: a month grid, or one week row.
+  List<DateTime> _calendarDates(DateTime anchor) {
+    if (_period == 'Weekly') {
+      return [
+        for (var i = 0; i < 7; i++)
+          DateTime(anchor.year, anchor.month, anchor.day + i),
+      ];
+    }
+    final first = DateTime(anchor.year, anchor.month);
+    final leading = first.weekday - DateTime.monday;
+    final daysInMonth =
+        DateTime(anchor.year, anchor.month + 1).difference(first).inDays;
+    final totalCells = ((leading + daysInMonth + 6) ~/ 7) * 7;
+    return [
+      for (var i = 0; i < totalCells; i++)
+        DateTime(first.year, first.month, first.day + i - leading),
+    ];
+  }
+
+  List<_CalendarDayData> _weekDays(List<_TxData> transactions) {
+    final dates = _calendarDates(_anchor);
+    return [
+      for (final date in dates)
+        transactions
+            .where((tx) {
+              final at = tx.occurredAt;
+              return at != null &&
+                  at.year == date.year &&
+                  at.month == date.month &&
+                  at.day == date.day;
+            })
+            .fold(
+              _CalendarDayData(
+                day: date.day,
+                income: 0,
+                expense: 0,
+                inCurrentMonth: true,
+              ),
+              (day, tx) => day.copyWith(
+                income: day.income + tx.incomeAmount,
+                expense: day.expense + tx.expenseAmount,
+              ),
+            ),
+    ];
+  }
+
+  List<_TxData> _transactionsInPeriod(List<_TxData> transactions) {
+    final start = _anchor;
+    final end = _shifted(1);
+    final now = AppClock.now();
+    final hasDatedTransactions =
+        transactions.any((transaction) => transaction.occurredAt != null);
+    return transactions.where((transaction) {
+      final occurredAt = transaction.occurredAt;
+      if (occurredAt == null) {
+        // Undated entries belong to the period containing today.
+        return !hasDatedTransactions &&
+            !now.isBefore(start) &&
+            now.isBefore(end);
+      }
+      return !occurredAt.isBefore(start) && occurredAt.isBefore(end);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final monthTransactions = _transactionsForMonth(
-      widget.transactions,
-      _month,
-    );
+    final periodTransactions = _transactionsInPeriod(widget.transactions);
     final income =
-        monthTransactions.fold(0.0, (total, tx) => total + tx.incomeAmount);
+        periodTransactions.fold(0.0, (total, tx) => total + tx.incomeAmount);
     final expense =
-        monthTransactions.fold(0.0, (total, tx) => total + tx.expenseAmount);
+        periodTransactions.fold(0.0, (total, tx) => total + tx.expenseAmount);
     final balance = income - expense;
-    final days = _calendarDays(widget.transactions, _month);
+    final hasCalendar = _period == 'Weekly' || _period == 'Monthly';
+    final days = _period == 'Weekly'
+        ? _weekDays(widget.transactions)
+        : _calendarDays(widget.transactions, _anchor);
+    final now = AppClock.now();
+    final today = DateTime(now.year, now.month, now.day);
 
     return AppCard(
       child: Column(
         children: [
           Row(
             children: [
-              const Text(
-                'Monthly',
-                style: TextStyle(
-                  color: _purple,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const Icon(Icons.expand_more_rounded, color: _purple, size: 18),
-              const Spacer(),
-              if (_expanded) ...[
-                IconButton(
-                  onPressed: () => setState(() {
-                    _month = DateTime(_month.year, _month.month - 1);
-                  }),
-                  icon: const Icon(Icons.chevron_left_rounded),
-                  color: _purple,
-                  visualDensity: VisualDensity.compact,
-                ),
-                Text(
-                  '${_month.year} ${_monthLabel(_month.month)}',
-                  style: const TextStyle(
-                    color: _title,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+              PopupMenuButton<String>(
+                tooltip: 'Choose period',
+                initialValue: _period,
+                onSelected: (period) => setState(() {
+                  _period = period;
+                  // Jump to the chosen period that contains today.
+                  _anchor = _periodStart(period, AppClock.now());
+                }),
+                itemBuilder: (context) => [
+                  for (final period in _periods)
+                    PopupMenuItem(
+                      value: period,
+                      child: Text(
+                        period,
+                        style: TextStyle(
+                          color: _title,
+                          fontWeight: period == _period
+                              ? FontWeight.w900
+                              : FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _period,
+                        style: const TextStyle(
+                          color: _purple,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const Icon(Icons.expand_more_rounded,
+                          color: _purple, size: 18),
+                    ],
                   ),
                 ),
-                IconButton(
-                  onPressed: () => setState(() {
-                    _month = DateTime(_month.year, _month.month + 1);
-                  }),
-                  icon: const Icon(Icons.chevron_right_rounded),
-                  color: _purple,
-                  visualDensity: VisualDensity.compact,
-                ),
-                const Spacer(),
-              ] else
-                Text(
-                  '${_month.year} ${_monthLabel(_month.month)}',
-                  style: const TextStyle(
-                    color: _title,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              const SizedBox(width: 10),
-              IconButton(
-                onPressed: () => setState(() => _expanded = !_expanded),
-                icon: Icon(
-                  _expanded
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                ),
-                color: _purple,
-                style: IconButton.styleFrom(backgroundColor: _bellySoft),
               ),
+              // All the free space goes to ‹ label ›, centered, so the full
+              // period (e.g. "2026 Oct") fits instead of sharing it with a
+              // spacer and getting cut off.
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      tooltip: 'Previous',
+                      onPressed: () => setState(() => _anchor = _shifted(-1)),
+                      icon: const Icon(Icons.chevron_left_rounded),
+                      color: _purple,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 40),
+                    ),
+                    // Shrinks slightly on narrow screens rather than cutting
+                    // off the month.
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _periodLabel,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Next',
+                      onPressed: () => setState(() => _anchor = _shifted(1)),
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      color: _purple,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 40),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasCalendar)
+                IconButton(
+                  tooltip: _expanded ? 'Hide calendar' : 'Show calendar',
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  icon: Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                  ),
+                  color: _purple,
+                  style: IconButton.styleFrom(backgroundColor: _bellySoft),
+                ),
             ],
           ),
           AnimatedCrossFade(
@@ -26667,16 +26815,14 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
                       return _CalendarDayTile(
                         day: day,
                         selected: day.inCurrentMonth &&
-                            day.day == AppClock.now().day &&
-                            _month.year == AppClock.now().year &&
-                            _month.month == AppClock.now().month,
+                            _calendarDates(_anchor)[index] == today,
                       );
                     },
                   ),
                 ],
               ),
             ),
-            crossFadeState: _expanded
+            crossFadeState: _expanded && hasCalendar
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 180),
@@ -26748,24 +26894,6 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
       );
     }
     return cells;
-  }
-
-  static List<_TxData> _transactionsForMonth(
-    List<_TxData> transactions,
-    DateTime month,
-  ) {
-    final now = AppClock.now();
-    final hasDatedTransactions =
-        transactions.any((transaction) => transaction.occurredAt != null);
-    return transactions.where((transaction) {
-      final occurredAt = transaction.occurredAt;
-      if (occurredAt == null) {
-        return !hasDatedTransactions &&
-            month.year == now.year &&
-            month.month == now.month;
-      }
-      return occurredAt.year == month.year && occurredAt.month == month.month;
-    }).toList();
   }
 
   static String _monthLabel(int month) {
