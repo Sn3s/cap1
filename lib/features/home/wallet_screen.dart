@@ -84,6 +84,7 @@ class _WalletPageState extends State<WalletPage> {
     final moneyOut = monthTransactions
         .where((t) => t.amount < 0)
         .fold(0.0, (s, t) => s + t.amount.abs());
+    final unlabeledCount = allTransactions.where((t) => t.needsLabel).length;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 96),
@@ -176,6 +177,22 @@ class _WalletPageState extends State<WalletPage> {
             ],
           ),
         ),
+        if (unlabeledCount > 0) ...[
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _UnlabeledTransactionsBanner(
+              count: unlabeledCount,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const RecentActivityPage(
+                    initialFilter: _unlabeledFilter,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         _WalletRecentActivityPreview(
           transactions: allTransactions,
@@ -266,6 +283,107 @@ class _IrregularIncomePlanCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Activity filter showing only transactions that still need a label.
+const _unlabeledFilter = 'Unlabeled';
+
+/// Wallet-tab nudge so unlabeled transactions aren't missed.
+class _UnlabeledTransactionsBanner extends StatelessWidget {
+  const _UnlabeledTransactionsBanner({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _amber.withValues(alpha: .12),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _amber.withValues(alpha: .45)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.label_important_rounded, color: _amber),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      count == 1
+                          ? '1 unlabeled transaction'
+                          : '$count unlabeled transactions',
+                      style: const TextStyle(
+                        color: _title,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Label them so budgets, goals and insights stay accurate.',
+                      style: TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Label now',
+                style: TextStyle(
+                  color: _amber,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: _amber),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the Unlabeled filter has nothing left.
+class _AllLabeledActivity extends StatelessWidget {
+  const _AllLabeledActivity();
+
+  @override
+  Widget build(BuildContext context) {
+    return const AppCard(
+      child: Column(
+        children: [
+          Icon(Icons.check_circle_rounded, color: _sage, size: 34),
+          SizedBox(height: 8),
+          Text(
+            'All caught up',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Every transaction is labeled.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _body, fontWeight: FontWeight.w600),
           ),
         ],
       ),

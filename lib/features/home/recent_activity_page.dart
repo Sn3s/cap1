@@ -22,6 +22,7 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
 
   static const _filters = [
     'All',
+    _unlabeledFilter,
     'Money in',
     'Money out',
     'Cash',
@@ -82,6 +83,8 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
     final filteredTransactions = allTransactions
         .where((transaction) => transaction.matchesFilter(_filter))
         .toList();
+    final unlabeledCount =
+        allTransactions.where((transaction) => transaction.needsLabel).length;
     _filteredTransactionCount = filteredTransactions.length;
     final hasOlderTransactions =
         _visibleTransactionCount < _filteredTransactionCount;
@@ -150,9 +153,16 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
                         ),
                       ),
                       child: Text(
-                        _filters[i],
+                        _filters[i] == _unlabeledFilter && unlabeledCount > 0
+                            ? '${_filters[i]} ($unlabeledCount)'
+                            : _filters[i],
                         style: TextStyle(
-                          color: active ? Colors.white : _title,
+                          color: active
+                              ? Colors.white
+                              : _filters[i] == _unlabeledFilter &&
+                                      unlabeledCount > 0
+                                  ? _amber
+                                  : _title,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -163,7 +173,9 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
             ),
             const SizedBox(height: 16),
             visibleGroups.isEmpty
-                ? _EmptyActivity(linked: linked)
+                ? _filter == _unlabeledFilter
+                    ? const _AllLabeledActivity()
+                    : _EmptyActivity(linked: linked)
                 : Column(
                     children: [
                       _ActivityCalendarSummary(transactions: allTransactions),

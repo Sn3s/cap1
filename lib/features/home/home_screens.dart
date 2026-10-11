@@ -26524,8 +26524,18 @@ class _TxData {
     return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'}';
   }
 
+  /// A real money movement the user still has to label (category + source).
+  bool get needsLabel {
+    final tx = transaction;
+    return tx != null &&
+        !tx.isInternalFakeMayaTransfer &&
+        !tx.isLabeled &&
+        tx.amount != 0;
+  }
+
   bool matchesFilter(String filter) {
     if (filter == 'All') return true;
+    if (filter == _unlabeledFilter) return needsLabel;
     if (filter == 'Money in') return countsAsIncome;
     if (filter == 'Money out') return amount < 0;
     return category.toLowerCase().contains(filter.toLowerCase()) ||
@@ -26929,43 +26939,39 @@ class _EmptyActivity extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      children: [
-        AppCard(
-          child: Column(
-            children: [
-              const Icon(
-                Icons.receipt_long_rounded,
-                color: _purple,
-                size: 34,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                linked
-                    ? 'No matching FakeMaya activity yet.'
-                    : 'No activity yet.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _title,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                linked
-                    ? 'Make a wallet, savings, credit, or loan movement in FakeMaya, then refresh.'
-                    : 'Use the Transaction button to log cash manually, or link FakeMaya for synced activity.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: _body,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+    // A plain card, not a ListView: it sits inside Recent Activity's own
+    // scrolling list, and a nested ListView there has unbounded height and
+    // crashes whenever a filter (e.g. Savings) has no results.
+    return AppCard(
+      child: Column(
+        children: [
+          const Icon(
+            Icons.receipt_long_rounded,
+            color: _purple,
+            size: 34,
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          Text(
+            linked ? 'No matching FakeMaya activity yet.' : 'No activity yet.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _title,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            linked
+                ? 'Make a wallet, savings, credit, or loan movement in FakeMaya, then refresh.'
+                : 'Use the Transaction button to log cash manually, or link FakeMaya for synced activity.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: _body,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -27034,11 +27040,7 @@ class _ActivityRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final positive = data.countsAsIncome;
-    final transaction = data.transaction;
-    final needsLabel = transaction != null &&
-        !transaction.isInternalFakeMayaTransfer &&
-        !transaction.isLabeled &&
-        transaction.amount != 0;
+    final needsLabel = data.needsLabel;
     return Material(
       color: Colors.transparent,
       child: InkWell(
