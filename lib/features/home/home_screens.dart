@@ -16157,8 +16157,8 @@ class _WeeklyProgressCard extends StatelessWidget {
       subtitle: _daysRemainingThisWeekLabel(),
       leading: Padding(
         padding: const EdgeInsets.all(5),
-        child: Image.asset('assets/images/shellby_wave.webp',
-            fit: BoxFit.contain),
+        child:
+            Image.asset('assets/images/shellby_wave.webp', fit: BoxFit.contain),
       ),
       trailing: SizedBox(
         width: 48,
@@ -16480,131 +16480,285 @@ class _D1GoalCard extends StatelessWidget {
     final streak = _motivationStreak(goal.id, state);
     final percent = _goalPercent(goal.id, state);
     final accent = _goalProgressColor(goal.id, percent);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _border),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: .04),
-                blurRadius: 8,
-                offset: const Offset(0, 2)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Neutral header (color no longer encodes the layer)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-              decoration: const BoxDecoration(
-                color: _bg,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                border: Border(bottom: BorderSide(color: _border)),
+    final layer = goal.layerColor;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: _border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x142E1B47),
+                blurRadius: 14,
+                offset: Offset(0, 6),
               ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: const BoxDecoration(
-                      color: _bellySoft,
-                      borderRadius: BorderRadius.all(Radius.circular(10)),
-                    ),
-                    alignment: Alignment.center,
-                    child:
-                        Text(goal.emoji, style: const TextStyle(fontSize: 20)),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    // Codes stay internal; users see the motivation.
-                    child: Text(
-                      goal.layerLabel.toUpperCase(),
-                      style: const TextStyle(
-                        color: _body,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ),
-                  // Motivation streak (not the log-in streak).
-                  Tooltip(
-                    message: 'Motivation streak: actions done on time in a row',
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    // Gradient emoji tile, same family as badge medallions.
+                    Container(
+                      width: 50,
+                      height: 50,
                       decoration: BoxDecoration(
-                        color: streak > 0
-                            ? const Color(0xFFFF7A1A).withValues(alpha: .12)
-                            : _border.withValues(alpha: .6),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '$streak 🔥',
-                        style: TextStyle(
-                          color: streak > 0 ? const Color(0xFFE0610A) : _body,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            layer.withValues(alpha: .22),
+                            Color.lerp(layer, _purple, .5)!
+                                .withValues(alpha: .30),
+                          ],
                         ),
+                        border: Border.all(color: layer.withValues(alpha: .25)),
                       ),
+                      alignment: Alignment.center,
+                      child: Text(goal.emoji,
+                          style: const TextStyle(fontSize: 24)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Codes stay internal; users see the motivation.
+                          Text(
+                            goal.layerLabel.toUpperCase(),
+                            style: TextStyle(
+                              color: Color.lerp(layer, _title, .25),
+                              fontSize: 10.5,
+                              letterSpacing: 1.1,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            goal.title,
+                            style: GoogleFonts.fredoka(
+                              color: _title,
+                              fontSize: 19,
+                              height: 1.15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: _bellySoft,
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(Icons.arrow_forward_rounded,
+                          size: 17, color: _purple),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  goal.description,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _GoalStreakPanel(
+                  goalId: goal.id,
+                  goalTitle: goal.title,
+                  streak: streak,
+                ),
+                // No progress bar on goal cards: progress lives in each
+                // goal page's Goal Progress box.
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _GoalPillChip(
+                      icon: Icons.bolt_rounded,
+                      label: '$actionCount actions active',
+                      color: accent,
+                    ),
+                    const Spacer(),
+                    Text(
+                      'View details',
+                      style: GoogleFonts.nunito(
+                        color: _purple,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Streak milestones a goal's motivation streak climbs toward.
+const _goalStreakMilestones = [3, 5, 10, 20, 50, 100];
+
+/// The motivation streak (on-time actions in a row, not the log-in streak)
+/// as the hero of each goal card: flame medallion, big count, and progress
+/// to the next milestone.
+class _GoalStreakPanel extends StatelessWidget {
+  const _GoalStreakPanel({
+    required this.goalId,
+    required this.goalTitle,
+    required this.streak,
+  });
+  final String goalId;
+  final String goalTitle;
+  final int streak;
+
+  static const _flame = Color(0xFFFF7A1A);
+  static const _ember = Color(0xFFE0483D);
+
+  @override
+  Widget build(BuildContext context) {
+    final lit = streak > 0;
+    final next = _goalStreakMilestones.firstWhere(
+      (milestone) => milestone > streak,
+      orElse: () => streak + 50,
+    );
+    final previous = _goalStreakMilestones.lastWhere(
+      (milestone) => milestone <= streak,
+      orElse: () => 0,
+    );
+    final progress =
+        ((streak - previous) / (next - previous)).clamp(0.0, 1.0).toDouble();
+    final panel = Tooltip(
+      message: 'Motivation streak: actions done on time in a row',
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: lit
+                ? [
+                    _flame.withValues(alpha: .10),
+                    _ember.withValues(alpha: .14),
+                  ]
+                : [_bg, _bg],
+          ),
+          border: Border.all(
+            color: lit ? _flame.withValues(alpha: .28) : _border,
+          ),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 54,
+              height: 54,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 54,
+                    height: 54,
+                    child: CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 3,
+                      strokeCap: StrokeCap.round,
+                      backgroundColor:
+                          lit ? _flame.withValues(alpha: .15) : _border,
+                      color: _flame,
+                    ),
+                  ),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: lit
+                          ? const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFFFB347), _flame, _ember],
+                            )
+                          : null,
+                      color: lit ? null : _surface,
+                      boxShadow: lit
+                          ? [
+                              BoxShadow(
+                                color: _flame.withValues(alpha: .35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Icon(
+                      Icons.local_fire_department_rounded,
+                      size: 24,
+                      color: lit ? Colors.white : _body.withValues(alpha: .45),
                     ),
                   ),
                 ],
               ),
             ),
-            // Goal content
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    goal.title,
-                    style: const TextStyle(
-                      color: _title,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    goal.description,
-                    style: const TextStyle(
-                      color: _body,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      height: 1.4,
-                    ),
-                  ),
-                  // No progress bar on goal cards: progress lives in each
-                  // goal page's Goal Progress box.
-                  const SizedBox(height: 14),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
                     children: [
-                      _GoalPillChip(
-                        icon: Icons.bolt_rounded,
-                        label: '$actionCount actions active',
-                        color: accent,
-                      ),
-                      const Spacer(),
                       Text(
-                        'View details',
-                        style: TextStyle(
-                          color: accent,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                        '$streak',
+                        key: ValueKey('motivation-streak-$goalId'),
+                        style: GoogleFonts.fredoka(
+                          color: lit ? _ember : _body,
+                          fontSize: 28,
+                          height: 1,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(width: 2),
-                      Icon(Icons.arrow_forward_rounded,
-                          size: 16, color: accent),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          lit ? 'on-time streak' : 'streak not started',
+                          style: GoogleFonts.nunito(
+                            color: _title,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
                     ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    lit
+                        ? '${next - streak} more to hit $next in a row'
+                        : 'Complete an action on time to light it up',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ),
@@ -16612,6 +16766,22 @@ class _D1GoalCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+    if (!lit) return panel;
+    // Lit streaks get the yellow "Share it!" pinned over the corner.
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        panel,
+        Positioned(
+          top: -11,
+          right: 10,
+          child: ShareItChip(
+            achievement: goalStreakShareable(goalTitle, streak),
+            compact: true,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -24596,90 +24766,92 @@ class ProfilePage extends StatelessWidget {
                 children: [
                   Stack(
                     children: [
-                  AppCard(
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 96,
-                          height: 96,
-                          decoration: const BoxDecoration(
-                            color: _bellySoft,
-                            shape: BoxShape.circle,
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: (state.photoUrl ?? '').isEmpty
-                              ? Image.asset(
-                                  'assets/images/shellby_wave.webp',
-                                  fit: BoxFit.cover,
-                                )
-                              : Image.network(
-                                  state.photoUrl!,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Image.asset(
-                                    'assets/images/shellby_wave.webp',
-                                    fit: BoxFit.cover,
+                      AppCard(
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 96,
+                              height: 96,
+                              decoration: const BoxDecoration(
+                                color: _bellySoft,
+                                shape: BoxShape.circle,
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: (state.photoUrl ?? '').isEmpty
+                                  ? Image.asset(
+                                      'assets/images/shellby_wave.webp',
+                                      fit: BoxFit.cover,
+                                    )
+                                  : Image.network(
+                                      state.photoUrl!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Image.asset(
+                                        'assets/images/shellby_wave.webp',
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              state.name.isEmpty ? 'Shelby user' : state.name,
+                              style: GoogleFonts.fredoka(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w600,
+                                color: _title,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              profileEmail.isEmpty
+                                  ? 'Profile saved securely'
+                                  : profileEmail,
+                              style: TextStyle(
+                                color: _body,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _ProfileStatTile(
+                                    emoji: '⏰',
+                                    value: state
+                                            .notificationReminderMinutes.isEmpty
+                                        ? '--'
+                                        : _formatReminderMinutes(state
+                                            .notificationReminderMinutes.first),
+                                    label: 'reminder',
                                   ),
                                 ),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          state.name.isEmpty ? 'Shelby user' : state.name,
-                          style: GoogleFonts.fredoka(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                            color: _title,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          profileEmail.isEmpty
-                              ? 'Profile saved securely'
-                              : profileEmail,
-                          style: TextStyle(
-                            color: _body,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _ProfileStatTile(
-                                emoji: '⏰',
-                                value: state.notificationReminderMinutes.isEmpty
-                                    ? '--'
-                                    : _formatReminderMinutes(state
-                                        .notificationReminderMinutes.first),
-                                label: 'reminder',
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              // Opens the Financial Health Score breakdown.
-                              child: GestureDetector(
-                                onTap: () => _push(context,
-                                    const FinancialHealthScoreScreen()),
-                                behavior: HitTestBehavior.opaque,
-                                child: _ProfileStatTile(
-                                  emoji: '🎯',
-                                  value: '${state.healthScore?.round() ?? '—'}',
-                                  label: 'health ›',
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  // Opens the Financial Health Score breakdown.
+                                  child: GestureDetector(
+                                    onTap: () => _push(context,
+                                        const FinancialHealthScoreScreen()),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: _ProfileStatTile(
+                                      emoji: '🎯',
+                                      value:
+                                          '${state.healthScore?.round() ?? '—'}',
+                                      label: 'health ›',
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _LoginStreakTile(
-                                streak: state.loginStreak,
-                                active: state.openedAppToday &&
-                                    state.loginStreak > 0,
-                              ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _LoginStreakTile(
+                                    streak: state.loginStreak,
+                                    active: state.openedAppToday &&
+                                        state.loginStreak > 0,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
+                      ),
                       Positioned(
                         top: 14,
                         right: 14,
@@ -24770,9 +24942,6 @@ class ProfilePage extends StatelessWidget {
                               context: context,
                               builder: (dialogContext) => AlertDialog(
                                 backgroundColor: _surface,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
                                 title: const Text('Overwrite mock data?'),
                                 content: const Text(
                                   'This will replace this account with a realistic four-month Emergency Fund scenario.',
@@ -24873,46 +25042,50 @@ class NotificationSettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _surface,
+                  // Material (not a coloured box) so the tiles' ink shows.
+                  Material(
+                    color: _surface,
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _border),
+                      side: const BorderSide(color: _border),
                     ),
-                    child: SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: state.notificationsAllowed,
-                      activeColor: _brand,
-                      title: const Text(
-                        'Transaction reminders',
-                        style: TextStyle(
-                          color: _title,
-                          fontWeight: FontWeight.w900,
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: state.notificationsAllowed,
+                        activeColor: _brand,
+                        title: const Text(
+                          'Transaction reminders',
+                          style: TextStyle(
+                            color: _title,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
-                      ),
-                      subtitle: const Text(
-                        'Shelby will remind you to log cash or sync connected accounts.',
-                        style: TextStyle(
-                          color: _body,
-                          fontSize: 12,
-                          height: 1.35,
-                          fontWeight: FontWeight.w700,
+                        subtitle: const Text(
+                          'Shelby will remind you to log cash or sync connected accounts.',
+                          style: TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      onChanged: (enabled) async {
-                        await state.setTransactionRemindersEnabled(enabled);
-                        if (!context.mounted) return;
-                        if (enabled && !state.notificationsAllowed) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Notifications are disabled in iPhone Settings.',
+                        onChanged: (enabled) async {
+                          await state.setTransactionRemindersEnabled(enabled);
+                          if (!context.mounted) return;
+                          if (enabled && !state.notificationsAllowed) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Notifications are disabled in iPhone Settings.',
+                                ),
                               ),
-                            ),
-                          );
-                        }
-                      },
+                            );
+                          }
+                        },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -24958,12 +25131,13 @@ class NotificationSettingsScreen extends StatelessWidget {
                       ),
                     )
                   else
-                    Container(
-                      decoration: BoxDecoration(
-                        color: _surface,
+                    Material(
+                      color: _surface,
+                      shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: _border),
+                        side: const BorderSide(color: _border),
                       ),
+                      clipBehavior: Clip.antiAlias,
                       child: Column(
                         children: [
                           for (var index = 0;
@@ -27915,7 +28089,6 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: _surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
           'Get from ${bucket.name}?',
           style: GoogleFonts.fredoka(

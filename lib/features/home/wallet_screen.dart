@@ -382,7 +382,6 @@ Future<void> _showWalletTransactionLabelSheet(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Text(
           'Similar transaction',
           style: GoogleFonts.fredoka(

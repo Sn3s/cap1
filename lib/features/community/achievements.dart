@@ -154,6 +154,17 @@ ShareableAchievement streakShareable(int streak) => ShareableAchievement(
       iconKey: 'fire',
     );
 
+/// A goal's motivation streak (on-time actions in a row), never amounts.
+ShareableAchievement goalStreakShareable(String goalTitle, int streak) =>
+    ShareableAchievement(
+      kind: 'streak',
+      title: goalTitle,
+      value: '$streak on-time streak',
+      detail: 'Doing my ${goalTitle.toLowerCase()} actions on time',
+      colorValue: 0xFFFF7A1A,
+      iconKey: 'fire',
+    );
+
 ShareableAchievement healthScoreShareable(double score, String band) =>
     ShareableAchievement(
       kind: 'score',

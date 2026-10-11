@@ -493,6 +493,7 @@ class _MessageField extends StatelessWidget {
     final field = TextField(
       controller: controller,
       onChanged: onChanged,
+      onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
       minLines: minLines,
       maxLines: 6,
       maxLength: communityPostMaxLength,
@@ -1516,6 +1517,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     try {
       await widget.community.addComment(widget.post, _controller.text);
       _controller.clear();
+      FocusManager.instance.primaryFocus?.unfocus();
     } catch (error) {
       if (!mounted) return;
       showAppNotice(
@@ -1530,11 +1532,50 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
+  Future<void> _delete(PostComment comment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete reply?'),
+        content: const Text('This removes your reply for everyone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.community.deleteComment(widget.post, comment);
+    } catch (_) {
+      if (mounted) {
+        showAppNotice(context,
+            message: 'Couldn’t delete that reply.',
+            icon: Icons.warning_amber_rounded);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.of(context).size.height * .72;
+    final media = MediaQuery.of(context);
+    final keyboard = media.viewInsets.bottom;
+    // Fit in the space above the keyboard so the header and composer stay
+    // on screen while typing (a fixed height overflowed the screen).
+    final height = math.min(
+      media.size.height * .72,
+      media.size.height - keyboard - media.padding.top - 24,
+    );
+    final myUid = widget.community.me?.uid;
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: keyboard),
       child: Container(
         height: height,
         decoration: const BoxDecoration(
@@ -1548,22 +1589,42 @@ class _CommentsSheetState extends State<_CommentsSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const _SheetHandle(),
-              const SizedBox(height: 12),
-              Text(
-                'Replies',
-                style: GoogleFonts.fredoka(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: _title,
-                ),
-              ),
-              Text(
-                'to ${widget.post.author.displayName}',
-                style: const TextStyle(
-                  color: _body,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Replies',
+                          style: GoogleFonts.fredoka(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: _title,
+                          ),
+                        ),
+                        Text(
+                          'to ${widget.post.author.displayName}',
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close replies',
+                    onPressed: () => Navigator.pop(context),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _brand.withValues(alpha: .12),
+                      foregroundColor: _sage,
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
               Expanded(
@@ -1588,6 +1649,8 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       );
                     }
                     return ListView.separated(
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       itemCount: comments.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
@@ -1608,13 +1671,34 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      '${comment.author.displayName} · ${_timeAgo(comment.createdAt)}',
-                                      style: const TextStyle(
-                                        color: _body,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${comment.author.displayName} · ${_timeAgo(comment.createdAt)}',
+                                            style: const TextStyle(
+                                              color: _body,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                        if (comment.author.uid == myUid)
+                                          InkWell(
+                                            onTap: () => _delete(comment),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            child: const Padding(
+                                              padding: EdgeInsets.all(2),
+                                              child: Icon(
+                                                Icons.delete_outline_rounded,
+                                                size: 16,
+                                                color: _body,
+                                                semanticLabel: 'Delete reply',
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                     const SizedBox(height: 3),
                                     Text(
@@ -2040,7 +2124,6 @@ Future<void> _confirmUnfriend(
     context: context,
     builder: (dialogContext) => AlertDialog(
       backgroundColor: _surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       title: Text('Remove ${friend.displayName}?'),
       content: Text(
         '${friend.displayName} won’t see your future posts, and you won’t see theirs. '

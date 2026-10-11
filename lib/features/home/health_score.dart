@@ -803,81 +803,26 @@ class _HealthScoreHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final score = breakdown.score;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 18, 20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [_purple, Color.lerp(_purple, Colors.black, .28)!],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: _purple.withValues(alpha: .18),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
+    return ShelbyHeroHeader(
+      color: _purple,
+      icon: Icons.speed_rounded,
+      title: 'Financial Health Score',
+      subtitle: score == null
+          ? breakdown.hasActions
+              ? 'Your score starts once your first action comes due.'
+              : 'Pick an action to start your score.'
+          : 'Based on your last 30 days of activity.',
+      trailing: _HealthScoreRing(score: score),
+      footer: Row(
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Financial Health Score',
-                  style: GoogleFonts.fredoka(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    height: 1.15,
-                  ),
-                ),
-                if (score != null) ...[
-                  const SizedBox(height: 8),
-                  ShareItChip(
-                    achievement: healthScoreShareable(score, breakdown.band),
-                    compact: true,
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: .18),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    breakdown.band,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  score == null
-                      ? breakdown.hasActions
-                          ? 'Your score starts once your first action comes due.'
-                          : 'Pick an action to start your score.'
-                      : 'Based on your last 30 days of activity.',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: .82),
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+          HeroStatPill(breakdown.band),
+          if (score != null) ...[
+            const SizedBox(width: 8),
+            ShareItChip(
+              achievement: healthScoreShareable(score, breakdown.band),
+              compact: true,
             ),
-          ),
-          const SizedBox(width: 14),
-          _HealthScoreRing(score: score),
+          ],
         ],
       ),
     );

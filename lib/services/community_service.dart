@@ -400,6 +400,12 @@ abstract class CommunityBackend {
     required SocialProfile author,
     required String message,
   });
+
+  /// Deletes a reply (its author only) and decrements the post's count.
+  Future<void> deleteComment({
+    required String postId,
+    required String commentId,
+  });
 }
 
 class FirestoreCommunityBackend implements CommunityBackend {
@@ -642,6 +648,18 @@ class FirestoreCommunityBackend implements CommunityBackend {
       ..update(post, {'commentCount': FieldValue.increment(1)});
     return batch.commit();
   }
+
+  @override
+  Future<void> deleteComment({
+    required String postId,
+    required String commentId,
+  }) {
+    final post = _posts.doc(postId);
+    final batch = _db.batch()
+      ..delete(post.collection('comments').doc(commentId))
+      ..update(post, {'commentCount': FieldValue.increment(-1)});
+    return batch.commit();
+  }
 }
 
 /// Same contract as Firestore, held in memory. Used by tests and by
@@ -864,6 +882,23 @@ class InMemoryCommunityBackend implements CommunityBackend {
       createdAt: DateTime.now(),
     ));
     _posts[postId] = post.copyWith(commentCount: post.commentCount + 1);
+    _changed();
+  }
+
+  @override
+  Future<void> deleteComment({
+    required String postId,
+    required String commentId,
+  }) async {
+    final comments = _comments[postId];
+    final post = _posts[postId];
+    if (comments == null || post == null) return;
+    final before = comments.length;
+    comments.removeWhere((comment) => comment.id == commentId);
+    if (comments.length < before) {
+      _posts[postId] =
+          post.copyWith(commentCount: math.max(0, post.commentCount - 1));
+    }
     _changed();
   }
 

@@ -154,6 +154,24 @@ void main() {
       expect(replies.single.author.uid, 'mika');
     });
 
+    test('reply authors can delete their own replies only', () async {
+      final (backend, alex, mika) = await _twoUsers();
+      backend.connectFriends(_alex, _mika);
+      await pumpEventQueue();
+      await alex.createPost(message: 'Week one done');
+      await pumpEventQueue();
+      await mika.addComment(mika.posts.single, 'Nice!');
+      await pumpEventQueue();
+      final reply = (await alex.commentsFor(alex.posts.single.id).first).single;
+
+      expect(() => alex.deleteComment(alex.posts.single, reply),
+          throwsA(isA<CommunityException>()));
+      await mika.deleteComment(mika.posts.single, reply);
+      await pumpEventQueue();
+      expect(await alex.commentsFor(alex.posts.single.id).first, isEmpty);
+      expect(alex.posts.single.commentCount, 0);
+    });
+
     test('only the author can delete a post', () async {
       final (backend, alex, mika) = await _twoUsers();
       backend.connectFriends(_alex, _mika);
@@ -285,6 +303,13 @@ void main() {
       state.longestLoginStreak = 7;
       expect(state.collectNewlyEarnedBadges().map((b) => b.id), ['streak_7']);
       expect(state.collectNewlyEarnedBadges(), isEmpty);
+    });
+
+    test('goal streak share card names the goal, never amounts', () {
+      final share = goalStreakShareable('Grow Investments', 4);
+      expect(share.title, 'Grow Investments');
+      expect(share.value, '4 on-time streak');
+      expect(share.value.contains('₱'), isFalse);
     });
 
     test('badges never change the health score', () {
@@ -470,6 +495,48 @@ void main() {
           .firstWhere((post) => post.author.uid == state.socialProfile.uid);
       expect(mine.achievement?.value, '9-day streak');
       expect(mine.visibility, PostVisibility.friends);
+    });
+
+    testWidgets('replies sheet fits above the keyboard and deletes own reply',
+        (tester) async {
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final state = await pumpWith(tester, const CommunityPage());
+      await state.connectCommunity();
+      await tester.pumpAndSettle();
+      final myPost = state.community.posts
+          .firstWhere((post) => post.author.uid == state.socialProfile.uid);
+      await state.community.addComment(myPost, 'Thanks everyone!');
+      await tester.pumpAndSettle();
+
+      const myText = 'Started tracking every peso this month. Wish me luck!';
+      await tester.scrollUntilVisible(find.text(myText), 300,
+          scrollable: find.byType(Scrollable).first);
+      final myCard =
+          find.ancestor(of: find.text(myText), matching: find.byType(AppCard));
+      final replyButton = find.descendant(
+          of: myCard, matching: find.byIcon(Icons.mode_comment_outlined));
+      await tester.ensureVisible(replyButton);
+      await tester.pumpAndSettle();
+      await tester.tap(replyButton);
+      await tester.pumpAndSettle();
+
+      // Simulate an open keyboard: the header and close button stay visible.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 1000);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Close replies').hitTestable(), findsOneWidget);
+
+      // Only my own reply offers delete.
+      expect(find.byIcon(Icons.delete_outline_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.delete_outline_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(find.text('Thanks everyone!'), findsNothing);
+      expect(find.text('You got this! The first week is the hardest.'),
+          findsOneWidget);
     });
 
     testWidgets('composer can post as Only Me', (tester) async {

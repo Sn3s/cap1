@@ -399,6 +399,14 @@ class CommunityController extends ChangeNotifier {
     );
   }
 
+  Future<void> deleteComment(CommunityPost post, PostComment comment) async {
+    final backend = _requireBackend;
+    if (comment.author.uid != me!.uid) {
+      throw const CommunityException('You can only delete your own replies.');
+    }
+    await backend.deleteComment(postId: post.id, commentId: comment.id);
+  }
+
   static String _preview(String text) => text.characters.length <= 80
       ? text
       : '${text.characters.take(80)}…';

@@ -122,8 +122,8 @@ service cloud.firestore {
 
       allow delete: if signedIn() && resource.data.authorUid == me();
 
-      // Audience members may only add/remove *their own* like, or bump the
-      // reply count by exactly one (alongside creating a reply).
+      // Audience members may only add/remove *their own* like, or move the
+      // reply count by exactly one (alongside adding/deleting a reply).
       allow update: if signedIn() && me() in resource.data.audience && (
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
           && request.resource.data.likedBy.toSet()
@@ -132,7 +132,9 @@ service cloud.firestore {
                  .difference(request.resource.data.likedBy.toSet()))
                .hasOnly([me()]))
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount'])
-          && request.resource.data.commentCount == resource.data.commentCount + 1)
+          && (request.resource.data.commentCount == resource.data.commentCount + 1
+              || (request.resource.data.commentCount == resource.data.commentCount - 1
+                  && request.resource.data.commentCount >= 0)))
       );
 
       match /comments/{commentId} {
@@ -147,7 +149,9 @@ service cloud.firestore {
           && request.resource.data.author.uid == me()
           && validMessage(request.resource.data.message)
           && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        // Authors can delete their own replies; nobody can edit them.
+        allow delete: if signedIn() && resource.data.authorUid == me();
+        allow update: if false;
       }
     }
   }

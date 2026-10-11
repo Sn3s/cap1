@@ -53,10 +53,11 @@ void main() {
       ..seedAccumulatingWealthMockDataForTesting()
       ..onboardingComplete = false;
 
-    String pill() => tester
-        .widgetList<Text>(find.byType(Text))
-        .map((w) => w.data ?? '')
-        .firstWhere((t) => t.endsWith('🔥'));
+    // The streak count on the first goal card (Goals page streak panel).
+    String pill() => '${tester.widgetList<Text>(find.byWidgetPredicate((w) =>
+            w is Text &&
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith('motivation-streak-'))).first.data} 🔥';
 
     await tester.pumpWidget(AppScope(
       state: state,
@@ -103,5 +104,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(int.parse(pill().split(' ').first), greaterThan(0));
+    // A lit goal streak carries the yellow "Share it!" chip.
+    expect(find.text('Share it!'), findsWidgets);
   });
 }

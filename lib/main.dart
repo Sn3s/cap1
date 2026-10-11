@@ -260,6 +260,130 @@ class _ShellbyAppState extends State<ShellbyApp> {
               side: const BorderSide(color: _belly),
             ),
           ),
+          // ── Pop-ups: one Community-style look for every dialog, sheet,
+          // snackbar, menu and picker (styling only; no behaviour change).
+          dialogTheme: DialogThemeData(
+            backgroundColor: _surface,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            shadowColor: _purple.withValues(alpha: .25),
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+              side: const BorderSide(color: _border),
+            ),
+            titleTextStyle: GoogleFonts.fredoka(
+              fontSize: 21,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: _title,
+            ),
+            contentTextStyle: GoogleFonts.nunito(
+              fontSize: 14,
+              height: 1.45,
+              fontWeight: FontWeight.w600,
+              color: _body,
+            ),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            barrierColor: _title.withValues(alpha: .40),
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              textStyle: GoogleFonts.nunito(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              textStyle: GoogleFonts.nunito(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+          bottomSheetTheme: const BottomSheetThemeData(
+            backgroundColor: _bg,
+            surfaceTintColor: Colors.transparent,
+            modalBackgroundColor: _bg,
+            dragHandleColor: _border,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+            ),
+            clipBehavior: Clip.antiAlias,
+          ),
+          snackBarTheme: SnackBarThemeData(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: _title,
+            elevation: 0,
+            insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            contentTextStyle: GoogleFonts.nunito(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+            actionTextColor: const Color(0xFFAEECD5),
+          ),
+          popupMenuTheme: PopupMenuThemeData(
+            color: _surface,
+            surfaceTintColor: Colors.transparent,
+            elevation: 6,
+            shadowColor: _purple.withValues(alpha: .20),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: _border),
+            ),
+            textStyle: GoogleFonts.nunito(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: _title,
+            ),
+          ),
+          timePickerTheme: TimePickerThemeData(
+            backgroundColor: _surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
+            dialBackgroundColor: _bellySoft,
+            hourMinuteColor: _bellySoft,
+            hourMinuteTextColor: _purple,
+            dayPeriodColor: _bellySoft,
+            dialHandColor: _purple,
+            entryModeIconColor: _purple,
+            helpTextStyle: GoogleFonts.nunito(
+              fontSize: 12,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+              color: _body,
+            ),
+          ),
+          datePickerTheme: DatePickerThemeData(
+            backgroundColor: _surface,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
+            headerBackgroundColor: _purple,
+            headerForegroundColor: Colors.white,
+            headerHeadlineStyle: GoogleFonts.fredoka(
+              fontSize: 26,
+              fontWeight: FontWeight.w600,
+            ),
+            todayForegroundColor: const WidgetStatePropertyAll(_purple),
+            todayBorder: const BorderSide(color: _purple),
+            dayStyle: GoogleFonts.nunito(fontWeight: FontWeight.w700),
+          ),
           navigationBarTheme: NavigationBarThemeData(
             backgroundColor: _surface,
             indicatorColor: _brand.withValues(alpha: .12),
