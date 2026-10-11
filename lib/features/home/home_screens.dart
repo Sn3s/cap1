@@ -5363,7 +5363,11 @@ List<_CashMonthInsight> _cashMonthsFor(
             DateTime.tryParse(bill['scheduleAnchorDate']?.toString() ?? ''))
         .whereType<DateTime>()
         .map(_monthStart),
-  }.toList()
+  }
+      // Reflection looks back: bill due/schedule dates can add an earlier
+      // month but never a future one with nothing to reflect on.
+      .where((month) => !month.isAfter(_monthStart(AppClock.now())))
+      .toList()
     ..sort();
   return starts.map((month) {
     final monthWeeks = service.weekRecords
