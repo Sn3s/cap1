@@ -145,8 +145,20 @@ void main() {
     );
 
     expect(find.text('Existing client'), findsOneWidget);
-    expect(tester.widget<Checkbox>(find.byType(Checkbox).first).value, isTrue);
-    expect(tester.widget<FilterChip>(find.byType(FilterChip)).selected, isTrue);
+    expect(
+      tester
+          .widget<FilterChip>(
+              find.widgetWithText(FilterChip, 'Same amount each month'))
+          .selected,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<FilterChip>(
+              find.widgetWithText(FilterChip, 'Has a predictable schedule'))
+          .selected,
+      isTrue,
+    );
   });
 
   test('typical variable income is planning context, not available cash', () {

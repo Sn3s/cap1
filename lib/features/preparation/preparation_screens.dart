@@ -2409,86 +2409,13 @@ class LifeContextScreen extends StatefulWidget {
 }
 
 class _LifeContextScreenState extends State<LifeContextScreen> {
-  final occupationOtherController = TextEditingController();
-  final industryOtherController = TextEditingController();
-  bool occupationOther = false;
-  bool industryOther = false;
-  bool seeded = false;
+  // Occupation and industry accept any typed value; the presets are only
+  // suggestions, so nothing downstream depends on a preset being picked.
+  void _setOccupation(AppState state, String value) =>
+      setState(() => state.occupation = value.trim());
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (seeded) return;
-    final state = AppScope.of(context);
-    occupationOther = state.occupation.isNotEmpty &&
-        !occupationPresets.contains(state.occupation);
-    industryOther =
-        state.industry.isNotEmpty && !industryPresets.contains(state.industry);
-    occupationOtherController.text = occupationOther ? state.occupation : '';
-    industryOtherController.text = industryOther ? state.industry : '';
-    seeded = true;
-  }
-
-  @override
-  void dispose() {
-    occupationOtherController.dispose();
-    industryOtherController.dispose();
-    super.dispose();
-  }
-
-  void _setOccupationFromPreset(AppState state, String value) {
-    final isOther = value == 'Other';
-    setState(() {
-      occupationOther = isOther;
-      if (isOther) {
-        state.occupation = occupationOtherController.text.trim();
-      } else {
-        occupationOtherController.clear();
-        state.occupation = value;
-      }
-    });
-  }
-
-  void _setIndustryFromPreset(AppState state, String value) {
-    final isOther = value == 'Other';
-    setState(() {
-      industryOther = isOther;
-      if (isOther) {
-        state.industry = industryOtherController.text.trim();
-      } else {
-        industryOtherController.clear();
-        state.industry = value;
-      }
-    });
-  }
-
-  void _handleOccupationText(AppState state, String value) {
-    final normalized = value.trim();
-    if (normalized == 'Other') {
-      _setOccupationFromPreset(state, normalized);
-    } else if (occupationPresets.contains(normalized)) {
-      _setOccupationFromPreset(state, normalized);
-    } else {
-      setState(() {
-        occupationOther = false;
-        state.occupation = '';
-      });
-    }
-  }
-
-  void _handleIndustryText(AppState state, String value) {
-    final normalized = value.trim();
-    if (normalized == 'Other') {
-      _setIndustryFromPreset(state, normalized);
-    } else if (industryPresets.contains(normalized)) {
-      _setIndustryFromPreset(state, normalized);
-    } else {
-      setState(() {
-        industryOther = false;
-        state.industry = '';
-      });
-    }
-  }
+  void _setIndustry(AppState state, String value) =>
+      setState(() => state.industry = value.trim());
 
   @override
   Widget build(BuildContext context) {
@@ -2536,56 +2463,72 @@ class _LifeContextScreenState extends State<LifeContextScreen> {
           LabeledField(
             label: 'Occupation',
             icon: Icons.work_rounded,
-            child: Autocomplete<String>(
-              initialValue: TextEditingValue(
-                  text: occupationOther ? 'Other' : state.occupation),
-              optionsBuilder: (value) => occupationPresets.where((option) =>
-                  option.toLowerCase().contains(value.text.toLowerCase())),
-              onSelected: (value) => _setOccupationFromPreset(state, value),
-              fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
-                  TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: inputDecoration('Search occupations'),
-                onChanged: (value) => _handleOccupationText(state, value),
-              ),
+            child: _FreeTextAutocomplete(
+              initialValue: state.occupation,
+              options: occupationPresets,
+              hint: 'Type or search occupations',
+              onChanged: (value) => _setOccupation(state, value),
             ),
           ),
-          if (occupationOther) ...[
-            const SizedBox(height: 10),
-            TextField(
-                controller: occupationOtherController,
-                decoration: inputDecoration('Your occupation'),
-                onChanged: (value) =>
-                    setState(() => state.occupation = value.trim())),
-          ],
           const SizedBox(height: 18),
           LabeledField(
             label: 'Industry',
             icon: Icons.business_center_rounded,
-            child: Autocomplete<String>(
-              initialValue: TextEditingValue(
-                  text: industryOther ? 'Other' : state.industry),
-              optionsBuilder: (value) => industryPresets.where((option) =>
-                  option.toLowerCase().contains(value.text.toLowerCase())),
-              onSelected: (value) => _setIndustryFromPreset(state, value),
-              fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
-                  TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      decoration: inputDecoration('Search industries'),
-                      onChanged: (value) => _handleIndustryText(state, value)),
+            child: _FreeTextAutocomplete(
+              initialValue: state.industry,
+              options: industryPresets,
+              hint: 'Type or search industries',
+              onChanged: (value) => _setIndustry(state, value),
             ),
           ),
-          if (industryOther) ...[
-            const SizedBox(height: 10),
-            TextField(
-                controller: industryOtherController,
-                decoration: inputDecoration('Your industry'),
-                onChanged: (value) =>
-                    setState(() => state.industry = value.trim())),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+/// A text field whose typed value is used as-is, with [options] offered as
+/// suggestions ("Other" is left out: typing your own replaces it).
+///
+/// Suggestions open upward so the keyboard doesn't cover them, and their
+/// scroll notifications are absorbed here: otherwise they bubble up to a
+/// keyboard-dismissing page scroll view (e.g. [OnboardingScaffold]), which
+/// unfocuses the field and closes the suggestions as soon as you scroll them.
+class _FreeTextAutocomplete extends StatelessWidget {
+  const _FreeTextAutocomplete({
+    required this.initialValue,
+    required this.options,
+    required this.hint,
+    required this.onChanged,
+  });
+
+  final String initialValue;
+  final List<String> options;
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return NotificationListener<ScrollNotification>(
+      onNotification: (_) => true,
+      child: Autocomplete<String>(
+        initialValue: TextEditingValue(text: initialValue),
+        optionsViewOpenDirection: OptionsViewOpenDirection.up,
+        optionsBuilder: (value) {
+          final query = value.text.trim().toLowerCase();
+          return options.where((option) =>
+              option != 'Other' && option.toLowerCase().contains(query));
+        },
+        onSelected: onChanged,
+        fieldViewBuilder: (context, controller, focusNode, onSubmit) =>
+            TextField(
+          controller: controller,
+          focusNode: focusNode,
+          textCapitalization: TextCapitalization.words,
+          decoration: inputDecoration(hint),
+          onChanged: onChanged,
+          onSubmitted: (_) => onSubmit(),
+        ),
       ),
     );
   }
@@ -5272,6 +5215,40 @@ String _shortScheduleDate(DateTime date) {
   return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
+/// On/off chip for income and bill options. It fills green (with white
+/// text and icon) when chosen, so the on/off state is obvious.
+class _ToggleChip extends StatelessWidget {
+  const _ToggleChip({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onSelected,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? Colors.white : _title;
+    return FilterChip(
+      selected: selected,
+      showCheckmark: false,
+      backgroundColor: _surface,
+      selectedColor: _sage,
+      side: BorderSide(color: selected ? _sage : _border),
+      avatar: Icon(icon, size: 17, color: selected ? Colors.white : _body),
+      label: Text(
+        label,
+        style: TextStyle(color: foreground, fontWeight: FontWeight.w800),
+      ),
+      onSelected: onSelected,
+    );
+  }
+}
+
 class _ScheduleEditor extends StatelessWidget {
   const _ScheduleEditor({
     required this.title,
@@ -5563,18 +5540,6 @@ class _IncomeLedgerCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Tooltip(
-                message: 'Stable income',
-                child: Checkbox(
-                  activeColor: _brand,
-                  value: income.stable,
-                  onChanged: (value) {
-                    income.stable = value ?? false;
-                    onChanged();
-                  },
-                ),
-              ),
-              const SizedBox(width: 2),
               Expanded(
                 child: TextFormField(
                   controller: income.nameController,
@@ -5618,24 +5583,28 @@ class _IncomeLedgerCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
+          // Two independent traits: the amount (stable vs variable income
+          // totals) and the timing (event-based handling when unscheduled).
           Wrap(
-            spacing: 10,
+            spacing: 8,
             runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              FilterChip(
+              _ToggleChip(
+                selected: income.stable,
+                icon: Icons.balance_rounded,
+                label: 'Same amount each month',
+                onSelected: (stable) {
+                  income.stable = stable;
+                  onChanged();
+                },
+              ),
+              _ToggleChip(
                 selected: income.scheduled,
-                selectedColor: _sage.withValues(alpha: .12),
-                checkmarkColor: _sage,
-                avatar: Icon(
-                  Icons.event_available_rounded,
-                  size: 17,
-                  color: income.scheduled ? _sage : _body,
-                ),
-                label: const Text('Has a predictable schedule'),
-                onSelected: (value) {
-                  income.scheduled = value;
-                  if (value) {
+                icon: Icons.event_available_rounded,
+                label: 'Has a predictable schedule',
+                onSelected: (scheduled) {
+                  income.scheduled = scheduled;
+                  if (scheduled) {
                     income.repeatFrequency = income.repeatFrequency.isEmpty
                         ? 'Monthly'
                         : income.repeatFrequency;
@@ -6019,23 +5988,14 @@ class _ExpenseLedgerCard extends StatelessWidget {
           ],
           const SizedBox(height: 8),
           Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              FilterChip(
+              _ToggleChip(
                 selected: expense.scheduled,
-                selectedColor: _sage.withValues(alpha: .12),
-                checkmarkColor: _sage,
-                avatar: Icon(
-                  Icons.calendar_month_rounded,
-                  size: 17,
-                  color: expense.scheduled ? _sage : _body,
-                ),
-                label: const Text('Scheduled bill'),
-                onSelected: (value) {
-                  expense.scheduled = value;
-                  if (value) {
+                icon: Icons.calendar_month_rounded,
+                label: 'Scheduled bill',
+                onSelected: (scheduled) {
+                  expense.scheduled = scheduled;
+                  if (scheduled) {
                     expense.repeatFrequency = expense.repeatFrequency.isEmpty
                         ? 'Monthly'
                         : expense.repeatFrequency;
