@@ -27150,12 +27150,6 @@ class _ManualTransactionSheet extends StatefulWidget {
 class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   static const _incomeCategories = incomeCategoryPresets;
   static const _expenseCategories = transactionExpenseCategoryPresets;
-  static const _sources = [
-    'Basic Needs Fund',
-    'Emergency Fund',
-    'Investment',
-    'Time Deposit',
-  ];
 
   final _nameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -27165,7 +27159,6 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   bool _moneyIn = false;
   String _account = 'Cash on Hand';
   String? _category;
-  String? _source;
   DateTime _occurredAt = AppClock.now();
   bool _saving = false;
 
@@ -27293,20 +27286,6 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               validator: (value) => value == null ? 'Choose a category.' : null,
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _source,
-              decoration: inputDecoration('Choose a fund').copyWith(
-                labelText: 'Fund source',
-              ),
-              items: _sources
-                  .map((value) =>
-                      DropdownMenuItem(value: value, child: Text(value)))
-                  .toList(),
-              onChanged: (value) => setState(() => _source = value),
-              validator: (value) =>
-                  value == null ? 'Choose a fund source.' : null,
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _detail,
               textCapitalization: TextCapitalization.sentences,
@@ -27373,10 +27352,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
     final title = _nameController.text.trim();
     final amount = double.tryParse(_amount.text.replaceAll(',', ''));
     final category = _category;
-    final source = _source;
-    if (title.isEmpty || amount == null || category == null || source == null) {
-      return;
-    }
+    if (title.isEmpty || amount == null || category == null) return;
     setState(() => _saving = true);
     try {
       await AppScope.of(context).addManualCashTransaction(
@@ -27385,7 +27361,10 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         amount: _moneyIn ? amount : -amount,
         occurredAt: _occurredAt,
         category: category,
-        source: source,
+        // Cash moves in or out of the chosen account, never a goal fund, so
+        // the account is the source (the layer comes from the category).
+        // A source is still needed for the entry to count as labeled.
+        source: _account,
         note: _optionalManualText(_note.text),
         account: _account,
       );
