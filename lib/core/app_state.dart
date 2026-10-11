@@ -1155,6 +1155,7 @@ class AppState extends ChangeNotifier {
     } else if (hasPendingEmailAccount) {
       await _createOrResumePendingEmailAccount();
     }
+    seedCategoryBudgetsFromOnboarding();
     await saveProfile(markOnboardingComplete: true);
     _pendingAccountEmail = null;
     _pendingAccountPassword = null;
@@ -5638,6 +5639,62 @@ class AppState extends ChangeNotifier {
   }
 
   // ── D1 goal bucket actions ────────────────────────────────────────
+
+  /// The A2 category budgets (internal action A3) suggested from the
+  /// expenses entered in onboarding. Onboarding shows these for editing, and
+  /// [seedCategoryBudgetsFromOnboarding] uses them if none were saved.
+  ///
+  /// Capped: discretionary (Financial Freedom) expenses plus Groceries / Food,
+  /// skipping scheduled bills (fixed amounts gain nothing from a cap). Amounts
+  /// in the same category are combined; each cap is 90% of the monthly
+  /// amount, rounded to the nearest ₱50 (at least ₱100). A discretionary
+  /// "Other" expense becomes a custom category named after it.
+  ({Map<String, double> budgets, Set<String> customCategories})
+      onboardingCategoryBudgetPreview() {
+    final monthlyByCategory = <String, double>{};
+    final customCategories = <String>{};
+    for (final expense in onboardingExpenseLedger) {
+      if (expense['scheduled'] == true) continue;
+      final amount = _doubleFrom(expense['amount'], 0);
+      if (amount <= 0) continue;
+      final rawCategory = expense['category']?.toString().trim() ?? '';
+      var category = canonicalExpenseCategory(rawCategory);
+      final discretionary =
+          expenseLayerForLedger(expense) == ExpenseLayer.nonEssentials;
+      if (!discretionary && category != 'Groceries / Food') continue;
+      if (category.isEmpty || category == 'Other') {
+        final name = expense['name']?.toString().trim() ?? '';
+        if (name.isEmpty) continue;
+        category = name;
+        customCategories.add(category);
+      }
+      monthlyByCategory[category] =
+          (monthlyByCategory[category] ?? 0) + amount;
+    }
+    return (
+      budgets: {
+        for (final entry in monthlyByCategory.entries)
+          entry.key: math.max(100.0, (entry.value * 0.9 / 50).round() * 50.0),
+      },
+      customCategories: customCategories,
+    );
+  }
+
+  /// Fills the A2 budget ledger from [onboardingCategoryBudgetPreview] when
+  /// onboarding finishes with A2 selected and nothing was saved yet (budgets
+  /// edited during onboarding are kept as they are).
+  void seedCategoryBudgetsFromOnboarding() {
+    if (!selectedActionIds.contains('A3') ||
+        categorySpendingBudgets.isNotEmpty) {
+      return;
+    }
+    final preview = onboardingCategoryBudgetPreview();
+    if (preview.budgets.isEmpty) return;
+    categorySpendingBudgets.addAll(preview.budgets);
+    for (final category in preview.customCategories) {
+      categoryBudgetLayers[category] = ExpenseLayer.nonEssentials;
+    }
+  }
 
   Future<void> updateCategorySpendingBudgets(
     Map<String, double> budgets, {

@@ -3389,10 +3389,17 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
   var _values = <Map<String, String>>[];
   bool _seeded = false;
   bool _animatingPage = false;
+  // A2 is edited per category budget instead of its single amount field.
+  Map<String, String>? _a2Values;
+  Map<String, double> _a2Suggested = const {};
+
+  bool _isA2BudgetPage(int index) =>
+      widget.actions[index].id == 'A3' && _a2Values != null;
 
   bool get _canAdvance {
     if (widget.actions.isEmpty) return true;
     final action = widget.actions[_page];
+    if (_isA2BudgetPage(_page)) return _a2BudgetValuesValid(_a2Values!);
     if (!action.hasFields) return true;
     for (final field in action.fields) {
       if (_actionFieldError(field, _values[_page][field.key] ?? '') != null) {
@@ -3420,6 +3427,16 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
             field.key: state.actionFieldValues[action.id]?[field.key] ?? '',
         },
     ];
+    if (widget.actions.any((action) => action.id == 'A3')) {
+      final budgets = _onboardingA2Budgets(state);
+      if (budgets.isNotEmpty) {
+        _a2Suggested = budgets;
+        _a2Values = {
+          for (final entry in budgets.entries)
+            entry.key: entry.value.toStringAsFixed(0),
+        };
+      }
+    }
     _seeded = true;
   }
 
@@ -3454,6 +3471,10 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
 
   void _confirm() {
     for (var i = 0; i < widget.actions.length; i++) {
+      if (_isA2BudgetPage(i)) {
+        if (!_a2BudgetValuesValid(_a2Values!)) return;
+        continue;
+      }
       for (final field in widget.actions[i].fields) {
         if (_actionFieldError(field, _values[i][field.key] ?? '') != null) {
           return;
@@ -3463,6 +3484,12 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
     final values = <String, Map<String, String>>{};
     for (var i = 0; i < widget.actions.length; i++) {
       values[widget.actions[i].id] = Map<String, String>.from(_values[i]);
+    }
+    final a2Values = _a2Values;
+    if (a2Values != null) {
+      final state = AppScope.of(context);
+      _saveOnboardingA2Budgets(state, a2Values);
+      values['A3'] = Map.of(state.actionFieldValues['A3']!);
     }
     widget.onConfirm(values);
   }
@@ -3505,7 +3532,29 @@ class _ActionConfigWidgetState extends State<ActionConfigWidget> {
                         action.text,
                         style: const TextStyle(fontSize: 13, height: 1.4),
                       ),
-                      if (action.hasFields) ...[
+                      if (_isA2BudgetPage(i)) ...[
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: _A2BudgetEditor(
+                              values: _a2Values!,
+                              suggested: _a2Suggested,
+                              onChanged: (category, value) => setState(
+                                () => _a2Values![category] = value,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        const _RecommendationExplanationBox(
+                          lines: [
+                            'Each cap starts at 90% of that category\'s '
+                                'monthly amount from your expenses: '
+                                'discretionary spending plus Groceries / Food, '
+                                'not scheduled bills.',
+                          ],
+                        ),
+                      ] else if (action.hasFields) ...[
                         const SizedBox(height: 12),
                         Expanded(
                           child: ListView.separated(
@@ -4461,6 +4510,115 @@ class _RecommendedPlanScreenState extends State<RecommendedPlanScreen> {
   }
 }
 
+// ── A2 (internal A3) category budgets in onboarding ─────────────────────
+// A2 is edited per category here (like other actions' fields, one amount
+// picker per budget) and saved straight to the budget ledger, so the A2 card
+// shows exactly what was confirmed.
+
+/// Budgets to show for A2: what's saved, else the suggestion from expenses.
+Map<String, double> _onboardingA2Budgets(AppState state) =>
+    state.categorySpendingBudgets.isNotEmpty
+        ? Map.of(state.categorySpendingBudgets)
+        : state.onboardingCategoryBudgetPreview().budgets;
+
+ActionField _a2BudgetField(String category) => ActionField(
+      key: category,
+      label: category,
+      hint: 'e.g. 2000',
+    );
+
+String _a2BudgetSummary(Map<String, double> budgets) => budgets.entries
+    .map((entry) => '${entry.key} ${money(entry.value)}')
+    .join(' · ');
+
+bool _a2BudgetValuesValid(Map<String, String> values) =>
+    values.isNotEmpty &&
+    values.entries.every(
+        (entry) => _actionFieldError(_a2BudgetField(entry.key), entry.value) == null);
+
+/// Saves the onboarding A2 budgets to the ledger (custom categories go under
+/// Financial Freedom) and keeps the single A2 amount as their average.
+void _saveOnboardingA2Budgets(AppState state, Map<String, String> values) {
+  final budgets = {
+    for (final entry in values.entries)
+      entry.key: double.parse(entry.value.replaceAll(',', '')),
+  };
+  final custom = state.onboardingCategoryBudgetPreview().customCategories;
+  state.updateCategorySpendingBudgets(budgets, layers: {
+    for (final category in budgets.keys)
+      if (custom.contains(category) || suggestedExpenseLayer(category) == null)
+        category: state.budgetCategoryLayer(category),
+  });
+  final average =
+      budgets.values.fold<double>(0, (total, value) => total + value) /
+          budgets.length;
+  state.actionFieldValues['A3'] = {'amt': average.round().toString()};
+}
+
+/// Editable A2 budgets: one amount picker per category, as other actions'
+/// fields use, suggesting the starting cap and ±15%.
+class _A2BudgetEditor extends StatelessWidget {
+  const _A2BudgetEditor({
+    required this.values,
+    required this.suggested,
+    required this.onChanged,
+  });
+
+  final Map<String, String> values;
+  final Map<String, double> suggested;
+  final void Function(String category, String value) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Budgets from the expenses you entered. Adjust any cap; you can '
+          'also change them later in Goals.',
+          style: TextStyle(
+            color: _body,
+            fontSize: 12,
+            height: 1.35,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        for (final category in values.keys) ...[
+          const Divider(height: 20),
+          ActionFieldSelector(
+            key: ValueKey('a2-budget-$category'),
+            field: _a2BudgetField(category),
+            initialValue: values[category] ?? '',
+            recommendations: _moneyOptions(
+              suggested[category] ??
+                  double.tryParse(values[category] ?? '') ??
+                  1000,
+              step: 50,
+            ),
+            onChanged: (value) => onChanged(category, value),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Plan text for an action; A2 lists its actual category budgets.
+String _actionPlanText(
+  AppState state,
+  D2Action action,
+  Map<String, String> values,
+) {
+  if (action.id == 'A3') {
+    final budgets = _onboardingA2Budgets(state);
+    if (budgets.isNotEmpty) {
+      return 'Keep monthly spending under these category caps: '
+          '${_a2BudgetSummary(budgets)}.';
+    }
+  }
+  return _configuredActionText(action, values);
+}
+
 String _configuredActionText(D2Action action, Map<String, String> values) {
   if (action.id == 'A9') {
     final amount =
@@ -4545,7 +4703,8 @@ class _PlanActionRow extends StatelessWidget {
         ),
         const SizedBox(width: 9),
         Expanded(
-            child: Text(_configuredActionText(action, values),
+            child: Text(
+                _actionPlanText(AppScope.of(context), action, values),
                 style: const TextStyle(
                     color: _title, height: 1.35, fontWeight: FontWeight.w800))),
       ],
@@ -4702,7 +4861,7 @@ class _ActionCollectionProcessCard extends StatelessWidget {
               style: const TextStyle(
                   color: _brand, fontSize: 12, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
-          Text(_configuredActionText(action, values),
+          Text(_actionPlanText(AppScope.of(context), action, values),
               style: const TextStyle(
                   color: _title, height: 1.35, fontWeight: FontWeight.w900)),
           const SizedBox(height: 12),
@@ -6683,6 +6842,10 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
   String _actionDetails(D2Action action) {
     final values =
         state.actionFieldValues[action.id] ?? const <String, String>{};
+    if (action.id == 'A3') {
+      final budgets = _onboardingA2Budgets(state);
+      if (budgets.isNotEmpty) return 'Budgets: ${_a2BudgetSummary(budgets)}';
+    }
     final details = <String>[];
     for (final field in action.fields) {
       final value = values[field.key]?.trim() ?? '';
@@ -6793,7 +6956,58 @@ class _GuidedSummaryCardState extends State<GuidedSummaryCard> {
     await state.saveProfile();
   }
 
+  Future<void> _editA2Budgets(
+    BuildContext context,
+    Map<String, double> budgets,
+  ) async {
+    final values = {
+      for (final entry in budgets.entries)
+        entry.key: entry.value.toStringAsFixed(0),
+    };
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: _surface,
+          title: Text('${_actionNumber('A3')} budgets',
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: _A2BudgetEditor(
+                values: values,
+                suggested: budgets,
+                onChanged: (category, value) =>
+                    setDialogState(() => values[category] = value),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: _a2BudgetValuesValid(values)
+                  ? () => Navigator.of(dialogContext)
+                      .pop(Map<String, String>.from(values))
+                  : null,
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null) return;
+    setState(() => _saveOnboardingA2Budgets(state, result));
+    await state.saveProfile();
+  }
+
   Future<void> _editActionDetails(BuildContext context, D2Action action) async {
+    if (action.id == 'A3') {
+      final budgets = _onboardingA2Budgets(state);
+      if (budgets.isNotEmpty) return _editA2Budgets(context, budgets);
+    }
     if (!action.hasFields) return;
     final existing =
         state.actionFieldValues[action.id] ?? const <String, String>{};
@@ -7956,8 +8170,8 @@ class PreparationCommitmentScreen extends StatelessWidget {
               for (final action in actions)
                 (
                   _actionNumber(action.id),
-                  _configuredActionText(
-                      action, state.actionFieldValues[action.id] ?? const {})
+                  _actionPlanText(state, action,
+                      state.actionFieldValues[action.id] ?? const {})
                 ),
             ],
           ),
