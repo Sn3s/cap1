@@ -5040,7 +5040,7 @@ Configured Maintain Available Cash actions:
 Selected category budgets:
 ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
 Monthly cash indexes:
-${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, wallet available ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
+${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, money available (fund + wallet + cash) ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
 Open basic-needs bill obligations:
 ${state.openBasicNeedsBillObligations.isEmpty ? 'No unpaid basic-needs bill obligations.' : state.openBasicNeedsBillObligations.map((bill) => '- ${bill['name']}: remaining ${money(_billRemaining(bill))}').join('\n')}
 Current month action evidence:
@@ -5302,7 +5302,13 @@ void _showBillReadinessExplanation(
     title: 'How bill readiness is calculated',
     formula: 'Bill readiness = Have ÷ Need (up to 100%)',
     children: [
-      _explanationLine('Have', money(month.walletAvailable)),
+      _explanationLine('Essential Expenses Fund',
+          money(month.essentialFundAvailable)),
+      _explanationLine('Wallet', money(month.walletBalance)),
+      _explanationLine('Cash on Hand', money(month.cashOnHand)),
+      _explanationLine('Have (total)', money(month.walletAvailable),
+          bold: true),
+      const Divider(height: 16, color: _border),
       _explanationLine('Need', money(month.billNeed)),
       _explanationLine(
           'Bill readiness', '${_scorePercent(month.billScore)}%',
@@ -5313,10 +5319,11 @@ void _showBillReadinessExplanation(
         'Basic Needs bills. If nothing is due, readiness is 100%.',
       ),
       _explanationNote(
-        'Have: the larger of your Wallet and Cash on Hand balances right now.',
+        'Have: everything that can pay these bills right now: your Essential '
+        'Expenses Fund, Wallet and Cash on Hand, added together.',
       ),
       _explanationNote(
-        '100% means your wallet can cover this month\'s bills.',
+        '100% means your fund, wallet and cash together can cover this month\'s bills.',
       ),
     ],
   );
@@ -5376,6 +5383,9 @@ class _CashMonthInsight {
     required this.spending,
     required this.billNeed,
     required this.walletAvailable,
+    this.essentialFundAvailable = 0,
+    this.walletBalance = 0,
+    this.cashOnHand = 0,
     required this.openObligations,
     required this.incomeSources,
     required this.spendingCategories,
@@ -5388,7 +5398,13 @@ class _CashMonthInsight {
   final double income;
   final double spending;
   final double billNeed;
+
+  /// Everything that can pay bills: [essentialFundAvailable] +
+  /// [walletBalance] + [cashOnHand].
   final double walletAvailable;
+  final double essentialFundAvailable;
+  final double walletBalance;
+  final double cashOnHand;
   final List<Map<String, dynamic>> openObligations;
   final Map<String, double> incomeSources;
   final Map<String, double> spendingCategories;
@@ -5569,10 +5585,15 @@ List<_CashMonthInsight> _cashMonthsFor(
     );
     final billNeed =
         _scheduledBasicNeedsBillNeedForMonth(state, month) + obligationNeed;
-    final wallet = math.max(
-      state.accountBalance('Wallet'),
-      state.cashOnHandBalance,
-    );
+    // Money that can pay this month's bills: the Essential Expenses Fund
+    // (FakeMaya bucket B1), the Wallet, and Cash on Hand, added together.
+    // Without a B1 bucket the fund is only tracked inside the Wallet, so it
+    // isn't added again.
+    final essentialFund =
+        state.fakeMayaLink?.summary.essentialExpenseFund?.balance ?? 0.0;
+    final walletBalance = state.accountBalance('Wallet');
+    final cashOnHand = state.cashOnHandBalance;
+    final wallet = essentialFund + walletBalance + cashOnHand;
     final incomeSources = _transactionTotals(
       monthTransactions.where((transaction) =>
           transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer),
@@ -5590,6 +5611,9 @@ List<_CashMonthInsight> _cashMonthsFor(
       spending: spending,
       billNeed: billNeed,
       walletAvailable: wallet,
+      essentialFundAvailable: essentialFund,
+      walletBalance: walletBalance,
+      cashOnHand: cashOnHand,
       openObligations: monthObligations,
       incomeSources: incomeSources,
       spendingCategories: spendingCategories,
@@ -6653,7 +6677,7 @@ class _InsightMonthSelector extends StatelessWidget {
 String _cashIndexInsight(_CashMonthInsight month) {
   final billScore = _scorePercent(month.billScore);
   if (month.canPayBills) {
-    return 'Your wallet covers ${money(month.billNeed)} in bills for ${_monthLabel(month.start)} with room to spare — ${money(month.walletAvailable - month.billNeed)} left over.';
+    return 'Your fund, wallet and cash cover ${money(month.billNeed)} in bills for ${_monthLabel(month.start)} with room to spare — ${money(month.walletAvailable - month.billNeed)} left over.';
   }
   return "You're at $billScore% of what you need to cover ${_monthLabel(month.start)}'s bills — ${money(month.billNeed - month.walletAvailable)} short of the ${money(month.billNeed)} needed.";
 }
@@ -6775,8 +6799,8 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           month.canPayBills
-                              ? 'Yes, your wallet can cover this month’s bills'
-                              : 'No, your wallet cannot cover this month’s bills yet',
+                              ? 'Yes, your money can cover this month’s bills'
+                              : 'No, your money cannot cover this month’s bills yet',
                           style: const TextStyle(
                             color: _title,
                             fontSize: 14,
@@ -6789,7 +6813,7 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)} and wallet has ${money(month.walletAvailable)}.',
+                    '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)}; fund, wallet and cash have ${money(month.walletAvailable)}.',
                     style: const TextStyle(
                       color: _body,
                       fontSize: 11,
@@ -6958,10 +6982,10 @@ class _CashMonthStatusSection extends StatelessWidget {
     return _ExplorerSection(
       eyebrow: 'MONTH · CASH INDEX',
       title: month.canPayBills
-          ? 'Yes, your wallet can cover this month’s bills'
-          : 'No, your wallet cannot cover this month’s bills yet',
+          ? 'Yes, your money can cover this month’s bills'
+          : 'No, your money cannot cover this month’s bills yet',
       subtitle:
-          '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)} and wallet has ${money(month.walletAvailable)}.',
+          '${_monthLabel(month.start)} · Bills need ${money(month.billNeed)}; fund, wallet and cash have ${money(month.walletAvailable)}.',
       child: Column(
         children: [
           Row(
@@ -21017,15 +21041,19 @@ class _EssentialExpensesActionPanelState
               children: [
                 const Icon(Icons.home_work_rounded, color: _brand),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Essential Expenses Fund',
+                      const Text('Essential Expenses Fund',
                           style: TextStyle(
                               color: _title, fontWeight: FontWeight.w900)),
-                      Text('Earmarked inside Wallet',
-                          style: TextStyle(
+                      Text(
+                          state.fakeMayaLink?.summary.essentialExpenseFund !=
+                                  null
+                              ? 'Separate bucket in FakeMaya'
+                              : 'Set aside for essentials',
+                          style: const TextStyle(
                               color: _body,
                               fontSize: 10.5,
                               fontWeight: FontWeight.w700)),
