@@ -5844,6 +5844,23 @@ class AppState extends ChangeNotifier {
           entry['type'] == 'emergency_deposit' &&
           entry['sourceTransactionId'] == transactionId);
 
+  FakeMayaTransaction? get latestEmergencyFundIncomeTransaction {
+    final now = AppClock.now();
+    final incomes = allTransactions.where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      final category = transaction.category?.trim().toLowerCase() ?? '';
+      return _isEssentialIncomeCandidate(transaction) &&
+          category.contains('salary') &&
+          date != null &&
+          date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+    }).toList()
+      ..sort((a, b) => (b.createdAt ?? b.labeledAt!)
+          .compareTo(a.createdAt ?? a.labeledAt!));
+    return incomes.isEmpty ? null : incomes.first;
+  }
+
   DateTime? get latestEmergencyReplenishmentDate {
     for (final entry in d1Ledger) {
       if (entry['type'] == 'ef_replenish') {

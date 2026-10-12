@@ -22478,14 +22478,20 @@ class _EmergencyFundIncomeActionPanelState
   bool busy = false;
 
   Future<void> _deposit(AppState state, FakeMayaTransaction income) async {
-    if (busy || income.createdAt == null) return;
+    final incomeDate = income.createdAt ?? income.labeledAt;
+    if (busy ||
+        incomeDate == null ||
+        state.latestEmergencyFundIncomeTransaction?.transactionId !=
+            income.transactionId) {
+      return;
+    }
     setState(() => busy = true);
     await _runWalletTransfer(
       context,
       () => state.depositIncomeToEmergencyFund(
         transactionId: income.transactionId,
         incomeAmount: income.amount,
-        incomeDate: income.createdAt!,
+        incomeDate: incomeDate,
         percentage: widget.percentage,
       ),
     );
@@ -22550,14 +22556,14 @@ class _EmergencyFundIncomeActionPanelState
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final income = _latestIncomeTransaction(state);
+    final income = state.latestEmergencyFundIncomeTransaction;
     final percentage = widget.percentage;
     final allocation = (income?.amount ?? 0) * percentage / 100;
     final deposited = income != null &&
         state.hasEmergencyAllocationForIncome(income.transactionId);
     final walletBlock = _walletBlockReason(state, allocation);
     final canDeposit = walletBlock == null;
-    final date = income?.createdAt;
+    final date = income?.createdAt ?? income?.labeledAt;
     final localizations = MaterialLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
@@ -22627,7 +22633,8 @@ class _EmergencyFundIncomeActionPanelState
           ),
           const SizedBox(height: 12),
           if (income == null)
-            const Text('No qualifying income transaction found yet.',
+            const Text(
+                'Label today’s income as salary to set aside money for the Emergency Fund.',
                 style: TextStyle(color: _body, fontWeight: FontWeight.w700))
           else ...[
             const Text('LATEST INCOME',
