@@ -5701,15 +5701,15 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final targetPct = configuredNumber('pct', recommended) / 100;
-    final allocated =
-        _monthLedgerAmount(state, monthStart, 'essential_deposit');
-    final fallbackAllocated = transactions
-        .where((transaction) =>
-            transaction.amount > 0 &&
-            transaction.source?.toLowerCase() == 'basic needs fund')
+    // "Set aside" only counts real A1 transfers (no label-based fallback).
+    final actual = _monthLedgerAmount(state, monthStart, 'essential_deposit');
+    // Expected = A1's % of the income A1 can actually allocate this month,
+    // using the same rule as the A1 card's pending-income list.
+    final allocatableIncome = transactions
+        .where(state._isEssentialIncomeCandidate)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
-    final actual = allocated > 0 ? allocated : fallbackAllocated;
-    final targetAmount = income * targetPct;
+    final targetAmount = allocatableIncome * targetPct;
+    final pctLabel = '${(targetPct * 100).round()}%';
     final pattern = weeks
         .map((week) => week.weekIncome <= 0
             ? 0.0
@@ -5722,8 +5722,8 @@ _CashActionScore? _cashActionScoreFor({
       id: id,
       title: 'Set aside income for essentials',
       score: _averageWeeklyResiliency(pattern),
-      detail:
-          '${money(actual)} allocated toward a ${money(targetAmount)} monthly target.',
+      detail: '${money(actual)} set aside of ${money(targetAmount)} expected '
+          '($pctLabel of ${money(allocatableIncome)} income received this month).',
       pattern: pattern,
       weekLabels: _weekLabels(weeks),
       actualLabel: money(actual),
@@ -5731,9 +5731,10 @@ _CashActionScore? _cashActionScoreFor({
       formula:
           'Resiliency = average of each available week: weekly essential allocation ÷ configured ${targetPct * 100}% of weekly income.',
       evidence: [
-        'Monthly income counted: ${money(income)}',
-        'Configured allocation: ${(targetPct * 100).round()}%',
-        'Essential allocation found: ${money(actual)}',
+        'Income A1 can set aside from this month: ${money(allocatableIncome)}',
+        'Your A1 percentage: $pctLabel',
+        'Expected to set aside: ${money(targetAmount)}',
+        'Set aside with A1 transfers: ${money(actual)}',
       ],
     );
   }
@@ -7329,8 +7330,12 @@ class _ActionMeasureCard extends StatelessWidget {
   }
 }
 
-String _actionMeasuredInputLabel(_CashActionScore action) =>
-    'Measured input: ${action.actualLabel} · configured target: ${action.targetLabel}';
+String _actionMeasuredInputLabel(_CashActionScore action) => action.id == 'A1'
+    // A1's amount follows the income received, it isn't a configured target.
+    ? 'Set aside: ${action.actualLabel} · expected from income received: '
+        '${action.targetLabel}'
+    : 'Measured input: ${action.actualLabel} · configured target: '
+        '${action.targetLabel}';
 
 _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
   final scored = measures.where((measure) => measure.hasScore).toList();
