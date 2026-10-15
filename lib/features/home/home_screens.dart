@@ -5432,6 +5432,7 @@ class _CashActionScore {
     required this.formula,
     required this.evidence,
     this.applicableMeasures = const ['Consistency', 'Resiliency', 'Adherence'],
+    this.resiliencyLabel = 'Resiliency',
     this.emptyReason = 'Not enough data to make a calculation',
   });
 
@@ -5444,6 +5445,9 @@ class _CashActionScore {
   final String actualLabel;
   final String targetLabel;
   final String formula;
+  /// Display name of the main measure ('Resiliency' unless the score is
+  /// really something else, e.g. A3's monthly 'Progress').
+  final String resiliencyLabel;
   final List<String> evidence;
 
   /// Which of Consistency/Resiliency/Adherence make sense for this
@@ -5462,7 +5466,13 @@ class _CashActionScore {
 
 /// Average of whichever measures actually have a score for this action.
 /// Returns null only when every applicable measure is missing data.
+/// The circular gauge shows the action's main measure. The other measures
+/// come from the same weekly data, so averaging them would count the same
+/// weeks several times; they're shown as details instead.
 int? _overallActionScore(List<_ActionMeasure> measures) {
+  for (final measure in measures) {
+    if (measure.primary) return measure.percent;
+  }
   final scored = measures.where((measure) => measure.hasScore).toList();
   if (scored.isEmpty) return null;
   final total = scored.fold<int>(0, (sum, measure) => sum + measure.percent!);
@@ -5710,26 +5720,40 @@ _CashActionScore? _cashActionScoreFor({
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
     final targetAmount = allocatableIncome * targetPct;
     final pctLabel = '${(targetPct * 100).round()}%';
-    final pattern = weeks
-        .map((week) => week.weekIncome <= 0
-            ? 0.0
-            : (_ledgerAmountInRange(state, week.start, week.end,
-                        const {'essential_deposit'}) /
-                    (week.weekIncome * targetPct))
-                .clamp(0.0, 1.5))
-        .toList();
+    // Weekly: set aside for that week's income ÷ X% of it. Weeks without
+    // income A1 can allocate are skipped (nothing to set aside), transfers
+    // count toward the week the income arrived, and over-saving one week
+    // can't hide a missed one (capped at 100%).
+    final incomeWeeks = <WeekRecord>[];
+    final pattern = <double>[];
+    for (final week in weeks) {
+      final weekIncome = week.days
+          .expand((day) => day.transactions)
+          .where(state._isEssentialIncomeCandidate)
+          .fold(0.0, (sum, transaction) => sum + transaction.amount);
+      if (weekIncome <= 0) continue;
+      incomeWeeks.add(week);
+      pattern.add(targetPct <= 0
+          ? 1.0
+          : (_essentialSetAsideForIncomeIn(state, week.start, week.end) /
+                  (weekIncome * targetPct))
+              .clamp(0.0, 1.0));
+    }
     return _CashActionScore(
       id: id,
       title: 'Set aside income for essentials',
+      emptyReason: 'No income to set aside from yet this month.',
       score: _averageWeeklyResiliency(pattern),
       detail: '${money(actual)} set aside of ${money(targetAmount)} expected '
           '($pctLabel of ${money(allocatableIncome)} income received this month).',
       pattern: pattern,
-      weekLabels: _weekLabels(weeks),
+      weekLabels: _weekLabels(incomeWeeks),
       actualLabel: money(actual),
       targetLabel: money(targetAmount),
       formula:
-          'Resiliency = average of each available week: weekly essential allocation ÷ configured ${targetPct * 100}% of weekly income.',
+          'Resiliency = average of the weeks you received income: amount set '
+          'aside for that income ÷ $pctLabel of it (up to 100%). Weeks '
+          'without income are skipped.',
       evidence: [
         'Income A1 can set aside from this month: ${money(allocatableIncome)}',
         'Your A1 percentage: $pctLabel',
@@ -5771,18 +5795,28 @@ _CashActionScore? _cashActionScoreFor({
                 selectedCategories.contains(entry.key))
             .fold(0.0, (sum, entry) => sum + entry.value)
         : cap * math.max(1, selectedCategories.length);
+    // Weekly: spending so far this month vs the caps prorated to the end of
+    // that week, so one big shop doesn't fail a week while the month is on
+    // track.
+    final monthEnd = DateTime(monthStart.year, monthStart.month + 1);
+    final daysInMonth = monthEnd.difference(monthStart).inDays;
+    final capped = transactions.where((transaction) =>
+        transaction.amount < 0 &&
+        !transaction.excludedFromInsights &&
+        transaction.createdAt != null &&
+        (selectedCategories.isEmpty ||
+            selectedCategories.contains(budgetCategoryOf(transaction))));
     final pattern = weeks.map((week) {
-      final spent = week.days.expand((day) => day.transactions).where(
-        (transaction) {
-          if (transaction.amount >= 0 || transaction.excludedFromInsights) {
-            return false;
-          }
-          return selectedCategories.isEmpty ||
-              selectedCategories.contains(budgetCategoryOf(transaction));
-        },
-      ).fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-      final weeklyCap = totalCap / weekCount;
-      return spent <= 0 ? 1.0 : (weeklyCap / spent).clamp(0.0, 1.0);
+      final weekEnd = week.end.isBefore(monthEnd)
+          ? DateTime(week.end.year, week.end.month, week.end.day + 1)
+          : monthEnd;
+      final daysSoFar =
+          weekEnd.difference(monthStart).inDays.clamp(1, daysInMonth);
+      final capSoFar = totalCap * daysSoFar / daysInMonth;
+      final spentSoFar = capped
+          .where((transaction) => transaction.createdAt!.isBefore(weekEnd))
+          .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+      return spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0);
     }).toList();
     final selectedSpend =
         categoryTotals.values.fold(0.0, (sum, value) => sum + value);
@@ -5797,7 +5831,12 @@ _CashActionScore? _cashActionScoreFor({
       actualLabel: money(selectedSpend),
       targetLabel: money(totalCap),
       formula:
-          'Resiliency = average of each available week: weekly selected-category cap ÷ selected-category spending, capped at 100%.',
+          'Resiliency = average of each week: your caps so far this month '
+          '(prorated by day) ÷ what you\'ve spent so far in those '
+          'categories, up to 100%.',
+      // Every week has a value, so "weeks with activity" would always be
+      // 100%; only Resiliency and Adherence say something here.
+      applicableMeasures: const ['Resiliency', 'Adherence'],
       evidence: [
         'Configured category cap total: ${money(totalCap)}',
         if (selectedCategories.isNotEmpty)
@@ -5877,12 +5916,14 @@ _CashActionScore? _cashActionScoreFor({
       actualLabel: money(monthIncome),
       targetLabel: money(target),
       formula:
-          'Progress = monthly income and other cash-in ÷ configured monthly cash-in target, capped at 100%.',
+          'Progress = money received this month ÷ your monthly cash-in '
+          'target, up to 100%. It grows as income arrives through the month.',
       evidence: [
         'Configured monthly cash-in target: ${money(target)}',
         'Monthly cash-in counted: ${money(monthIncome)}',
       ],
       applicableMeasures: const ['Resiliency'],
+      resiliencyLabel: 'Progress',
     );
   }
   if (id == 'A19') {
@@ -5893,12 +5934,15 @@ _CashActionScore? _cashActionScoreFor({
                 .first);
     final floor = configuredNumber('amt', recommended);
     final currentFund = state.essentialExpensesBalance;
+    // Weekly: the Essential Expenses Fund's real balance at the end of each
+    // week, rebuilt from today's balance by undoing later fund changes.
     final pattern = weeks.isEmpty
         ? <double>[floor <= 0 ? 0 : (currentFund / floor).clamp(0.0, 1.0)]
         : weeks
             .map((week) => floor <= 0
                 ? 0.0
-                : (week.needsBalanceEnd / floor).clamp(0.0, 1.0))
+                : (_essentialFundBalanceAtEndOf(state, week.end) / floor)
+                    .clamp(0.0, 1.0))
             .toList();
     return _CashActionScore(
       id: id,
@@ -5911,7 +5955,11 @@ _CashActionScore? _cashActionScoreFor({
       actualLabel: money(currentFund),
       targetLabel: money(floor),
       formula:
-          'Progress = Essential Expenses Fund balance ÷ configured peso floor. The recommended floor is based on essential expenses, monthly income, and surplus.',
+          'Resiliency = average of each week: your Essential Expenses Fund '
+          'balance at the end of the week ÷ your floor, up to 100%. '
+          'Adherence = weeks the fund ended at or above the floor.',
+      // A balance is never "activity", so Consistency doesn't apply.
+      applicableMeasures: const ['Resiliency', 'Adherence'],
       evidence: [
         'Configured Essential Expenses Fund floor: ${money(floor)}',
         'Essential Expenses Fund amount counted: ${money(currentFund)}',
@@ -6500,6 +6548,44 @@ _CashActionScore? _lifestyleActionScoreFor({
   return null;
 }
 
+/// A1 transfers made for income that arrived in [start]–[end] (by the
+/// income's date, not the transfer's).
+double _essentialSetAsideForIncomeIn(
+  AppState state,
+  DateTime start,
+  DateTime end,
+) {
+  final endExclusive = DateTime(end.year, end.month, end.day + 1);
+  return state.d1Ledger.where((entry) {
+    if (entry['type'] != 'essential_deposit') return false;
+    final date = DateTime.tryParse(
+      (entry['sourceDate'] ?? entry['date'])?.toString() ?? '',
+    );
+    return date != null && !date.isBefore(start) && date.isBefore(endExclusive);
+  }).fold(
+      0.0, (sum, entry) => sum + ((entry['amount'] as num?)?.toDouble() ?? 0));
+}
+
+/// The Essential Expenses Fund's balance at the end of [day]: today's
+/// balance with every later fund change undone (A1 transfers in, fund
+/// spending and bill payments out).
+double _essentialFundBalanceAtEndOf(AppState state, DateTime day) {
+  final endOfDay = DateTime(day.year, day.month, day.day + 1);
+  var balance = state.essentialExpensesBalance;
+  for (final entry in state.d1Ledger) {
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null || date.isBefore(endOfDay)) continue;
+    final change = switch (entry['type']) {
+      'essential_deposit' => (entry['amount'] as num?)?.toDouble() ?? 0,
+      'use_essential' => -((entry['amount'] as num?)?.toDouble() ?? 0),
+      'bill_plan' => -((entry['fromEssentialFund'] as num?)?.toDouble() ?? 0),
+      _ => 0.0,
+    };
+    balance -= change;
+  }
+  return math.max(0.0, balance);
+}
+
 double _ledgerAmountInRange(
   AppState state,
   DateTime start,
@@ -7070,11 +7156,28 @@ class _CashMonthStatusSection extends StatelessWidget {
 }
 
 class _ActionMeasure {
-  const _ActionMeasure(this.label, this.percent, {this.missingReason});
+  const _ActionMeasure(
+    this.label,
+    this.percent, {
+    this.missingReason,
+    this.primary = false,
+    this.centerText,
+    this.caption,
+  });
 
   final String label;
   final int? percent;
   final String? missingReason;
+
+  /// Shown inside the gauge instead of the % (e.g. Adherence's "3/4").
+  final String? centerText;
+
+  /// Small line under the label (e.g. "weeks fully met").
+  final String? caption;
+
+  /// The action's main measure (Resiliency, or e.g. Progress), shown as the
+  /// circular gauge.
+  final bool primary;
 
   bool get hasScore => percent != null;
 }
@@ -7087,26 +7190,46 @@ class _ActionMeasure {
 /// - Consistency: % of weeks with any measurable activity at all.
 /// Single-point actions still show all three: Consistency marks whether any
 /// data exists, and Adherence marks whether that one point fully met target.
+/// A week counts as "fully met" for Adherence within 1% of the target, so a
+/// correct full transfer isn't failed by rounding (e.g. 0.9999…) and a
+/// peso-or-so shortfall doesn't fail the whole week.
+const _fullyMetThreshold = 0.99;
+
 List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
   final applicable = action.applicableMeasures;
   if (action.pattern.isEmpty) {
     return [
       for (final label in applicable)
-        _ActionMeasure(label, null, missingReason: action.emptyReason),
+        _ActionMeasure(
+          label == 'Resiliency' ? action.resiliencyLabel : label,
+          null,
+          missingReason: action.emptyReason,
+          primary: label == 'Resiliency',
+        ),
     ];
   }
-  final resiliency = _ActionMeasure('Resiliency', _scorePercent(action.score));
-  final adherence = _scorePercent(
-    action.pattern.where((value) => value >= 1.0).length /
-        action.pattern.length,
+  final resiliency = _ActionMeasure(
+    action.resiliencyLabel,
+    _scorePercent(action.score),
+    primary: true,
   );
+  // Adherence reads as "X of Y weeks fully met" rather than a bare %.
+  final metWeeks =
+      action.pattern.where((value) => value >= _fullyMetThreshold).length;
+  final totalWeeks = action.pattern.length;
+  final adherence = _scorePercent(metWeeks / totalWeeks);
   final consistency = _scorePercent(
     action.pattern.where((value) => value > 0).length / action.pattern.length,
   );
   final byLabel = {
     'Consistency': _ActionMeasure('Consistency', consistency),
     'Resiliency': resiliency,
-    'Adherence': _ActionMeasure('Adherence', adherence),
+    'Adherence': _ActionMeasure(
+      'Adherence',
+      adherence,
+      centerText: '$metWeeks/$totalWeeks',
+      caption: totalWeeks == 1 ? 'week fully met' : 'weeks fully met',
+    ),
   };
   return [for (final label in applicable) byLabel[label]!];
 }
@@ -7115,16 +7238,25 @@ class _CircularScoreGauge extends StatelessWidget {
   const _CircularScoreGauge({
     required this.label,
     required this.percent,
+    this.centerText,
+    this.caption,
     this.size = 60,
     this.strokeWidth = 6,
     this.valueFontSize = 15,
   });
 
   factory _CircularScoreGauge.forMeasure(_ActionMeasure measure) =>
-      _CircularScoreGauge(label: measure.label, percent: measure.percent);
+      _CircularScoreGauge(
+        label: measure.label,
+        percent: measure.percent,
+        centerText: measure.centerText,
+        caption: measure.caption,
+      );
 
   final String label;
   final int? percent;
+  final String? centerText;
+  final String? caption;
   final double size;
   final double strokeWidth;
   final double valueFontSize;
@@ -7151,7 +7283,7 @@ class _CircularScoreGauge extends StatelessWidget {
                 ),
               ),
               Text(
-                percent == null ? 'N/A' : '$percent',
+                percent == null ? 'N/A' : centerText ?? '$percent',
                 style: TextStyle(
                   color: color,
                   fontSize: valueFontSize,
@@ -7170,6 +7302,15 @@ class _CircularScoreGauge extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
+        if (caption != null && percent != null)
+          Text(
+            caption!,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
       ],
     );
   }
