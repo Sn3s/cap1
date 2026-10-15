@@ -5202,8 +5202,7 @@ class _OverviewMetric extends StatelessWidget {
               ),
               if (onExplain != null) ...[
                 const SizedBox(width: 3),
-                const Icon(Icons.info_outline_rounded,
-                    size: 11, color: _body),
+                const Icon(Icons.info_outline_rounded, size: 11, color: _body),
               ],
             ],
           ),
@@ -5290,7 +5289,10 @@ Widget _explanationNote(String text) => Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Text(text,
           style: const TextStyle(
-              color: _body, fontSize: 12, height: 1.4, fontWeight: FontWeight.w600)),
+              color: _body,
+              fontSize: 12,
+              height: 1.4,
+              fontWeight: FontWeight.w600)),
     );
 
 void _showBillReadinessExplanation(
@@ -5302,16 +5304,15 @@ void _showBillReadinessExplanation(
     title: 'How bill readiness is calculated',
     formula: 'Bill readiness = Have ÷ Need (up to 100%)',
     children: [
-      _explanationLine('Essential Expenses Fund',
-          money(month.essentialFundAvailable)),
+      _explanationLine(
+          'Essential Expenses Fund', money(month.essentialFundAvailable)),
       _explanationLine('Wallet', money(month.walletBalance)),
       _explanationLine('Cash on Hand', money(month.cashOnHand)),
       _explanationLine('Have (total)', money(month.walletAvailable),
           bold: true),
       const Divider(height: 16, color: _border),
       _explanationLine('Need', money(month.billNeed)),
-      _explanationLine(
-          'Bill readiness', '${_scorePercent(month.billScore)}%',
+      _explanationLine('Bill readiness', '${_scorePercent(month.billScore)}%',
           bold: true),
       _explanationNote(
         'Need: your scheduled Basic Needs bills due in '
@@ -5434,6 +5435,11 @@ class _CashActionScore {
     this.applicableMeasures = const ['Consistency', 'Resiliency', 'Adherence'],
     this.resiliencyLabel = 'Resiliency',
     this.emptyReason = 'Not enough data to make a calculation',
+    this.period = 'week',
+    this.periodPlural = 'weeks',
+    this.consistencyChecks,
+    this.consistencyCaption,
+    this.parts = const [],
   });
 
   final String id;
@@ -5445,6 +5451,7 @@ class _CashActionScore {
   final String actualLabel;
   final String targetLabel;
   final String formula;
+
   /// Display name of the main measure ('Resiliency' unless the score is
   /// really something else, e.g. A3's monthly 'Progress').
   final String resiliencyLabel;
@@ -5462,6 +5469,33 @@ class _CashActionScore {
   /// (e.g. "no withdrawals to replenish this month" vs. the generic
   /// "not enough data").
   final String emptyReason;
+
+  /// What one [pattern] entry stands for ('week' unless the action runs on
+  /// another rhythm, e.g. A12's 'income' or A23's 'month'). Used in the
+  /// Adherence caption and the per-entry bar list.
+  final String period;
+  final String periodPlural;
+
+  /// Overrides "entry > 0" for Consistency when an entry's activity isn't
+  /// its score (e.g. A23 counts any contribution, A30 counts keeping pace).
+  /// One flag per [pattern] entry.
+  final List<bool>? consistencyChecks;
+
+  /// Small line under the Consistency gauge (e.g. "months compounded").
+  final String? consistencyCaption;
+
+  /// Separately-measured pieces of this action, each shown as its own mini
+  /// card (e.g. A29's hobbies, each on its own "within X months" timeline).
+  final List<_CashActionScore> parts;
+}
+
+/// The action's headline score: its main measure, or for actions without a
+/// Resiliency measure (G5), [_CashActionScore.score] directly.
+int? _actionOverallScore(_CashActionScore action) {
+  if (!action.applicableMeasures.contains('Resiliency')) {
+    return action.pattern.isEmpty ? null : _scorePercent(action.score);
+  }
+  return _overallActionScore(_actionMeasures(action));
 }
 
 /// Average of whichever measures actually have a score for this action.
@@ -5830,8 +5864,7 @@ _CashActionScore? _cashActionScoreFor({
       weekLabels: _weekLabels(weeks),
       actualLabel: money(selectedSpend),
       targetLabel: money(totalCap),
-      formula:
-          'Resiliency = average of each week: your caps so far this month '
+      formula: 'Resiliency = average of each week: your caps so far this month '
           '(prorated by day) ÷ what you\'ve spent so far in those '
           'categories, up to 100%.',
       // Every week has a value, so "weeks with activity" would always be
@@ -5915,8 +5948,7 @@ _CashActionScore? _cashActionScoreFor({
       weekLabels: const ['Current'],
       actualLabel: money(monthIncome),
       targetLabel: money(target),
-      formula:
-          'Progress = money received this month ÷ your monthly cash-in '
+      formula: 'Progress = money received this month ÷ your monthly cash-in '
           'target, up to 100%. It grows as income arrives through the month.',
       evidence: [
         'Configured monthly cash-in target: ${money(target)}',
@@ -6142,9 +6174,10 @@ _CashActionScore? _cashActionScoreFor({
   return null;
 }
 
-/// Accumulating Wealth (G5)'s action scores. A12 is month-aware because it can
-/// compare each income event with its matching investment transfer; A23/A30 stay
-/// single-point portfolio health checks.
+/// Accumulating Wealth (G5)'s action scores, each measured on its own rhythm:
+/// A12 per income received, A23 per month (building/compounding), A30 per
+/// weekly valuation (the "on track" check). None has a Resiliency measure,
+/// since no outside setbacks are tracked.
 List<_CashActionScore> _investmentActionScores({
   required AppState state,
   DateTime? monthStart,
@@ -6182,6 +6215,11 @@ _CashActionScore? _investmentActionScoreFor({
               latestIncome,
           ]
         : _incomeTransactionsForInvestmentMonth(state, monthStart);
+    const formula = 'Each income: invested from it ÷ its configured share '
+        '(up to 100%). Consistency = incomes you invested any amount from. '
+        'Adherence = incomes where the full share was invested. Score = '
+        'average of every income this month. Counted per income received, '
+        'not per week.';
     if (incomes.isEmpty) {
       return _CashActionScore(
         id: id,
@@ -6194,13 +6232,16 @@ _CashActionScore? _investmentActionScoreFor({
         weekLabels: const [],
         actualLabel: money(0),
         targetLabel: '${pct.toStringAsFixed(0)}% of income',
-        formula:
-            'Progress = invested amount from income ÷ configured ${pct.toStringAsFixed(0)}% income target.',
+        formula: formula,
         evidence: [
           monthStart == null
               ? 'No income transaction detected yet'
               : 'No income transaction detected for ${_monthLabel(monthStart)}'
         ],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'income',
+        periodPlural: 'incomes',
+        consistencyCaption: 'incomes invested from',
         emptyReason: monthStart == null
             ? 'No income has been detected yet to invest a share of.'
             : 'No income has been detected for ${_monthLabel(monthStart)}.',
@@ -6234,46 +6275,104 @@ _CashActionScore? _investmentActionScoreFor({
       weekLabels: labels,
       actualLabel: money(actual),
       targetLabel: money(expected),
-      formula:
-          'Progress = invested amount from each income ÷ configured ${pct.toStringAsFixed(0)}% income target.',
+      formula: formula,
       evidence: [
         'Configured contribution: ${pct.toStringAsFixed(0)}% of each income',
+        'Incomes received: ${incomes.length}',
         'Income counted: ${money(incomes.fold<double>(0, (total, income) => total + income.amount))}',
         'Investment deposits from income: ${money(actual)}',
       ],
+      // No outside setbacks are tracked, so there's no Resiliency here.
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'income',
+      periodPlural: 'incomes',
+      consistencyCaption: 'incomes invested from',
     );
   }
   if (id == 'A23') {
     final target = state.configuredInvestmentPortfolioTarget;
-    final ratio = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    final progress = target <= 0 ? 0.0 : (balance / target).clamp(0.0, 1.0);
+    final selected = monthStart ?? _monthStart(AppClock.now());
+    final currentMonth = _monthStart(AppClock.now());
+    // Building the portfolio is a monthly habit: up to the last 6 months,
+    // starting from the first month anything was added.
+    final firstContribution = state.d1Ledger
+        .where((entry) => _investmentContributionTypes.contains(entry['type']))
+        .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
+        .whereType<DateTime>()
+        .map(_monthStart)
+        .fold<DateTime?>(
+            null,
+            (first, month) =>
+                first == null || month.isBefore(first) ? month : first);
+    final pattern = <double>[];
+    final added = <bool>[];
+    final labels = <String>[];
+    var monthsAdded = 0.0;
+    var monthsWithdrawn = 0.0;
+    for (var offset = 5; offset >= 0; offset--) {
+      final month = DateTime(selected.year, selected.month - offset);
+      if (firstContribution == null || month.isBefore(firstContribution)) {
+        continue;
+      }
+      final contributed =
+          _investmentLedgerForMonth(state, month, _investmentContributionTypes);
+      final withdrawn = _investmentLedgerForMonth(
+          state, month, const {'investment_withdrawal'});
+      // The current month is still open: it only counts once something
+      // has been added, so early in the month isn't a miss.
+      if (month == currentMonth && contributed <= 0) continue;
+      monthsAdded += contributed;
+      monthsWithdrawn += withdrawn;
+      // Share of what was added that stayed invested to compound.
+      pattern.add(contributed <= 0
+          ? 0.0
+          : ((contributed - withdrawn) / contributed).clamp(0.0, 1.0));
+      added.add(contributed > 0);
+      labels.add(_monthLabel(month).substring(0, 3));
+    }
     return _CashActionScore(
       id: id,
       title: 'Build the Investment Portfolio',
-      score: ratio,
+      score: progress,
       detail:
-          '${money(balance)} saved toward a ${money(target)} portfolio target.',
-      pattern: [ratio],
-      weekLabels: const ['Current'],
+          '${money(balance)} today toward a ${money(target)} portfolio target.',
+      pattern: pattern,
+      weekLabels: labels,
       actualLabel: money(balance),
       targetLabel: money(target),
-      formula:
-          'Progress = (Investment Fund + holdings value) ÷ configured target.',
+      formula: 'Determined by your monthly ability to compound your '
+          'investment. Each month: (added − withdrawn) ÷ added. '
+          'Consistency = months you added to the portfolio. Adherence = '
+          'months everything you added stayed invested. Score = portfolio '
+          'balance ÷ ${money(target)} target.',
       evidence: [
         'Configured portfolio target: ${money(target)}',
         'Investment Fund balance: ${money(state.investmentBalance)}',
         'Holdings value (weekly): ${money(state.investmentHoldingsValue)}',
         'Portfolio balance: ${money(balance)}',
+        'Added in the months shown: ${money(monthsAdded)}',
+        'Withdrawn in the months shown: ${money(monthsWithdrawn)}',
       ],
-      applicableMeasures: const ['Resiliency'],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'month',
+      periodPlural: 'months',
+      consistencyChecks: added,
+      consistencyCaption: 'months compounded',
+      emptyReason: 'Nothing has been added to the Investment Portfolio yet.',
     );
   }
   if (id == 'A30') {
     final target =
         configuredNumber('pct', state.investmentTargetAnnualReturnPercent);
     final baseline = state.investmentReturnBaselineDate;
-    final tracking = baseline != null;
-    final actual = state.investmentAnnualizedReturnPercent;
-    if (!tracking) {
+    const formula = 'On track is checked at every weekly valuation: return '
+        'since tracking started ÷ the target\'s share to date (target × '
+        'days tracked ÷ 365), up to 100%. Consistency = weeks whose own '
+        'return kept the weekly pace (target ÷ 52). Adherence = weekly '
+        'checks where you were on track. Score = the latest check this '
+        'month.';
+    if (baseline == null) {
       return _CashActionScore(
         id: id,
         title: 'Meet the annual return target',
@@ -6284,56 +6383,94 @@ _CashActionScore? _investmentActionScoreFor({
         weekLabels: const [],
         actualLabel: 'Not tracking',
         targetLabel: '${target.toStringAsFixed(0)}%',
-        formula:
-            'Progress = annualized investment return since tracking started ÷ configured target annual return.',
+        formula: formula,
         evidence: const ['Tracking has not started yet'],
-        applicableMeasures: const ['Resiliency'],
+        applicableMeasures: const ['Consistency', 'Adherence'],
         emptyReason: 'Start tracking to see this action\'s score.',
       );
     }
-    final ratio = target <= 0 ? 1.0 : (actual / target).clamp(0.0, 1.0);
-    final weeks = state.investmentWeeklyReturns
-        .where((week) => !week.valuedAt.isBefore(baseline))
-        .toList();
-    final recentWeeks =
-        weeks.length > 8 ? weeks.sublist(weeks.length - 8) : weeks;
-    final measuredThrough = state.investmentReturnMeasuredThrough;
+    final selected = monthStart ?? _monthStart(AppClock.now());
+    final start = DateTime.tryParse(
+      state._trackedInvestmentValuations.firstOrNull?['valuedAt']?.toString() ??
+          '',
+    );
+    final weeklyPace = target / 100 / 52;
+    final pattern = <double>[];
+    final keptPace = <bool>[];
+    final labels = <String>[];
+    var growth = 1.0;
+    var returnToDate = 0.0;
+    var targetToDate = 0.0;
+    if (start != null) {
+      for (final week in state._trackedInvestmentWeeks) {
+        growth *= 1 + week.rate;
+        final days = week.valuedAt.difference(start).inDays;
+        if (days <= 0 || !_sameMonth(week.valuedAt, selected)) continue;
+        returnToDate = (growth - 1) * 100;
+        targetToDate = target * days / 365;
+        pattern.add(targetToDate <= 0
+            ? 1.0
+            : (returnToDate / targetToDate).clamp(0.0, 1.0));
+        keptPace.add(week.rate >= weeklyPace);
+        labels.add(_shortDate(week.valuedAt));
+      }
+    }
     return _CashActionScore(
       id: id,
       title: 'Meet the annual return target',
-      score: state.hasInvestmentReturnWeek ? ratio : 0,
-      detail: state.hasInvestmentReturnWeek
-          ? '${actual.toStringAsFixed(1)}% annualized return toward a ${target.toStringAsFixed(0)}% target.'
-          : 'Waiting for the first full week of holdings valuations.',
-      // Each bar: that week's return vs. the weekly pace the target needs.
-      pattern: [
-        for (final week in recentWeeks)
-          target <= 0 ? 1.0 : (week.rate * 100 / (target / 52)).clamp(0.0, 1.0),
-      ],
-      weekLabels: [for (final week in recentWeeks) _shortDate(week.valuedAt)],
-      actualLabel: '${actual.toStringAsFixed(1)}%',
-      targetLabel: '${target.toStringAsFixed(0)}%',
-      formula: 'Weekly return = (holdings value − last week − net buys) ÷ '
-          '(last week + net buys). Return since start = product of '
-          '(1 + weekly return) − 1. Annualized = return since start × 365 ÷ '
-          'days tracked. Progress = annualized ÷ target annual return.',
+      score: pattern.isEmpty ? 0 : pattern.last,
+      detail: pattern.isEmpty
+          ? 'No weekly valuations in ${_monthLabel(selected)} yet.'
+          : '${returnToDate.toStringAsFixed(2)}% return so far vs '
+              '${targetToDate.toStringAsFixed(2)}% needed by now for a '
+              '${target.toStringAsFixed(0)}% year.',
+      pattern: pattern,
+      weekLabels: labels,
+      actualLabel: '${returnToDate.toStringAsFixed(2)}%',
+      targetLabel: '${targetToDate.toStringAsFixed(2)}% by now',
+      formula: formula,
       evidence: [
         'Configured target annual return: ${target.toStringAsFixed(0)}%',
+        'Weekly pace needed: ${(weeklyPace * 100).toStringAsFixed(2)}%',
         'Tracking since: ${_shortDate(baseline)}',
-        if (measuredThrough != null)
-          'Measured through the week ending ${_shortDate(measuredThrough)}',
-        'Return since start: ${state.investmentReturnPercentSinceBaseline.toStringAsFixed(2)}% over ${state.investmentReturnTrackedDays} days',
-        'Target return by now: ${state.investmentTargetReturnToDatePercent.toStringAsFixed(2)}%',
+        'Annualized return (latest): ${state.investmentAnnualizedReturnPercent.toStringAsFixed(1)}%',
       ],
-      applicableMeasures: const ['Resiliency'],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      consistencyChecks: keptPace,
+      consistencyCaption: 'weeks kept pace',
+      emptyReason:
+          'No weekly valuations since tracking started in ${_monthLabel(selected)}.',
     );
   }
   return null;
 }
 
-/// Financial Freedom (G8)'s action scores. A26-A28 are month-aware so the
-/// Freedom insights tab can answer the selected month directly; A29 remains a
-/// current target-funding view because hobby balances are cumulative by design.
+/// Ledger entries that add new money to the Investment Portfolio (A12, A13,
+/// A14, A23). FakeMaya buys only move money inside the portfolio.
+const _investmentContributionTypes = {
+  'investment_deposit',
+  'investment_monthly',
+  'investment_sweep',
+  'investment_windfall',
+};
+
+double _investmentLedgerForMonth(
+  AppState state,
+  DateTime month,
+  Set<String> types,
+) {
+  return state.d1Ledger.where((entry) {
+    if (!types.contains(entry['type'])) return false;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    return date != null && _sameMonth(date, month);
+  }).fold(0.0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0));
+}
+
+/// Financial Freedom (G8)'s action scores, each measured on its own rhythm:
+/// A26 per month, A27 per income received, A28 per week, and A29 per month
+/// of each hobby's own savings timeline. None has a Resiliency measure,
+/// since no outside setbacks are tracked.
 List<_CashActionScore> _lifestyleActionScores({
   required AppState state,
   DateTime? monthStart,
@@ -6362,33 +6499,57 @@ _CashActionScore? _lifestyleActionScoreFor({
         fallback;
   }
 
+  final selected = monthStart ?? _monthStart(AppClock.now());
+  final currentMonth = _monthStart(AppClock.now());
   if (id == 'A26') {
     final target = configuredNumber('amt', _monthlySubscriptionBase(state));
-    final reserved = monthStart == null
-        ? state.lifestyleReservedThisMonth
-        : _monthLedgerAmount(
-            state,
-            monthStart,
-            'lifestyle_subscription_reserve',
-          );
+    final reserved =
+        _monthLedgerAmount(state, selected, 'lifestyle_subscription_reserve');
     final ratio = target <= 0 ? 0.0 : (reserved / target).clamp(0.0, 1.0);
+    // A monthly habit: up to the last 6 months, starting from the first
+    // month anything was set aside.
+    final firstReserve = _firstLedgerMonth(
+      state,
+      const {'lifestyle_subscription_reserve'},
+    );
+    final pattern = <double>[];
+    final labels = <String>[];
+    for (var offset = 5; offset >= 0; offset--) {
+      final month = DateTime(selected.year, selected.month - offset);
+      if (firstReserve == null || month.isBefore(firstReserve)) continue;
+      final amount =
+          _monthLedgerAmount(state, month, 'lifestyle_subscription_reserve');
+      // The current month is still open: it only counts once something
+      // has been set aside, so early in the month isn't a miss.
+      if (month == currentMonth && amount <= 0) continue;
+      pattern.add(target <= 0 ? 0.0 : (amount / target).clamp(0.0, 1.0));
+      labels.add(_monthLabel(month).substring(0, 3));
+    }
     return _CashActionScore(
       id: id,
       title: 'Set aside subscriptions and memberships money',
+      // The selected month's own result (the streak reads it as "met").
       score: ratio,
       detail:
-          '${money(reserved)} reserved this month toward a ${money(target)} target.',
-      pattern: [ratio],
-      weekLabels: const ['This month'],
+          '${money(reserved)} reserved in ${_monthLabel(selected)} toward a ${money(target)} monthly target.',
+      pattern: pattern,
+      weekLabels: labels,
       actualLabel: money(reserved),
       targetLabel: money(target),
-      formula:
-          'Progress = amount reserved this month ÷ configured monthly subscriptions target.',
+      formula: 'Each month: amount set aside ÷ ${money(target)} (up to '
+          '100%). Consistency = months you set aside anything. Adherence = '
+          'months the full amount was set aside. Score = '
+          '${_monthLabel(selected)}\'s result.',
       evidence: [
         'Configured monthly target: ${money(target)}',
-        'Reserved ${monthStart == null ? 'this month' : 'in ${_monthLabel(monthStart)}'}: ${money(reserved)}',
+        'Reserved in ${_monthLabel(selected)}: ${money(reserved)}',
+        'Months counted: ${pattern.length}',
       ],
-      applicableMeasures: const ['Resiliency'],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'month',
+      periodPlural: 'months',
+      consistencyCaption: 'months set aside',
+      emptyReason: 'Nothing has been set aside for subscriptions yet.',
     );
   }
   if (id == 'A27') {
@@ -6399,6 +6560,11 @@ _CashActionScore? _lifestyleActionScoreFor({
               latestIncome,
           ]
         : _incomeTransactionsForInvestmentMonth(state, monthStart);
+    const formula = 'Each income: Lifestyle Fund transfer from it ÷ its '
+        'configured share (up to 100%). Consistency = incomes you '
+        'allocated any amount from. Adherence = incomes where the full '
+        'share was allocated. Score = average of every income this month. '
+        'Counted per income received, not per week.';
     if (incomes.isEmpty) {
       return _CashActionScore(
         id: id,
@@ -6411,13 +6577,16 @@ _CashActionScore? _lifestyleActionScoreFor({
         weekLabels: const [],
         actualLabel: money(0),
         targetLabel: '${pct.toStringAsFixed(0)}%',
-        formula:
-            'Progress = each income\'s Lifestyle Fund transfer ÷ ${pct.toStringAsFixed(0)}% of that income.',
+        formula: formula,
         evidence: [
           monthStart == null
               ? 'No income transaction detected yet'
               : 'No income transaction detected for ${_monthLabel(monthStart)}'
         ],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'income',
+        periodPlural: 'incomes',
+        consistencyCaption: 'incomes allocated from',
         emptyReason: monthStart == null
             ? 'No income has been detected yet to allocate from.'
             : 'No income has been detected for ${_monthLabel(monthStart)}.',
@@ -6451,26 +6620,42 @@ _CashActionScore? _lifestyleActionScoreFor({
       weekLabels: labels,
       actualLabel: money(actual),
       targetLabel: money(expected),
-      formula:
-          'Progress = each income\'s Lifestyle Fund transfer ÷ ${pct.toStringAsFixed(0)}% of that income.',
+      formula: formula,
       evidence: [
         'Configured allocation: ${pct.toStringAsFixed(0)}% of every income',
         'Incomes counted: ${incomes.length}',
         'Lifestyle Fund allocations: ${money(actual)}',
       ],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'income',
+      periodPlural: 'incomes',
+      consistencyCaption: 'incomes allocated from',
     );
   }
   if (id == 'A28') {
     final limit = configuredNumber('amt', 1500);
+    final now = AppClock.now();
+    // Weeks that haven't started yet have no spending to judge.
     final weeks = monthStart == null
         ? [_LifestyleWeekSpend('This week', _currentWeekLifestyleSpend(state))]
-        : _lifestyleWeeklySpendForMonth(state, monthStart);
+        : [
+            for (final week in _lifestyleWeeklySpendForMonth(state, monthStart))
+              if (!(week.start?.isAfter(now) ?? false)) week,
+          ];
     final ratios = [
       for (final week in weeks)
         limit <= 0 || week.amount <= limit
             ? 1.0
             : (limit / week.amount).clamp(0.0, 1.0),
     ];
+    // Consistency = the longest unbroken run of weeks within the limit.
+    final withinLimit = [for (final value in ratios) value >= 1.0];
+    var run = 0;
+    var longestRun = 0;
+    for (final within in withinLimit) {
+      run = within ? run + 1 : 0;
+      longestRun = math.max(longestRun, run);
+    }
     final spent = weeks.fold<double>(0, (total, week) => total + week.amount);
     final target = limit * math.max(1, weeks.length);
     final ratio = ratios.isEmpty
@@ -6490,16 +6675,31 @@ _CashActionScore? _lifestyleActionScoreFor({
       weekLabels: [for (final week in weeks) week.label],
       actualLabel: money(spent),
       targetLabel: money(target),
-      formula:
-          'Progress = configured weekly limit ÷ actual spend when over the limit, otherwise full credit.',
+      formula: 'Each week: 100% when spending stays within ${money(limit)}, '
+          'otherwise limit ÷ spending. Consistency = your longest run of '
+          'weeks in a row within the limit. Adherence = weeks within the '
+          'limit. Score = average of the weeks so far.',
       evidence: [
         'Configured weekly limit: ${money(limit)}',
         'Lifestyle spend counted: ${money(spent)}',
+        'Weeks within the limit: ${withinLimit.where((w) => w).length} of ${weeks.length}',
+        'Longest run within the limit: $longestRun week${longestRun == 1 ? '' : 's'}',
       ],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      // Only the count matters here: flag as many weeks as the longest run.
+      consistencyChecks: [
+        for (var i = 0; i < weeks.length; i++) i < longestRun,
+      ],
+      consistencyCaption: 'weeks in a row',
     );
   }
   if (id == 'A29') {
     final hobbies = state.lifestyleHobbies;
+    const formula = 'Each hobby runs on its own timeline: target ÷ X months '
+        'is its monthly pace. Each month: saved by month end ÷ the pace '
+        'due by then (up to 100%). Consistency = months you added to that '
+        'hobby. Adherence = months its savings were on schedule. Score = '
+        'average of each hobby\'s latest month.';
     if (hobbies.isEmpty) {
       return _CashActionScore(
         id: id,
@@ -6510,42 +6710,149 @@ _CashActionScore? _lifestyleActionScoreFor({
         weekLabels: const [],
         actualLabel: money(0),
         targetLabel: 'Not set',
-        formula:
-            'Progress = total saved across configured hobbies ÷ their combined target.',
+        formula: formula,
         evidence: const ['No hobbies configured yet'],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'month',
+        periodPlural: 'months',
+        consistencyCaption: 'months saved',
         emptyReason:
             'Add a hobby or activity target to see this action\'s score.',
       );
     }
+    final parts = [
+      for (final hobby in hobbies) _hobbyScore(state, hobby, selected),
+    ];
+    final scored = parts.where((part) => part.pattern.isNotEmpty).toList();
     var totalSaved = 0.0;
     var totalTarget = 0.0;
     for (final hobby in hobbies) {
       totalSaved += state.lifestyleHobbyBalance(hobby['id'].toString());
       totalTarget += (hobby['target'] as num?)?.toDouble() ?? 0;
     }
-    final ratio =
-        totalTarget <= 0 ? 0.0 : (totalSaved / totalTarget).clamp(0.0, 1.0);
-    final names = hobbies.map((h) => (h['name'] ?? '').toString()).join(', ');
     return _CashActionScore(
       id: id,
       title: 'Save toward a hobby or activity',
-      score: ratio,
+      score: scored.isEmpty
+          ? 0
+          : scored.fold<double>(0, (total, part) => total + part.score) /
+              scored.length,
       detail:
-          '${money(totalSaved)} saved toward $names (${money(totalTarget)} combined target).',
-      pattern: [ratio],
-      weekLabels: const ['Current'],
+          '${money(totalSaved)} saved across ${hobbies.length} hobb${hobbies.length == 1 ? 'y' : 'ies'} (${money(totalTarget)} combined target).',
+      // Every hobby's months together, for the breakdown's overall view.
+      pattern: [for (final part in scored) ...part.pattern],
+      weekLabels: [
+        for (final part in scored)
+          for (final label in part.weekLabels) '$label · ${part.title}',
+      ],
       actualLabel: money(totalSaved),
       targetLabel: money(totalTarget),
-      formula:
-          'Progress = total saved across configured hobbies ÷ their combined target.',
+      formula: formula,
       evidence: [
-        'Hobbies configured: ${hobbies.length}',
-        'Combined target: ${money(totalTarget)}',
+        for (final part in parts) '${part.title}: ${part.detail}',
       ],
-      applicableMeasures: const ['Resiliency'],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'month',
+      periodPlural: 'months',
+      consistencyChecks: [
+        for (final part in scored) ...part.consistencyChecks!,
+      ],
+      consistencyCaption: 'months saved',
+      emptyReason: 'No hobby savings months to measure yet.',
+      parts: parts,
     );
   }
   return null;
+}
+
+/// One A29 hobby measured against its own "target within X months"
+/// timeline, from the month it was created through [selected] (or its
+/// deadline, or the month its target was reached, whichever comes first).
+_CashActionScore _hobbyScore(
+  AppState state,
+  Map<String, dynamic> hobby,
+  DateTime selected,
+) {
+  final hobbyId = hobby['id'].toString();
+  final name = (hobby['name'] ?? 'Hobby').toString();
+  final target = (hobby['target'] as num?)?.toDouble() ?? 0;
+  final months = math.max(1, (hobby['months'] as num?)?.toInt() ?? 1);
+  final pace = target / months;
+  final now = AppClock.now();
+  final currentMonth = _monthStart(now);
+  final start = _monthStart(state.lifestyleHobbyStartedAt(hobbyId) ?? now);
+  final deadline = DateTime(start.year, start.month + months - 1);
+  final deposits = state.d1Ledger
+      .where((entry) =>
+          entry['type'] == 'lifestyle_hobby_deposit' &&
+          entry['hobbyId'] == hobbyId)
+      .map((entry) => (
+            date: DateTime.tryParse(entry['date']?.toString() ?? ''),
+            amount: (entry['amount'] as num?)?.toDouble() ?? 0,
+          ))
+      .where((entry) => entry.date != null)
+      .toList();
+  final pattern = <double>[];
+  final saved = <bool>[];
+  final labels = <String>[];
+  var savedByEnd = 0.0;
+  var expected = 0.0;
+  for (var i = 0; i < months; i++) {
+    final month = DateTime(start.year, start.month + i);
+    if (month.isAfter(selected) || month.isAfter(currentMonth)) break;
+    final next = DateTime(month.year, month.month + 1);
+    final addedThisMonth = deposits
+        .where((entry) => _sameMonth(entry.date!, month))
+        .fold<double>(0, (total, entry) => total + entry.amount);
+    savedByEnd = deposits
+        .where((entry) => entry.date!.isBefore(next))
+        .fold<double>(0, (total, entry) => total + entry.amount);
+    expected = math.min(target, pace * (i + 1));
+    final ratio = expected <= 0 ? 1.0 : (savedByEnd / expected).clamp(0.0, 1.0);
+    // The current month is still open: it only counts once something has
+    // been added or it's already on schedule.
+    if (month == currentMonth && addedThisMonth <= 0 && ratio < 1) break;
+    pattern.add(ratio);
+    saved.add(addedThisMonth > 0);
+    labels.add(_monthLabel(month).substring(0, 3));
+    // Fully funded: later months have nothing left to do.
+    if (target > 0 && savedByEnd >= target) break;
+  }
+  return _CashActionScore(
+    id: 'A29:$hobbyId',
+    title: name,
+    score: pattern.isEmpty ? 0 : pattern.last,
+    detail: '${money(savedByEnd)} of ${money(target)} saved · '
+        '${money(pace)}/month for $months month${months == 1 ? '' : 's'} '
+        '(due ${_monthLabel(deadline)}).',
+    pattern: pattern,
+    weekLabels: labels,
+    actualLabel: money(savedByEnd),
+    targetLabel: money(expected),
+    formula: '',
+    evidence: const [],
+    applicableMeasures: const ['Consistency', 'Adherence'],
+    period: 'month',
+    periodPlural: 'months',
+    consistencyChecks: saved,
+    consistencyCaption: 'months saved',
+    emptyReason: selected.isBefore(start)
+        ? 'Starts in ${_monthLabel(start)}.'
+        : 'No months to measure yet.',
+  );
+}
+
+/// The earliest month any ledger entry of [types] was recorded in.
+DateTime? _firstLedgerMonth(AppState state, Set<String> types) {
+  DateTime? first;
+  for (final entry in state.d1Ledger) {
+    if (!types.contains(entry['type'])) continue;
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    if (date == null) continue;
+    final month = _monthStart(date);
+    if (first == null || month.isBefore(first)) first = month;
+  }
+  return first;
 }
 
 /// A1 transfers made for income that arrived in [start]–[end] (by the
@@ -7218,17 +7525,24 @@ List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
       action.pattern.where((value) => value >= _fullyMetThreshold).length;
   final totalWeeks = action.pattern.length;
   final adherence = _scorePercent(metWeeks / totalWeeks);
-  final consistency = _scorePercent(
-    action.pattern.where((value) => value > 0).length / action.pattern.length,
-  );
+  final activeWeeks = action.consistencyChecks?.where((done) => done).length ??
+      action.pattern.where((value) => value > 0).length;
+  final consistency = _scorePercent(activeWeeks / totalWeeks);
   final byLabel = {
-    'Consistency': _ActionMeasure('Consistency', consistency),
+    'Consistency': _ActionMeasure(
+      'Consistency',
+      consistency,
+      centerText:
+          action.consistencyCaption == null ? null : '$activeWeeks/$totalWeeks',
+      caption: action.consistencyCaption,
+    ),
     'Resiliency': resiliency,
     'Adherence': _ActionMeasure(
       'Adherence',
       adherence,
       centerText: '$metWeeks/$totalWeeks',
-      caption: totalWeeks == 1 ? 'week fully met' : 'weeks fully met',
+      caption:
+          '${totalWeeks == 1 ? action.period : action.periodPlural} fully met',
     ),
   };
   return [for (final label in applicable) byLabel[label]!];
@@ -7365,7 +7679,7 @@ class _ActionMeasureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final measures = _actionMeasures(action);
-    final overall = _overallActionScore(measures);
+    final overall = _actionOverallScore(action);
     return Material(
       color: _surface,
       borderRadius: BorderRadius.circular(18),
@@ -7433,6 +7747,10 @@ class _ActionMeasureCard extends StatelessWidget {
                   ),
                 ],
               ),
+              for (final part in action.parts) ...[
+                const SizedBox(height: 10),
+                _ActionPartCard(part: part),
+              ],
               const SizedBox(height: 12),
               _AiInsightNote(
                 trend: _actionInsightTrend(measures),
@@ -7471,6 +7789,75 @@ class _ActionMeasureCard extends StatelessWidget {
   }
 }
 
+/// A mini card for one [_CashActionScore.parts] entry: its name, progress
+/// line, and its own Consistency and Adherence gauges.
+class _ActionPartCard extends StatelessWidget {
+  const _ActionPartCard({required this.part});
+
+  final _CashActionScore part;
+
+  @override
+  Widget build(BuildContext context) {
+    final measures = _actionMeasures(part);
+    final missingReason = measures
+        .map((measure) => measure.missingReason)
+        .whereType<String>()
+        .firstOrNull;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _bellySoft.withValues(alpha: .45),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  part.title,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  missingReason ?? part.detail,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          for (final measure in measures)
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: _CircularScoreGauge(
+                label: measure.label,
+                percent: measure.percent,
+                centerText: measure.centerText,
+                caption: measure.caption,
+                size: 46,
+                strokeWidth: 4,
+                valueFontSize: 12,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 String _actionMeasuredInputLabel(_CashActionScore action) => action.id == 'A1'
     // A1's amount follows the income received, it isn't a configured target.
     ? 'Set aside: ${action.actualLabel} · expected from income received: '
@@ -7498,8 +7885,9 @@ String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
   }
   final label = lowest.label.toLowerCase();
   final detail = switch (lowest.label) {
-    'Consistency' =>
-      "you're not logging activity for this action every week — try to keep it up weekly.",
+    'Consistency' => action.period == 'week'
+        ? "you're not logging activity for this action every week — try to keep it up weekly."
+        : "you're not keeping this action up every ${action.period} — try not to skip one.",
     'Adherence' =>
       "you're hitting the target less often than not — consider a smaller target if it feels out of reach.",
     _ =>
@@ -7861,7 +8249,9 @@ void _showCashActionScoreDetails(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${action.title} resiliency',
+                action.applicableMeasures.contains('Resiliency')
+                    ? '${action.title} resiliency'
+                    : '${action.title} score',
                 style: const TextStyle(
                   color: _title,
                   fontSize: 16,
@@ -7968,7 +8358,8 @@ void _showCashActionScoreDetails(
                           ),
                           const SizedBox(height: 18),
                         ],
-                        _dialogSectionLabel('Percentage rate per week'),
+                        _dialogSectionLabel(
+                            'Percentage rate per ${action.period}'),
                         const SizedBox(height: 10),
                         for (var i = 0; i < action.pattern.length; i++)
                           Padding(
@@ -9722,7 +10113,7 @@ class _InvestmentMetricLine extends StatelessWidget {
 int? _totalActionScore(List<_CashActionScore> actionScores) {
   final scored = [
     for (final action in actionScores)
-      if (_overallActionScore(_actionMeasures(action)) case final score?) score,
+      if (_actionOverallScore(action) case final score?) score,
   ];
   if (scored.isEmpty) return null;
   return (scored.fold<int>(0, (total, score) => total + score) / scored.length)
@@ -16584,9 +16975,10 @@ double _currentWeekLifestyleSpend(AppState state) {
 }
 
 class _LifestyleWeekSpend {
-  const _LifestyleWeekSpend(this.label, this.amount);
+  const _LifestyleWeekSpend(this.label, this.amount, {this.start});
   final String label;
   final double amount;
+  final DateTime? start;
 }
 
 List<_LifestyleWeekSpend> _lifestyleWeeklySpendForMonth(
@@ -16604,6 +16996,7 @@ List<_LifestyleWeekSpend> _lifestyleWeeklySpendForMonth(
       _LifestyleWeekSpend(
         'Week $index',
         _lifestyleSpendInRange(state, cursor, clampedEnd),
+        start: cursor,
       ),
     );
     cursor = clampedEnd;
@@ -26986,26 +27379,24 @@ class _ActivityCalendarSummaryState extends State<_ActivityCalendarSummary> {
     final dates = _calendarDates(_anchor);
     return [
       for (final date in dates)
-        transactions
-            .where((tx) {
-              final at = tx.occurredAt;
-              return at != null &&
-                  at.year == date.year &&
-                  at.month == date.month &&
-                  at.day == date.day;
-            })
-            .fold(
-              _CalendarDayData(
-                day: date.day,
-                income: 0,
-                expense: 0,
-                inCurrentMonth: true,
-              ),
-              (day, tx) => day.copyWith(
-                income: day.income + tx.incomeAmount,
-                expense: day.expense + tx.expenseAmount,
-              ),
-            ),
+        transactions.where((tx) {
+          final at = tx.occurredAt;
+          return at != null &&
+              at.year == date.year &&
+              at.month == date.month &&
+              at.day == date.day;
+        }).fold(
+          _CalendarDayData(
+            day: date.day,
+            income: 0,
+            expense: 0,
+            inCurrentMonth: true,
+          ),
+          (day, tx) => day.copyWith(
+            income: day.income + tx.incomeAmount,
+            expense: day.expense + tx.expenseAmount,
+          ),
+        ),
     ];
   }
 
