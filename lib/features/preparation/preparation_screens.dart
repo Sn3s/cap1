@@ -2778,9 +2778,8 @@ class MotivationSurfaceScreen extends StatefulWidget {
       _MotivationSurfaceScreenState();
 }
 
-// Steps: 0=Surface, 2=Your goal + first actions (the motivation sets the
-// goal), 3=Configurables, 4=Situations, 5=Challenges. Step 1 (goal choice)
-// was removed: each motivation now has exactly one goal.
+// Steps: 0=Surface, 1=Specify a goal, 2=Actions, 3=Configurables,
+// 4=Situations, 5=Challenges.
 class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final controller = TextEditingController();
   final scrollController = ScrollController();
@@ -2793,6 +2792,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   final Map<int, List<GuidedOption>> answers = {};
   String? _selectedGoalId;
   Map<String, Map<String, String>> _actionConfigValues = {};
+  List<GuidedOption>? _cachedGoalOptions;
   List<GuidedOption>? _cachedActionOptions;
 
   @override
@@ -2831,6 +2831,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   }
 
   List<GuidedOption> get currentOptions {
+    if (stepIndex == 1) return _goalFocusOptions();
     if (stepIndex == 2) return _actionSelectOptions();
     return _pathwayStep.options;
   }
@@ -2843,6 +2844,21 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   String? get _suggestedActionId {
     final surface = answers[0]?.firstOrNull?.label;
     return _surfaceSuggestedAction[pathway.layer]?[surface];
+  }
+
+  List<GuidedOption> _goalFocusOptions() {
+    if (_cachedGoalOptions != null) return _cachedGoalOptions!;
+    final ids = _motivationGoalIds[pathway.layer] ?? const ['G1'];
+    _cachedGoalOptions = [
+      for (var i = 0; i < ids.length; i++)
+        GuidedOption(
+          label: String.fromCharCode(65 + i),
+          text: _d1GoalById(ids[i]).description,
+          goalTitle: ids[i],
+          keywords: [ids[i].toLowerCase()],
+        ),
+    ];
+    return _cachedGoalOptions!;
   }
 
   List<GuidedOption> _actionSelectOptions() {
@@ -2878,7 +2894,12 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
     setState(() {
       error = '';
       controller.clear();
-      if (_isMultiSelectStep) {
+      if (stepIndex == 1) {
+        _selectedGoalId = option.goalTitle;
+        _cachedActionOptions = null;
+        answers[1] = [option];
+        _commitCurrentStep();
+      } else if (_isMultiSelectStep) {
         final selected = [...answers[stepIndex] ?? <GuidedOption>[]];
         final idx = selected.indexWhere(
           (o) => o.goalTitle == option.goalTitle && o.label == option.label,
@@ -2911,7 +2932,12 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       messages.add(ChatMessage(true, typed));
       messages
           .add(ChatMessage(false, 'Closest fit: ${_trimPeriod(option.text)}'));
-      if (_isMultiSelectStep) {
+      if (stepIndex == 1) {
+        _selectedGoalId = option.goalTitle;
+        _cachedActionOptions = null;
+        answers[1] = [option];
+        _advanceFromStep();
+      } else if (_isMultiSelectStep) {
         answers[stepIndex] = [
           ...answers[stepIndex] ?? <GuidedOption>[],
           option
@@ -2952,16 +2978,14 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
   void _advanceFromStep() {
     switch (stepIndex) {
       case 0:
-        // The motivation sets the goal; go straight to its first actions.
-        final goalId = _goalForMotivation(pathway.layer);
-        _selectedGoalId = goalId;
-        _cachedActionOptions = null;
+        stepIndex = 1;
+        messages.add(ChatMessage(
+          false,
+          'Specify: Which goal would you like to focus on first?',
+        ));
+      case 1:
         stepIndex = 2;
         answers[2] = <GuidedOption>[];
-        messages.add(ChatMessage(
-            false,
-            '**Your goal: ${_d1GoalById(goalId).title}**\n'
-            'Because you chose ${pathway.layer}, ${_goalTrackingLine(goalId)}'));
         messages.add(ChatMessage(
             false,
             'Which actions do you want to start with? Pick at least one. You '
@@ -3034,6 +3058,7 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       stepIndex = 0;
       _selectedGoalId = null;
       _actionConfigValues = {};
+      _cachedGoalOptions = null;
       _cachedActionOptions = null;
       pathway = _pathwayForLayer(state.primaryConcern);
       controller.clear();
