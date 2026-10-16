@@ -9187,11 +9187,27 @@ class ActionStageResult {
     required this.summary,
     required this.firstChange,
     required this.suggestions,
+    this.fromCache = false,
+    this.offline = false,
   });
 
   final String summary;
   final String firstChange;
   final List<ActionStageSuggestion> suggestions;
+
+  /// Reused from the last review because the data hadn't changed.
+  final bool fromCache;
+
+  /// Answered by the on-device model because Gemini couldn't be reached.
+  final bool offline;
+
+  ActionStageResult copyWith({bool? fromCache}) => ActionStageResult(
+        summary: summary,
+        firstChange: firstChange,
+        suggestions: suggestions,
+        fromCache: fromCache ?? this.fromCache,
+        offline: offline,
+      );
 }
 
 class ActionStageSuggestion {

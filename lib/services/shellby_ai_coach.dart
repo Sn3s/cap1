@@ -107,11 +107,44 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
-
-    final parsed = await _sendJson(
+    final scores = _availableCashActionScoresForStage(state);
+    return _runActionStage(
       instructions: _availableCashActionStageInstructions,
-      input: _availableCashActionStageInput(state),
+      input: '${_availableCashActionStageInput(state)}\n'
+          '${_actionStageScoreLines(scores)}',
+      fallbackSummary:
+          'Shellby reviewed the latest 14 days and prepared action updates.',
+      actionScores: {
+        for (final score in scores) score.id: _scorePercent(score.score),
+      },
+    );
+  }
+
+  /// Last result per goal, reused while the data sent is unchanged.
+  static final _lastActionStage =
+      <String, ({String input, ActionStageResult result})>{};
+
+  /// One action-stage review: reuses the last result when nothing changed
+  /// (B), asks the model at temperature 0 so the same data gets the same
+  /// answer (A), orders suggestions by Shellby's own scores (C), and marks
+  /// answers from the offline model (D).
+  Future<ActionStageResult> _runActionStage({
+    required String instructions,
+    required String input,
+    required String fallbackSummary,
+    Map<String, int> actionScores = const {},
+  }) async {
+    final cached = _lastActionStage[instructions];
+    if (cached != null && cached.input == input) {
+      return cached.result.copyWith(fromCache: true);
+    }
+    var offline = false;
+    final parsed = await _sendJson(
+      instructions: instructions,
+      input: input,
       maxOutputTokens: 900,
+      temperature: 0,
+      onOffline: () => offline = true,
     );
     final rawSuggestions = parsed['suggestions'];
     final suggestions = rawSuggestions is List
@@ -121,19 +154,39 @@ class ShellbyAiCoach {
             .where((item) => item.actionId.isNotEmpty)
             .toList()
         : <ActionStageSuggestion>[];
-    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
-    return ActionStageResult(
+    // Deterministic order: real changes before "keep", then the action
+    // with the lowest score first, then the model's own priority.
+    int scoreOf(ActionStageSuggestion item) =>
+        actionScores[item.actionId] ?? 101;
+    suggestions.sort((a, b) {
+      final aKeep = a.option == 'retain_action' ? 1 : 0;
+      final bKeep = b.option == 'retain_action' ? 1 : 0;
+      if (aKeep != bKeep) return aKeep.compareTo(bKeep);
+      final byScore = scoreOf(a).compareTo(scoreOf(b));
+      if (byScore != 0) return byScore;
+      return a.priority.compareTo(b.priority);
+    });
+    final modelFirstChange = (parsed['first_change'] as String?)?.trim() ?? '';
+    final firstIsChange = suggestions.isNotEmpty &&
+        suggestions.first.option != 'retain_action';
+    final result = ActionStageResult(
       summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
           ? (parsed['summary'] as String).trim()
-          : 'Shellby reviewed the latest 14 days and prepared action updates.',
-      firstChange:
-          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
-              ? (parsed['first_change'] as String).trim()
-              : (suggestions.isEmpty
-                  ? 'No change is recommended yet.'
-                  : suggestions.first.reason),
+          : fallbackSummary,
+      // "First change" always matches the top suggestion after ordering.
+      firstChange: firstIsChange
+          ? suggestions.first.reason
+          : modelFirstChange.isNotEmpty
+              ? modelFirstChange
+              : 'No change is recommended yet.',
       suggestions: suggestions,
+      offline: offline,
     );
+    // Offline answers aren't reused, so the next run can ask Gemini again.
+    if (!offline) {
+      _lastActionStage[instructions] = (input: input, result: result);
+    }
+    return result;
   }
 
   Future<String> _sendText({
@@ -178,32 +231,10 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
-
-    final parsed = await _sendJson(
+    return _runActionStage(
       instructions: _emergencyFundActionStageInstructions,
       input: _emergencyFundActionStageInput(state),
-      maxOutputTokens: 900,
-    );
-    final rawSuggestions = parsed['suggestions'];
-    final suggestions = rawSuggestions is List
-        ? rawSuggestions
-            .whereType<Map<String, dynamic>>()
-            .map(_actionStageSuggestionFromJson)
-            .where((item) => item.actionId.isNotEmpty)
-            .toList()
-        : <ActionStageSuggestion>[];
-    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
-    return ActionStageResult(
-      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
-          ? (parsed['summary'] as String).trim()
-          : 'Shellby reviewed the latest 14 days and prepared action updates.',
-      firstChange:
-          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
-              ? (parsed['first_change'] as String).trim()
-              : (suggestions.isEmpty
-                  ? 'No change is recommended yet.'
-                  : suggestions.first.reason),
-      suggestions: suggestions,
+      fallbackSummary: 'Shellby reviewed the latest 14 days and prepared action updates.',
     );
   }
 
@@ -213,32 +244,10 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
-
-    final parsed = await _sendJson(
+    return _runActionStage(
       instructions: _investmentActionStageInstructions,
       input: _investmentActionStageInput(state),
-      maxOutputTokens: 900,
-    );
-    final rawSuggestions = parsed['suggestions'];
-    final suggestions = rawSuggestions is List
-        ? rawSuggestions
-            .whereType<Map<String, dynamic>>()
-            .map(_actionStageSuggestionFromJson)
-            .where((item) => item.actionId.isNotEmpty)
-            .toList()
-        : <ActionStageSuggestion>[];
-    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
-    return ActionStageResult(
-      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
-          ? (parsed['summary'] as String).trim()
-          : 'Shellby reviewed the latest portfolio activity and prepared action updates.',
-      firstChange:
-          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
-              ? (parsed['first_change'] as String).trim()
-              : (suggestions.isEmpty
-                  ? 'No change is recommended yet.'
-                  : suggestions.first.reason),
-      suggestions: suggestions,
+      fallbackSummary: 'Shellby reviewed the latest portfolio activity and prepared action updates.',
     );
   }
 
@@ -248,32 +257,10 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
-
-    final parsed = await _sendJson(
+    return _runActionStage(
       instructions: _lifestyleActionStageInstructions,
       input: _lifestyleActionStageInput(state),
-      maxOutputTokens: 900,
-    );
-    final rawSuggestions = parsed['suggestions'];
-    final suggestions = rawSuggestions is List
-        ? rawSuggestions
-            .whereType<Map<String, dynamic>>()
-            .map(_actionStageSuggestionFromJson)
-            .where((item) => item.actionId.isNotEmpty)
-            .toList()
-        : <ActionStageSuggestion>[];
-    suggestions.sort((a, b) => a.priority.compareTo(b.priority));
-    return ActionStageResult(
-      summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
-          ? (parsed['summary'] as String).trim()
-          : 'Shellby reviewed the latest lifestyle activity and prepared action updates.',
-      firstChange:
-          (parsed['first_change'] as String?)?.trim().isNotEmpty == true
-              ? (parsed['first_change'] as String).trim()
-              : (suggestions.isEmpty
-                  ? 'No change is recommended yet.'
-                  : suggestions.first.reason),
-      suggestions: suggestions,
+      fallbackSummary: 'Shellby reviewed the latest lifestyle activity and prepared action updates.',
     );
   }
 
@@ -281,6 +268,8 @@ class ShellbyAiCoach {
     required String instructions,
     required String input,
     required int maxOutputTokens,
+    double temperature = 0.4,
+    void Function()? onOffline,
   }) async {
     if (_hasGeminiEndpoint) {
       try {
@@ -288,11 +277,13 @@ class ShellbyAiCoach {
           instructions: instructions,
           input: input,
           maxOutputTokens: maxOutputTokens,
+          temperature: temperature,
         );
       } on Object catch (error) {
         if (!_shouldUseQwenFallback(error)) rethrow;
       }
     }
+    onOffline?.call();
     return _sendLocalJson(
       instructions: instructions,
       input: input,
@@ -324,12 +315,14 @@ class ShellbyAiCoach {
     required String instructions,
     required String input,
     required int maxOutputTokens,
+    double temperature = 0.4,
   }) async {
     final body = await _sendGeminiGenerateContent(
       instructions: instructions,
       input: input,
       maxOutputTokens: maxOutputTokens,
       jsonMode: true,
+      temperature: temperature,
     );
     final decoded = jsonDecode(body) as Map<String, dynamic>;
     final text = _extractGeminiText(decoded).trim();
@@ -356,11 +349,13 @@ class ShellbyAiCoach {
     required String input,
     required int maxOutputTokens,
     required bool jsonMode,
+    double temperature = 0.4,
   }) async {
     final generationConfig = <String, Object>{
       'maxOutputTokens': maxOutputTokens,
-      'temperature': 0.4,
-      'topP': 0.9,
+      'temperature': temperature,
+      // Temperature 0 = always the most likely answer (no sampling spread).
+      'topP': temperature == 0 ? 1.0 : 0.9,
     };
     if (jsonMode) {
       generationConfig['responseMimeType'] = 'application/json';
@@ -730,6 +725,31 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
       target: target,
       replacementActionId: json['replacement_action_id']?.toString().trim(),
     );
+  }
+
+  /// G1 action scores for the latest month, as shown in Insights.
+  List<_CashActionScore> _availableCashActionScoresForStage(AppState state) {
+    final months = _cashMonthsFor(state, IntegrationService.fromState(state));
+    return months.isEmpty ? const [] : months.last.actionScores;
+  }
+
+  String _actionStageScoreLines(List<_CashActionScore> scores) {
+    if (scores.isEmpty) {
+      return 'Action scores (latest month): not enough data yet.';
+    }
+    final lines = scores.map((score) {
+      final measures = _actionMeasures(score);
+      final adherence =
+          measures.where((m) => m.label == 'Adherence').firstOrNull;
+      return '- ${score.id}: ${score.resiliencyLabel} '
+          '${_scorePercent(score.score)}%'
+          '${adherence?.centerText != null ? '; fully met ${adherence!.centerText} ${score.periodPlural}' : ''}'
+          '; ${score.detail}';
+    }).join('\n');
+    return '''
+Action scores (latest month, from Shellby's Insights; use these as the main
+evidence of whether each configured action is working, lowest first):
+$lines''';
   }
 
   String _availableCashActionStageInput(AppState state) {

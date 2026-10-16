@@ -5437,6 +5437,8 @@ class _CashActionScore {
     this.emptyReason = 'Not enough data to make a calculation',
     this.period = 'week',
     this.periodPlural = 'weeks',
+    this.periodDetails = const [],
+    this.showPeriodBreakdown = true,
     this.consistencyChecks,
     this.consistencyCaption,
     this.parts = const [],
@@ -5475,6 +5477,14 @@ class _CashActionScore {
   /// Adherence caption and the per-entry bar list.
   final String period;
   final String periodPlural;
+
+  /// Peso detail per [pattern] entry, shown under its bar (e.g. "₱2,000 of
+  /// ₱2,500 set aside"). Empty when an action doesn't provide one.
+  final List<String> periodDetails;
+
+  /// False for single-value actions (e.g. A3's monthly Progress), where
+  /// per-period bars and best/worst would only repeat the gauge.
+  final bool showPeriodBreakdown;
 
   /// Overrides "entry > 0" for Consistency when an entry's activity isn't
   /// its score (e.g. A23 counts any contribution, A30 counts keeping pace).
@@ -5760,18 +5770,21 @@ _CashActionScore? _cashActionScoreFor({
     // can't hide a missed one (capped at 100%).
     final incomeWeeks = <WeekRecord>[];
     final pattern = <double>[];
+    final weekDetails = <String>[];
     for (final week in weeks) {
       final weekIncome = week.days
           .expand((day) => day.transactions)
           .where(state._isEssentialIncomeCandidate)
           .fold(0.0, (sum, transaction) => sum + transaction.amount);
       if (weekIncome <= 0) continue;
+      final setAside =
+          _essentialSetAsideForIncomeIn(state, week.start, week.end);
+      final expected = weekIncome * targetPct;
       incomeWeeks.add(week);
       pattern.add(targetPct <= 0
           ? 1.0
-          : (_essentialSetAsideForIncomeIn(state, week.start, week.end) /
-                  (weekIncome * targetPct))
-              .clamp(0.0, 1.0));
+          : (setAside / expected).clamp(0.0, 1.0));
+      weekDetails.add('${money(setAside)} of ${money(expected)} set aside');
     }
     return _CashActionScore(
       id: id,
@@ -5782,6 +5795,7 @@ _CashActionScore? _cashActionScoreFor({
           '($pctLabel of ${money(allocatableIncome)} income received this month).',
       pattern: pattern,
       weekLabels: _weekLabels(incomeWeeks),
+      periodDetails: weekDetails,
       actualLabel: money(actual),
       targetLabel: money(targetAmount),
       formula:
@@ -5840,7 +5854,9 @@ _CashActionScore? _cashActionScoreFor({
         transaction.createdAt != null &&
         (selectedCategories.isEmpty ||
             selectedCategories.contains(budgetCategoryOf(transaction))));
-    final pattern = weeks.map((week) {
+    final pattern = <double>[];
+    final weekDetails = <String>[];
+    for (final week in weeks) {
       final weekEnd = week.end.isBefore(monthEnd)
           ? DateTime(week.end.year, week.end.month, week.end.day + 1)
           : monthEnd;
@@ -5850,18 +5866,23 @@ _CashActionScore? _cashActionScoreFor({
       final spentSoFar = capped
           .where((transaction) => transaction.createdAt!.isBefore(weekEnd))
           .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-      return spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0);
-    }).toList();
+      pattern.add(
+          spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0));
+      weekDetails.add(
+          '${money(spentSoFar)} spent of ${money(capSoFar)} allowed so far');
+    }
     final selectedSpend =
         categoryTotals.values.fold(0.0, (sum, value) => sum + value);
     return _CashActionScore(
       id: id,
       title: 'Keep categories under cap',
       score: _averageWeeklyResiliency(pattern),
-      detail:
-          '${categoryTotals.length} selected category/categories checked against ${money(totalCap)}.',
+      detail: '${money(selectedSpend)} spent this month across '
+          '${categoryTotals.length == 1 ? '1 budgeted category' : '${categoryTotals.length} budgeted categories'} '
+          '(caps total ${money(totalCap)}).',
       pattern: pattern,
       weekLabels: _weekLabels(weeks),
+      periodDetails: weekDetails,
       actualLabel: money(selectedSpend),
       targetLabel: money(totalCap),
       formula: 'Resiliency = average of each week: your caps so far this month '
@@ -5956,6 +5977,7 @@ _CashActionScore? _cashActionScoreFor({
       ],
       applicableMeasures: const ['Resiliency'],
       resiliencyLabel: 'Progress',
+      showPeriodBreakdown: false,
     );
   }
   if (id == 'A19') {
@@ -5968,14 +5990,21 @@ _CashActionScore? _cashActionScoreFor({
     final currentFund = state.essentialExpensesBalance;
     // Weekly: the Essential Expenses Fund's real balance at the end of each
     // week, rebuilt from today's balance by undoing later fund changes.
+    final weekBalances = [
+      for (final week in weeks) _essentialFundBalanceAtEndOf(state, week.end),
+    ];
     final pattern = weeks.isEmpty
         ? <double>[floor <= 0 ? 0 : (currentFund / floor).clamp(0.0, 1.0)]
-        : weeks
-            .map((week) => floor <= 0
-                ? 0.0
-                : (_essentialFundBalanceAtEndOf(state, week.end) / floor)
-                    .clamp(0.0, 1.0))
-            .toList();
+        : [
+            for (final balance in weekBalances)
+              floor <= 0 ? 0.0 : (balance / floor).clamp(0.0, 1.0),
+          ];
+    final weekDetails = weeks.isEmpty
+        ? ['Fund now ${money(currentFund)} · floor ${money(floor)}']
+        : [
+            for (final balance in weekBalances)
+              'Ended at ${money(balance)} · floor ${money(floor)}',
+          ];
     return _CashActionScore(
       id: id,
       title: 'Keep Essential Expenses Fund above floor',
@@ -5984,6 +6013,7 @@ _CashActionScore? _cashActionScoreFor({
           '${money(currentFund)} saved against a ${money(floor)} Essential Expenses Fund minimum.',
       pattern: pattern,
       weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      periodDetails: weekDetails,
       actualLabel: money(currentFund),
       targetLabel: money(floor),
       formula:
@@ -5993,10 +6023,8 @@ _CashActionScore? _cashActionScoreFor({
       // A balance is never "activity", so Consistency doesn't apply.
       applicableMeasures: const ['Resiliency', 'Adherence'],
       evidence: [
-        'Configured Essential Expenses Fund floor: ${money(floor)}',
-        'Essential Expenses Fund amount counted: ${money(currentFund)}',
-        'Monthly essential expense baseline: ${money(_monthlyEssentialBase(state))}',
-        'Monthly income baseline: ${money(_monthlyIncomeBase(state))}',
+        'Current Essential Expenses Fund balance: ${money(currentFund)}',
+        'Your floor: ${money(floor)}',
       ],
     );
   }
@@ -7858,12 +7886,19 @@ class _ActionPartCard extends StatelessWidget {
   }
 }
 
-String _actionMeasuredInputLabel(_CashActionScore action) => action.id == 'A1'
-    // A1's amount follows the income received, it isn't a configured target.
-    ? 'Set aside: ${action.actualLabel} · expected from income received: '
-        '${action.targetLabel}'
-    : 'Measured input: ${action.actualLabel} · configured target: '
-        '${action.targetLabel}';
+String _actionMeasuredInputLabel(_CashActionScore action) =>
+    switch (action.id) {
+      // A1's amount follows the income received, it isn't a set target.
+      'A1' => 'Set aside: ${action.actualLabel} · Expected from income '
+          'received: ${action.targetLabel}',
+      'A3' => 'Spent: ${action.actualLabel} · Your caps: '
+          '${action.targetLabel}',
+      'A20' => 'Received: ${action.actualLabel} · Target: '
+          '${action.targetLabel}',
+      'A19' => 'Fund now: ${action.actualLabel} · Floor: '
+          '${action.targetLabel}',
+      _ => 'You: ${action.actualLabel} · Goal: ${action.targetLabel}',
+    };
 
 _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
   final scored = measures.where((measure) => measure.hasScore).toList();
@@ -8224,9 +8259,6 @@ void _showCashActionScoreDetails(
       .map((measure) => measure.missingReason)
       .whereType<String>()
       .firstOrNull;
-  final patternStats = _distributionStats(
-    action.pattern.map((value) => value.clamp(0.0, 1.0) * 100).toList(),
-  );
   showDialog<void>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -8250,7 +8282,7 @@ void _showCashActionScoreDetails(
             children: [
               Text(
                 action.applicableMeasures.contains('Resiliency')
-                    ? '${action.title} resiliency'
+                    ? '${action.title} ${action.resiliencyLabel.toLowerCase()}'
                     : '${action.title} score',
                 style: const TextStyle(
                   color: _title,
@@ -8344,24 +8376,19 @@ void _showCashActionScoreDetails(
                             ],
                           ),
                         ),
-                      if (action.pattern.isNotEmpty) ...[
+                      if (action.pattern.isNotEmpty &&
+                          action.showPeriodBreakdown) ...[
                         const SizedBox(height: 8),
                         const Divider(height: 1, color: _border),
                         const SizedBox(height: 16),
-                        if (patternStats != null) ...[
-                          _dialogSectionLabel('Score measures'),
-                          const SizedBox(height: 10),
-                          _StatsGrid(
-                            stats: patternStats,
-                            valueFormatter: (value) => '${value.round()}%',
-                            modeEmptyLabel: 'No repeat',
-                          ),
+                        if (action.pattern.length >= 2) ...[
+                          _BestWorstPeriods(action: action),
                           const SizedBox(height: 18),
                         ],
                         _dialogSectionLabel(
                             'Percentage rate per ${action.period}'),
                         const SizedBox(height: 10),
-                        for (var i = 0; i < action.pattern.length; i++)
+                        for (var i = 0; i < action.pattern.length; i++) ...[
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Builder(builder: (context) {
@@ -8408,6 +8435,20 @@ void _showCashActionScoreDetails(
                               );
                             }),
                           ),
+                          if (i < action.periodDetails.length)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 54, bottom: 10),
+                              child: Text(
+                                action.periodDetails[i],
+                                style: const TextStyle(
+                                  color: _body,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
                       ],
                     ],
                   ),
@@ -8430,6 +8471,66 @@ void _showCashActionScoreDetails(
       ),
     ),
   );
+}
+
+/// Plain best and worst period (e.g. week) instead of statistics.
+class _BestWorstPeriods extends StatelessWidget {
+  const _BestWorstPeriods({required this.action});
+
+  final _CashActionScore action;
+
+  @override
+  Widget build(BuildContext context) {
+    var best = 0;
+    var worst = 0;
+    for (var i = 1; i < action.pattern.length; i++) {
+      if (action.pattern[i] > action.pattern[best]) best = i;
+      if (action.pattern[i] < action.pattern[worst]) worst = i;
+    }
+    String label(int i) =>
+        i < action.weekLabels.length ? action.weekLabels[i] : '#${i + 1}';
+    String? detail(int i) =>
+        i < action.periodDetails.length ? action.periodDetails[i] : null;
+    Widget tile(String title, int i, Color color) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('${label(i)} · ${_scorePercent(action.pattern[i])}%',
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900)),
+                if (detail(i) case final text?)
+                  Text(text,
+                      style: const TextStyle(
+                          color: _body,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        );
+    final period = action.period;
+    return Row(
+      children: [
+        tile('Best $period', best, _sage),
+        const SizedBox(width: 8),
+        tile('Worst $period', worst, _red),
+      ],
+    );
+  }
 }
 
 /// Goal-agnostic "N suggestions for X" banner: runs the goal's action stage
@@ -8634,17 +8735,11 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ActionStageOptionChip(label: 'Retain'),
-              _ActionStageOptionChip(label: 'Change target'),
-              _ActionStageOptionChip(label: 'Suggest new'),
-              _ActionStageOptionChip(label: 'Replace'),
-            ],
-          ),
-          const SizedBox(height: 12),
+          if (_unlabeledInReviewWindow(AppScope.of(context))
+              case final unlabeled when unlabeled > 0) ...[
+            _UnlabeledReviewNotice(count: unlabeled),
+            const SizedBox(height: 12),
+          ],
           FilledButton.icon(
             onPressed: _loading ? null : _runStage,
             icon: _loading
@@ -8670,6 +8765,24 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
             ),
           ],
           if (_result != null) ...[
+            if (_result!.fromCache || _result!.offline) ...[
+              const SizedBox(height: 10),
+              Text(
+                [
+                  if (_result!.fromCache)
+                    'No new activity since your last review, so the '
+                        'suggestions are the same.',
+                  if (_result!.offline)
+                    'Reviewed offline with the on-device model.',
+                ].join(' '),
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             _ActionStageFirstChange(result: _result!),
             const SizedBox(height: 12),
@@ -8777,7 +8890,31 @@ Future<bool?> _confirmActionStageSuggestion(
     current: current,
     next: next,
   );
-  final optionLabel = _actionStageOptionReviewLabel(suggestion.option);
+  // Wording and buttons follow what accepting would actually do.
+  final option = suggestion.option;
+  final number = _actionNumber(actionId);
+  final removedId = suggestion.actionId;
+  final isReplace = option == 'remove_and_replace_action' &&
+      removedId != actionId &&
+      allowed.contains(removedId);
+  final isKeep = option == 'retain_action';
+  final title = switch (option) {
+    'retain_action' => 'Keep $number as is',
+    'change_parameterized_target' => 'Change $number\'s target',
+    'suggest_new_action' => 'Add $number to your plan',
+    'remove_and_replace_action' when isReplace =>
+      'Replace ${_actionNumber(removedId)} with $number',
+    _ => 'Update $number',
+  };
+  final (declineLabel, acceptLabel) = switch (option) {
+    'change_parameterized_target' => ('Keep current', 'Apply new target'),
+    'suggest_new_action' => ('Not now', 'Add action'),
+    'remove_and_replace_action' when isReplace =>
+      ('Keep ${_actionNumber(removedId)}', 'Replace'),
+    _ => ('Not now', 'Apply'),
+  };
+  final removedValues =
+      state.actionFieldValues[removedId] ?? const <String, String>{};
   return showDialog<bool>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -8812,9 +8949,9 @@ Future<bool?> _confirmActionStageSuggestion(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Review Action Change',
-                            style: TextStyle(
+                          Text(
+                            title,
+                            style: const TextStyle(
                               color: _title,
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
@@ -8822,7 +8959,7 @@ Future<bool?> _confirmActionStageSuggestion(
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '$optionLabel for ${action?.text ?? suggestion.actionText}',
+                            action?.text ?? suggestion.actionText,
                             style: const TextStyle(
                               color: _body,
                               fontSize: 11.5,
@@ -8855,10 +8992,65 @@ Future<bool?> _confirmActionStageSuggestion(
                     ),
                   ),
                 ],
+                if (isKeep) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    current.isEmpty
+                        ? 'Nothing changes: $number stays in your plan as it is.'
+                        : 'Nothing changes: $number stays at '
+                            '${_actionValuesSummary(actionId, current)}.',
+                    style: const TextStyle(
+                        color: _body, fontSize: 12, height: 1.35),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      // Keeping changes nothing, so it isn't applied.
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _brand,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('OK',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                ] else ...[
+                if (isReplace) ...[
+                  const SizedBox(height: 18),
+                  const Text(
+                    'REMOVED FROM YOUR PLAN',
+                    style: TextStyle(
+                      color: _red,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${_actionNumber(removedId)}: '
+                    '${_d2Actions[removedId]?.text ?? removedId}'
+                    '${removedValues.isEmpty ? '' : ' (currently ${_actionValuesSummary(removedId, removedValues)})'}',
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ],
                 const SizedBox(height: 18),
-                const Text(
-                  'WHAT\'S CHANGING',
-                  style: TextStyle(
+                Text(
+                  isReplace
+                      ? 'ADDED: $number'
+                      : option == 'suggest_new_action'
+                          ? 'ADDED TO YOUR PLAN'
+                          : 'WHAT\'S CHANGING',
+                  style: const TextStyle(
                     color: _body,
                     fontSize: 10.5,
                     fontWeight: FontWeight.w800,
@@ -8867,9 +9059,12 @@ Future<bool?> _confirmActionStageSuggestion(
                 ),
                 const SizedBox(height: 10),
                 if (changes.isEmpty)
-                  const Text(
-                    'No configurable values will change. This action will only be retained or added to the goal.',
-                    style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+                  Text(
+                    option == 'suggest_new_action' || isReplace
+                        ? '$number is added with its usual settings.'
+                        : 'No settings change.',
+                    style: const TextStyle(
+                        color: _body, fontSize: 12, height: 1.35),
                   )
                 else
                   ...changes.map(
@@ -8892,8 +9087,9 @@ Future<bool?> _confirmActionStageSuggestion(
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text('Reject',
-                            style: TextStyle(fontWeight: FontWeight.w800)),
+                        child: Text(declineLabel,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w800)),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -8907,12 +9103,14 @@ Future<bool?> _confirmActionStageSuggestion(
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text('Accept',
-                            style: TextStyle(fontWeight: FontWeight.w900)),
+                        child: Text(acceptLabel,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],
                 ),
+                ],
               ],
             ),
           ),
@@ -8920,6 +9118,113 @@ Future<bool?> _confirmActionStageSuggestion(
       ),
     ),
   );
+}
+
+/// An action's saved settings in words, e.g. "62% of income" or "₱5,000".
+String _actionValuesSummary(String actionId, Map<String, String> values) {
+  final fields = _d2Actions[actionId]?.fields ?? const <ActionField>[];
+  final parts = [
+    for (final field in fields)
+      if ((values[field.key] ?? '').trim().isNotEmpty)
+        _fieldValueLabel(field, values[field.key]!.trim()),
+  ];
+  return parts.isEmpty ? 'its current settings' : parts.join(', ');
+}
+
+/// Unlabeled transactions in the same 14-day window the action review uses
+/// (ending on the latest transaction). Scores skip them, so the review is
+/// based on incomplete data while any remain.
+int _unlabeledInReviewWindow(AppState state) {
+  final dated = state.allTransactions
+      .where((transaction) => transaction.createdAt != null)
+      .toList();
+  if (dated.isEmpty) return 0;
+  final latest = dated
+      .map((transaction) => transaction.createdAt!.toLocal())
+      .reduce((a, b) => a.isAfter(b) ? a : b);
+  final cutoff = DateTime(latest.year, latest.month, latest.day)
+      .subtract(const Duration(days: 13));
+  return dated
+      .where((transaction) =>
+          !transaction.createdAt!.toLocal().isBefore(cutoff) &&
+          transaction.amount != 0 &&
+          !transaction.isLabeled &&
+          !transaction.isInternalFakeMayaTransfer &&
+          !transaction.excludedFromInsights)
+      .length;
+}
+
+/// Shown above the action review while transactions in its window are
+/// unlabeled: label first, since scores and suggestions skip them.
+class _UnlabeledReviewNotice extends StatelessWidget {
+  const _UnlabeledReviewNotice({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final noun = count == 1 ? 'transaction' : 'transactions';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _amber.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _amber.withValues(alpha: .45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.label_important_rounded,
+                  color: _amber, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Label $count $noun first',
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Scores and suggestions skip unlabeled transactions, so they are '
+            'based on incomplete data until these are labeled.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const RecentActivityPage(
+                    initialFilter: _unlabeledFilter,
+                  ),
+                ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: _amber,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: const Text('Label now',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ActionStageFirstChange extends StatelessWidget {
@@ -9091,32 +9396,6 @@ class _ActionStageSuggestionCard extends StatelessWidget {
   }
 }
 
-class _ActionStageOptionChip extends StatelessWidget {
-  const _ActionStageOptionChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: _bellySoft,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _border),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: _body,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
 String _aiActionStageError(Object error) {
   final text = error.toString();
   if (text.contains('Unable to load asset') ||
@@ -9139,16 +9418,6 @@ String _actionStageOptionLabel(String option) {
     'suggest_new_action' => 'Suggest new',
     'remove_and_replace_action' => 'Replace',
     _ => option.replaceAll('_', ' '),
-  };
-}
-
-String _actionStageOptionReviewLabel(String option) {
-  return switch (option) {
-    'retain_action' => 'Retain action',
-    'change_parameterized_target' => 'Change target',
-    'suggest_new_action' => 'Add action',
-    'remove_and_replace_action' => 'Replace action',
-    _ => 'Update action',
   };
 }
 
@@ -19147,7 +19416,17 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (sheetContext) {
+    // Fields are disposed once the sheet is unmounted (after its closing
+    // animation), not right after it returns.
+    builder: (sheetContext) => _DisposeOnUnmount(
+      onDispose: () {
+        nameController.dispose();
+        amountController.dispose();
+        essentialController.dispose();
+        walletController.dispose();
+        savingsController.dispose();
+      },
+      child: Builder(builder: (sheetContext) {
       return StatefulBuilder(
         builder: (context, setSheetState) {
           final amount = _moneyFieldValue(amountController);
@@ -19330,13 +19609,17 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    // Two rows: three buttons don't fit one line on a phone.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => setSheetState(applyRecommendation),
+                        child: const Text('Use recommendation'),
+                      ),
+                    ),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        TextButton(
-                          onPressed: () => setSheetState(applyRecommendation),
-                          child: const Text('Use recommendation'),
-                        ),
-                        const Spacer(),
                         TextButton(
                           onPressed: () => Navigator.pop(sheetContext),
                           child: const Text('Cancel'),
@@ -19370,14 +19653,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
           );
         },
       );
-    },
+    }),
+    ),
   );
-
-  nameController.dispose();
-  amountController.dispose();
-  essentialController.dispose();
-  walletController.dispose();
-  savingsController.dispose();
 }
 
 double _moneyFieldValue(TextEditingController controller) {
