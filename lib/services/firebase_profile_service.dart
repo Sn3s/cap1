@@ -3,12 +3,12 @@ part of '../main.dart';
 class FirebaseProfileService {
   const FirebaseProfileService._();
 
-  static final _auth = FirebaseAuth.instance;
-  static final _firestore = FirebaseFirestore.instance;
+  static FirebaseAuth get _auth => FirebaseAuth.instance;
+  static FirebaseFirestore get _firestore => FirebaseFirestore.instance;
   static const _webClientId =
       '837901302693-40aao89shd99d4obt9pph1uvgrkqnt13.apps.googleusercontent.com';
 
-  static User? get currentUser => _auth.currentUser;
+  static User? get currentUser => _isWebQa ? null : _auth.currentUser;
 
   static DocumentReference<Map<String, dynamic>> _profileRef(String uid) {
     return _firestore.collection('profiles').doc(uid);

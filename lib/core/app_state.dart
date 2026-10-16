@@ -1270,6 +1270,9 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveProfile({bool markOnboardingComplete = false}) async {
+    // Web QA deliberately keeps state in memory. It must never initialize or
+    // write to the production Firebase profile store.
+    if (_isWebQa) return;
     if (!markOnboardingComplete && !onboardingComplete) return;
     final user = FirebaseProfileService.currentUser;
     if (user == null) return;
@@ -1513,36 +1516,42 @@ class AppState extends ChangeNotifier {
   void seedReflectionDemoDataForTesting() {
     _applyReflectionDemoProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   void seedEmergencyFundMockDataForTesting() {
     email = 'emergency@gmail.com';
     _applyEmergencyFundMockProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   void seedCashFlowMockDataForTesting() {
     email = 'cashflow@gmail.com';
     _applyCashFlowMockProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   void seedAccumulatingWealthMockDataForTesting() {
     email = 'accumulating@gmail.com';
     _applyAccumulatingWealthMockProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   void seedFinancialFreedomMockDataForTesting() {
     email = 'freedom@gmail.com';
     _applyFinancialFreedomMockProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   void seedMainMockDataForTesting() {
     email = 'main@gmail.com';
     _applyMainMockProfile(null);
     _seedDemoEngagement();
+    notifyListeners();
   }
 
   bool get canOverwriteWithMockData {
@@ -5668,8 +5677,7 @@ class AppState extends ChangeNotifier {
         category = name;
         customCategories.add(category);
       }
-      monthlyByCategory[category] =
-          (monthlyByCategory[category] ?? 0) + amount;
+      monthlyByCategory[category] = (monthlyByCategory[category] ?? 0) + amount;
     }
     return (
       budgets: {
@@ -5856,8 +5864,8 @@ class AppState extends ChangeNotifier {
           date.month == now.month &&
           date.day == now.day;
     }).toList()
-      ..sort((a, b) => (b.createdAt ?? b.labeledAt!)
-          .compareTo(a.createdAt ?? a.labeledAt!));
+      ..sort((a, b) =>
+          (b.createdAt ?? b.labeledAt!).compareTo(a.createdAt ?? a.labeledAt!));
     return incomes.isEmpty ? null : incomes.first;
   }
 

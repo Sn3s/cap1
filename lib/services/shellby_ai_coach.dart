@@ -7,7 +7,10 @@ class ShellbyAiCoach {
       _geminiProxyUrl.isNotEmpty || _geminiApiKey.isNotEmpty;
   bool get usesGemini => _hasGeminiEndpoint;
   bool get usesLocalModel => !usesGemini;
-  bool get isConfigured => true;
+  // Browser QA validates the financial product, not native/local AI. Keep the
+  // existing AI implementation untouched for iOS while making its absence
+  // explicit to QA callers.
+  bool get isConfigured => !_isWebQa;
 
   Future<MotivationCoachResult> send({
     required String concern,

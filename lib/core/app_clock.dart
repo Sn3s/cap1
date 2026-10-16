@@ -18,6 +18,7 @@ class AppClock {
   static bool get isOverridden => offset.value != Duration.zero;
 
   static Future<void> load() async {
+    if (kIsWeb) return;
     try {
       final file = await _file();
       if (!await file.exists()) return;
@@ -40,6 +41,7 @@ class AppClock {
 
   static Future<void> setOffset(Duration value) async {
     offset.value = value;
+    if (kIsWeb) return;
     try {
       final file = await _file();
       if (value == Duration.zero) {

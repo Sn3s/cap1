@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -14,13 +13,18 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:llamadart/llamadart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'firebase_options.dart';
+import 'platform/io_adapter.dart'
+    if (dart.library.html) 'platform/io_adapter_web.dart';
+import 'platform/isolate_adapter.dart'
+    if (dart.library.html) 'platform/isolate_adapter_web.dart';
+import 'platform/llama_adapter.dart'
+    if (dart.library.html) 'platform/llama_adapter_web.dart';
 
 part 'core/app_clock.dart';
 part 'core/app_scope.dart';
@@ -51,10 +55,19 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _runtimeConfig = await _RuntimeConfig.load();
   await AppClock.load();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await ShellbyNotificationService.instance.initialize();
+  if (!_isWebQa) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    await ShellbyNotificationService.instance.initialize();
+  }
   runApp(const ShellbyApp());
 }
+
+/// A browser build must also be debug and explicitly opt in before it can
+/// bypass Firebase authentication and persistence.
+const _webQaFlag = bool.fromEnvironment('SHELLBY_WEB_QA', defaultValue: false);
+bool get _isWebQa => kIsWeb && kDebugMode && _webQaFlag;
 
 // Shelby design system — primary = mint green, secondary = shell purple
 const _brand = Color(0xFF57BE8C); // Shellby's body, primary actions
@@ -116,6 +129,16 @@ class _RuntimeConfig {
   final String geminiModel;
 
   static Future<_RuntimeConfig> load() async {
+    // Browser bundles are public. Never load the local dotenv asset there,
+    // even outside QA mode; Web can use only an explicitly configured proxy.
+    if (kIsWeb) {
+      return _RuntimeConfig(
+        geminiApiKey: '',
+        geminiProxyUrl:
+            _hasDartDefineGeminiProxyUrl ? _dartDefineGeminiProxyUrl : '',
+        geminiModel: _dartDefineGeminiModel,
+      );
+    }
     final env = await _loadDotEnvAsset();
     final envApiKey = env['GEMINI_API_KEY'] ?? '';
     final apiKey = _dartDefineGeminiApiKey.isNotEmpty
