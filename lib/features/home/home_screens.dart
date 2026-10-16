@@ -8890,7 +8890,31 @@ Future<bool?> _confirmActionStageSuggestion(
     current: current,
     next: next,
   );
-  final optionLabel = _actionStageOptionReviewLabel(suggestion.option);
+  // Wording and buttons follow what accepting would actually do.
+  final option = suggestion.option;
+  final number = _actionNumber(actionId);
+  final removedId = suggestion.actionId;
+  final isReplace = option == 'remove_and_replace_action' &&
+      removedId != actionId &&
+      allowed.contains(removedId);
+  final isKeep = option == 'retain_action';
+  final title = switch (option) {
+    'retain_action' => 'Keep $number as is',
+    'change_parameterized_target' => 'Change $number\'s target',
+    'suggest_new_action' => 'Add $number to your plan',
+    'remove_and_replace_action' when isReplace =>
+      'Replace ${_actionNumber(removedId)} with $number',
+    _ => 'Update $number',
+  };
+  final (declineLabel, acceptLabel) = switch (option) {
+    'change_parameterized_target' => ('Keep current', 'Apply new target'),
+    'suggest_new_action' => ('Not now', 'Add action'),
+    'remove_and_replace_action' when isReplace =>
+      ('Keep ${_actionNumber(removedId)}', 'Replace'),
+    _ => ('Not now', 'Apply'),
+  };
+  final removedValues =
+      state.actionFieldValues[removedId] ?? const <String, String>{};
   return showDialog<bool>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -8925,9 +8949,9 @@ Future<bool?> _confirmActionStageSuggestion(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Review Action Change',
-                            style: TextStyle(
+                          Text(
+                            title,
+                            style: const TextStyle(
                               color: _title,
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
@@ -8935,7 +8959,7 @@ Future<bool?> _confirmActionStageSuggestion(
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '$optionLabel for ${action?.text ?? suggestion.actionText}',
+                            action?.text ?? suggestion.actionText,
                             style: const TextStyle(
                               color: _body,
                               fontSize: 11.5,
@@ -8968,10 +8992,65 @@ Future<bool?> _confirmActionStageSuggestion(
                     ),
                   ),
                 ],
+                if (isKeep) ...[
+                  const SizedBox(height: 14),
+                  Text(
+                    current.isEmpty
+                        ? 'Nothing changes: $number stays in your plan as it is.'
+                        : 'Nothing changes: $number stays at '
+                            '${_actionValuesSummary(actionId, current)}.',
+                    style: const TextStyle(
+                        color: _body, fontSize: 12, height: 1.35),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      // Keeping changes nothing, so it isn't applied.
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _brand,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text('OK',
+                          style: TextStyle(fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                ] else ...[
+                if (isReplace) ...[
+                  const SizedBox(height: 18),
+                  const Text(
+                    'REMOVED FROM YOUR PLAN',
+                    style: TextStyle(
+                      color: _red,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${_actionNumber(removedId)}: '
+                    '${_d2Actions[removedId]?.text ?? removedId}'
+                    '${removedValues.isEmpty ? '' : ' (currently ${_actionValuesSummary(removedId, removedValues)})'}',
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ],
                 const SizedBox(height: 18),
-                const Text(
-                  'WHAT\'S CHANGING',
-                  style: TextStyle(
+                Text(
+                  isReplace
+                      ? 'ADDED: $number'
+                      : option == 'suggest_new_action'
+                          ? 'ADDED TO YOUR PLAN'
+                          : 'WHAT\'S CHANGING',
+                  style: const TextStyle(
                     color: _body,
                     fontSize: 10.5,
                     fontWeight: FontWeight.w800,
@@ -8980,9 +9059,12 @@ Future<bool?> _confirmActionStageSuggestion(
                 ),
                 const SizedBox(height: 10),
                 if (changes.isEmpty)
-                  const Text(
-                    'No configurable values will change. This action will only be retained or added to the goal.',
-                    style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+                  Text(
+                    option == 'suggest_new_action' || isReplace
+                        ? '$number is added with its usual settings.'
+                        : 'No settings change.',
+                    style: const TextStyle(
+                        color: _body, fontSize: 12, height: 1.35),
                   )
                 else
                   ...changes.map(
@@ -9005,8 +9087,9 @@ Future<bool?> _confirmActionStageSuggestion(
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text('Reject',
-                            style: TextStyle(fontWeight: FontWeight.w800)),
+                        child: Text(declineLabel,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w800)),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -9020,12 +9103,14 @@ Future<bool?> _confirmActionStageSuggestion(
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text('Accept',
-                            style: TextStyle(fontWeight: FontWeight.w900)),
+                        child: Text(acceptLabel,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w900)),
                       ),
                     ),
                   ],
                 ),
+                ],
               ],
             ),
           ),
@@ -9033,6 +9118,17 @@ Future<bool?> _confirmActionStageSuggestion(
       ),
     ),
   );
+}
+
+/// An action's saved settings in words, e.g. "62% of income" or "₱5,000".
+String _actionValuesSummary(String actionId, Map<String, String> values) {
+  final fields = _d2Actions[actionId]?.fields ?? const <ActionField>[];
+  final parts = [
+    for (final field in fields)
+      if ((values[field.key] ?? '').trim().isNotEmpty)
+        _fieldValueLabel(field, values[field.key]!.trim()),
+  ];
+  return parts.isEmpty ? 'its current settings' : parts.join(', ');
 }
 
 /// Unlabeled transactions in the same 14-day window the action review uses
@@ -9322,16 +9418,6 @@ String _actionStageOptionLabel(String option) {
     'suggest_new_action' => 'Suggest new',
     'remove_and_replace_action' => 'Replace',
     _ => option.replaceAll('_', ' '),
-  };
-}
-
-String _actionStageOptionReviewLabel(String option) {
-  return switch (option) {
-    'retain_action' => 'Retain action',
-    'change_parameterized_target' => 'Change target',
-    'suggest_new_action' => 'Add action',
-    'remove_and_replace_action' => 'Replace action',
-    _ => 'Update action',
   };
 }
 
