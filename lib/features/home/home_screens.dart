@@ -8735,17 +8735,6 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ActionStageOptionChip(label: 'Retain'),
-              _ActionStageOptionChip(label: 'Change target'),
-              _ActionStageOptionChip(label: 'Suggest new'),
-              _ActionStageOptionChip(label: 'Replace'),
-            ],
-          ),
-          const SizedBox(height: 12),
           FilledButton.icon(
             onPressed: _loading ? null : _runStage,
             icon: _loading
@@ -9186,32 +9175,6 @@ class _ActionStageSuggestionCard extends StatelessWidget {
             const SizedBox(width: 6),
             const Icon(Icons.chevron_right_rounded, color: _body, size: 20),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionStageOptionChip extends StatelessWidget {
-  const _ActionStageOptionChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: _bellySoft,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _border),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: _body,
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
         ),
       ),
     );
