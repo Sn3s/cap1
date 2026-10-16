@@ -5437,6 +5437,8 @@ class _CashActionScore {
     this.emptyReason = 'Not enough data to make a calculation',
     this.period = 'week',
     this.periodPlural = 'weeks',
+    this.periodDetails = const [],
+    this.showPeriodBreakdown = true,
     this.consistencyChecks,
     this.consistencyCaption,
     this.parts = const [],
@@ -5475,6 +5477,14 @@ class _CashActionScore {
   /// Adherence caption and the per-entry bar list.
   final String period;
   final String periodPlural;
+
+  /// Peso detail per [pattern] entry, shown under its bar (e.g. "₱2,000 of
+  /// ₱2,500 set aside"). Empty when an action doesn't provide one.
+  final List<String> periodDetails;
+
+  /// False for single-value actions (e.g. A3's monthly Progress), where
+  /// per-period bars and best/worst would only repeat the gauge.
+  final bool showPeriodBreakdown;
 
   /// Overrides "entry > 0" for Consistency when an entry's activity isn't
   /// its score (e.g. A23 counts any contribution, A30 counts keeping pace).
@@ -5760,18 +5770,21 @@ _CashActionScore? _cashActionScoreFor({
     // can't hide a missed one (capped at 100%).
     final incomeWeeks = <WeekRecord>[];
     final pattern = <double>[];
+    final weekDetails = <String>[];
     for (final week in weeks) {
       final weekIncome = week.days
           .expand((day) => day.transactions)
           .where(state._isEssentialIncomeCandidate)
           .fold(0.0, (sum, transaction) => sum + transaction.amount);
       if (weekIncome <= 0) continue;
+      final setAside =
+          _essentialSetAsideForIncomeIn(state, week.start, week.end);
+      final expected = weekIncome * targetPct;
       incomeWeeks.add(week);
       pattern.add(targetPct <= 0
           ? 1.0
-          : (_essentialSetAsideForIncomeIn(state, week.start, week.end) /
-                  (weekIncome * targetPct))
-              .clamp(0.0, 1.0));
+          : (setAside / expected).clamp(0.0, 1.0));
+      weekDetails.add('${money(setAside)} of ${money(expected)} set aside');
     }
     return _CashActionScore(
       id: id,
@@ -5782,6 +5795,7 @@ _CashActionScore? _cashActionScoreFor({
           '($pctLabel of ${money(allocatableIncome)} income received this month).',
       pattern: pattern,
       weekLabels: _weekLabels(incomeWeeks),
+      periodDetails: weekDetails,
       actualLabel: money(actual),
       targetLabel: money(targetAmount),
       formula:
@@ -5840,7 +5854,9 @@ _CashActionScore? _cashActionScoreFor({
         transaction.createdAt != null &&
         (selectedCategories.isEmpty ||
             selectedCategories.contains(budgetCategoryOf(transaction))));
-    final pattern = weeks.map((week) {
+    final pattern = <double>[];
+    final weekDetails = <String>[];
+    for (final week in weeks) {
       final weekEnd = week.end.isBefore(monthEnd)
           ? DateTime(week.end.year, week.end.month, week.end.day + 1)
           : monthEnd;
@@ -5850,18 +5866,23 @@ _CashActionScore? _cashActionScoreFor({
       final spentSoFar = capped
           .where((transaction) => transaction.createdAt!.isBefore(weekEnd))
           .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-      return spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0);
-    }).toList();
+      pattern.add(
+          spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0));
+      weekDetails.add(
+          '${money(spentSoFar)} spent of ${money(capSoFar)} allowed so far');
+    }
     final selectedSpend =
         categoryTotals.values.fold(0.0, (sum, value) => sum + value);
     return _CashActionScore(
       id: id,
       title: 'Keep categories under cap',
       score: _averageWeeklyResiliency(pattern),
-      detail:
-          '${categoryTotals.length} selected category/categories checked against ${money(totalCap)}.',
+      detail: '${money(selectedSpend)} spent this month across '
+          '${categoryTotals.length == 1 ? '1 budgeted category' : '${categoryTotals.length} budgeted categories'} '
+          '(caps total ${money(totalCap)}).',
       pattern: pattern,
       weekLabels: _weekLabels(weeks),
+      periodDetails: weekDetails,
       actualLabel: money(selectedSpend),
       targetLabel: money(totalCap),
       formula: 'Resiliency = average of each week: your caps so far this month '
@@ -5956,6 +5977,7 @@ _CashActionScore? _cashActionScoreFor({
       ],
       applicableMeasures: const ['Resiliency'],
       resiliencyLabel: 'Progress',
+      showPeriodBreakdown: false,
     );
   }
   if (id == 'A19') {
@@ -5968,14 +5990,21 @@ _CashActionScore? _cashActionScoreFor({
     final currentFund = state.essentialExpensesBalance;
     // Weekly: the Essential Expenses Fund's real balance at the end of each
     // week, rebuilt from today's balance by undoing later fund changes.
+    final weekBalances = [
+      for (final week in weeks) _essentialFundBalanceAtEndOf(state, week.end),
+    ];
     final pattern = weeks.isEmpty
         ? <double>[floor <= 0 ? 0 : (currentFund / floor).clamp(0.0, 1.0)]
-        : weeks
-            .map((week) => floor <= 0
-                ? 0.0
-                : (_essentialFundBalanceAtEndOf(state, week.end) / floor)
-                    .clamp(0.0, 1.0))
-            .toList();
+        : [
+            for (final balance in weekBalances)
+              floor <= 0 ? 0.0 : (balance / floor).clamp(0.0, 1.0),
+          ];
+    final weekDetails = weeks.isEmpty
+        ? ['Fund now ${money(currentFund)} · floor ${money(floor)}']
+        : [
+            for (final balance in weekBalances)
+              'Ended at ${money(balance)} · floor ${money(floor)}',
+          ];
     return _CashActionScore(
       id: id,
       title: 'Keep Essential Expenses Fund above floor',
@@ -5984,6 +6013,7 @@ _CashActionScore? _cashActionScoreFor({
           '${money(currentFund)} saved against a ${money(floor)} Essential Expenses Fund minimum.',
       pattern: pattern,
       weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      periodDetails: weekDetails,
       actualLabel: money(currentFund),
       targetLabel: money(floor),
       formula:
@@ -5993,10 +6023,8 @@ _CashActionScore? _cashActionScoreFor({
       // A balance is never "activity", so Consistency doesn't apply.
       applicableMeasures: const ['Resiliency', 'Adherence'],
       evidence: [
-        'Configured Essential Expenses Fund floor: ${money(floor)}',
-        'Essential Expenses Fund amount counted: ${money(currentFund)}',
-        'Monthly essential expense baseline: ${money(_monthlyEssentialBase(state))}',
-        'Monthly income baseline: ${money(_monthlyIncomeBase(state))}',
+        'Current Essential Expenses Fund balance: ${money(currentFund)}',
+        'Your floor: ${money(floor)}',
       ],
     );
   }
@@ -7858,12 +7886,19 @@ class _ActionPartCard extends StatelessWidget {
   }
 }
 
-String _actionMeasuredInputLabel(_CashActionScore action) => action.id == 'A1'
-    // A1's amount follows the income received, it isn't a configured target.
-    ? 'Set aside: ${action.actualLabel} · expected from income received: '
-        '${action.targetLabel}'
-    : 'Measured input: ${action.actualLabel} · configured target: '
-        '${action.targetLabel}';
+String _actionMeasuredInputLabel(_CashActionScore action) =>
+    switch (action.id) {
+      // A1's amount follows the income received, it isn't a set target.
+      'A1' => 'Set aside: ${action.actualLabel} · Expected from income '
+          'received: ${action.targetLabel}',
+      'A3' => 'Spent: ${action.actualLabel} · Your caps: '
+          '${action.targetLabel}',
+      'A20' => 'Received: ${action.actualLabel} · Target: '
+          '${action.targetLabel}',
+      'A19' => 'Fund now: ${action.actualLabel} · Floor: '
+          '${action.targetLabel}',
+      _ => 'You: ${action.actualLabel} · Goal: ${action.targetLabel}',
+    };
 
 _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
   final scored = measures.where((measure) => measure.hasScore).toList();
@@ -8224,9 +8259,6 @@ void _showCashActionScoreDetails(
       .map((measure) => measure.missingReason)
       .whereType<String>()
       .firstOrNull;
-  final patternStats = _distributionStats(
-    action.pattern.map((value) => value.clamp(0.0, 1.0) * 100).toList(),
-  );
   showDialog<void>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -8250,7 +8282,7 @@ void _showCashActionScoreDetails(
             children: [
               Text(
                 action.applicableMeasures.contains('Resiliency')
-                    ? '${action.title} resiliency'
+                    ? '${action.title} ${action.resiliencyLabel.toLowerCase()}'
                     : '${action.title} score',
                 style: const TextStyle(
                   color: _title,
@@ -8344,24 +8376,19 @@ void _showCashActionScoreDetails(
                             ],
                           ),
                         ),
-                      if (action.pattern.isNotEmpty) ...[
+                      if (action.pattern.isNotEmpty &&
+                          action.showPeriodBreakdown) ...[
                         const SizedBox(height: 8),
                         const Divider(height: 1, color: _border),
                         const SizedBox(height: 16),
-                        if (patternStats != null) ...[
-                          _dialogSectionLabel('Score measures'),
-                          const SizedBox(height: 10),
-                          _StatsGrid(
-                            stats: patternStats,
-                            valueFormatter: (value) => '${value.round()}%',
-                            modeEmptyLabel: 'No repeat',
-                          ),
+                        if (action.pattern.length >= 2) ...[
+                          _BestWorstPeriods(action: action),
                           const SizedBox(height: 18),
                         ],
                         _dialogSectionLabel(
                             'Percentage rate per ${action.period}'),
                         const SizedBox(height: 10),
-                        for (var i = 0; i < action.pattern.length; i++)
+                        for (var i = 0; i < action.pattern.length; i++) ...[
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: Builder(builder: (context) {
@@ -8408,6 +8435,20 @@ void _showCashActionScoreDetails(
                               );
                             }),
                           ),
+                          if (i < action.periodDetails.length)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 54, bottom: 10),
+                              child: Text(
+                                action.periodDetails[i],
+                                style: const TextStyle(
+                                  color: _body,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
                       ],
                     ],
                   ),
@@ -8430,6 +8471,66 @@ void _showCashActionScoreDetails(
       ),
     ),
   );
+}
+
+/// Plain best and worst period (e.g. week) instead of statistics.
+class _BestWorstPeriods extends StatelessWidget {
+  const _BestWorstPeriods({required this.action});
+
+  final _CashActionScore action;
+
+  @override
+  Widget build(BuildContext context) {
+    var best = 0;
+    var worst = 0;
+    for (var i = 1; i < action.pattern.length; i++) {
+      if (action.pattern[i] > action.pattern[best]) best = i;
+      if (action.pattern[i] < action.pattern[worst]) worst = i;
+    }
+    String label(int i) =>
+        i < action.weekLabels.length ? action.weekLabels[i] : '#${i + 1}';
+    String? detail(int i) =>
+        i < action.periodDetails.length ? action.periodDetails[i] : null;
+    Widget tile(String title, int i, Color color) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('${label(i)} · ${_scorePercent(action.pattern[i])}%',
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900)),
+                if (detail(i) case final text?)
+                  Text(text,
+                      style: const TextStyle(
+                          color: _body,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        );
+    final period = action.period;
+    return Row(
+      children: [
+        tile('Best $period', best, _sage),
+        const SizedBox(width: 8),
+        tile('Worst $period', worst, _red),
+      ],
+    );
+  }
 }
 
 /// Goal-agnostic "N suggestions for X" banner: runs the goal's action stage
