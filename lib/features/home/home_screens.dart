@@ -8760,6 +8760,24 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
             ),
           ],
           if (_result != null) ...[
+            if (_result!.fromCache || _result!.offline) ...[
+              const SizedBox(height: 10),
+              Text(
+                [
+                  if (_result!.fromCache)
+                    'No new activity since your last review, so the '
+                        'suggestions are the same.',
+                  if (_result!.offline)
+                    'Reviewed offline with the on-device model.',
+                ].join(' '),
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             _ActionStageFirstChange(result: _result!),
             const SizedBox(height: 12),
