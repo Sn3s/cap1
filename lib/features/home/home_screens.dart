@@ -8735,6 +8735,11 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_unlabeledInReviewWindow(AppScope.of(context))
+              case final unlabeled when unlabeled > 0) ...[
+            _UnlabeledReviewNotice(count: unlabeled),
+            const SizedBox(height: 12),
+          ],
           FilledButton.icon(
             onPressed: _loading ? null : _runStage,
             icon: _loading
@@ -9028,6 +9033,102 @@ Future<bool?> _confirmActionStageSuggestion(
       ),
     ),
   );
+}
+
+/// Unlabeled transactions in the same 14-day window the action review uses
+/// (ending on the latest transaction). Scores skip them, so the review is
+/// based on incomplete data while any remain.
+int _unlabeledInReviewWindow(AppState state) {
+  final dated = state.allTransactions
+      .where((transaction) => transaction.createdAt != null)
+      .toList();
+  if (dated.isEmpty) return 0;
+  final latest = dated
+      .map((transaction) => transaction.createdAt!.toLocal())
+      .reduce((a, b) => a.isAfter(b) ? a : b);
+  final cutoff = DateTime(latest.year, latest.month, latest.day)
+      .subtract(const Duration(days: 13));
+  return dated
+      .where((transaction) =>
+          !transaction.createdAt!.toLocal().isBefore(cutoff) &&
+          transaction.amount != 0 &&
+          !transaction.isLabeled &&
+          !transaction.isInternalFakeMayaTransfer &&
+          !transaction.excludedFromInsights)
+      .length;
+}
+
+/// Shown above the action review while transactions in its window are
+/// unlabeled: label first, since scores and suggestions skip them.
+class _UnlabeledReviewNotice extends StatelessWidget {
+  const _UnlabeledReviewNotice({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final noun = count == 1 ? 'transaction' : 'transactions';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _amber.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _amber.withValues(alpha: .45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.label_important_rounded,
+                  color: _amber, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Label $count $noun first',
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Scores and suggestions skip unlabeled transactions, so they are '
+            'based on incomplete data until these are labeled.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const RecentActivityPage(
+                    initialFilter: _unlabeledFilter,
+                  ),
+                ),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: _amber,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+              label: const Text('Label now',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ActionStageFirstChange extends StatelessWidget {
