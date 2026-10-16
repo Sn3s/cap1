@@ -19416,7 +19416,17 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (sheetContext) {
+    // Fields are disposed once the sheet is unmounted (after its closing
+    // animation), not right after it returns.
+    builder: (sheetContext) => _DisposeOnUnmount(
+      onDispose: () {
+        nameController.dispose();
+        amountController.dispose();
+        essentialController.dispose();
+        walletController.dispose();
+        savingsController.dispose();
+      },
+      child: Builder(builder: (sheetContext) {
       return StatefulBuilder(
         builder: (context, setSheetState) {
           final amount = _moneyFieldValue(amountController);
@@ -19599,13 +19609,17 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                       ),
                     ),
                     const SizedBox(height: 14),
+                    // Two rows: three buttons don't fit one line on a phone.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () => setSheetState(applyRecommendation),
+                        child: const Text('Use recommendation'),
+                      ),
+                    ),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        TextButton(
-                          onPressed: () => setSheetState(applyRecommendation),
-                          child: const Text('Use recommendation'),
-                        ),
-                        const Spacer(),
                         TextButton(
                           onPressed: () => Navigator.pop(sheetContext),
                           child: const Text('Cancel'),
@@ -19639,14 +19653,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
           );
         },
       );
-    },
+    }),
+    ),
   );
-
-  nameController.dispose();
-  amountController.dispose();
-  essentialController.dispose();
-  walletController.dispose();
-  savingsController.dispose();
 }
 
 double _moneyFieldValue(TextEditingController controller) {
