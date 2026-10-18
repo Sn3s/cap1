@@ -6072,30 +6072,21 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final minDeposit = configuredNumber('amt', recommended);
-    const depositTypes = {'emergency_deposit', 'ef_replenish'};
     final monthTotal =
         _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
             _monthLedgerAmount(state, monthStart, 'ef_replenish');
-    final pattern = weeks.isEmpty
-        ? <double>[
-            minDeposit <= 0 ? 0 : (monthTotal / minDeposit).clamp(0.0, 1.0)
-          ]
-        : weeks.map((week) {
-            final weeklyTotal =
-                _ledgerAmountInRange(state, week.start, week.end, depositTypes);
-            final weeklyTarget = minDeposit / weekCount;
-            return weeklyTarget <= 0
-                ? 0.0
-                : (weeklyTotal / weeklyTarget).clamp(0.0, 1.0);
-          }).toList();
+    // A monthly minimum: one lump-sum deposit meets it just as well as
+    // weekly ones, so it's scored once for the month, not per week.
+    final ratio =
+        minDeposit <= 0 ? 0.0 : (monthTotal / minDeposit).clamp(0.0, 1.0);
     return _CashActionScore(
       id: id,
       title: 'Deposit Emergency Fund minimum',
-      score: _averageWeeklyResiliency(pattern),
+      score: ratio,
       detail:
           '${money(monthTotal)} deposited toward a ${money(minDeposit)} monthly minimum.',
-      pattern: pattern,
-      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      pattern: [ratio],
+      weekLabels: const ['Current'],
       actualLabel: money(monthTotal),
       targetLabel: money(minDeposit),
       formula:
@@ -6104,6 +6095,9 @@ _CashActionScore? _cashActionScoreFor({
         'Configured minimum monthly deposit: ${money(minDeposit)}',
         'Emergency Fund deposits found: ${money(monthTotal)}',
       ],
+      applicableMeasures: const ['Resiliency'],
+      resiliencyLabel: 'Progress',
+      showPeriodBreakdown: false,
     );
   }
   if (id == 'A10') {
