@@ -603,6 +603,21 @@ class AppState extends ChangeNotifier {
         (total, bill) => total + _billRemaining(bill),
       );
 
+  /// The plan already recorded for a scheduled bill in [month], paid or not.
+  Map<String, dynamic>? basicNeedsBillPlanFor(
+    String sourceExpenseKey,
+    DateTime month,
+  ) {
+    final monthKey = basicNeedsBillMonthKey(month);
+    for (final bill in billObligations) {
+      if (bill['sourceExpenseKey'] == sourceExpenseKey &&
+          bill['billMonth'] == monthKey) {
+        return bill;
+      }
+    }
+    return null;
+  }
+
   final List<Map<String, dynamic>> d1Ledger = [];
   // ── Community & badges (cooperative personal informatics) ───────
   // Friends/feed live in their own Firestore collections, not this
@@ -5718,6 +5733,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> recordBasicNeedsBillPlan({
     String? obligationId,
+    String? sourceExpenseKey,
     required String name,
     required double expectedAmount,
     required double fromEssentialFund,
@@ -5726,18 +5742,35 @@ class AppState extends ChangeNotifier {
     DateTime? dueDate,
   }) async {
     if (expectedAmount <= 0) return;
-    final essential = fromEssentialFund.clamp(0, expectedAmount).toDouble();
-    final wallet = fromWallet.clamp(0, expectedAmount).toDouble();
-    final savings = fromSavings.clamp(0, expectedAmount).toDouble();
-    final existingIndex = obligationId?.trim().isNotEmpty == true
-        ? billObligations.indexWhere((bill) => bill['id'] == obligationId)
+    final billDate = dueDate ?? AppClock.now();
+    // A scheduled bill gets one plan per month: recording it again updates
+    // that plan instead of adding a duplicate.
+    final linkedPlan = obligationId?.trim().isNotEmpty != true &&
+            sourceExpenseKey != null
+        ? basicNeedsBillPlanFor(sourceExpenseKey, billDate)
+        : null;
+    final planId = linkedPlan?['id']?.toString() ?? obligationId;
+    final existingIndex = planId?.trim().isNotEmpty == true
+        ? billObligations.indexWhere((bill) => bill['id'] == planId)
         : -1;
     final existing = existingIndex >= 0
         ? Map<String, dynamic>.from(billObligations[existingIndex])
         : <String, dynamic>{};
     final priorPaid = _doubleFrom(existing['paidAmount'], 0);
-    final paymentCapacity = math.max(0, expectedAmount - priorPaid);
-    final paidAmount = math.min(paymentCapacity, essential + wallet + savings);
+    final paymentCapacity = math.max(0.0, expectedAmount - priorPaid);
+    final split = capBillSources(
+      essential: fromEssentialFund,
+      wallet: fromWallet,
+      savings: fromSavings,
+      essentialAvailable: essentialExpensesBalance,
+      walletAvailable: accountBalance('Wallet'),
+      savingsAvailable: safetyShieldBalance,
+      needed: paymentCapacity,
+    );
+    final essential = split.essential;
+    final wallet = split.wallet;
+    final savings = split.savings;
+    final paidAmount = essential + wallet + savings;
     if (essential > 0) {
       await _withdrawFakeMayaPersonalGoalToWallet(
         essential,
@@ -5751,8 +5784,8 @@ class AppState extends ChangeNotifier {
     }
 
     final now = AppClock.now();
-    final id = obligationId?.trim().isNotEmpty == true
-        ? obligationId!.trim()
+    final id = planId?.trim().isNotEmpty == true
+        ? planId!.trim()
         : 'bill_${now.microsecondsSinceEpoch}';
     final index = existingIndex >= 0
         ? existingIndex
@@ -5768,6 +5801,10 @@ class AppState extends ChangeNotifier {
               DateTime.tryParse(existing['dueDate']?.toString() ?? '') ??
               now)
           .toIso8601String(),
+      if (sourceExpenseKey != null) ...{
+        'sourceExpenseKey': sourceExpenseKey,
+        'billMonth': basicNeedsBillMonthKey(billDate),
+      },
       'expenseType': ExpenseLayer.basicNeeds.name,
       'status': totalPaid >= expectedAmount ? 'paid' : 'partial',
       'updatedAt': now.toIso8601String(),
@@ -9371,6 +9408,60 @@ ExpenseLayer expenseLayerForLedger(Map<String, dynamic> expense) {
       ((expense['essential'] as bool? ?? false)
           ? ExpenseLayer.basicNeeds
           : ExpenseLayer.nonEssentials);
+}
+
+/// Name shown for a bill: its own name, else its category, since the
+/// expense name is optional for most categories.
+String basicNeedsBillDisplayName(Map<String, dynamic> bill) {
+  for (final key in const ['name', 'category']) {
+    final value = bill[key]?.toString().trim() ?? '';
+    if (value.isNotEmpty) return value;
+  }
+  return 'Basic needs bill';
+}
+
+/// Stable key linking a recorded bill plan to the scheduled expense it came
+/// from. Older expenses have no id, so their content stands in for one.
+String basicNeedsBillSourceKey(Map<String, dynamic> expense) {
+  final id = expense['id']?.toString().trim() ?? '';
+  if (id.isNotEmpty) return id;
+  return [
+    expense['name'],
+    expense['category'],
+    expense['scheduleAnchorDate'],
+  ].map((value) => value?.toString().trim().toLowerCase() ?? '').join('|');
+}
+
+String basicNeedsBillMonthKey(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}';
+
+/// Caps each source at its available balance, then trims anything beyond
+/// [needed] — Savings first, then Wallet, then the Essential fund.
+({double essential, double wallet, double savings}) capBillSources({
+  required double essential,
+  required double wallet,
+  required double savings,
+  required double essentialAvailable,
+  required double walletAvailable,
+  required double savingsAvailable,
+  required double needed,
+}) {
+  double cap(double value, double available) =>
+      math.min(math.max(0.0, value), math.max(0.0, available));
+  var e = cap(essential, essentialAvailable);
+  var w = cap(wallet, walletAvailable);
+  var s = cap(savings, savingsAvailable);
+  var excess = e + w + s - math.max(0.0, needed);
+  if (excess > 0) {
+    final trimSavings = math.min(s, excess);
+    s -= trimSavings;
+    excess -= trimSavings;
+    final trimWallet = math.min(w, excess);
+    w -= trimWallet;
+    excess -= trimWallet;
+    e -= math.min(e, excess);
+  }
+  return (essential: e, wallet: w, savings: s);
 }
 
 double _billRemaining(Map<String, dynamic> bill) {

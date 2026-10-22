@@ -1626,6 +1626,13 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
   ]) async {
     final result = await _showExpenseLedgerDialog(context, layer, entry);
     if (result == null) return;
+    // Keep a stable id so recorded bill plans stay linked through edits.
+    final previous = entry == null || entry.index < 0
+        ? null
+        : state.onboardingExpenseLedger[entry.index];
+    result['id'] = previous == null
+        ? 'expense_${AppClock.now().microsecondsSinceEpoch}'
+        : basicNeedsBillSourceKey(previous);
     if (entry == null || entry.index < 0) {
       state.onboardingExpenseLedger.add(result);
     } else {
@@ -5042,7 +5049,7 @@ ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : sel
 Monthly cash indexes:
 ${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, money available (fund + wallet + cash) ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
 Open basic-needs bill obligations:
-${state.openBasicNeedsBillObligations.isEmpty ? 'No unpaid basic-needs bill obligations.' : state.openBasicNeedsBillObligations.map((bill) => '- ${bill['name']}: remaining ${money(_billRemaining(bill))}').join('\n')}
+${state.openBasicNeedsBillObligations.isEmpty ? 'No unpaid basic-needs bill obligations.' : state.openBasicNeedsBillObligations.map((bill) => '- ${basicNeedsBillDisplayName(bill)}: remaining ${money(_billRemaining(bill))}').join('\n')}
 Current month action evidence:
 - Essential deposits recorded: ${money(essentialDeposits)}
 ${actionScores.map((score) => '- ${score.id}: ${_scorePercent(score.score)}%, ${score.detail}; formula=${score.formula}').join('\n')}
@@ -19294,7 +19301,7 @@ class _BillObligationRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                bill['name']?.toString() ?? 'Basic needs bill',
+                basicNeedsBillDisplayName(bill),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -19346,46 +19353,67 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
   final scheduledBills = _scheduledBasicNeedsBills(state);
   final currentMonth = _monthStart(AppClock.now());
   final candidates = <({
+    String key,
     String label,
     String? obligationId,
+    String? sourceExpenseKey,
     String name,
     double amount,
     double paid,
     DateTime? dueDate
   })>[
-    for (final bill in openBills)
+    for (final (index, bill) in openBills.indexed)
       (
+        key: 'plan:${bill['id'] ?? index}',
         label:
-            '${bill['name'] ?? 'Bill'} · remaining ${money(_billRemaining(bill))}',
+            '${basicNeedsBillDisplayName(bill)} · remaining ${money(_billRemaining(bill))}',
         obligationId: bill['id']?.toString(),
-        name: bill['name']?.toString() ?? 'Basic needs bill',
+        sourceExpenseKey: bill['sourceExpenseKey']?.toString(),
+        name: basicNeedsBillDisplayName(bill),
         amount: _doubleValue(bill['expectedAmount'], 0),
         paid: _doubleValue(bill['paidAmount'], 0),
         dueDate: DateTime.tryParse(bill['dueDate']?.toString() ?? ''),
       ),
-    for (final expense in scheduledBills)
-      (
-        label:
-            '${expense['name']?.toString() ?? 'Basic needs bill'} · ${_shortDate(_scheduledBillDueDateForMonth(expense, currentMonth) ?? currentMonth)}',
-        obligationId: null,
-        name: expense['name']?.toString() ?? 'Basic needs bill',
-        amount: _doubleValue(expense['amount'], 0),
-        paid: 0.0,
-        dueDate: _scheduledBillDueDateForMonth(expense, currentMonth),
-      ),
   ];
+  // A scheduled bill that already has a plan this month shows up as that
+  // open plan above (or not at all once paid), so it can't be recorded twice.
+  final seenSourceKeys = <String>{};
+  for (final expense in scheduledBills) {
+    final sourceKey = basicNeedsBillSourceKey(expense);
+    final dueDate = _scheduledBillDueDateForMonth(expense, currentMonth);
+    if (!seenSourceKeys.add(sourceKey) ||
+        state.basicNeedsBillPlanFor(sourceKey, dueDate ?? currentMonth) !=
+            null) {
+      continue;
+    }
+    candidates.add((
+      key: 'scheduled:$sourceKey',
+      label:
+          '${basicNeedsBillDisplayName(expense)} · ${_shortDate(dueDate ?? currentMonth)}',
+      obligationId: null,
+      sourceExpenseKey: sourceKey,
+      name: basicNeedsBillDisplayName(expense),
+      amount: _doubleValue(expense['amount'], 0),
+      paid: 0.0,
+      dueDate: dueDate,
+    ));
+  }
   final hasBillCandidates = candidates.isNotEmpty;
   final initial = candidates.isNotEmpty
       ? candidates.first
       : (
+          key: 'none',
           label: 'No scheduled bill',
           obligationId: null,
+          sourceExpenseKey: null,
           name: '',
           amount: 0.0,
           paid: 0.0,
           dueDate: null,
         );
   var selected = initial;
+  // Once the user types a source amount, amount edits stop replacing it.
+  var sourcesEdited = false;
   final nameController = TextEditingController(text: initial.name);
   final amountController =
       TextEditingController(text: initial.amount.toStringAsFixed(0));
@@ -19394,17 +19422,34 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
   final savingsController = TextEditingController();
   DateTime dueDate = initial.dueDate ?? AppClock.now();
 
+  ({double essential, double wallet, double savings}) capSources({
+    required double essential,
+    required double wallet,
+    required double savings,
+  }) =>
+      capBillSources(
+        essential: essential,
+        wallet: wallet,
+        savings: savings,
+        essentialAvailable: state.essentialExpensesBalance,
+        walletAvailable: state.accountBalance('Wallet'),
+        savingsAvailable: state.safetyShieldBalance,
+        needed: math.max(
+            0.0, _moneyFieldValue(amountController) - selected.paid),
+      );
+
   void applyRecommendation() {
-    final amount = _moneyFieldValue(amountController);
-    var remaining = math.max(0, amount - selected.paid);
-    final essential = math.min(state.essentialExpensesBalance, remaining);
-    remaining -= essential;
-    final wallet = math.min(state.accountBalance('Wallet'), remaining);
-    remaining -= wallet;
-    final savings = math.min(state.safetyShieldBalance, remaining);
-    essentialController.text = essential.toStringAsFixed(0);
-    walletController.text = wallet.toStringAsFixed(0);
-    savingsController.text = savings.toStringAsFixed(0);
+    sourcesEdited = false;
+    // Offering every balance and capping to the need fills the Essential
+    // fund first, then Wallet, then Savings.
+    final split = capSources(
+      essential: double.infinity,
+      wallet: double.infinity,
+      savings: double.infinity,
+    );
+    essentialController.text = split.essential.toStringAsFixed(0);
+    walletController.text = split.wallet.toStringAsFixed(0);
+    savingsController.text = split.savings.toStringAsFixed(0);
   }
 
   applyRecommendation();
@@ -19434,9 +19479,14 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
           final wallet = _moneyFieldValue(walletController);
           final savings = _moneyFieldValue(savingsController);
           final dueNow = math.max(0.0, amount - selected.paid);
-          final planned =
-              math.min(dueNow, essential + wallet + savings).toDouble();
+          final split = capSources(
+            essential: essential,
+            wallet: wallet,
+            savings: savings,
+          );
+          final planned = split.essential + split.wallet + split.savings;
           final unpaid = math.max(0.0, dueNow - planned);
+          final wasCapped = essential + wallet + savings > planned + 0.005;
           return SafeArea(
             child: Padding(
               padding: EdgeInsets.fromLTRB(
@@ -19494,7 +19544,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                     ],
                     if (hasBillCandidates) ...[
                       DropdownButtonFormField<String>(
-                        value: selected.label,
+                        value: selected.key,
                         isExpanded: true,
                         decoration: inputDecoration('Bill').copyWith(
                           labelText: 'Bill',
@@ -19502,7 +19552,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                         items: [
                           for (final candidate in candidates)
                             DropdownMenuItem(
-                              value: candidate.label,
+                              value: candidate.key,
                               child: Text(
                                 candidate.label,
                                 overflow: TextOverflow.ellipsis,
@@ -19511,7 +19561,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                         ],
                         onChanged: (value) {
                           final next = candidates.firstWhere(
-                            (candidate) => candidate.label == value,
+                            (candidate) => candidate.key == value,
                             orElse: () => selected,
                           );
                           setSheetState(() {
@@ -19531,6 +19581,8 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                         Expanded(
                           child: TextField(
                             controller: nameController,
+                            readOnly: true,
+                            enabled: false,
                             decoration: inputDecoration('Bill name').copyWith(
                               labelText: 'Bill name',
                             ),
@@ -19551,8 +19603,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                   ? '${money(selected.paid)} already covered'
                                   : null,
                             ),
-                            onChanged: (_) =>
-                                setSheetState(applyRecommendation),
+                            onChanged: (_) => setSheetState(() {
+                              if (!sourcesEdited) applyRecommendation();
+                            }),
                           ),
                         ),
                       ],
@@ -19566,19 +19619,22 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           controller: essentialController,
                           label: 'Essential fund',
                           helper: money(state.essentialExpensesBalance),
-                          onChanged: () => setSheetState(() {}),
+                          onChanged: () =>
+                              setSheetState(() => sourcesEdited = true),
                         ),
                         _BillSourceField(
                           controller: walletController,
                           label: 'Wallet',
                           helper: money(state.accountBalance('Wallet')),
-                          onChanged: () => setSheetState(() {}),
+                          onChanged: () =>
+                              setSheetState(() => sourcesEdited = true),
                         ),
                         _BillSourceField(
                           controller: savingsController,
                           label: 'Savings',
                           helper: money(state.safetyShieldBalance),
-                          onChanged: () => setSheetState(() {}),
+                          onChanged: () =>
+                              setSheetState(() => sourcesEdited = true),
                         ),
                       ],
                     ),
@@ -19598,9 +19654,8 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                         ),
                       ),
                       child: Text(
-                        unpaid > 0
-                            ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.'
-                            : '${money(planned)} covers this bill.',
+                        '${unpaid > 0 ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.' : '${money(planned)} covers this bill.'}'
+                        '${wasCapped ? ' Amounts above what each source has or what the bill needs won\'t be used.' : ''}',
                         style: TextStyle(
                           color: unpaid > 0 ? _red : _sage,
                           fontSize: 12,
@@ -19631,6 +19686,8 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                               : () async {
                                   await state.recordBasicNeedsBillPlan(
                                     obligationId: selected.obligationId,
+                                    sourceExpenseKey:
+                                        selected.sourceExpenseKey,
                                     name: nameController.text,
                                     expectedAmount: amount,
                                     fromEssentialFund: essential,
