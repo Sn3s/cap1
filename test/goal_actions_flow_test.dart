@@ -2,8 +2,8 @@ import 'package:cap1/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Onboarding and "+ Add Goal" share the 4-step flow: motivation, Surface,
-// "Your goal + first actions" (★ suggestion), numbers.
+// Onboarding and "+ Add Goal" share the 4-step flow: Surface, Specify,
+// Actions (with a ★ suggestion), then numbers.
 void main() {
   void phone(WidgetTester tester) {
     tester.view.physicalSize = const Size(1170, 2532);
@@ -18,7 +18,7 @@ void main() {
     addTearDown(() => FlutterError.onError = onError);
   }
 
-  testWidgets('onboarding: Surface leads straight to the goal and its habits',
+  testWidgets('onboarding: Surface lets the user specify a goal before actions',
       (tester) async {
     phone(tester);
     final state = AppState()..primaryConcern = 'Accumulating Wealth';
@@ -32,27 +32,28 @@ void main() {
         find.textContaining('I want to start investing', findRichText: true));
     await tester.pumpAndSettle();
 
-    // Surface B -> A12 internally, shown to users as A9.
-    expect(find.text('★ Suggested for you'), findsOneWidget);
+    expect(
+        find.textContaining('Specify: Which goal would you like',
+            findRichText: true),
+        findsOneWidget);
     expect(
         find.textContaining('Strengthen your foundation', findRichText: true),
         findsNothing);
 
-    // The goal message sits above the habit options in the chat.
-    await tester.drag(find.byType(ListView).first, const Offset(0, 2000));
+    await tester.tap(
+        find.textContaining('Build a growing investment portfolio',
+            findRichText: true));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Which goal would you like', findRichText: true),
-        findsNothing);
-    expect(
-        find.textContaining('Your goal: Grow Investments', findRichText: true),
-        findsOneWidget);
+
+    // Surface B -> A12 internally, shown to users as A9.
+    expect(find.text('★ Suggested for you'), findsOneWidget);
     expect(
         find.textContaining('Which actions do you want to start with',
             findRichText: true),
         findsOneWidget);
   });
 
-  testWidgets('onboarding: M1 goes to its goal; no foundation add-on',
+  testWidgets('onboarding: M1 still asks the user to specify its goal',
       (tester) async {
     phone(tester);
     final state = AppState()..primaryConcern = 'Cash Flow & Basic Needs';
@@ -67,13 +68,15 @@ void main() {
     expect(
         find.textContaining('Strengthen your foundation', findRichText: true),
         findsNothing);
-    await tester.drag(find.byType(ListView).first, const Offset(0, 2000));
-    await tester.pumpAndSettle();
-
     expect(
-        find.textContaining('Your goal: Maintain Available Cash',
+        find.textContaining('Specify: Which goal would you like',
             findRichText: true),
         findsOneWidget);
+    await tester.tap(
+        find.textContaining('Have and maintain enough available cash',
+            findRichText: true));
+    await tester.pumpAndSettle();
+    expect(find.text('★ Suggested for you'), findsOneWidget);
   });
 
   testWidgets('+ Add Goal walks the same 4 steps and saves the habits',
@@ -97,7 +100,7 @@ void main() {
     await tester.tap(find.textContaining('Surprise expenses or due dates',
         findRichText: true));
     await tester.pumpAndSettle();
-    // 3. Your goal + first actions (Surface B -> A22, shown as A7)
+    // 3. Your goal + first actions (Surface B -> A22, shown as A7).
     expect(
         find.textContaining('Your goal: Build Emergency Fund',
             findRichText: true),

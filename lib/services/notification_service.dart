@@ -11,6 +11,7 @@ class ShellbyNotificationService {
   bool _initialized = false;
 
   Future<void> initialize() async {
+    if (kIsWeb) return;
     if (_initialized) return;
     tz_data.initializeTimeZones();
     try {
@@ -35,6 +36,7 @@ class ShellbyNotificationService {
   }
 
   Future<bool> requestPermission() async {
+    if (kIsWeb) return false;
     await initialize();
     if (Platform.isIOS) {
       return await _plugin
@@ -54,6 +56,7 @@ class ShellbyNotificationService {
   }
 
   Future<void> scheduleDailyReminders(List<int> minutesOfDay) async {
+    if (kIsWeb) return;
     await initialize();
     await cancelReminders();
     for (var index = 0;
@@ -91,6 +94,7 @@ class ShellbyNotificationService {
   }
 
   Future<void> cancelReminders() async {
+    if (kIsWeb) return;
     await initialize();
     for (var index = 0; index < _maxReminders; index++) {
       await _plugin.cancel(_firstReminderId + index);
@@ -98,6 +102,7 @@ class ShellbyNotificationService {
   }
 
   Future<void> showTestReminder() async {
+    if (kIsWeb) return;
     await initialize();
     await _plugin.show(
       4199,

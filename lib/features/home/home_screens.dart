@@ -6045,26 +6045,39 @@ _CashActionScore? _cashActionScoreFor({
     final allocated =
         _monthLedgerAmount(state, monthStart, 'emergency_deposit');
     final targetAmount = income * targetPct;
-    final pattern = weeks
-        .map((week) => week.weekIncome <= 0
-            ? 0.0
-            : (_ledgerAmountInRange(state, week.start, week.end,
-                        const {'emergency_deposit'}) /
-                    (week.weekIncome * targetPct))
-                .clamp(0.0, 1.5))
-        .toList();
+    final pctLabel = '${(targetPct * 100).round()}%';
+    // Weekly: Emergency Fund allocation ÷ X% of that week's income. Weeks
+    // without income are skipped (nothing to set aside), and over-saving one
+    // week can't hide a missed one (capped at 100%).
+    final incomeWeeks = <WeekRecord>[];
+    final pattern = <double>[];
+    final weekDetails = <String>[];
+    for (final week in weeks) {
+      if (week.weekIncome <= 0) continue;
+      final setAside = _ledgerAmountInRange(
+          state, week.start, week.end, const {'emergency_deposit'});
+      final expected = week.weekIncome * targetPct;
+      incomeWeeks.add(week);
+      pattern.add(
+          targetPct <= 0 ? 1.0 : (setAside / expected).clamp(0.0, 1.0));
+      weekDetails.add('${money(setAside)} of ${money(expected)} set aside');
+    }
     return _CashActionScore(
       id: id,
       title: 'Set aside income for Emergency Fund',
+      emptyReason: 'No income to set aside from yet this month.',
       score: _averageWeeklyResiliency(pattern),
       detail:
           '${money(allocated)} allocated toward a ${money(targetAmount)} monthly target.',
       pattern: pattern,
-      weekLabels: _weekLabels(weeks),
+      weekLabels: _weekLabels(incomeWeeks),
+      periodDetails: weekDetails,
       actualLabel: money(allocated),
       targetLabel: money(targetAmount),
       formula:
-          'Resiliency = average of each available week: weekly Emergency Fund allocation ÷ configured ${(targetPct * 100).round()}% of weekly income.',
+          'Resiliency = average of the weeks you received income: Emergency '
+          'Fund allocation ÷ $pctLabel of that week\'s income (up to 100%). '
+          'Weeks without income are skipped.',
       evidence: [
         'Monthly income counted: ${money(income)}',
         'Configured allocation: ${(targetPct * 100).round()}%',
@@ -6079,30 +6092,21 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final minDeposit = configuredNumber('amt', recommended);
-    const depositTypes = {'emergency_deposit', 'ef_replenish'};
     final monthTotal =
         _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
             _monthLedgerAmount(state, monthStart, 'ef_replenish');
-    final pattern = weeks.isEmpty
-        ? <double>[
-            minDeposit <= 0 ? 0 : (monthTotal / minDeposit).clamp(0.0, 1.0)
-          ]
-        : weeks.map((week) {
-            final weeklyTotal =
-                _ledgerAmountInRange(state, week.start, week.end, depositTypes);
-            final weeklyTarget = minDeposit / weekCount;
-            return weeklyTarget <= 0
-                ? 0.0
-                : (weeklyTotal / weeklyTarget).clamp(0.0, 1.0);
-          }).toList();
+    // A monthly minimum: one lump-sum deposit meets it just as well as
+    // weekly ones, so it's scored once for the month, not per week.
+    final ratio =
+        minDeposit <= 0 ? 0.0 : (monthTotal / minDeposit).clamp(0.0, 1.0);
     return _CashActionScore(
       id: id,
       title: 'Deposit Emergency Fund minimum',
-      score: _averageWeeklyResiliency(pattern),
+      score: ratio,
       detail:
           '${money(monthTotal)} deposited toward a ${money(minDeposit)} monthly minimum.',
-      pattern: pattern,
-      weekLabels: weeks.isEmpty ? const ['Current'] : _weekLabels(weeks),
+      pattern: [ratio],
+      weekLabels: const ['Current'],
       actualLabel: money(monthTotal),
       targetLabel: money(minDeposit),
       formula:
@@ -6111,6 +6115,9 @@ _CashActionScore? _cashActionScoreFor({
         'Configured minimum monthly deposit: ${money(minDeposit)}',
         'Emergency Fund deposits found: ${money(monthTotal)}',
       ],
+      applicableMeasures: const ['Resiliency'],
+      resiliencyLabel: 'Progress',
+      showPeriodBreakdown: false,
     );
   }
   if (id == 'A10') {

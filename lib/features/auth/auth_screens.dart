@@ -13,11 +13,13 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (_isWebQa) return;
     _restoreFuture ??= AppScope.of(context).restoreSignedInUser();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isWebQa) return const _WebQaProfileScreen();
     return FutureBuilder<bool>(
       future: _restoreFuture,
       builder: (context, snapshot) {
@@ -30,6 +32,129 @@ class _AuthGateState extends State<AuthGate> {
         if (snapshot.data == true) return const MainShell();
         return const WelcomeScreen();
       },
+    );
+  }
+}
+
+/// Development-only entrypoint for browser QA. It calls the application's
+/// existing AppState seed methods, so all balances and scores are calculated
+/// by the normal production business logic.
+class _WebQaProfileScreen extends StatelessWidget {
+  const _WebQaProfileScreen();
+
+  Future<void> _openDemo(
+    BuildContext context,
+    void Function(AppState state) seed,
+  ) async {
+    final state = AppScope.of(context);
+    seed(state);
+    if (!context.mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(builder: (_) => const MainShell()),
+    );
+  }
+
+  Future<void> _startFresh(BuildContext context) async {
+    final state = AppScope.of(context);
+    await state.beginFreshOnboardingDraft();
+    if (!context.mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => const PreparationContextScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profiles =
+        <({String label, String description, void Function(AppState) seed})>[
+      (
+        label: 'Cash Flow',
+        description: 'Available cash and essential-expense actions.',
+        seed: (state) => state.seedCashFlowMockDataForTesting(),
+      ),
+      (
+        label: 'Emergency Fund',
+        description: 'Emergency Fund allocations and recovery actions.',
+        seed: (state) => state.seedEmergencyFundMockDataForTesting(),
+      ),
+      (
+        label: 'Investments',
+        description: 'Accumulating Wealth investment actions and scores.',
+        seed: (state) => state.seedAccumulatingWealthMockDataForTesting(),
+      ),
+      (
+        label: 'Lifestyle',
+        description: 'Financial Freedom lifestyle and hobby actions.',
+        seed: (state) => state.seedFinancialFreedomMockDataForTesting(),
+      ),
+      (
+        label: 'Combined Goals',
+        description: 'The complete multi-goal demonstration profile.',
+        seed: (state) => state.seedMainMockDataForTesting(),
+      ),
+    ];
+
+    return Scaffold(
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                const SizedBox(height: 24),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    'Shellby Web QA',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineLarge,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Choose isolated demo data. No account, Firebase profile, or live FakeMaya connection is used in this mode.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _body, height: 1.4),
+                ),
+                const SizedBox(height: 28),
+                for (final profile in profiles) ...[
+                  Semantics(
+                    button: true,
+                    label: 'Open ${profile.label} demo profile',
+                    child: FilledButton(
+                      onPressed: () => _openDemo(context, profile.seed),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Column(
+                          children: [
+                            Text(profile.label),
+                            const SizedBox(height: 3),
+                            Text(
+                              profile.description,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                OutlinedButton.icon(
+                  onPressed: () => _startFresh(context),
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                  label: const Text('Fresh Onboarding'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
