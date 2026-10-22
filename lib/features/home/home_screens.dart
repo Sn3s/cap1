@@ -19421,7 +19421,6 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
   var selected = initial;
   // Once the user types a source amount, amount edits stop replacing it.
   var sourcesEdited = false;
-  final nameController = TextEditingController(text: initial.name);
   final amountController =
       TextEditingController(text: initial.amount.toStringAsFixed(0));
   final essentialController = TextEditingController();
@@ -19472,7 +19471,6 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
     // animation), not right after it returns.
     builder: (sheetContext) => _DisposeOnUnmount(
       onDispose: () {
-        nameController.dispose();
         amountController.dispose();
         essentialController.dispose();
         walletController.dispose();
@@ -19573,7 +19571,6 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           );
                           setSheetState(() {
                             selected = next;
-                            nameController.text = next.name;
                             amountController.text =
                                 next.amount.toStringAsFixed(0);
                             dueDate = next.dueDate ?? AppClock.now();
@@ -19583,39 +19580,21 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: nameController,
-                            readOnly: true,
-                            enabled: false,
-                            decoration: inputDecoration('Bill name').copyWith(
-                              labelText: 'Bill name',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        SizedBox(
-                          width: 120,
-                          child: TextField(
-                            controller: amountController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: inputDecoration('Amount').copyWith(
-                              labelText: 'Amount',
-                              prefixText: '₱ ',
-                              helperText: selected.paid > 0
-                                  ? '${money(selected.paid)} already covered'
-                                  : null,
-                            ),
-                            onChanged: (_) => setSheetState(() {
-                              if (!sourcesEdited) applyRecommendation();
-                            }),
-                          ),
-                        ),
-                      ],
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: inputDecoration('Amount').copyWith(
+                        labelText: 'Amount',
+                        prefixText: '₱ ',
+                        helperText: selected.paid > 0
+                            ? '${money(selected.paid)} already covered'
+                            : null,
+                      ),
+                      onChanged: (_) => setSheetState(() {
+                        if (!sourcesEdited) applyRecommendation();
+                      }),
                     ),
                     const SizedBox(height: 12),
                     Wrap(
@@ -19695,7 +19674,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                     obligationId: selected.obligationId,
                                     sourceExpenseKey:
                                         selected.sourceExpenseKey,
-                                    name: nameController.text,
+                                    name: selected.name,
                                     expectedAmount: amount,
                                     fromEssentialFund: essential,
                                     fromWallet: wallet,
