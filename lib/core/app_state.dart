@@ -603,6 +603,32 @@ class AppState extends ChangeNotifier {
         (total, bill) => total + _billRemaining(bill),
       );
 
+  /// Basic Needs bill plans fully paid for the current month.
+  List<Map<String, dynamic>> get paidBasicNeedsBillsThisMonth {
+    final monthKey = basicNeedsBillMonthKey(AppClock.now());
+    return billObligations.where((bill) {
+      if (expenseLayerForLedger(bill) != ExpenseLayer.basicNeeds ||
+          _billRemaining(bill) > 0) {
+        return false;
+      }
+      // Plans recorded before bills were linked to a month fall back to
+      // their due date.
+      final billMonth = bill['billMonth']?.toString() ??
+          switch (DateTime.tryParse(bill['dueDate']?.toString() ?? '')) {
+            final DateTime due => basicNeedsBillMonthKey(due),
+            null => null,
+          };
+      return billMonth == monthKey;
+    }).toList()
+      ..sort((a, b) {
+        final aDue =
+            DateTime.tryParse(a['dueDate']?.toString() ?? '') ?? DateTime(9999);
+        final bDue =
+            DateTime.tryParse(b['dueDate']?.toString() ?? '') ?? DateTime(9999);
+        return aDue.compareTo(bDue);
+      });
+  }
+
   /// The plan already recorded for a scheduled bill in [month], paid or not.
   Map<String, dynamic>? basicNeedsBillPlanFor(
     String sourceExpenseKey,
@@ -5739,7 +5765,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> recordBasicNeedsBillPlan({
+  /// Returns the saved plan, or null when [expectedAmount] isn't positive.
+  Future<Map<String, dynamic>?> recordBasicNeedsBillPlan({
     String? obligationId,
     String? sourceExpenseKey,
     required String name,
@@ -5749,7 +5776,7 @@ class AppState extends ChangeNotifier {
     required double fromSavings,
     DateTime? dueDate,
   }) async {
-    if (expectedAmount <= 0) return;
+    if (expectedAmount <= 0) return null;
     final billDate = dueDate ?? AppClock.now();
     // A scheduled bill gets one plan per month: recording it again updates
     // that plan instead of adding a duplicate.
@@ -5837,6 +5864,7 @@ class AppState extends ChangeNotifier {
     });
     await saveProfile();
     notifyListeners();
+    return next;
   }
 
   bool hasEssentialAllocationForIncome(String transactionId) =>

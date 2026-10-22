@@ -19220,6 +19220,7 @@ class _BillObligationsPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final openBills = state.openBasicNeedsBillObligations;
+    final paidBills = state.paidBasicNeedsBillsThisMonth;
     final totalNeed = state.openBasicNeedsBillNeed;
     final scheduledCount = _scheduledBasicNeedsBills(state).length;
     return AppCard(
@@ -19257,7 +19258,9 @@ class _BillObligationsPanel extends StatelessWidget {
                     Text(
                       totalNeed > 0
                           ? '${money(totalNeed)} still needs to be covered'
-                          : scheduledCount > 0
+                          : paidBills.isNotEmpty
+                              ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} paid this month'
+                              : scheduledCount > 0
                               ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
                               : 'Add a scheduled Basic Needs bill first',
                       style: const TextStyle(
@@ -19284,6 +19287,23 @@ class _BillObligationsPanel extends StatelessWidget {
                 const Divider(height: 14, color: _border),
             ],
           ],
+          if (paidBills.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'Paid this month',
+              style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final bill in paidBills) ...[
+              _BillObligationRow(bill: bill),
+              if (bill != paidBills.last)
+                const Divider(height: 14, color: _border),
+            ],
+          ],
         ],
       ),
     );
@@ -19300,6 +19320,8 @@ class _BillObligationRow extends StatelessWidget {
     final expected = _doubleValue(bill['expectedAmount'], 0);
     final paid = _doubleValue(bill['paidAmount'], 0);
     final remaining = math.max(0.0, expected - paid);
+    final isPaid = remaining <= 0;
+    final badgeColor = isPaid ? _sage : _red;
     final dueDate = DateTime.tryParse(bill['dueDate']?.toString() ?? '');
     return Row(
       children: [
@@ -19336,14 +19358,14 @@ class _BillObligationRow extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
           decoration: BoxDecoration(
-            color: _red.withValues(alpha: .08),
+            color: badgeColor.withValues(alpha: .08),
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: _red.withValues(alpha: .18)),
+            border: Border.all(color: badgeColor.withValues(alpha: .18)),
           ),
           child: Text(
-            money(remaining),
-            style: const TextStyle(
-              color: _red,
+            isPaid ? 'Paid' : money(remaining),
+            style: TextStyle(
+              color: badgeColor,
               fontSize: 11,
               fontWeight: FontWeight.w900,
             ),
@@ -19670,7 +19692,10 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           onPressed: !hasBillCandidates || amount <= 0
                               ? null
                               : () async {
-                                  await state.recordBasicNeedsBillPlan(
+                                  final messenger =
+                                      ScaffoldMessenger.of(context);
+                                  final plan =
+                                      await state.recordBasicNeedsBillPlan(
                                     obligationId: selected.obligationId,
                                     sourceExpenseKey:
                                         selected.sourceExpenseKey,
@@ -19684,6 +19709,15 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                   if (sheetContext.mounted) {
                                     Navigator.pop(sheetContext);
                                   }
+                                  if (plan == null) return;
+                                  final left = _billRemaining(plan);
+                                  final billName =
+                                      basicNeedsBillDisplayName(plan);
+                                  messenger.showSnackBar(SnackBar(
+                                    content: Text(left <= 0
+                                        ? '$billName marked paid'
+                                        : '${money(_doubleValue(plan['paidAmount'], 0))} recorded for $billName · ${money(left)} still owed'),
+                                  ));
                                 },
                           child: const Text('Record plan'),
                         ),
