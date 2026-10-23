@@ -1394,14 +1394,65 @@ class _PeerDashboard extends StatelessWidget {
           color: _purple,
         ),
         const SizedBox(height: 10),
-        _PeerMetric(
-          icon: Icons.insights_outlined,
-          title: 'Anonymous benchmarks',
-          value: 'Coming from your opted-in cohort',
-          detail:
-              'Shelby will only show a comparison when enough similar anonymous users are represented.',
-          color: _amber,
-        ),
+        if (state.isSignedIn && state.consentBenchmarking)
+          StreamBuilder<BenchmarkAggregate?>(
+            stream: CooperativeService()
+                .benchmarkForEmployment(state.employmentStatus),
+            builder: (context, snapshot) {
+              final benchmark = snapshot.data;
+              if (benchmark == null || benchmark.eligibleCount < 20) {
+                return const _PeerMetric(
+                  icon: Icons.insights_outlined,
+                  title: 'Anonymous benchmarks',
+                  value: 'Building your cohort',
+                  detail:
+                      'Shelby only shows a comparison after at least 20 similar anonymous users participate.',
+                  color: _amber,
+                );
+              }
+              final reserveBase = benchmark.eligibleCount;
+              final starter = (benchmark.emergencyBands['one_to_three'] ?? 0) *
+                  100 ~/
+                  reserveBase;
+              final strong = (benchmark.emergencyBands['three_plus'] ?? 0) *
+                  100 ~/
+                  reserveBase;
+              final savingTwentyPlus =
+                  (benchmark.savingBands['twenty_plus'] ?? 0) *
+                      100 ~/
+                      reserveBase;
+              return Column(
+                children: [
+                  _PeerMetric(
+                    icon: Icons.insights_outlined,
+                    title: 'Anonymous emergency benchmark',
+                    value: '$reserveBase similar users',
+                    detail:
+                        '$starter% report 1–3 months of emergency coverage; $strong% report 3+ months. No individual finances are shown.',
+                    color: _amber,
+                  ),
+                  const SizedBox(height: 10),
+                  _PeerMetric(
+                    icon: Icons.savings_outlined,
+                    title: 'Anonymous savings benchmark',
+                    value: '$savingTwentyPlus% set aside 20%+',
+                    detail:
+                        'This is a coarse monthly band from the same anonymous cohort, not a view of anyone’s income or balance.',
+                    color: _sage,
+                  ),
+                ],
+              );
+            },
+          )
+        else
+          const _PeerMetric(
+            icon: Icons.insights_outlined,
+            title: 'Anonymous benchmarks',
+            value: 'Opt in to compare',
+            detail:
+                'Shelby only shows a comparison after enough similar anonymous users participate.',
+            color: _amber,
+          ),
         const SizedBox(height: 16),
         AppCard(
           child: Row(

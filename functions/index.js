@@ -211,9 +211,13 @@ exports.publishBenchmarkContribution = onCall({region: "us-central1"}, async (re
   const month = new Date().toISOString().slice(0, 7);
   const cohort = String(profile.employmentStatus || "all")
       .toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "all";
-  const emergencyMonths = Number(profile.emergencyMonths || 0);
-  const savings = Number(profile.savings || 0);
-  const income = Number(profile.income || profile.monthlySalary || 0);
+  const essentials = Number(profile.basicNeedsMonthlyTarget || profile.needsTarget || 0);
+  const emergencyBalance = Number(profile.emergencyFundBalance || profile.financialSafetyBalance || 0);
+  const savedEmergencyMonths = Number(profile.emergencyMonths || 0);
+  const emergencyMonths = savedEmergencyMonths > 0 ? savedEmergencyMonths :
+    (essentials > 0 ? emergencyBalance / essentials : 0);
+  const savings = Number(profile.savings || profile.emergencyFundBalance || 0);
+  const income = Number(profile.income || profile.monthlySalary || profile.irregularIncomeFloor || 0);
   const contribution = {
     uid, month, cohort,
     emergencyBand: emergencyMonths >= 3 ? "three_plus" : emergencyMonths >= 1 ? "one_to_three" : "under_one",
@@ -229,6 +233,203 @@ exports.publishBenchmarkContribution = onCall({region: "us-central1"}, async (re
   const aggregate = {month, cohort, eligibleCount: all.size, emergencyBands: tally("emergencyBand"), savingBands: tally("savingBand"), updatedAt: admin.firestore.FieldValue.serverTimestamp()};
   await db.doc(`benchmarkAggregates/${cohort}_${month}`).set(aggregate);
   return {eligible: all.size >= 20, cohort, month};
+});
+
+// A small, repeatable data set for the password-protected Reflection Demo
+// account. The two peer identities are disabled Firebase Auth users with no
+// password or sign-in path; they exist solely as labelled demo participants.
+// The wider benchmark cohort is aggregate-only synthetic data, never people
+// who can appear in the community feed.
+const reflectionDemoEmail = "reflection@test.com";
+const reflectionDemoPeers = [
+  {uid: "shelby-demo-ken", email: "ken.reflection-demo@shelby.app", displayName: "Ken Ramos"},
+  {uid: "shelby-demo-nina", email: "nina.reflection-demo@shelby.app", displayName: "Nina Santos"},
+];
+
+async function ensureReflectionDemoPeer(peer) {
+  try {
+    await admin.auth().getUser(peer.uid);
+  } catch (error) {
+    if (error.code !== "auth/user-not-found") throw error;
+    await admin.auth().createUser({...peer, disabled: true, emailVerified: true});
+  }
+  return {uid: peer.uid, displayName: peer.displayName};
+}
+
+function demoFriendship(author, peer, timestamp) {
+  return {
+    members: [author.uid, peer.uid],
+    requesterUid: author.uid,
+    accepterUid: peer.uid,
+    profiles: {[author.uid]: author, [peer.uid]: peer},
+    createdAt: timestamp,
+    seededDemo: true,
+  };
+}
+
+exports.seedReflectionCooperativeDemo = onCall({region: "us-central1"}, async (request) => {
+  const uid = requireUser(request);
+  if (request.auth.token.email !== reflectionDemoEmail) {
+    throw new HttpsError("permission-denied", "Only the Reflection Demo account can seed this walkthrough.");
+  }
+  const [ken, nina] = await Promise.all(reflectionDemoPeers.map(ensureReflectionDemoPeer));
+  const author = await publicAuthor(uid);
+  const now = admin.firestore.Timestamp.now();
+  const recent = (minutesAgo) => admin.firestore.Timestamp.fromMillis(
+      now.toMillis() - minutesAgo * 60 * 1000);
+  const future = (days) => admin.firestore.Timestamp.fromMillis(
+      now.toMillis() + days * 24 * 60 * 60 * 1000);
+  const batch = db.batch();
+
+  // These private profiles contain only coarse demo configuration. The
+  // public author objects below intentionally omit email and financial data.
+  batch.set(db.doc(`profiles/${uid}`), {
+    consentAi: true,
+    consentBenchmarking: true,
+    consentCommunity: true,
+    consentTrustedCircle: true,
+    updatedAt: now,
+  }, {merge: true});
+  for (const peer of [ken, nina]) {
+    batch.set(db.doc(`profiles/${peer.uid}`), {
+      uid: peer.uid,
+      name: peer.displayName,
+      onboardingComplete: true,
+      employmentStatus: "Freelance",
+      consentCommunity: true,
+      consentTrustedCircle: true,
+      consentBenchmarking: true,
+      updatedAt: now,
+      seededDemo: true,
+    }, {merge: true});
+    batch.set(db.doc(`friendships/${pairId(uid, peer.uid)}`),
+        demoFriendship(author, peer, recent(60)), {merge: true});
+  }
+
+  const audience = [uid, ken.uid, nina.uid];
+  const achievementPost = db.doc("posts/reflection-demo-ken-achievement");
+  batch.set(achievementPost, {
+    authorUid: ken.uid,
+    author: ken,
+    audience,
+    visibility: "friends",
+    kind: "goal_progress",
+    message: "I finished my first month of a simpler weekly spending check-in. Small routines are starting to stick.",
+    snapshot: {
+      title: "Weekly check-in habit",
+      detail: "Completed 4 weekly reviews this month",
+      kind: "goal_progress",
+      progressPercent: 100,
+    },
+    achievement: {
+      kind: "badge",
+      title: "Steady Steps",
+      value: "4 weekly reviews",
+      detail: "Shared by Ken",
+      colorValue: 10799989,
+      iconKey: "trophy",
+    },
+    likedBy: [uid, nina.uid],
+    commentCount: 1,
+    decisionVotes: {},
+    createdAt: recent(95),
+    seededDemo: true,
+  }, {merge: true});
+  batch.set(achievementPost.collection("comments").doc("nina-encouragement"), {
+    authorUid: nina.uid,
+    author: nina,
+    message: "That consistency is inspiring. What made the weekly review easier to keep?",
+    createdAt: recent(75),
+  }, {merge: true});
+
+  const questionPost = db.doc("posts/reflection-demo-nina-question");
+  batch.set(questionPost, {
+    authorUid: nina.uid,
+    author: nina,
+    audience,
+    visibility: "friends",
+    kind: "question",
+    message: "What is one low-pressure way you keep a savings goal visible between paydays?",
+    likedBy: [uid],
+    commentCount: 1,
+    decisionVotes: {},
+    createdAt: recent(50),
+    seededDemo: true,
+  }, {merge: true});
+  batch.set(questionPost.collection("comments").doc("ken-answer"), {
+    authorUid: ken.uid,
+    author: ken,
+    message: "I use a short weekly note with the next amount, not the whole target. It feels more manageable.",
+    createdAt: recent(35),
+  }, {merge: true});
+
+  // The Reflection account owns this request, so it can see deterministic
+  // totals, response consent, and the optional Shelby review path.
+  const reflectionDecision = db.doc("decisionRequests/reflection-demo-5000");
+  batch.set(reflectionDecision, {
+    authorUid: uid,
+    author,
+    audience,
+    message: "How should I balance a one-time project payment with my near-term priorities?",
+    context: "I chose to share that it is a moderate one-time amount, without sharing account balances or income.",
+    options: ["Put most toward emergency savings", "Split it between savings and debt", "Use most for debt repayment"],
+    status: "open",
+    closeAt: future(7),
+    createdAt: recent(30),
+    seededDemo: true,
+  }, {merge: true});
+  batch.set(reflectionDecision.collection("responses").doc(ken.uid), {
+    author: ken,
+    option: "Split it between savings and debt",
+    comment: "A split could make progress on both priorities while preserving some flexibility for an irregular-income month.",
+    allowAiReview: true,
+    updatedAt: recent(22),
+  }, {merge: true});
+  batch.set(reflectionDecision.collection("responses").doc(nina.uid), {
+    author: nina,
+    option: "Put most toward emergency savings",
+    comment: "I would personally prioritize a cushion when income timing is uncertain.",
+    allowAiReview: false,
+    updatedAt: recent(14),
+  }, {merge: true});
+
+  // This incoming request demonstrates the responder path without any
+  // pre-filled response from the Reflection account.
+  const incomingDecision = db.doc("decisionRequests/reflection-demo-incoming");
+  batch.set(incomingDecision, {
+    authorUid: ken.uid,
+    author: ken,
+    audience: [ken.uid, uid],
+    message: "I have an upcoming purchase for freelance work. Should I buy it now or wait until next month's income is clearer?",
+    context: "No amount or account balance was shared.",
+    options: ["Buy now", "Wait until income is clearer", "Set aside part of the cost first"],
+    status: "open",
+    closeAt: future(5),
+    createdAt: recent(12),
+    seededDemo: true,
+  }, {merge: true});
+
+  // Twenty-four coarse, server-private bands make the anonymized comparison
+  // visible while keeping every individual benchmark contribution hidden.
+  const month = new Date().toISOString().slice(0, 7);
+  const cohort = "freelance";
+  const emergencyBands = {under_one: 0, one_to_three: 0, three_plus: 0};
+  const savingBands = {none: 0, some: 0, twenty_plus: 0};
+  for (let i = 0; i < 24; i += 1) {
+    const emergencyBand = i < 6 ? "under_one" : i < 17 ? "one_to_three" : "three_plus";
+    const savingBand = i < 5 ? "none" : i < 16 ? "some" : "twenty_plus";
+    emergencyBands[emergencyBand] += 1;
+    savingBands[savingBand] += 1;
+    batch.set(db.doc(`benchmarkContributions/reflection-demo-cohort-${i}_${month}`), {
+      month, cohort, emergencyBand, savingBand, updatedAt: now, seededDemo: true,
+    });
+  }
+  batch.set(db.doc(`benchmarkAggregates/${cohort}_${month}`), {
+    month, cohort, eligibleCount: 24, emergencyBands, savingBands,
+    updatedAt: now, seededDemo: true,
+  }, {merge: true});
+  await batch.commit();
+  return {ok: true, peers: [ken.displayName, nina.displayName]};
 });
 
 exports.reviewDecisionFeedback = onCall(

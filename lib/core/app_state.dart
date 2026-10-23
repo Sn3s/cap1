@@ -1306,6 +1306,14 @@ class AppState extends ChangeNotifier {
     _applyReflectionDemoProfile(user);
     _seedDemoEngagement();
     await saveProfile(markOnboardingComplete: true);
+    // This account is deliberately a self-contained walkthrough of the
+    // cooperative feature. Its opt-ins are saved before the server creates
+    // the demo-only trusted circle and anonymous aggregate.
+    try {
+      await CooperativeService().seedReflectionDemo();
+    } on FirebaseFunctionsException catch (error) {
+      debugPrint('Could not seed cooperative Reflection demo: ${error.code}');
+    }
     notifyListeners();
   }
 
@@ -1701,6 +1709,10 @@ class AppState extends ChangeNotifier {
         'A28': {'amt': '1500'},
       });
     onboardingComplete = true;
+    consentAi = true;
+    consentBenchmarking = true;
+    consentCommunity = true;
+    consentTrustedCircle = true;
     confidence = 5;
     employmentStatus = 'Freelance';
     incomeType = 'Variable';

@@ -64,6 +64,13 @@ class CooperativeService {
     return (result.data as Map)['summary']?.toString() ?? '';
   }
 
+  /// Available only to the Reflection Demo account. The callable seeds a
+  /// coherent, server-side walkthrough without putting financial details in
+  /// community documents or on the device.
+  Future<void> seedReflectionDemo() async {
+    await _functions.httpsCallable('seedReflectionCooperativeDemo').call();
+  }
+
   Stream<List<DecisionRequest>> decisionsFor(String uid) => _db
       .collection('decisionRequests')
       .where('audience', arrayContains: uid)
@@ -83,6 +90,25 @@ class CooperativeService {
       .map((snapshot) => snapshot.docs
           .map((doc) => DecisionResponse.fromMap(doc.id, doc.data()))
           .toList());
+
+  Stream<BenchmarkAggregate?> benchmarkForEmployment(String employment) {
+    var cohort = employment
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    if (cohort.length > 40) cohort = cohort.substring(0, 40);
+    final safeCohort = cohort.isEmpty ? 'all' : cohort;
+    final now = DateTime.now();
+    final month =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+    return _db
+        .collection('benchmarkAggregates')
+        .doc('${safeCohort}_$month')
+        .snapshots()
+        .map((snapshot) => snapshot.exists
+            ? BenchmarkAggregate.fromMap(snapshot.data()!)
+            : null);
+  }
 }
 
 class BenchmarkPublishResult {
@@ -91,6 +117,30 @@ class BenchmarkPublishResult {
   final bool eligible;
   final String cohort;
   final String month;
+}
+
+class BenchmarkAggregate {
+  const BenchmarkAggregate({
+    required this.eligibleCount,
+    required this.emergencyBands,
+    required this.savingBands,
+  });
+
+  final int eligibleCount;
+  final Map<String, int> emergencyBands;
+  final Map<String, int> savingBands;
+
+  static BenchmarkAggregate fromMap(Map<String, dynamic> data) {
+    Map<String, int> bands(Object? raw) => raw is Map
+        ? raw.map((key, value) =>
+            MapEntry(key.toString(), (value as num?)?.toInt() ?? 0))
+        : const {};
+    return BenchmarkAggregate(
+      eligibleCount: (data['eligibleCount'] as num?)?.toInt() ?? 0,
+      emergencyBands: bands(data['emergencyBands']),
+      savingBands: bands(data['savingBands']),
+    );
+  }
 }
 
 class DecisionRequest {

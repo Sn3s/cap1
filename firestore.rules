@@ -165,10 +165,10 @@ service cloud.firestore {
     // immediately even if an older request still lists that uid.
     match /decisionRequests/{requestId} {
       function decisionMember() {
-        return signedIn() && me() in resource.data.audience &&
-          (me() == resource.data.authorUid ||
-            exists(/databases/$(database)/documents/friendships/$(me() + '_' + resource.data.authorUid)) ||
-            exists(/databases/$(database)/documents/friendships/$(resource.data.authorUid + '_' + me())));
+        return signedIn() && me() in resource.data.audience && (
+          me() == resource.data.authorUid ||
+            (exists(/databases/$(database)/documents/friendships/$(me() + '_' + resource.data.authorUid)) ||
+            exists(/databases/$(database)/documents/friendships/$(resource.data.authorUid + '_' + me()))));
       }
       allow read: if decisionMember();
       allow write: if false;
@@ -178,8 +178,8 @@ service cloud.firestore {
           return signedIn()
             && me() in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.audience
             && (me() == get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid
-              || exists(/databases/$(database)/documents/friendships/$(me() + '_' + get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid))
-              || exists(/databases/$(database)/documents/friendships/$(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid + '_' + me())));
+              || (exists(/databases/$(database)/documents/friendships/$(me() + '_' + get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid))
+              || exists(/databases/$(database)/documents/friendships/$(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid + '_' + me()))));
         }
         allow read: if responseViewer();
         allow write: if false;
