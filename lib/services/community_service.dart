@@ -23,6 +23,85 @@ const communityFeedLimit = 50;
 
 enum PostVisibility { friends, onlyMe }
 
+/// A feed entry is deliberately typed so that a request for financial
+/// perspective is not confused with a general update or celebration.
+enum CommunityPostKind {
+  update,
+  question,
+  decision,
+  goalProgress,
+  actionProgress
+}
+
+extension CommunityPostKindX on CommunityPostKind {
+  String get wire => switch (this) {
+        CommunityPostKind.update => 'update',
+        CommunityPostKind.question => 'question',
+        CommunityPostKind.decision => 'decision',
+        CommunityPostKind.goalProgress => 'goal_progress',
+        CommunityPostKind.actionProgress => 'action_progress',
+      };
+
+  String get label => switch (this) {
+        CommunityPostKind.update => 'Update',
+        CommunityPostKind.question => 'Question',
+        CommunityPostKind.decision => 'Ask for feedback',
+        CommunityPostKind.goalProgress => 'Goal progress',
+        CommunityPostKind.actionProgress => 'Action update',
+      };
+
+  IconData get icon => switch (this) {
+        CommunityPostKind.update => Icons.chat_bubble_outline_rounded,
+        CommunityPostKind.question => Icons.help_outline_rounded,
+        CommunityPostKind.decision => Icons.how_to_vote_outlined,
+        CommunityPostKind.goalProgress => Icons.flag_outlined,
+        CommunityPostKind.actionProgress => Icons.task_alt_outlined,
+      };
+
+  static CommunityPostKind parse(Object? value) => switch (value) {
+        'question' => CommunityPostKind.question,
+        'decision' => CommunityPostKind.decision,
+        'goal_progress' => CommunityPostKind.goalProgress,
+        'action_progress' => CommunityPostKind.actionProgress,
+        _ => CommunityPostKind.update,
+      };
+}
+
+/// A static, user-reviewed description of a goal or action. It is a snapshot
+/// rather than a live link to the private financial profile, so later plan
+/// changes cannot accidentally disclose new balances or targets.
+class CommunityShareSnapshot {
+  const CommunityShareSnapshot({
+    required this.title,
+    required this.detail,
+    required this.kind,
+    this.progressPercent,
+  });
+
+  final String title;
+  final String detail;
+  final CommunityPostKind kind;
+  final int? progressPercent;
+
+  Map<String, dynamic> toMap() => {
+        'title': title,
+        'detail': detail,
+        'kind': kind.wire,
+        if (progressPercent != null) 'progressPercent': progressPercent,
+      };
+
+  static CommunityShareSnapshot? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final data = Map<String, dynamic>.from(raw);
+    return CommunityShareSnapshot(
+      title: data['title']?.toString() ?? '',
+      detail: data['detail']?.toString() ?? '',
+      kind: CommunityPostKindX.parse(data['kind']),
+      progressPercent: (data['progressPercent'] as num?)?.toInt(),
+    );
+  }
+}
+
 extension PostVisibilityX on PostVisibility {
   String get wire => this == PostVisibility.friends ? 'friends' : 'only_me';
   String get label => this == PostVisibility.friends ? 'Friends' : 'Only Me';
@@ -88,6 +167,14 @@ class SocialProfile {
         'displayName': displayName,
         'email': email,
         'emailLower': normalizeCommunityEmail(email),
+        if ((photoUrl ?? '').isNotEmpty) 'photoUrl': photoUrl,
+      };
+
+  /// Safe to copy to community content. Email is retained only in the private
+  /// exact-match invitation directory.
+  Map<String, dynamic> toPublicMap() => {
+        'uid': uid,
+        'displayName': displayName,
         if ((photoUrl ?? '').isNotEmpty) 'photoUrl': photoUrl,
       };
 
@@ -208,6 +295,10 @@ class CommunityPost {
     required this.visibility,
     required this.createdAt,
     this.achievement,
+    this.kind = CommunityPostKind.update,
+    this.snapshot,
+    this.decisionOptions = const [],
+    this.decisionVotes = const {},
     this.likedBy = const [],
     this.commentCount = 0,
   });
@@ -218,13 +309,24 @@ class CommunityPost {
   final PostVisibility visibility;
   final DateTime createdAt;
   final ShareableAchievement? achievement;
+  final CommunityPostKind kind;
+  final CommunityShareSnapshot? snapshot;
+  final List<String> decisionOptions;
+  final Map<String, String> decisionVotes;
   final List<String> likedBy;
   final int commentCount;
 
   int get likeCount => likedBy.length;
+  int votesFor(String option) =>
+      decisionVotes.values.where((value) => value == option).length;
+  String? voteBy(String uid) => decisionVotes[uid];
   bool isLikedBy(String uid) => likedBy.contains(uid);
 
-  CommunityPost copyWith({List<String>? likedBy, int? commentCount}) =>
+  CommunityPost copyWith({
+    List<String>? likedBy,
+    int? commentCount,
+    Map<String, String>? decisionVotes,
+  }) =>
       CommunityPost(
         id: id,
         author: author,
@@ -232,6 +334,10 @@ class CommunityPost {
         visibility: visibility,
         createdAt: createdAt,
         achievement: achievement,
+        kind: kind,
+        snapshot: snapshot,
+        decisionOptions: decisionOptions,
+        decisionVotes: decisionVotes ?? this.decisionVotes,
         likedBy: likedBy ?? this.likedBy,
         commentCount: commentCount ?? this.commentCount,
       );
@@ -245,6 +351,18 @@ class CommunityPost {
         visibility: PostVisibilityX.parse(data['visibility']),
         createdAt: _communityDate(data['createdAt']),
         achievement: ShareableAchievement.fromMap(data['achievement']),
+        kind: CommunityPostKindX.parse(data['kind']),
+        snapshot: CommunityShareSnapshot.fromMap(data['snapshot']),
+        decisionOptions: [
+          if (data['decisionOptions'] is List)
+            for (final option in data['decisionOptions'] as List)
+              option.toString(),
+        ],
+        decisionVotes: {
+          if (data['decisionVotes'] is Map)
+            for (final entry in (data['decisionVotes'] as Map).entries)
+              entry.key.toString(): entry.value.toString(),
+        },
         likedBy: [
           if (data['likedBy'] is List)
             for (final uid in data['likedBy'] as List) uid.toString(),
@@ -329,7 +447,7 @@ class CommunityNotification {
   Map<String, dynamic> toMap() => {
         'type': type.wire,
         'actorUid': actor.uid,
-        'actor': actor.toMap(),
+        'actor': actor.toPublicMap(),
         if (postId != null) 'postId': postId,
         'preview': preview,
         'read': read,
@@ -388,12 +506,20 @@ abstract class CommunityBackend {
     required PostVisibility visibility,
     required List<String> audience,
     ShareableAchievement? achievement,
+    CommunityPostKind kind = CommunityPostKind.update,
+    CommunityShareSnapshot? snapshot,
+    List<String> decisionOptions = const [],
   });
   Future<void> deletePost(String postId);
   Future<void> setLiked({
     required String postId,
     required String uid,
     required bool liked,
+  });
+  Future<void> voteOnDecision({
+    required String postId,
+    required String uid,
+    required String option,
   });
   Future<void> addComment({
     required String postId,
@@ -456,16 +582,12 @@ class FirestoreCommunityBackend implements CommunityBackend {
   }
 
   @override
-  Stream<List<FriendRequest>> incomingRequests(String uid) => _requests
-      .where('toUid', isEqualTo: uid)
-      .snapshots()
-      .map(_requestsFrom);
+  Stream<List<FriendRequest>> incomingRequests(String uid) =>
+      _requests.where('toUid', isEqualTo: uid).snapshots().map(_requestsFrom);
 
   @override
-  Stream<List<FriendRequest>> outgoingRequests(String uid) => _requests
-      .where('fromUid', isEqualTo: uid)
-      .snapshots()
-      .map(_requestsFrom);
+  Stream<List<FriendRequest>> outgoingRequests(String uid) =>
+      _requests.where('fromUid', isEqualTo: uid).snapshots().map(_requestsFrom);
 
   List<FriendRequest> _requestsFrom(
     QuerySnapshot<Map<String, dynamic>> snapshot,
@@ -521,8 +643,8 @@ class FirestoreCommunityBackend implements CommunityBackend {
     return _requests.doc(friendRequestId(from.uid, to.uid)).set({
       'fromUid': from.uid,
       'toUid': to.uid,
-      'from': from.toMap(),
-      'to': to.toMap(),
+      'from': from.toPublicMap(),
+      'to': to.toPublicMap(),
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -538,8 +660,8 @@ class FirestoreCommunityBackend implements CommunityBackend {
         'requesterUid': request.from.uid,
         'accepterUid': request.to.uid,
         'profiles': {
-          request.from.uid: request.from.toMap(),
-          request.to.uid: request.to.toMap(),
+          request.from.uid: request.from.toPublicMap(),
+          request.to.uid: request.to.toPublicMap(),
         },
         'createdAt': FieldValue.serverTimestamp(),
       })
@@ -573,7 +695,8 @@ class FirestoreCommunityBackend implements CommunityBackend {
     required CommunityNotification notification,
   }) {
     final inbox = _inbox(toUid);
-    final doc = notification.id.isEmpty ? inbox.doc() : inbox.doc(notification.id);
+    final doc =
+        notification.id.isEmpty ? inbox.doc() : inbox.doc(notification.id);
     return doc.set({
       ...notification.toMap(),
       'createdAt': FieldValue.serverTimestamp(),
@@ -599,15 +722,22 @@ class FirestoreCommunityBackend implements CommunityBackend {
     required PostVisibility visibility,
     required List<String> audience,
     ShareableAchievement? achievement,
+    CommunityPostKind kind = CommunityPostKind.update,
+    CommunityShareSnapshot? snapshot,
+    List<String> decisionOptions = const [],
   }) async {
     final doc = _posts.doc();
     await doc.set({
       'authorUid': author.uid,
-      'author': author.toMap(),
+      'author': author.toPublicMap(),
       'message': message,
       'visibility': visibility.wire,
       'audience': audience,
       if (achievement != null) 'achievement': achievement.toMap(),
+      'kind': kind.wire,
+      if (snapshot != null) 'snapshot': snapshot.toMap(),
+      if (decisionOptions.isNotEmpty) 'decisionOptions': decisionOptions,
+      'decisionVotes': <String, String>{},
       'likedBy': <String>[],
       'commentCount': 0,
       'createdAt': FieldValue.serverTimestamp(),
@@ -625,11 +755,18 @@ class FirestoreCommunityBackend implements CommunityBackend {
     required bool liked,
   }) {
     return _posts.doc(postId).update({
-      'likedBy': liked
-          ? FieldValue.arrayUnion([uid])
-          : FieldValue.arrayRemove([uid]),
+      'likedBy':
+          liked ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
     });
   }
+
+  @override
+  Future<void> voteOnDecision({
+    required String postId,
+    required String uid,
+    required String option,
+  }) =>
+      _posts.doc(postId).update({'decisionVotes.$uid': option});
 
   @override
   Future<void> addComment({
@@ -641,7 +778,7 @@ class FirestoreCommunityBackend implements CommunityBackend {
     final batch = _db.batch()
       ..set(post.collection('comments').doc(), {
         'authorUid': author.uid,
-        'author': author.toMap(),
+        'author': author.toPublicMap(),
         'message': message,
         'createdAt': FieldValue.serverTimestamp(),
       })
@@ -823,6 +960,9 @@ class InMemoryCommunityBackend implements CommunityBackend {
     required PostVisibility visibility,
     required List<String> audience,
     ShareableAchievement? achievement,
+    CommunityPostKind kind = CommunityPostKind.update,
+    CommunityShareSnapshot? snapshot,
+    List<String> decisionOptions = const [],
     DateTime? createdAt,
     List<String> likedBy = const [],
     int commentCount = 0,
@@ -835,6 +975,9 @@ class InMemoryCommunityBackend implements CommunityBackend {
       visibility: visibility,
       createdAt: createdAt ?? DateTime.now(),
       achievement: achievement,
+      kind: kind,
+      snapshot: snapshot,
+      decisionOptions: decisionOptions,
       likedBy: likedBy,
       commentCount: commentCount,
     );
@@ -862,6 +1005,23 @@ class InMemoryCommunityBackend implements CommunityBackend {
     final likedBy = {...post.likedBy};
     liked ? likedBy.add(uid) : likedBy.remove(uid);
     _posts[postId] = post.copyWith(likedBy: likedBy.toList());
+    _changed();
+  }
+
+  @override
+  Future<void> voteOnDecision({
+    required String postId,
+    required String uid,
+    required String option,
+  }) async {
+    final post = _posts[postId];
+    if (post == null || post.kind != CommunityPostKind.decision) return;
+    if (!post.decisionOptions.contains(option)) {
+      throw const CommunityException('Choose one of the available options.');
+    }
+    _posts[postId] = post.copyWith(
+      decisionVotes: {...post.decisionVotes, uid: option},
+    );
     _changed();
   }
 

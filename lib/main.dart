@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/services.dart';
@@ -42,6 +43,7 @@ part 'features/home/wallet_screen.dart';
 part 'features/preparation/legacy_onboarding_screens.dart';
 part 'features/preparation/preparation_screens.dart';
 part 'services/community_service.dart';
+part 'services/cooperative_service.dart';
 part 'services/fakemaya_service.dart';
 part 'services/firebase_profile_service.dart';
 part 'services/integration_service.dart';

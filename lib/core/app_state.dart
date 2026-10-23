@@ -691,6 +691,13 @@ class AppState extends ChangeNotifier {
   /// talk to Firestore; signed-out/demo sessions get a seeded in-memory
   /// circle so the screens can be explored offline.
   Future<void> connectCommunity() async {
+    // A signed-in account must actively opt in before its identity enters the
+    // community directory or it opens social streams. Local/demo sessions are
+    // intentionally left available for guided exploration and widget tests.
+    if (isSignedIn && !consentCommunity) {
+      await community.disconnect();
+      return;
+    }
     final profile = socialProfile;
     final override = _communityBackendOverride;
     if (override != null) {
@@ -4613,6 +4620,10 @@ class AppState extends ChangeNotifier {
       'seenBadgeIds': seenBadgeIds.toList()..sort(),
       'badgeBaselineSet': _badgeBaselineSet,
       'discoverableByEmail': discoverableByEmail,
+      'consentAi': consentAi,
+      'consentBenchmarking': consentBenchmarking,
+      'consentCommunity': consentCommunity,
+      'consentTrustedCircle': consentTrustedCircle,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4857,6 +4868,10 @@ class AppState extends ChangeNotifier {
       ]);
     _badgeBaselineSet = data['badgeBaselineSet'] == true;
     discoverableByEmail = data['discoverableByEmail'] != false;
+    consentAi = data['consentAi'] == true;
+    consentBenchmarking = data['consentBenchmarking'] == true;
+    consentCommunity = data['consentCommunity'] == true;
+    consentTrustedCircle = data['consentTrustedCircle'] == true;
     final streakBreaks = data['loginStreakBreaks'];
     loginStreakBreaks
       ..clear()
@@ -5780,10 +5795,10 @@ class AppState extends ChangeNotifier {
     final billDate = dueDate ?? AppClock.now();
     // A scheduled bill gets one plan per month: recording it again updates
     // that plan instead of adding a duplicate.
-    final linkedPlan = obligationId?.trim().isNotEmpty != true &&
-            sourceExpenseKey != null
-        ? basicNeedsBillPlanFor(sourceExpenseKey, billDate)
-        : null;
+    final linkedPlan =
+        obligationId?.trim().isNotEmpty != true && sourceExpenseKey != null
+            ? basicNeedsBillPlanFor(sourceExpenseKey, billDate)
+            : null;
     final planId = linkedPlan?['id']?.toString() ?? obligationId;
     final existingIndex = planId?.trim().isNotEmpty == true
         ? billObligations.indexWhere((bill) => bill['id'] == planId)

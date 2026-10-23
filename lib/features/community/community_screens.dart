@@ -36,7 +36,8 @@ Future<CommunityController> _ensureCommunity(BuildContext context) async {
 
 /// The small yellow "Share it!" pill that sits in the corner of a card.
 class ShareItChip extends StatelessWidget {
-  const ShareItChip({super.key, required this.achievement, this.compact = false});
+  const ShareItChip(
+      {super.key, required this.achievement, this.compact = false});
 
   final ShareableAchievement achievement;
   final bool compact;
@@ -102,8 +103,8 @@ class _CornerShareDot extends StatelessWidget {
         ],
       ),
       alignment: Alignment.center,
-      child: const Icon(Icons.ios_share_rounded,
-          size: 11, color: _shareYellowInk),
+      child:
+          const Icon(Icons.ios_share_rounded, size: 11, color: _shareYellowInk),
     );
   }
 }
@@ -183,7 +184,8 @@ class _ShareAchievementSheetState extends State<_ShareAchievementSheet> {
   Widget build(BuildContext context) {
     final me = widget.community.me!;
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         decoration: const BoxDecoration(
           color: _bg,
@@ -244,7 +246,8 @@ class _ShareAchievementSheetState extends State<_ShareAchievementSheet> {
                 const SizedBox(height: 14),
                 _MessageField(
                   controller: _controller,
-                  hint: 'How does this win feel? Share advice or cheer yourself on…',
+                  hint:
+                      'How does this win feel? Share advice or cheer yourself on…',
                   minLines: 3,
                   onChanged: (_) => setState(() {}),
                 ),
@@ -334,8 +337,7 @@ class CommunityAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors =
-        _gradients[profile.uid.hashCode.abs() % _gradients.length];
+    final colors = _gradients[profile.uid.hashCode.abs() % _gradients.length];
     final photo = profile.photoUrl ?? '';
     return Container(
       width: size,
@@ -404,9 +406,7 @@ class AchievementCard extends StatelessWidget {
               ? [color, deep]
               : [color.withValues(alpha: .10), color.withValues(alpha: .20)],
         ),
-        border: hero
-            ? null
-            : Border.all(color: color.withValues(alpha: .25)),
+        border: hero ? null : Border.all(color: color.withValues(alpha: .25)),
         boxShadow: hero
             ? [
                 BoxShadow(
@@ -841,6 +841,8 @@ class _FriendRequestBadge extends StatelessWidget {
 
 // ── Community page ────────────────────────────────────────────────────────
 
+enum _CommunitySection { circle, peers }
+
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
 
@@ -850,6 +852,7 @@ class CommunityPage extends StatefulWidget {
 
 class _CommunityPageState extends State<CommunityPage> {
   CommunityController? _community;
+  var _section = _CommunitySection.circle;
 
   @override
   void initState() {
@@ -885,6 +888,7 @@ class _CommunityPageState extends State<CommunityPage> {
   }
 
   Widget _buildFeed(BuildContext context, CommunityController community) {
+    final state = AppScope.of(context);
     final connected = community.isConnected;
     final weekAgo = DateTime.now().subtract(const Duration(days: 7));
     final friendPostsThisWeek = community.posts
@@ -917,7 +921,7 @@ class _CommunityPageState extends State<CommunityPage> {
                     ),
                   ),
                   const Text(
-                    'Wins, wisdom & encouragement from friends',
+                    'Compare privately or get support from your circle',
                     style: TextStyle(
                       color: _body,
                       fontSize: 11.5,
@@ -939,33 +943,445 @@ class _CommunityPageState extends State<CommunityPage> {
           ],
         ),
         const SizedBox(height: 16),
-        _CommunityBanner(
-          friendCount: community.friends.length,
-          postsThisWeek: friendPostsThisWeek,
-          onFindFriends: () => _showFindFriendsSheet(context),
+        _CommunitySectionSwitch(
+          value: _section,
+          onChanged: (value) => setState(() => _section = value),
         ),
         const SizedBox(height: 14),
-        if (connected) _PostComposer(community: community),
-        if (community.lastError != null) ...[
-          const SizedBox(height: 12),
-          _CommunityErrorBanner(message: community.lastError!),
-        ],
-        const SizedBox(height: 18),
-        if (!connected || community.feedLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 40),
-            child: Center(child: CircularProgressIndicator(color: _brand)),
-          )
-        else if (community.posts.isEmpty)
-          _EmptyFeed(onFindFriends: () => _showFindFriendsSheet(context))
-        else
-          for (final post in community.posts) ...[
-            _PostCard(post: post, community: community),
-            const SizedBox(height: 12),
+        if (_section == _CommunitySection.peers)
+          _PeerDashboard(state: state)
+        else ...[
+          _CommunityBanner(
+            friendCount: community.friends.length,
+            postsThisWeek: friendPostsThisWeek,
+            onFindFriends: () => _showFindFriendsSheet(context),
+          ),
+          const SizedBox(height: 14),
+          if (state.isSignedIn &&
+              state.consentCommunity &&
+              state.uid != null) ...[
+            _DecisionRequestSection(uid: state.uid!),
+            const SizedBox(height: 14),
           ],
+          if (connected) _PostComposer(community: community, state: state),
+          if (community.lastError != null) ...[
+            const SizedBox(height: 12),
+            _CommunityErrorBanner(message: community.lastError!),
+          ],
+          const SizedBox(height: 18),
+          if (!connected && state.isSignedIn)
+            const _CommunityConsentRequired()
+          else if (!connected || community.feedLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(child: CircularProgressIndicator(color: _brand)),
+            )
+          else if (community.posts.isEmpty)
+            _EmptyFeed(onFindFriends: () => _showFindFriendsSheet(context))
+          else
+            for (final post in community.posts) ...[
+              _PostCard(post: post, community: community),
+              const SizedBox(height: 12),
+            ],
+        ],
       ],
     );
   }
+}
+
+class _CommunityConsentRequired extends StatelessWidget {
+  const _CommunityConsentRequired();
+
+  @override
+  Widget build(BuildContext context) => AppCard(
+        child: Column(children: [
+          const Icon(Icons.lock_outline_rounded, color: _purple, size: 34),
+          const SizedBox(height: 10),
+          Text('Your circle is private by default',
+              style: GoogleFonts.fredoka(
+                  color: _title, fontSize: 18, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          const Text(
+            'Turn on Community feedback during your privacy setup before Shellby connects your profile, friends, or shared updates.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+        ]),
+      );
+}
+
+class _DecisionRequestSection extends StatelessWidget {
+  const _DecisionRequestSection({required this.uid});
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<DecisionRequest>>(
+        stream: CooperativeService().decisionsFor(uid),
+        builder: (context, snapshot) {
+          final decisions = snapshot.data ?? const <DecisionRequest>[];
+          if (decisions.isEmpty) return const SizedBox.shrink();
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Trusted-circle decisions',
+                    style: TextStyle(
+                        color: _title,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                for (final decision in decisions.take(3)) ...[
+                  _SecureDecisionCard(decision: decision, uid: uid),
+                  const SizedBox(height: 9),
+                ],
+              ]);
+        },
+      );
+}
+
+class _SecureDecisionCard extends StatelessWidget {
+  const _SecureDecisionCard({required this.decision, required this.uid});
+  final DecisionRequest decision;
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) {
+    final mine = decision.author.uid == uid;
+    return AppCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.how_to_vote_outlined, color: _purple, size: 18),
+          const SizedBox(width: 7),
+          const Expanded(
+              child: Text('Decision request',
+                  style: TextStyle(
+                      color: _purple,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w900))),
+          Icon(
+              decision.isOpen ? Icons.lock_outline_rounded : Icons.lock_rounded,
+              color: _body,
+              size: 15),
+        ]),
+        const SizedBox(height: 8),
+        Text(decision.message,
+            style: const TextStyle(
+                color: _title,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w800)),
+        if ((decision.context ?? '').isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(decision.context!,
+              style: const TextStyle(
+                  color: _body,
+                  fontSize: 11.5,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700)),
+        ],
+        const SizedBox(height: 10),
+        if (mine)
+          _DecisionAuthorActions(decision: decision)
+        else
+          Wrap(spacing: 7, runSpacing: 7, children: [
+            for (final option in decision.options)
+              OutlinedButton(
+                onPressed: !decision.isOpen
+                    ? null
+                    : () async {
+                        try {
+                          await CooperativeService()
+                              .respond(decisionId: decision.id, option: option);
+                          if (context.mounted)
+                            showAppNotice(context,
+                                message: 'Perspective shared.',
+                                icon: Icons.check_rounded);
+                        } on FirebaseFunctionsException catch (error) {
+                          if (context.mounted)
+                            showAppNotice(context,
+                                message: error.message ??
+                                    'Couldn’t save that response.',
+                                icon: Icons.warning_amber_rounded);
+                        }
+                      },
+                child: Text(option),
+              ),
+          ]),
+      ]),
+    );
+  }
+}
+
+class _DecisionAuthorActions extends StatelessWidget {
+  const _DecisionAuthorActions({required this.decision});
+  final DecisionRequest decision;
+  @override
+  Widget build(BuildContext context) =>
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        OutlinedButton.icon(
+          onPressed: () async {
+            try {
+              final review =
+                  await CooperativeService().reviewWithShellby(decision.id);
+              if (!context.mounted) return;
+              await showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                        title: const Text('Shelby’s reflection'),
+                        content: SingleChildScrollView(
+                            child: Text(
+                                '$review\n\nDecision support only — your final decision remains yours.')),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'))
+                        ],
+                      ));
+            } on FirebaseFunctionsException catch (error) {
+              if (context.mounted)
+                showAppNotice(context,
+                    message: error.message ?? 'Shelby review is unavailable.',
+                    icon: Icons.warning_amber_rounded);
+            }
+          },
+          icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+          label: const Text('Review with Shelby'),
+        ),
+        if (decision.isOpen)
+          TextButton(
+            onPressed: () => CooperativeService().close(decision.id),
+            child: const Text('Close request'),
+          ),
+      ]);
+}
+
+class _CommunitySectionSwitch extends StatelessWidget {
+  const _CommunitySectionSwitch({required this.value, required this.onChanged});
+  final _CommunitySection value;
+  final ValueChanged<_CommunitySection> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: [
+            for (final entry in [
+              (_CommunitySection.circle, 'Circle', Icons.forum_rounded),
+              (_CommunitySection.peers, 'Peers', Icons.groups_rounded),
+            ])
+              Expanded(
+                child: InkWell(
+                  onTap: () => onChanged(entry.$1),
+                  borderRadius: BorderRadius.circular(12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color:
+                          value == entry.$1 ? _bellySoft : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(entry.$3,
+                            size: 16,
+                            color: value == entry.$1 ? _purple : _body),
+                        const SizedBox(width: 6),
+                        Text(entry.$2,
+                            style: TextStyle(
+                              color: value == entry.$1 ? _purple : _body,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w900,
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+class _PeerDashboard extends StatelessWidget {
+  const _PeerDashboard({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final reserve = state.emergencyMonths;
+    final reserveLabel = reserve >= 3
+        ? 'building a strong cushion'
+        : reserve >= 1
+            ? 'building a starter cushion'
+            : 'still building a starter cushion';
+    final goalLabel = state.selectedGoal.trim().isEmpty
+        ? 'your current plan'
+        : state.selectedGoal;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ShelbyHeroHeader(
+          color: const Color(0xFF245C71),
+          icon: Icons.visibility_off_rounded,
+          title: 'Private context, not a leaderboard',
+          subtitle:
+              'Compare high-level progress with anonymous peers. No names, balances, or transactions are shown.',
+        ),
+        const SizedBox(height: 14),
+        _PeerMetric(
+          icon: Icons.shield_outlined,
+          title: 'Emergency readiness',
+          value: reserve >= 3
+              ? 'Strong base'
+              : reserve >= 1
+                  ? 'In progress'
+                  : 'Early stage',
+          detail: 'You are $reserveLabel.',
+          color: _sage,
+        ),
+        const SizedBox(height: 10),
+        _PeerMetric(
+          icon: Icons.flag_outlined,
+          title: 'Goal focus',
+          value: state.selectedActionIds.isEmpty
+              ? 'Set up next step'
+              : 'Active plan',
+          detail:
+              '$goalLabel · ${state.selectedActionIds.length} selected action${state.selectedActionIds.length == 1 ? '' : 's'}.',
+          color: _purple,
+        ),
+        const SizedBox(height: 10),
+        _PeerMetric(
+          icon: Icons.insights_outlined,
+          title: 'Anonymous benchmarks',
+          value: 'Coming from your opted-in cohort',
+          detail:
+              'Shelby will only show a comparison when enough similar anonymous users are represented.',
+          color: _amber,
+        ),
+        const SizedBox(height: 16),
+        AppCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.lock_outline_rounded, color: _purple),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Your exact income, balances, transactions, health score, and goals are never visible to peers here.',
+                  style: TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (state.isSignedIn && state.consentBenchmarking)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  final result =
+                      await CooperativeService().publishBenchmarkContribution();
+                  if (!context.mounted) return;
+                  showAppNotice(
+                    context,
+                    message: result.eligible
+                        ? 'Your anonymous cohort is ready for comparison.'
+                        : 'Your summary was added privately. Shelby will compare only after at least 20 similar users participate.',
+                    icon: Icons.lock_outline_rounded,
+                  );
+                } on FirebaseFunctionsException catch (error) {
+                  if (context.mounted) {
+                    showAppNotice(context,
+                        message: error.message ??
+                            'Couldn’t refresh the anonymous benchmark.',
+                        icon: Icons.warning_amber_rounded);
+                  }
+                }
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 17),
+              label: const Text('Refresh anonymous comparison'),
+            ),
+          )
+        else if (state.isSignedIn)
+          const Text(
+            'Turn on Anonymous peer benchmarks in Privacy setup to contribute a coarse monthly summary and view eligible comparisons.',
+            style: TextStyle(
+                color: _body,
+                fontSize: 11.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+      ],
+    );
+  }
+}
+
+class _PeerMetric extends StatelessWidget {
+  const _PeerMetric(
+      {required this.icon,
+      required this.title,
+      required this.value,
+      required this.detail,
+      required this.color});
+  final IconData icon;
+  final String title;
+  final String value;
+  final String detail;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => AppCard(
+        child: Row(children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+                color: color.withValues(alpha: .14),
+                borderRadius: BorderRadius.circular(13)),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(title,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800)),
+                Text(value,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w900)),
+                const SizedBox(height: 2),
+                Text(detail,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11.5,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600)),
+              ])),
+        ]),
+      );
 }
 
 class _FriendStack extends StatelessWidget {
@@ -1007,8 +1423,8 @@ class _FriendStack extends StatelessWidget {
                               border: Border.all(color: _bg, width: 2),
                             ),
                             child: ClipOval(
-                              child: CommunityAvatar(
-                                  profile: shown[i], size: 28),
+                              child:
+                                  CommunityAvatar(profile: shown[i], size: 28),
                             ),
                           ),
                         ),
@@ -1195,8 +1611,9 @@ class _EmptyFeed extends StatelessWidget {
 }
 
 class _PostComposer extends StatefulWidget {
-  const _PostComposer({required this.community});
+  const _PostComposer({required this.community, required this.state});
   final CommunityController community;
+  final AppState state;
 
   @override
   State<_PostComposer> createState() => _PostComposerState();
@@ -1204,23 +1621,99 @@ class _PostComposer extends StatefulWidget {
 
 class _PostComposerState extends State<_PostComposer> {
   final _controller = TextEditingController();
+  final _firstOption = TextEditingController();
+  final _secondOption = TextEditingController();
+  final Set<String> _recipients = {};
   var _visibility = PostVisibility.friends;
+  var _kind = CommunityPostKind.update;
   var _posting = false;
 
   @override
   void dispose() {
     _controller.dispose();
+    _firstOption.dispose();
+    _secondOption.dispose();
     super.dispose();
   }
+
+  CommunityShareSnapshot? get _snapshot {
+    if (_kind == CommunityPostKind.goalProgress) {
+      final goal = widget.state.selectedGoal.trim();
+      return CommunityShareSnapshot(
+        title: goal.isEmpty ? 'My current financial goal' : goal,
+        detail: widget.state.selectedActionIds.isEmpty
+            ? 'I am setting up my next step.'
+            : '${widget.state.selectedActionIds.length} selected action${widget.state.selectedActionIds.length == 1 ? '' : 's'} in my plan.',
+        kind: _kind,
+      );
+    }
+    if (_kind == CommunityPostKind.actionProgress) {
+      final actionId = widget.state.selectedActionIds.isEmpty
+          ? null
+          : widget.state.selectedActionIds.first;
+      final action = actionId == null ? null : _d2Actions[actionId];
+      return CommunityShareSnapshot(
+        title: action?.text ?? 'My next money action',
+        detail: 'In progress · shared without amounts or account details.',
+        kind: _kind,
+      );
+    }
+    return null;
+  }
+
+  String get _hint => switch (_kind) {
+        CommunityPostKind.question =>
+          'What would you like your circle to help you think through?',
+        CommunityPostKind.decision =>
+          'Describe the decision and the context you want to share…',
+        CommunityPostKind.goalProgress =>
+          'What support or accountability would help?',
+        CommunityPostKind.actionProgress =>
+          'What update or support would you like to share?',
+        CommunityPostKind.update =>
+          'Share a small win, question, or money reflection…',
+      };
 
   Future<void> _submit() async {
     setState(() => _posting = true);
     try {
+      if (_kind == CommunityPostKind.decision && widget.state.isSignedIn) {
+        if (_recipients.isEmpty) {
+          throw const CommunityException(
+              'Choose at least one trusted-circle member.');
+        }
+        await CooperativeService().createDecisionRequest(
+          message: _controller.text,
+          options: [_firstOption.text.trim(), _secondOption.text.trim()],
+          recipients: _recipients.toList(),
+        );
+        _controller.clear();
+        _firstOption.clear();
+        _secondOption.clear();
+        _recipients.clear();
+        if (mounted) {
+          setState(() => _kind = CommunityPostKind.update);
+          showAppNotice(context,
+              message: 'Your decision request is now with your trusted circle.',
+              icon: Icons.send_rounded);
+        }
+        return;
+      }
       await widget.community.createPost(
         message: _controller.text,
         visibility: _visibility,
+        kind: _kind,
+        snapshot: _snapshot,
+        decisionOptions: _kind == CommunityPostKind.decision
+            ? [_firstOption.text.trim(), _secondOption.text.trim()]
+                .where((option) => option.isNotEmpty)
+                .toList()
+            : const [],
       );
       _controller.clear();
+      _firstOption.clear();
+      _secondOption.clear();
+      if (mounted) setState(() => _kind = CommunityPostKind.update);
       if (mounted) FocusScope.of(context).unfocus();
     } catch (error) {
       if (!mounted) return;
@@ -1239,7 +1732,11 @@ class _PostComposerState extends State<_PostComposer> {
   @override
   Widget build(BuildContext context) {
     final me = widget.community.me!;
-    final canPost = _controller.text.trim().isNotEmpty && !_posting;
+    final hasChoices = _kind != CommunityPostKind.decision ||
+        (_firstOption.text.trim().isNotEmpty &&
+            _secondOption.text.trim().isNotEmpty);
+    final canPost =
+        _controller.text.trim().isNotEmpty && hasChoices && !_posting;
     return AppCard(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
       child: Column(
@@ -1262,11 +1759,20 @@ class _PostComposerState extends State<_PostComposer> {
                       ),
                     ),
                     const SizedBox(height: 6),
+                    Text(
+                      _kind == CommunityPostKind.update
+                          ? 'Share with your circle'
+                          : _kind.label,
+                      style: TextStyle(
+                          color: _purple,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 5),
                     _MessageField(
                       controller: _controller,
                       bordered: false,
-                      hint:
-                          'Share a small win, ask for advice, or start a money conversation…',
+                      hint: _hint,
                       onChanged: (_) => setState(() {}),
                     ),
                   ],
@@ -1274,6 +1780,39 @@ class _PostComposerState extends State<_PostComposer> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          _PostKindPicker(
+            value: _kind,
+            onChanged: (value) => setState(() => _kind = value),
+          ),
+          if (_snapshot != null) ...[
+            const SizedBox(height: 10),
+            _ShareSnapshotPreview(snapshot: _snapshot!),
+          ],
+          if (_kind == CommunityPostKind.decision) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(
+                  child: _DecisionOptionField(
+                      controller: _firstOption,
+                      hint: 'Option 1',
+                      onChanged: (_) => setState(() {}))),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: _DecisionOptionField(
+                      controller: _secondOption,
+                      hint: 'Option 2',
+                      onChanged: (_) => setState(() {}))),
+            ]),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _pickRecipients,
+              icon: const Icon(Icons.group_outlined, size: 16),
+              label: Text(_recipients.isEmpty
+                  ? 'Choose trusted-circle members'
+                  : '${_recipients.length} recipient${_recipients.length == 1 ? '' : 's'} selected'),
+            ),
+          ],
           const SizedBox(height: 10),
           const Divider(height: 1, color: _border),
           const SizedBox(height: 8),
@@ -1299,6 +1838,155 @@ class _PostComposerState extends State<_PostComposer> {
       ),
     );
   }
+
+  Future<void> _pickRecipients() async {
+    final picked = Set<String>.from(_recipients);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Choose your trusted circle',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              const Text('Only selected current friends can view and respond.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              for (final friend in widget.community.friends)
+                CheckboxListTile(
+                  value: picked.contains(friend.uid),
+                  onChanged: (selected) => setSheetState(() {
+                    selected == true
+                        ? picked.add(friend.uid)
+                        : picked.remove(friend.uid);
+                  }),
+                  title: Text(friend.displayName,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w800)),
+                  secondary: CommunityAvatar(profile: friend, size: 32),
+                  controlAffinity: ListTileControlAffinity.trailing,
+                ),
+              const SizedBox(height: 6),
+              SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      setState(() {
+                        _recipients
+                          ..clear()
+                          ..addAll(picked);
+                      });
+                      Navigator.pop(sheetContext);
+                    },
+                    child: const Text('Use selected members'),
+                  )),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PostKindPicker extends StatelessWidget {
+  const _PostKindPicker({required this.value, required this.onChanged});
+  final CommunityPostKind value;
+  final ValueChanged<CommunityPostKind> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final kind in CommunityPostKind.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 7),
+              child: ChoiceChip(
+                selected: value == kind,
+                onSelected: (_) => onChanged(kind),
+                avatar: Icon(kind.icon,
+                    size: 14, color: value == kind ? Colors.white : _body),
+                label: Text(kind.label),
+                labelStyle: TextStyle(
+                    color: value == kind ? Colors.white : _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800),
+                selectedColor: _purple,
+                backgroundColor: _bg,
+                side: BorderSide(color: value == kind ? _purple : _border),
+              ),
+            ),
+        ]),
+      );
+}
+
+class _DecisionOptionField extends StatelessWidget {
+  const _DecisionOptionField(
+      {required this.controller, required this.hint, required this.onChanged});
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onChanged;
+  @override
+  Widget build(BuildContext context) => TextField(
+        controller: controller,
+        onChanged: onChanged,
+        maxLength: 60,
+        decoration: InputDecoration(
+          counterText: '',
+          hintText: hint,
+          isDense: true,
+          filled: true,
+          fillColor: _bg,
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border)),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border)),
+        ),
+      );
+}
+
+class _ShareSnapshotPreview extends StatelessWidget {
+  const _ShareSnapshotPreview({required this.snapshot});
+  final CommunityShareSnapshot snapshot;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+            color: _bellySoft, borderRadius: BorderRadius.circular(13)),
+        child: Row(children: [
+          Icon(snapshot.kind.icon, color: _purple, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(snapshot.title,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900)),
+                Text(snapshot.detail,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700)),
+              ])),
+          const Icon(Icons.lock_outline_rounded, color: _purple, size: 15),
+        ]),
+      );
 }
 
 class _PostCard extends StatelessWidget {
@@ -1325,7 +2013,9 @@ class _PostCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      mine ? '${post.author.displayName} (you)' : post.author.displayName,
+                      mine
+                          ? '${post.author.displayName} (you)'
+                          : post.author.displayName,
                       style: GoogleFonts.nunito(
                         fontSize: 13.5,
                         fontWeight: FontWeight.w900,
@@ -1392,6 +2082,11 @@ class _PostCard extends StatelessWidget {
                 const SizedBox(width: 8),
             ],
           ),
+          if (post.kind != CommunityPostKind.update)
+            Padding(
+              padding: const EdgeInsets.only(top: 10, right: 8),
+              child: _PostTypePill(kind: post.kind),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(0, 10, 8, 10),
             child: Text(
@@ -1409,10 +2104,22 @@ class _PostCard extends StatelessWidget {
               padding: const EdgeInsets.only(right: 8, bottom: 6),
               child: AchievementCard(achievement: post.achievement!),
             ),
+          if (post.snapshot != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 8),
+              child: _SharedSnapshotCard(snapshot: post.snapshot!),
+            ),
+          if (post.kind == CommunityPostKind.decision)
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 8),
+              child: _DecisionChoices(post: post, community: community),
+            ),
           Row(
             children: [
               _PostAction(
-                icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                icon: liked
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
                 color: liked ? const Color(0xFFE05C7A) : _body,
                 label: '${post.likeCount}',
                 semantics: liked ? 'Unlike' : 'Like',
@@ -1440,6 +2147,146 @@ class _PostCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PostTypePill extends StatelessWidget {
+  const _PostTypePill({required this.kind});
+  final CommunityPostKind kind;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+            color: _bellySoft, borderRadius: BorderRadius.circular(99)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(kind.icon, size: 13, color: _purple),
+          const SizedBox(width: 5),
+          Text(kind.label,
+              style: const TextStyle(
+                  color: _purple, fontSize: 10.5, fontWeight: FontWeight.w900)),
+        ]),
+      );
+}
+
+class _SharedSnapshotCard extends StatelessWidget {
+  const _SharedSnapshotCard({required this.snapshot});
+  final CommunityShareSnapshot snapshot;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _border),
+        ),
+        child: Row(children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+                color: _bellySoft, borderRadius: BorderRadius.circular(11)),
+            child: Icon(snapshot.kind.icon, size: 18, color: _purple),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(snapshot.title,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w900)),
+                Text(snapshot.detail,
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700)),
+              ])),
+          const Tooltip(
+              message: 'A static, user-approved summary',
+              child: Icon(Icons.lock_outline_rounded, size: 15, color: _body)),
+        ]),
+      );
+}
+
+class _DecisionChoices extends StatelessWidget {
+  const _DecisionChoices({required this.post, required this.community});
+  final CommunityPost post;
+  final CommunityController community;
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = community.me?.uid ?? '';
+    final mine = post.author.uid == uid;
+    final vote = post.voteBy(uid);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: _bellySoft.withValues(alpha: .55),
+          borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          mine
+              ? '${post.decisionVotes.length} perspective${post.decisionVotes.length == 1 ? '' : 's'} from your circle'
+              : 'Share your perspective',
+          style: const TextStyle(
+              color: _title, fontSize: 11.5, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 8),
+        for (final option in post.decisionOptions)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              onTap: mine
+                  ? null
+                  : () async {
+                      try {
+                        await community.voteOnDecision(post, option);
+                      } catch (_) {
+                        if (context.mounted) {
+                          showAppNotice(context,
+                              message: 'Couldn’t save that perspective.',
+                              icon: Icons.warning_amber_rounded);
+                        }
+                      }
+                    },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+                decoration: BoxDecoration(
+                  color: vote == option ? _purple : Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: vote == option ? _purple : _border),
+                ),
+                child: Row(children: [
+                  Expanded(
+                      child: Text(option,
+                          style: TextStyle(
+                              color: vote == option ? Colors.white : _title,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800))),
+                  Text('${post.votesFor(option)}',
+                      style: TextStyle(
+                          color: vote == option ? Colors.white : _body,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900)),
+                ]),
+              ),
+            ),
+          ),
+        if (mine)
+          const Padding(
+            padding: EdgeInsets.only(top: 2),
+            child: Text(
+                'Votes are input, not instructions. Your final decision stays private.',
+                style: TextStyle(
+                    color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+          ),
+      ]),
     );
   }
 }
@@ -1821,8 +2668,8 @@ class _FriendRequestsCardState extends State<FriendRequestsCard> {
   void _onSwipe(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
     if (velocity.abs() < 250) return;
-    setState(() => _tab =
-        velocity < 0 ? _CircleTab.friends : _CircleTab.requests);
+    setState(
+        () => _tab = velocity < 0 ? _CircleTab.friends : _CircleTab.requests);
   }
 
   @override
@@ -2231,7 +3078,8 @@ class FriendsPage extends StatelessWidget {
                   title: friends.isEmpty
                       ? 'Your circle starts here'
                       : '${friends.length} friend${friends.length == 1 ? '' : 's'} in your circle',
-                  subtitle: 'Friends see your “Friends” posts and can cheer you on.',
+                  subtitle:
+                      'Friends see your “Friends” posts and can cheer you on.',
                 ),
                 const SizedBox(height: 14),
                 const AppCard(
@@ -2256,7 +3104,8 @@ class FriendsPage extends StatelessWidget {
                             community: community,
                           ),
                           if (i < friends.length - 1)
-                            const Divider(height: 1, color: _border, indent: 50),
+                            const Divider(
+                                height: 1, color: _border, indent: 50),
                         ],
                       ],
                     ),
@@ -2365,7 +3214,8 @@ class _CommunityNotificationsPageState
                 if (newer.isNotEmpty) ...[
                   const _SectionLabel('NEW'),
                   for (final item in newer)
-                    _NotificationTile(item: item, community: community, fresh: true),
+                    _NotificationTile(
+                        item: item, community: community, fresh: true),
                   const SizedBox(height: 10),
                 ],
                 if (earlier.isNotEmpty) ...[
@@ -2489,7 +3339,8 @@ class _NotificationTile extends StatelessWidget {
                           children: [
                             TextSpan(
                               text: item.actor.displayName,
-                              style: const TextStyle(fontWeight: FontWeight.w900),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900),
                             ),
                             TextSpan(text: ' $verb'),
                           ],
@@ -2814,8 +3665,7 @@ class _FindFriendsPanelState extends State<_FindFriendsPanel> {
                   )
                 : IconButton(
                     tooltip: 'Search',
-                    onPressed:
-                        _controller.text.trim().isEmpty ? null : _search,
+                    onPressed: _controller.text.trim().isEmpty ? null : _search,
                     icon: const Icon(Icons.arrow_forward_rounded),
                     color: _brand,
                   ),

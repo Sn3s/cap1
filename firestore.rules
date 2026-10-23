@@ -111,6 +111,8 @@ service cloud.firestore {
         && request.resource.data.author.uid == me()
         && validMessage(request.resource.data.message)
         && request.resource.data.visibility in ['friends', 'only_me']
+        && request.resource.data.kind in [
+             'update', 'question', 'goal_progress', 'action_progress']
         && request.resource.data.audience is list
         && me() in request.resource.data.audience
         && request.resource.data.audience.size() <= 500
@@ -118,6 +120,8 @@ service cloud.firestore {
             || request.resource.data.audience.size() == 1)
         && request.resource.data.likedBy.size() == 0
         && request.resource.data.commentCount == 0
+        && request.resource.data.decisionVotes is map
+        && request.resource.data.decisionVotes.size() == 0
         && request.resource.data.createdAt == request.time;
 
       allow delete: if signedIn() && resource.data.authorUid == me();
@@ -153,6 +157,50 @@ service cloud.firestore {
         allow delete: if signedIn() && resource.data.authorUid == me();
         allow update: if false;
       }
+    }
+
+    // Financial decision requests are server-written through callable
+    // functions. The audience is fixed at creation; a recipient also needs a
+    // current friendship with the author, so unfriending revokes access
+    // immediately even if an older request still lists that uid.
+    match /decisionRequests/{requestId} {
+      function decisionMember() {
+        return signedIn() && me() in resource.data.audience &&
+          (me() == resource.data.authorUid ||
+            exists(/databases/$(database)/documents/friendships/$(me() + '_' + resource.data.authorUid)) ||
+            exists(/databases/$(database)/documents/friendships/$(resource.data.authorUid + '_' + me())));
+      }
+      allow read: if decisionMember();
+      allow write: if false;
+
+      match /responses/{responseId} {
+        function responseViewer() {
+          return signedIn()
+            && me() in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.audience
+            && (me() == get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid
+              || exists(/databases/$(database)/documents/friendships/$(me() + '_' + get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid))
+              || exists(/databases/$(database)/documents/friendships/$(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid + '_' + me())));
+        }
+        allow read: if responseViewer();
+        allow write: if false;
+      }
+    }
+
+    // A participant's contribution is deliberately not readable from a
+    // device. Only coarse, k-anonymous aggregates may be read by opted-in
+    // users, once there are at least 20 contributors.
+    match /benchmarkContributions/{contributionId} {
+      allow read, write: if false;
+    }
+    match /benchmarkAggregates/{aggregateId} {
+      allow read: if signedIn()
+        && get(/databases/$(database)/documents/profiles/$(me())).data.consentBenchmarking == true
+        && resource.data.eligibleCount >= 20;
+      allow write: if false;
+    }
+
+    match /communityRateLimits/{userId} {
+      allow read, write: if false;
     }
   }
 }

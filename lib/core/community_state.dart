@@ -228,11 +228,10 @@ class CommunityController extends ChangeNotifier {
     notifyListeners();
     // Snapshot our current name/photo into the friendship, not the one
     // captured when the request was sent.
-    await backend.acceptFriendRequest(
-        FriendRequest(from: request.from, to: me!, createdAt: request.createdAt));
-    final crossing = outgoingRequests
-        .where((r) => r.to.uid == request.from.uid)
-        .toList();
+    await backend.acceptFriendRequest(FriendRequest(
+        from: request.from, to: me!, createdAt: request.createdAt));
+    final crossing =
+        outgoingRequests.where((r) => r.to.uid == request.from.uid).toList();
     for (final stale in crossing) {
       await backend.deleteFriendRequest(stale);
     }
@@ -271,7 +270,9 @@ class CommunityController extends ChangeNotifier {
         if (!item.read) item.id,
     ];
     if (backend == null || uid == null || unread.isEmpty) return;
-    notifications = [for (final item in notifications) item.copyWith(read: true)];
+    notifications = [
+      for (final item in notifications) item.copyWith(read: true)
+    ];
     notifyListeners();
     await _guard(() => backend.markNotificationsRead(uid: uid, ids: unread));
   }
@@ -304,10 +305,16 @@ class CommunityController extends ChangeNotifier {
     required String message,
     PostVisibility visibility = PostVisibility.friends,
     ShareableAchievement? achievement,
+    CommunityPostKind kind = CommunityPostKind.update,
+    CommunityShareSnapshot? snapshot,
+    List<String> decisionOptions = const [],
   }) async {
     final backend = _requireBackend;
     final error = validateMessage(message);
     if (error != null) throw CommunityException(error);
+    if (kind == CommunityPostKind.decision && decisionOptions.length < 2) {
+      throw const CommunityException('Add at least two choices for feedback.');
+    }
     final audience = <String>[
       me!.uid,
       if (visibility == PostVisibility.friends)
@@ -319,7 +326,43 @@ class CommunityController extends ChangeNotifier {
       visibility: visibility,
       audience: audience,
       achievement: achievement,
+      kind: kind,
+      snapshot: snapshot,
+      decisionOptions: decisionOptions,
     );
+  }
+
+  /// A circle member can select or change their own response. The author’s
+  /// plan remains untouched; a vote is perspective, never an instruction.
+  Future<void> voteOnDecision(CommunityPost post, String option) async {
+    final backend = _requireBackend;
+    if (post.kind != CommunityPostKind.decision ||
+        !post.decisionOptions.contains(option)) {
+      throw const CommunityException('That choice is no longer available.');
+    }
+    final uid = me!.uid;
+    final before = post.decisionVotes;
+    posts = [
+      for (final item in posts)
+        if (item.id == post.id)
+          item.copyWith(decisionVotes: {...item.decisionVotes, uid: option})
+        else
+          item,
+    ];
+    notifyListeners();
+    try {
+      await backend.voteOnDecision(postId: post.id, uid: uid, option: option);
+    } catch (error) {
+      posts = [
+        for (final item in posts)
+          if (item.id == post.id)
+            item.copyWith(decisionVotes: before)
+          else
+            item,
+      ];
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> deletePost(CommunityPost post) async {
@@ -407,7 +450,6 @@ class CommunityController extends ChangeNotifier {
     await backend.deleteComment(postId: post.id, commentId: comment.id);
   }
 
-  static String _preview(String text) => text.characters.length <= 80
-      ? text
-      : '${text.characters.take(80)}…';
+  static String _preview(String text) =>
+      text.characters.length <= 80 ? text : '${text.characters.take(80)}…';
 }
