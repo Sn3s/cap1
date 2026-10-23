@@ -1167,11 +1167,13 @@ Future<void> _showDecisionResponseSheet(
                             showAppNotice(context,
                                 message: 'Perspective shared.',
                                 icon: Icons.check_rounded);
-                        } on FirebaseFunctionsException catch (error) {
+                        } catch (error) {
                           if (context.mounted)
                             showAppNotice(context,
-                                message: error.message ??
-                                    'Couldn’t save that response.',
+                                message: error is FirebaseException
+                                    ? error.message ??
+                                        'Couldn’t save that response.'
+                                    : 'Couldn’t save that response.',
                                 icon: Icons.warning_amber_rounded);
                         } finally {
                           if (context.mounted)
@@ -1244,7 +1246,7 @@ class _DecisionAuthorActions extends StatelessWidget {
                 builder: (dialogContext) => AlertDialog(
                   title: const Text('Review with Shelby?'),
                   content: const Text(
-                    'Shelby will receive this decision question, the context you chose to share, vote totals, and only comments whose authors explicitly allowed AI review. It will not receive your transactions, balances, income, full goals, or health score.',
+                    'Shelby will create a private on-device reflection from this decision question, the context you chose to share, vote totals, and only comments whose authors selected review. It will not receive your transactions, balances, income, full goals, or health score.',
                   ),
                   actions: [
                     TextButton(
@@ -1273,10 +1275,12 @@ class _DecisionAuthorActions extends StatelessWidget {
                               child: const Text('Close'))
                         ],
                       ));
-            } on FirebaseFunctionsException catch (error) {
+            } catch (error) {
               if (context.mounted)
                 showAppNotice(context,
-                    message: error.message ?? 'Shelby review is unavailable.',
+                    message: error is FirebaseException
+                        ? error.message ?? 'Shelby review is unavailable.'
+                        : 'Shelby review is unavailable.',
                     icon: Icons.warning_amber_rounded);
             }
           },
@@ -1400,13 +1404,14 @@ class _PeerDashboard extends StatelessWidget {
                 .benchmarkForEmployment(state.employmentStatus),
             builder: (context, snapshot) {
               final benchmark = snapshot.data;
-              if (benchmark == null || benchmark.eligibleCount < 20) {
+              if (benchmark == null ||
+                  benchmark.eligibleCount < benchmarkMinimumCohort) {
                 return const _PeerMetric(
                   icon: Icons.insights_outlined,
                   title: 'Anonymous benchmarks',
                   value: 'Building your cohort',
                   detail:
-                      'Shelby only shows a comparison after at least 20 similar anonymous users participate.',
+                      'Shelby only shows a comparison after at least 3 similar opted-in users participate.',
                   color: _amber,
                 );
               }
@@ -1480,21 +1485,32 @@ class _PeerDashboard extends StatelessWidget {
             child: OutlinedButton.icon(
               onPressed: () async {
                 try {
+                  final contributorId = state.ensureBenchmarkContributorId();
+                  // Persist the private random id first. The contribution
+                  // document never contains it as a field, only in its id.
+                  await state.saveProfile();
                   final result =
-                      await CooperativeService().publishBenchmarkContribution();
+                      await CooperativeService().publishBenchmarkContribution(
+                    contributorId: contributorId,
+                    employment: state.employmentStatus,
+                    emergencyMonths: state.benchmarkEmergencyMonths,
+                    savingsRate: state.benchmarkSavingsRate,
+                  );
                   if (!context.mounted) return;
                   showAppNotice(
                     context,
                     message: result.eligible
                         ? 'Your anonymous cohort is ready for comparison.'
-                        : 'Your summary was added privately. Shelby will compare only after at least 20 similar users participate.',
+                        : 'Your anonymous summary was added. Shelby will compare after at least 3 similar users participate.',
                     icon: Icons.lock_outline_rounded,
                   );
-                } on FirebaseFunctionsException catch (error) {
+                } catch (error) {
                   if (context.mounted) {
                     showAppNotice(context,
-                        message: error.message ??
-                            'Couldn’t refresh the anonymous benchmark.',
+                        message: error is FirebaseException
+                            ? error.message ??
+                                'Couldn’t refresh the anonymous benchmark.'
+                            : 'Couldn’t refresh the anonymous benchmark.',
                         icon: Icons.warning_amber_rounded);
                   }
                 }

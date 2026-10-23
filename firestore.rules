@@ -16,7 +16,19 @@ service cloud.firestore {
 
     // Private financial profile: owner only (unchanged).
     match /profiles/{userId} {
-      allow read, write: if signedIn() && me() == userId;
+      // The anonymous benchmark pseudonym may be chosen once, then remains
+      // locked in the private profile. This prevents a later profile edit
+      // from taking over somebody else's contribution document.
+      function keepsBenchmarkContributorId() {
+        return !resource.data.keys().hasAll(['benchmarkContributorId'])
+          || !(resource.data.benchmarkContributorId is string
+          && resource.data.benchmarkContributorId.size() == 32)
+          || request.resource.data.benchmarkContributorId == resource.data.benchmarkContributorId;
+      }
+      allow read: if signedIn() && me() == userId;
+      allow create: if signedIn() && me() == userId;
+      allow update: if signedIn() && me() == userId && keepsBenchmarkContributorId();
+      allow delete: if signedIn() && me() == userId;
     }
 
     // ── Community ────────────────────────────────────────────────────────
@@ -159,10 +171,8 @@ service cloud.firestore {
       }
     }
 
-    // Financial decision requests are server-written through callable
-    // functions. The audience is fixed at creation; a recipient also needs a
-    // current friendship with the author, so unfriending revokes access
-    // immediately even if an older request still lists that uid.
+    // The audience is fixed at creation; a recipient also needs a current
+    // friendship with the author, so unfriending revokes access immediately.
     match /decisionRequests/{requestId} {
       function decisionMember() {
         return signedIn() && me() in resource.data.audience && (
@@ -171,7 +181,27 @@ service cloud.firestore {
             exists(/databases/$(database)/documents/friendships/$(resource.data.authorUid + '_' + me()))));
       }
       allow read: if decisionMember();
-      allow write: if false;
+      allow create: if signedIn()
+        && request.resource.data.authorUid == me()
+        && request.resource.data.author.uid == me()
+        && validMessage(request.resource.data.message)
+        && request.resource.data.options is list
+        && request.resource.data.options.size() >= 2
+        && request.resource.data.options.size() <= 4
+        && request.resource.data.audience is list
+        && me() in request.resource.data.audience
+        && request.resource.data.audience.size() >= 2
+        && request.resource.data.audience.size() <= 11
+        && request.resource.data.status == 'open'
+        && request.resource.data.closeAt > request.time
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedIn()
+        && resource.data.authorUid == me()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'closedAt'])
+        && request.resource.data.status == 'closed'
+        && request.resource.data.closedAt == request.time;
+      allow delete: if signedIn() && resource.data.authorUid == me();
 
       match /responses/{responseId} {
         function responseViewer() {
@@ -182,21 +212,68 @@ service cloud.firestore {
               || exists(/databases/$(database)/documents/friendships/$(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid + '_' + me()))));
         }
         allow read: if responseViewer();
-        allow write: if false;
+        function validResponse() {
+          return request.resource.data.author.uid == me()
+            && request.resource.data.option in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.options
+            && request.resource.data.comment is string
+            && request.resource.data.comment.size() <= 250
+            && request.resource.data.allowAiReview is bool
+            && request.resource.data.updatedAt == request.time;
+        }
+        function eligibleResponder() {
+          return signedIn()
+            && me() != get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid
+            && me() in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.audience
+            && get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.status == 'open'
+            && request.time < get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.closeAt
+            && (
+              exists(/databases/$(database)/documents/friendships/$(me() + '_' + get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid))
+              || exists(/databases/$(database)/documents/friendships/$(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid + '_' + me()))
+            );
+        }
+        allow create: if eligibleResponder() && validResponse() && responseId == me();
+        allow update: if eligibleResponder() && validResponse()
+          && responseId == me()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['option', 'comment', 'allowAiReview', 'updatedAt']);
+        allow delete: if signedIn() && responseId == me();
       }
     }
 
-    // A participant's contribution is deliberately not readable from a
-    // device. Only coarse, k-anonymous aggregates may be read by opted-in
-    // users, once there are at least 20 contributors.
+    // A participant contributes only coarse bands. The app calculates the
+    // aggregate on-device from anonymous records, so individual records must
+    // be queryable by other opted-in participants.
     match /benchmarkContributions/{contributionId} {
-      allow read, write: if false;
+      function benchmarkOptedIn() {
+        return signedIn()
+          && get(/databases/$(database)/documents/profiles/$(me())).data.consentBenchmarking == true;
+      }
+      function myContribution() {
+        return contributionId == get(/databases/$(database)/documents/profiles/$(me())).data.benchmarkContributorId
+          + '_' + request.resource.data.month;
+      }
+      function validContribution() {
+        return request.resource.data.keys().hasOnly(
+             ['month', 'cohort', 'emergencyBand', 'savingBand', 'updatedAt'])
+          && request.resource.data.month is string
+          && request.resource.data.month.matches('^[0-9]{4}-[0-9]{2}$')
+          && request.resource.data.cohort is string
+          && request.resource.data.cohort.size() > 0
+          && request.resource.data.cohort.size() <= 40
+          && request.resource.data.emergencyBand in ['under_one', 'one_to_three', 'three_plus']
+          && request.resource.data.savingBand in ['none', 'some', 'twenty_plus']
+          && request.resource.data.updatedAt == request.time;
+      }
+      // Records contain only two categorical bands and a random pseudonymous
+      // document id. Opted-in users can query them so their own device can
+      // calculate the aggregate; no income, amount, account, or uid is stored.
+      allow read: if benchmarkOptedIn();
+      allow create, update: if benchmarkOptedIn() && myContribution() && validContribution();
+      allow delete: if false;
     }
     match /benchmarkAggregates/{aggregateId} {
-      allow read: if signedIn()
-        && get(/databases/$(database)/documents/profiles/$(me())).data.consentBenchmarking == true
-        && resource.data.eligibleCount >= 20;
       allow write: if false;
+      allow read: if false;
     }
 
     match /communityRateLimits/{userId} {

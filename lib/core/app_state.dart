@@ -95,6 +95,10 @@ class AppState extends ChangeNotifier {
   bool consentBenchmarking = false;
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
+  // A random, private pseudonym used only as the document key for the
+  // coarse monthly benchmark contribution. It is never placed in a social
+  // profile, post, friendship, or contribution payload.
+  String benchmarkContributorId = '';
   bool notificationsAllowed = false;
   final List<int> notificationReminderMinutes = [20 * 60];
   bool thirdPartyDataLinkingAllowed = false;
@@ -234,6 +238,28 @@ class AppState extends ChangeNotifier {
   double get emergencyMonthsCovered => monthlyEssentialExpenseTotal <= 0
       ? 0
       : emergencyFundBalance / monthlyEssentialExpenseTotal;
+
+  String ensureBenchmarkContributorId() {
+    if (benchmarkContributorId.isNotEmpty) return benchmarkContributorId;
+    final random = math.Random.secure();
+    benchmarkContributorId = List.generate(
+      32,
+      (_) => random.nextInt(16).toRadixString(16),
+    ).join();
+    return benchmarkContributorId;
+  }
+
+  double get benchmarkEmergencyMonths =>
+      emergencyMonths > 0 ? emergencyMonths : emergencyMonthsCovered;
+
+  double get benchmarkSavingsRate {
+    final baselineIncome = income > 0
+        ? income
+        : monthlySalary > 0
+            ? monthlySalary
+            : irregularIncomeFloor;
+    return baselineIncome > 0 ? savings / baselineIncome : 0;
+  }
 
   double get emergencyFundTarget => monthlyEssentialExpenseTotal > 0
       ? monthlyEssentialExpenseTotal * 3
@@ -1306,14 +1332,6 @@ class AppState extends ChangeNotifier {
     _applyReflectionDemoProfile(user);
     _seedDemoEngagement();
     await saveProfile(markOnboardingComplete: true);
-    // This account is deliberately a self-contained walkthrough of the
-    // cooperative feature. Its opt-ins are saved before the server creates
-    // the demo-only trusted circle and anonymous aggregate.
-    try {
-      await CooperativeService().seedReflectionDemo();
-    } on FirebaseFunctionsException catch (error) {
-      debugPrint('Could not seed cooperative Reflection demo: ${error.code}');
-    }
     notifyListeners();
   }
 
@@ -1490,6 +1508,7 @@ class AppState extends ChangeNotifier {
     consentBenchmarking = false;
     consentCommunity = false;
     consentTrustedCircle = false;
+    benchmarkContributorId = '';
     notificationsAllowed = false;
     notificationReminderMinutes
       ..clear()
@@ -4636,6 +4655,7 @@ class AppState extends ChangeNotifier {
       'consentBenchmarking': consentBenchmarking,
       'consentCommunity': consentCommunity,
       'consentTrustedCircle': consentTrustedCircle,
+      'benchmarkContributorId': benchmarkContributorId,
       'lifestyleFundBalance': lifestyleFundBalance,
       'lifestyleActivityBalance': lifestyleActivityBalance,
       'lifestyleHobbies': lifestyleHobbies,
@@ -4884,6 +4904,7 @@ class AppState extends ChangeNotifier {
     consentBenchmarking = data['consentBenchmarking'] == true;
     consentCommunity = data['consentCommunity'] == true;
     consentTrustedCircle = data['consentTrustedCircle'] == true;
+    benchmarkContributorId = data['benchmarkContributorId']?.toString() ?? '';
     final streakBreaks = data['loginStreakBreaks'];
     loginStreakBreaks
       ..clear()
@@ -5673,6 +5694,7 @@ class AppState extends ChangeNotifier {
     stressIndicatorsEnabled = false;
     consentAi = false;
     consentTrustedCircle = false;
+    benchmarkContributorId = '';
     if (socialStructure == 'Collaborative goal') {
       socialStructure = 'Private only';
     }
