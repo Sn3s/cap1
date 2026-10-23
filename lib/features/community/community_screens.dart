@@ -1091,10 +1091,78 @@ class _SecureDecisionCard extends StatelessWidget {
               OutlinedButton(
                 onPressed: !decision.isOpen
                     ? null
+                    : () =>
+                        _showDecisionResponseSheet(context, decision, option),
+                child: Text(option),
+              ),
+          ]),
+        const SizedBox(height: 10),
+        _DecisionResponsesPreview(decisionId: decision.id),
+      ]),
+    );
+  }
+}
+
+Future<void> _showDecisionResponseSheet(
+  BuildContext context,
+  DecisionRequest decision,
+  String option,
+) async {
+  final comment = TextEditingController();
+  var allowAiReview = false;
+  var sending = false;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (context, setSheetState) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Share your perspective',
+              style: GoogleFonts.fredoka(
+                  color: _title, fontSize: 20, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('Your choice: $option',
+              style:
+                  const TextStyle(color: _purple, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          _MessageField(
+            controller: comment,
+            hint: 'Optional: explain your perspective…',
+            onChanged: (_) {},
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: allowAiReview,
+            onChanged: (value) => setSheetState(() => allowAiReview = value),
+            title: const Text(
+                'Allow Shelby to include this comment in the author’s review',
+                style: TextStyle(
+                    color: _title, fontSize: 12, fontWeight: FontWeight.w800)),
+            subtitle: const Text(
+                'Off by default. Your vote is counted either way.',
+                style: TextStyle(
+                    color: _body, fontSize: 10.5, fontWeight: FontWeight.w600)),
+          ),
+          SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: sending
+                    ? null
                     : () async {
+                        setSheetState(() => sending = true);
                         try {
-                          await CooperativeService()
-                              .respond(decisionId: decision.id, option: option);
+                          await CooperativeService().respond(
+                            decisionId: decision.id,
+                            option: option,
+                            comment: comment.text,
+                            allowAiReview: allowAiReview,
+                          );
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
                           if (context.mounted)
                             showAppNotice(context,
                                 message: 'Perspective shared.',
@@ -1105,14 +1173,61 @@ class _SecureDecisionCard extends StatelessWidget {
                                 message: error.message ??
                                     'Couldn’t save that response.',
                                 icon: Icons.warning_amber_rounded);
+                        } finally {
+                          if (context.mounted)
+                            setSheetState(() => sending = false);
                         }
                       },
-                child: Text(option),
-              ),
-          ]),
-      ]),
-    );
-  }
+                icon: sending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send_rounded),
+                label: const Text('Share response'),
+              )),
+        ]),
+      ),
+    ),
+  );
+  comment.dispose();
+}
+
+class _DecisionResponsesPreview extends StatelessWidget {
+  const _DecisionResponsesPreview({required this.decisionId});
+  final String decisionId;
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<DecisionResponse>>(
+        stream: CooperativeService().responsesFor(decisionId),
+        builder: (context, snapshot) {
+          final responses = snapshot.data ?? const <DecisionResponse>[];
+          if (responses.isEmpty) return const SizedBox.shrink();
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                    '${responses.length} response${responses.length == 1 ? '' : 's'}',
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800)),
+                for (final response in responses
+                    .where((item) => item.comment.isNotEmpty)
+                    .take(3))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Text(
+                        '${response.author.displayName}: ${response.comment}',
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 11.5,
+                            height: 1.28,
+                            fontWeight: FontWeight.w600)),
+                  ),
+              ]);
+        },
+      );
 }
 
 class _DecisionAuthorActions extends StatelessWidget {
