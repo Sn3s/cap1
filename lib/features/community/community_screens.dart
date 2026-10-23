@@ -1239,6 +1239,24 @@ class _DecisionAuthorActions extends StatelessWidget {
         OutlinedButton.icon(
           onPressed: () async {
             try {
+              final approved = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('Review with Shelby?'),
+                  content: const Text(
+                    'Shelby will receive this decision question, the context you chose to share, vote totals, and only comments whose authors explicitly allowed AI review. It will not receive your transactions, balances, income, full goals, or health score.',
+                  ),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Continue')),
+                  ],
+                ),
+              );
+              if (approved != true || !context.mounted) return;
               final review =
                   await CooperativeService().reviewWithShellby(decision.id);
               if (!context.mounted) return;
