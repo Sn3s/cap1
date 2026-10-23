@@ -572,73 +572,35 @@ class _DashboardPageState extends State<DashboardPage> {
                 ],
               ),
               const SizedBox(height: 12),
-              _PyramidCard(
-                icon: Icons.home_filled,
-                color: _brand,
-                title: _pyramidCashFlowLayer,
-                onTap: () => _openBaselineLedgerPage(
-                  context,
-                  state,
-                  _pyramidCashFlowLayer,
-                  _brand,
-                ),
-                child: _PyramidTransactionListContent(
-                  state: state,
-                  layer: _pyramidCashFlowLayer,
-                  color: _brand,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _PyramidCard(
-                icon: Icons.shield_rounded,
-                color: _amber,
-                title: _pyramidEmergencyLayer,
-                onTap: () => _openBaselineLedgerPage(
-                  context,
-                  state,
-                  _pyramidEmergencyLayer,
-                  _amber,
-                ),
-                child: _PyramidTransactionListContent(
-                  state: state,
-                  layer: _pyramidEmergencyLayer,
-                  color: _amber,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _PyramidCard(
-                icon: Icons.trending_up_rounded,
-                color: _purple,
-                title: _pyramidWealthLayer,
-                onTap: () => _openBaselineLedgerPage(
-                  context,
-                  state,
-                  _pyramidWealthLayer,
-                  _purple,
-                ),
-                child: _PyramidTransactionListContent(
-                  state: state,
-                  layer: _pyramidWealthLayer,
-                  color: _purple,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _PyramidCard(
-                icon: Icons.flag_rounded,
-                color: const Color(0xFF6AA8F0),
-                title: _pyramidFreedomLayer,
-                onTap: () => _openBaselineLedgerPage(
-                  context,
-                  state,
-                  _pyramidFreedomLayer,
-                  const Color(0xFF6AA8F0),
-                ),
-                child: _PyramidTransactionListContent(
-                  state: state,
-                  layer: _pyramidFreedomLayer,
-                  color: const Color(0xFF6AA8F0),
-                ),
-              ),
+              Builder(builder: (context) {
+                final activeLayers = _activePyramidLayers(state);
+                if (activeLayers.isEmpty) {
+                  return const _BlankPyramidContent();
+                }
+                return Column(
+                  children: [
+                    for (var index = 0; index < activeLayers.length; index++) ...[
+                      if (index > 0) const SizedBox(height: 10),
+                      _PyramidCard(
+                        icon: _pyramidLayerIcon(activeLayers[index]),
+                        color: _pyramidLayerColor(activeLayers[index]),
+                        title: activeLayers[index],
+                        onTap: () => _openBaselineLedgerPage(
+                          context,
+                          state,
+                          activeLayers[index],
+                          _pyramidLayerColor(activeLayers[index]),
+                        ),
+                        child: _PyramidTransactionListContent(
+                          state: state,
+                          layer: activeLayers[index],
+                          color: _pyramidLayerColor(activeLayers[index]),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              }),
             ],
           ),
         ),
@@ -926,6 +888,43 @@ const _pyramidCashFlowLayer = 'Cash Flow & Basic Needs';
 const _pyramidEmergencyLayer = 'Financial Safety';
 const _pyramidWealthLayer = 'Accumulating Wealth';
 const _pyramidFreedomLayer = 'Financial Freedom';
+
+const _pyramidLayerDisplayOrder = [
+  _pyramidCashFlowLayer,
+  _pyramidEmergencyLayer,
+  _pyramidWealthLayer,
+  _pyramidFreedomLayer,
+];
+
+/// Dashboard cards represent the user's active goals, not every possible
+/// stage of the pyramid. This deliberately uses the same visible-goal model
+/// as the Goals page: the onboarding goal plus goals the user explicitly
+/// added later.
+List<String> _activePyramidLayers(AppState state) {
+  final active = <String>{};
+  for (final goalId in _visibleGoalIds(state)) {
+    final layer = _motivationForGoalId(state, goalId);
+    if (_pyramidLayerDisplayOrder.contains(layer)) active.add(layer!);
+  }
+  return [
+    for (final layer in _pyramidLayerDisplayOrder)
+      if (active.contains(layer)) layer,
+  ];
+}
+
+IconData _pyramidLayerIcon(String layer) => switch (layer) {
+      _pyramidEmergencyLayer => Icons.shield_rounded,
+      _pyramidWealthLayer => Icons.trending_up_rounded,
+      _pyramidFreedomLayer => Icons.flag_rounded,
+      _ => Icons.home_filled,
+    };
+
+Color _pyramidLayerColor(String layer) => switch (layer) {
+      _pyramidEmergencyLayer => _amber,
+      _pyramidWealthLayer => _purple,
+      _pyramidFreedomLayer => const Color(0xFF6AA8F0),
+      _ => _brand,
+    };
 
 class _PyramidCard extends StatelessWidget {
   const _PyramidCard({
