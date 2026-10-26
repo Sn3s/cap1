@@ -129,6 +129,10 @@ class AppState extends ChangeNotifier {
   };
   final Set<String> fakeMayaSyncedAccounts = {};
   final List<FakeMayaTransaction> manualTransactions = [];
+  // Labeled transactions from the last FakeMaya account that was unlinked,
+  // restored if that same account links again.
+  String? _unlinkedFakeMayaUserId;
+  final List<FakeMayaTransaction> _unlinkedFakeMayaLabels = [];
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
   final Map<String, String> merchantCategoryRules = {};
   final Map<String, String> planAdjustmentActions = {};
@@ -1470,6 +1474,8 @@ class AppState extends ChangeNotifier {
       manualAccountBalances[account] = 0;
     }
     manualTransactions.clear();
+    _unlinkedFakeMayaUserId = null;
+    _unlinkedFakeMayaLabels.clear();
     transactionLabelRules.clear();
     merchantCategoryRules.clear();
     planAdjustmentActions.clear();
@@ -1606,6 +1612,8 @@ class AppState extends ChangeNotifier {
       });
     fakeMayaSyncedAccounts.clear();
     manualTransactions.clear();
+    _unlinkedFakeMayaUserId = null;
+    _unlinkedFakeMayaLabels.clear();
     transactionLabelRules.clear();
     merchantCategoryRules.clear();
     planAdjustmentActions.clear();
@@ -4686,6 +4694,14 @@ class AppState extends ChangeNotifier {
       'fakeMayaSyncedAccounts': fakeMayaSyncedAccounts.toList()..sort(),
       'manualTransactions':
           manualTransactions.map((transaction) => transaction.toMap()).toList(),
+      'unlinkedFakeMayaLabels': _unlinkedFakeMayaUserId == null
+          ? null
+          : {
+              'userId': _unlinkedFakeMayaUserId,
+              'transactions': _unlinkedFakeMayaLabels
+                  .map((transaction) => transaction.toMap())
+                  .toList(),
+            },
       'transactionLabelRules': transactionLabelRules.map(
         (key, value) => MapEntry(key, value.toMap()),
       ),
@@ -5165,6 +5181,20 @@ class AppState extends ChangeNotifier {
       ..addAll(
         manualData is List
             ? manualData
+                .whereType<Map>()
+                .map((item) => FakeMayaTransaction.fromMap(
+                      Map<String, dynamic>.from(item),
+                    ))
+            : const <FakeMayaTransaction>[],
+      );
+    final unlinkedLabelData = _mapFrom(data['unlinkedFakeMayaLabels']);
+    final unlinkedTransactions = unlinkedLabelData?['transactions'];
+    _unlinkedFakeMayaUserId = unlinkedLabelData?['userId']?.toString();
+    _unlinkedFakeMayaLabels
+      ..clear()
+      ..addAll(
+        unlinkedTransactions is List
+            ? unlinkedTransactions
                 .whereType<Map>()
                 .map((item) => FakeMayaTransaction.fromMap(
                       Map<String, dynamic>.from(item),
@@ -7202,22 +7232,33 @@ class AppState extends ChangeNotifier {
       final key = _fakeMayaTransactionFingerprint(transaction);
       savedByFingerprint.putIfAbsent(key, () => []).add(transaction);
     }
-    return freshTransactions.map((transaction) {
+    // Each saved label is used once. Exact id matches are claimed first so a
+    // look-alike transaction can't also take the same label.
+    final fresh = freshTransactions.toList();
+    final claimed = <FakeMayaTransaction>{
+      for (final transaction in fresh)
+        if (savedById[transaction.transactionId] case final saved?) saved,
+    };
+    FakeMayaTransaction? takeUnclaimed(List<FakeMayaTransaction>? matches) {
+      if (matches == null) return null;
+      for (final saved in matches) {
+        if (claimed.add(saved)) return saved;
+      }
+      return null;
+    }
+
+    return fresh.map((transaction) {
       final savedByExactId = savedById[transaction.transactionId];
       if (savedByExactId != null) {
         return transaction.withLabelFrom(savedByExactId);
       }
-      final stableKey = _fakeMayaTransactionStableKey(transaction);
-      final savedMatches = savedByStableKey[stableKey];
-      if (savedMatches != null && savedMatches.isNotEmpty) {
-        return transaction.withLabelFrom(savedMatches.removeAt(0));
-      }
-      final fingerprint = _fakeMayaTransactionFingerprint(transaction);
-      final fingerprintMatches = savedByFingerprint[fingerprint];
-      if (fingerprintMatches == null || fingerprintMatches.isEmpty) {
-        return transaction;
-      }
-      return transaction.withLabelFrom(fingerprintMatches.removeAt(0));
+      final saved = takeUnclaimed(
+            savedByStableKey[_fakeMayaTransactionStableKey(transaction)],
+          ) ??
+          takeUnclaimed(
+            savedByFingerprint[_fakeMayaTransactionFingerprint(transaction)],
+          );
+      return saved == null ? transaction : transaction.withLabelFrom(saved);
     }).toList();
   }
 
@@ -7293,6 +7334,43 @@ class AppState extends ChangeNotifier {
       ),
     );
     _syncFakeMayaMoneyItems();
+  }
+
+  /// A fresh link starts from FakeMaya's unlabeled transactions, then gets
+  /// back any labels saved when this same account was last unlinked.
+  void _applyLinkedFakeMayaSession(FakeMayaSession session) {
+    _applyFakeMayaSession(session, preserveLabels: false);
+    _restoreUnlinkedFakeMayaLabels();
+  }
+
+  void applyLinkedFakeMayaSessionForTesting(FakeMayaSession session) =>
+      _applyLinkedFakeMayaSession(session);
+
+  void _restoreUnlinkedFakeMayaLabels() {
+    final link = fakeMayaLink;
+    if (link == null ||
+        _unlinkedFakeMayaUserId == null ||
+        link.userId != _unlinkedFakeMayaUserId) {
+      return;
+    }
+    fakeMayaLink = FakeMayaLink(
+      userId: link.userId,
+      email: link.email,
+      name: link.name,
+      phone: link.phone,
+      provider: link.provider,
+      accessToken: link.accessToken,
+      refreshToken: link.refreshToken,
+      expiresAt: link.expiresAt,
+      summary: link.summary.copyWith(
+        transactions: _mergeFakeMayaTransactionLabels(
+          savedTransactions: _unlinkedFakeMayaLabels,
+          freshTransactions: link.summary.transactions,
+        ),
+      ),
+    );
+    _unlinkedFakeMayaUserId = null;
+    _unlinkedFakeMayaLabels.clear();
   }
 
   bool _usesLocalFakeMayaMock(FakeMayaLink link) =>
@@ -8670,7 +8748,7 @@ class AppState extends ChangeNotifier {
       password: password,
     );
     mockDataEnabled = false;
-    _applyFakeMayaSession(session, preserveLabels: false);
+    _applyLinkedFakeMayaSession(session);
     fakeMayaSyncedAccounts
       ..clear()
       ..addAll(syncedAccounts ?? manualAccountBalances.keys);
@@ -9110,6 +9188,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> unlinkFakeMayaAccount() async {
+    final link = fakeMayaLink;
+    if (link != null) {
+      _unlinkedFakeMayaUserId = link.userId;
+      _unlinkedFakeMayaLabels
+        ..clear()
+        ..addAll(link.summary.transactions
+            .where((transaction) => transaction.isLabeled));
+    }
     fakeMayaLink = null;
     fakeMayaSyncedAccounts.clear();
     _removeFakeMayaMoneyItems();
