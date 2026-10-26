@@ -7936,8 +7936,9 @@ String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
     'Consistency' => action.period == 'week'
         ? "you're not logging activity for this action every week — try to keep it up weekly."
         : "you're not keeping this action up every ${action.period} — try not to skip one.",
-    'Adherence' =>
-      "you're hitting the target less often than not — consider a smaller target if it feels out of reach.",
+    'Adherence' => lowest.percent! < 50
+        ? "you're hitting the target less often than not — consider a smaller target if it feels out of reach."
+        : "you're missing the target for some ${action.periodPlural} — check what was different in those.",
     _ =>
       "the target has been hard to hold onto some weeks, even with partial progress.",
   };
