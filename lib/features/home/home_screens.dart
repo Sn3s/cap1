@@ -9592,6 +9592,8 @@ List<ActionStageSuggestion> _actionStageDisplaySuggestions(
   final seen = <String>{};
   for (final suggestion in result.suggestions) {
     if (!allowedActionIds.contains(suggestion.actionId)) continue;
+    // A dropped suggestion falls back to "retain" below.
+    if (!_actionStageSuggestionIsResponsible(suggestion, state)) continue;
     final key = '${suggestion.option}:${suggestion.actionId}';
     if (seen.add(key)) shown.add(suggestion);
   }
@@ -9614,6 +9616,116 @@ List<ActionStageSuggestion> _actionStageDisplaySuggestions(
   }
   shown.sort((a, b) => a.priority.compareTo(b.priority));
   return shown.take(4).toList();
+}
+
+/// Spending caps the AI may only raise as far as the user's own plan.
+const _spendingCapFields = {'A3': 'amt', 'A28': 'amt'};
+
+/// Saving targets the AI may only lower when the user keeps missing them.
+const _savingTargetFields = {
+  'A1': 'pct',
+  'A8': 'pct',
+  'A12': 'pct',
+  'A27': 'pct',
+  'A9': 'amt',
+  'A19': 'amt',
+  'A23': 'amt',
+  'A22': 'months',
+};
+
+/// Whether a target change is allowed: a spending cap may go up only to
+/// [plannedCap] (what the user planned to spend), and a saving target may
+/// go down only when its [scorePercent] is under 50%. Saving more or
+/// spending less is always allowed.
+bool actionStageTargetChangeIsResponsible({
+  required String actionId,
+  required double? current,
+  required double? proposed,
+  double? plannedCap,
+  int? scorePercent,
+}) {
+  if (current == null || proposed == null) return true;
+  if (_spendingCapFields.containsKey(actionId) && proposed > current) {
+    return plannedCap != null && proposed <= plannedCap + 0.005;
+  }
+  if (_savingTargetFields.containsKey(actionId) && proposed < current) {
+    return scorePercent != null && scorePercent < 50;
+  }
+  return true;
+}
+
+bool _actionStageSuggestionIsResponsible(
+  ActionStageSuggestion suggestion,
+  AppState state,
+) {
+  if (suggestion.option != 'change_parameterized_target') return true;
+  final id = suggestion.actionId;
+  final field = _spendingCapFields[id] ?? _savingTargetFields[id];
+  if (field == null) return true;
+  double? number(String? value) =>
+      double.tryParse((value ?? '').replaceAll(',', '').trim());
+  return actionStageTargetChangeIsResponsible(
+    actionId: id,
+    current: number(_defaultActionStageTarget(id, state)[field]),
+    proposed: number(suggestion.target[field]),
+    plannedCap: _plannedSpendingCap(id, suggestion, state),
+    scorePercent: _currentActionScorePercent(state, id),
+  );
+}
+
+/// What the user planned to spend for a capped action, from their own
+/// expense list: A3's cap is per category, so the most planned for any one
+/// of its categories per month; A28 is non-essentials per week.
+double? _plannedSpendingCap(
+  String id,
+  ActionStageSuggestion suggestion,
+  AppState state,
+) {
+  double monthlyWhere(bool Function(Map<String, dynamic> expense) test) =>
+      state.onboardingExpenseLedger.where(test).fold(
+          0.0,
+          (sum, expense) =>
+              sum + (double.tryParse('${expense['amount']}') ?? 0));
+  switch (id) {
+    case 'A3':
+      final categories = {
+        ...state.categorySpendingBudgets.keys,
+        ...(suggestion.target['categories'] ??
+                state.actionFieldValues['A3']?['categories'] ??
+                '')
+            .split(',')
+            .map((category) => category.trim())
+            .where((category) => category.isNotEmpty)
+            .map(canonicalExpenseCategory),
+      };
+      final planned = [
+        for (final category in categories)
+          monthlyWhere((expense) =>
+              canonicalExpenseCategory('${expense['category'] ?? ''}') ==
+              category),
+      ];
+      final most = planned.fold(0.0, math.max);
+      return most > 0 ? most : null;
+    case 'A28':
+      final planned = monthlyWhere((expense) =>
+          expenseLayerForLedger(expense) == ExpenseLayer.nonEssentials);
+      return planned > 0 ? planned * 12 / 52 : null;
+  }
+  return null;
+}
+
+/// This month's score for [actionId] as Insights shows it, or null when
+/// there's no data to score yet.
+int? _currentActionScorePercent(AppState state, String actionId) {
+  final month = _monthStart(AppClock.now());
+  final scores = [
+    for (final goalId in const ['G1', 'G3', 'G8'])
+      ..._monthlyActionScores(state, goalId, month),
+    ..._investmentActionScores(state: state, monthStart: month),
+  ];
+  final score = scores.where((score) => score.id == actionId).firstOrNull;
+  if (score == null || score.pattern.isEmpty) return null;
+  return _scorePercent(score.score);
 }
 
 Map<String, String> _defaultActionStageTarget(String id, AppState state) {

@@ -1399,6 +1399,16 @@ Return only valid JSON:
 }
 ''';
 
+// Shared by every Action stage: a reached target is praised, never treated
+// as permission to spend. Shellby also drops suggestions that break this
+// (see _actionStageSuggestionIsResponsible).
+const _responsibleSpendingRules = '''
+Responsible recommendations (always apply):
+- When the data shows a savings or fund target was reached, start that action's suggestion reason with one short sentence congratulating the user, then suggest keeping it up or setting a higher target.
+- Never suggest spending more because the user saved, reached a target, or has a high balance. Savings progress is never a reason to raise a spending cap or lower a saving percentage or target.
+- Only raise a spending cap when the data shows it does not cover the user's own planned costs for those categories.
+- Only lower a saving percentage or target when the action's score shows the user has repeatedly been unable to meet it, and say so in the reason.''';
+
 const _availableCashActionStageInstructions = '''
 You are Shellby, the Action Stage AI for a Philippine personal finance app.
 Your job is to analyze the user's latest 14 days of integration data and recommend the first Maintain Available Cash action change.
@@ -1428,6 +1438,8 @@ Rules:
 - Do not recommend products, banks, securities, borrowing, or regulated financial advice.
 - Keep reasons concrete and cite a relevant amount, category, balance, or 14-day pattern.
 - Use PHP amounts.
+
+$_responsibleSpendingRules
 
 Return only valid JSON:
 {
@@ -1482,6 +1494,8 @@ Rules:
 - Keep reasons concrete and cite a relevant amount, month count, or 14-day pattern.
 - Use PHP amounts.
 
+$_responsibleSpendingRules
+
 Return only valid JSON:
 {
   "summary": "1 short paragraph interpreting the latest 14 days",
@@ -1534,6 +1548,8 @@ Rules:
 - Keep reasons concrete and cite a relevant amount, percentage, or tracking duration.
 - Use PHP amounts.
 
+$_responsibleSpendingRules
+
 Return only valid JSON:
 {
   "summary": "1 short paragraph interpreting the portfolio's current state",
@@ -1578,12 +1594,14 @@ Rules:
 - Return 1-2 suggestions when data is available, ordered by priority.
 - If a current action is working, retain it.
 - If A26's monthly target looks mismatched with what is actually being reserved, choose change_parameterized_target.
-- If A28's weekly limit is being exceeded repeatedly, suggest raising it to a realistic number rather than scolding the user - this is discretionary spending, not an emergency.
+- If A28's weekly limit is being exceeded repeatedly, don't raise it by default. Compare the spending with what the Personal Lifestyle Fund balance and the user's planned lifestyle budget can cover, and only suggest a higher limit if they support it. Keep the tone low-pressure, not scolding.
 - If A27 is missing and income transfers to the Personal Lifestyle Fund look inconsistent, choose suggest_new_action.
 - Do not mention available cash, emergency fund, investment portfolio, or actions outside A26, A27, and A28.
 - Never recommend specific merchants, subscriptions to cancel, or how to spend the money - only whether the configured amounts still fit.
 - Keep reasons concrete and cite a relevant amount or spending pattern.
 - Use PHP amounts.
+
+$_responsibleSpendingRules
 
 Return only valid JSON:
 {
@@ -1617,6 +1635,8 @@ Rules:
 - Do not claim to move money, change settings, contact providers, or perform actions you cannot perform.
 - Do not provide regulated financial advice, investment picks, or guarantees.
 - For personal finance suggestions, keep them general and frame them as options to review.
+- When the user reached a savings or fund target, congratulate them, then suggest keeping it up or aiming higher.
+- Never suggest spending more, treating themselves, or easing a budget because they saved or have a high balance. If they ask whether they can spend their savings, point them to what the money was set aside for.
 - If the user asks about sensitive data, answer only from the context and avoid exposing access tokens or hidden implementation details.
 - Keep most replies under 120 words unless the user asks for a breakdown.
 ''';
