@@ -1417,7 +1417,19 @@ class _PeerDashboardState extends State<_PeerDashboard> {
       ),
       const SizedBox(height: 14),
       AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 320),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          final offset = Tween<Offset>(
+            begin: const Offset(.025, .02),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut));
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: offset, child: child),
+          );
+        },
         child: switch (_lens) {
           _ComparisonLens.you => _YourComparisonView(
               key: const ValueKey('your-comparison'), state: widget.state),
@@ -1465,26 +1477,32 @@ class _ComparisonLensSwitch extends StatelessWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(11),
                   onTap: () => onChanged(item.$1),
-                  child: AnimatedContainer(
+                  child: AnimatedScale(
                     duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: value == item.$1 ? _purple : Colors.transparent,
-                      borderRadius: BorderRadius.circular(11),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(item.$3,
-                            size: 16,
-                            color: value == item.$1 ? Colors.white : _body),
-                        const SizedBox(width: 6),
-                        Text(item.$2,
-                            style: TextStyle(
-                                color: value == item.$1 ? Colors.white : _body,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w900)),
-                      ],
+                    curve: Curves.easeOutBack,
+                    scale: value == item.$1 ? 1 : .96,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: value == item.$1 ? _purple : Colors.transparent,
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(item.$3,
+                              size: 16,
+                              color: value == item.$1 ? Colors.white : _body),
+                          const SizedBox(width: 6),
+                          Text(item.$2,
+                              style: TextStyle(
+                                  color:
+                                      value == item.$1 ? Colors.white : _body,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w900)),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1506,9 +1524,10 @@ class _YourComparisonView extends StatelessWidget {
     final savings = state.benchmarkSavingsRate;
     final trend = _emergencyTrend(state);
     final hasHistory = state.d1Ledger.isNotEmpty;
+    final trendChange = trend.last - trend.first;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       AppCard(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Container(
@@ -1528,7 +1547,7 @@ class _YourComparisonView extends StatelessWidget {
                             color: _title,
                             fontSize: 16,
                             fontWeight: FontWeight.w900)),
-                    Text('Your last six check-in points',
+                    Text('A private view of your recent check-ins',
                         style: TextStyle(
                             color: _body,
                             fontSize: 11.5,
@@ -1536,24 +1555,13 @@ class _YourComparisonView extends StatelessWidget {
                   ]),
             ),
           ]),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 150,
-            width: double.infinity,
-            child: CustomPaint(
-              painter: _ProgressLinePainter(points: trend, color: _purple),
-              child: const SizedBox.expand(),
-            ),
+          const SizedBox(height: 18),
+          _EmergencyTrendChart(
+            points: trend,
+            hasHistory: hasHistory,
+            currentMonths: emergency,
+            change: trendChange,
           ),
-          const SizedBox(height: 4),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('6 check-ins ago',
-                style: TextStyle(
-                    color: _body, fontSize: 10, fontWeight: FontWeight.w700)),
-            Text(hasHistory ? 'Today' : 'Baseline today',
-                style: const TextStyle(
-                    color: _body, fontSize: 10, fontWeight: FontWeight.w700)),
-          ]),
           if (!hasHistory) ...[
             const SizedBox(height: 10),
             const Text(
@@ -1571,12 +1579,11 @@ class _YourComparisonView extends StatelessWidget {
       AppCard(
         padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Your progress signals',
+          const Text('Your progress at a glance',
               style: TextStyle(
                   color: _title, fontSize: 15, fontWeight: FontWeight.w900)),
           const SizedBox(height: 4),
-          const Text(
-              'These stay private unless you explicitly enable trusted-circle sharing.',
+          const Text('Private signals designed to make your next step clear.',
               style: TextStyle(
                   color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
           const SizedBox(height: 16),
@@ -1689,14 +1696,32 @@ class _FriendsComparisonView extends StatelessWidget {
                       fontSize: 16,
                       fontWeight: FontWeight.w900)),
               const SizedBox(height: 4),
-              const Text(
-                'Select a friend to compare consented high-level bands. Unselected people stay muted.',
-                style: TextStyle(
-                    color: _body,
-                    fontSize: 11.5,
-                    height: 1.3,
-                    fontWeight: FontWeight.w700),
-              ),
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    '${visibleFriends.length} friend${visibleFriends.length == 1 ? '' : 's'} sharing a coarse snapshot',
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 11.5,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: const Text('HIGH-LEVEL ONLY',
+                      style: TextStyle(
+                          color: _purple,
+                          fontSize: 8.5,
+                          letterSpacing: .35,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ]),
               const SizedBox(height: 14),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 _FriendSelectionChip(
@@ -1711,7 +1736,7 @@ class _FriendsComparisonView extends StatelessWidget {
                     onTap: () => onFriendSelected(friend.uid),
                   ),
               ]),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               _TrustedCircleBarChart(
                 mine: _mine,
                 focus: selected ?? _circleAverage(shared.values),
@@ -1815,6 +1840,102 @@ List<double> _emergencyTrend(AppState state) {
   });
 }
 
+class _EmergencyTrendChart extends StatelessWidget {
+  const _EmergencyTrendChart({
+    required this.points,
+    required this.hasHistory,
+    required this.currentMonths,
+    required this.change,
+  });
+
+  final List<double> points;
+  final bool hasHistory;
+  final double currentMonths;
+  final double change;
+
+  @override
+  Widget build(BuildContext context) {
+    final positive = change >= 0;
+    final changeLabel = !hasHistory
+        ? 'Baseline'
+        : '${positive ? '+' : ''}${change.toStringAsFixed(1)} mo';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Text(
+          currentMonths >= 3 ? '3+' : currentMonths.toStringAsFixed(1),
+          style: const TextStyle(
+            color: _title,
+            fontSize: 31,
+            height: .95,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(width: 5),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 2),
+          child: Text('months covered',
+              style: TextStyle(
+                  color: _body, fontSize: 11, fontWeight: FontWeight.w800)),
+        ),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: (positive ? _sage : _amber).withValues(alpha: .12),
+            borderRadius: BorderRadius.circular(99),
+          ),
+          child: Text(
+            changeLabel,
+            style: TextStyle(
+              color: positive ? _sage : _amber,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 13),
+      SizedBox(
+        height: 138,
+        width: double.infinity,
+        child: Stack(children: [
+          Positioned.fill(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 650),
+              curve: Curves.easeOutCubic,
+              builder: (_, progress, __) => CustomPaint(
+                painter: _ProgressLinePainter(
+                  points: points.map((point) => point * progress).toList(),
+                  color: _purple,
+                ),
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 8,
+            top: 6,
+            child: Text('3 mo target',
+                style: TextStyle(
+                    color: _body, fontSize: 9.5, fontWeight: FontWeight.w800)),
+          ),
+          Positioned(
+            right: 8,
+            bottom: 6,
+            child: Text(hasHistory ? 'Today' : 'Today • baseline',
+                style: const TextStyle(
+                    color: _body, fontSize: 9.5, fontWeight: FontWeight.w800)),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 2),
+      const Text('Six recent check-in points',
+          style: TextStyle(
+              color: _body, fontSize: 10, fontWeight: FontWeight.w700)),
+    ]);
+  }
+}
+
 class _ProgressLinePainter extends CustomPainter {
   const _ProgressLinePainter({required this.points, required this.color});
   final List<double> points;
@@ -1826,8 +1947,8 @@ class _ProgressLinePainter extends CustomPainter {
     const bottom = 14.0;
     const side = 7.0;
     final chartHeight = math.max(1, size.height - top - bottom);
-    final minPoint = points.reduce(math.min);
-    final maxPoint = points.reduce(math.max);
+    final minPoint = math.min(0, points.reduce(math.min));
+    final maxPoint = math.max(3, points.reduce(math.max));
     final range = math.max(.25, maxPoint - minPoint);
     final grid = Paint()
       ..color = _border
@@ -1835,6 +1956,16 @@ class _ProgressLinePainter extends CustomPainter {
     for (var line = 0; line < 4; line++) {
       final y = top + chartHeight * line / 3;
       canvas.drawLine(Offset(side, y), Offset(size.width - side, y), grid);
+    }
+    final targetY = top + chartHeight * (1 - (3 - minPoint) / range);
+    if (targetY >= top && targetY <= size.height - bottom) {
+      final target = Paint()
+        ..color = _sage.withValues(alpha: .55)
+        ..strokeWidth = 1
+        ..style = PaintingStyle.stroke;
+      for (var x = side; x < size.width - side; x += 7) {
+        canvas.drawLine(Offset(x, targetY), Offset(x + 3, targetY), target);
+      }
     }
     final path = Path();
     final fill = Path();
@@ -1892,7 +2023,7 @@ class _PersonalProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 13),
+        padding: const EdgeInsets.only(bottom: 15),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(
@@ -1907,13 +2038,27 @@ class _PersonalProgressBar extends StatelessWidget {
                     color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
           ]),
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(99),
-            child: LinearProgressIndicator(
-              value: value,
-              minHeight: 10,
-              color: color,
-              backgroundColor: color.withValues(alpha: .14),
+          Container(
+            height: 9,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(99),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: value),
+              duration: const Duration(milliseconds: 520),
+              curve: Curves.easeOutCubic,
+              builder: (_, progress, __) => FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: progress.clamp(0.0, 1.0),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
             ),
           ),
         ]),
@@ -1934,19 +2079,24 @@ class _FriendSelectionChip extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(99),
-        child: AnimatedContainer(
+        child: AnimatedScale(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? _purple : _bg,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: selected ? _purple : _border),
+          curve: Curves.easeOutBack,
+          scale: selected ? 1 : .97,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? _purple : _bg,
+              borderRadius: BorderRadius.circular(99),
+              border: Border.all(color: selected ? _purple : _border),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: selected ? Colors.white : _body,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900)),
           ),
-          child: Text(label,
-              style: TextStyle(
-                  color: selected ? Colors.white : _body,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900)),
         ),
       );
 }
@@ -1982,44 +2132,72 @@ class _TrustedCircleBarChart extends StatelessWidget {
       ),
       ('Plan activity', mine.planScore, focus.planScore, average.planScore),
     ];
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        const _CircleChartLegend(color: _purple, label: 'You'),
-        const SizedBox(width: 12),
-        _CircleChartLegend(color: _sage, label: focusLabel),
-        if (showingIndividual) ...[
-          const SizedBox(width: 12),
-          const _CircleChartLegend(color: _body, label: 'Circle avg'),
-        ],
-      ]),
-      const SizedBox(height: 12),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      switchInCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: .985, end: 1).animate(animation),
+          child: child,
+        ),
+      ),
+      child: Column(
+        key: ValueKey('${focus.uid}-$showingIndividual'),
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final metric in metrics)
+          Row(children: [
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: _CircleMetricBars(
-                  label: metric.$1,
-                  mine: metric.$2,
-                  focus: metric.$3,
-                  average: showingIndividual ? metric.$4 : null,
-                ),
+              child: Text(
+                showingIndividual
+                    ? 'You compared with $focusLabel'
+                    : 'You compared with your circle average',
+                style: const TextStyle(
+                    color: _title, fontSize: 12.5, fontWeight: FontWeight.w900),
               ),
             ),
+            const Icon(Icons.bar_chart_rounded, size: 18, color: _purple),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            const _CircleChartLegend(color: _purple, label: 'You'),
+            const SizedBox(width: 12),
+            _CircleChartLegend(color: _sage, label: focusLabel),
+            if (showingIndividual) ...[
+              const SizedBox(width: 12),
+              const _CircleChartLegend(color: _body, label: 'Circle avg'),
+            ],
+          ]),
+          const SizedBox(height: 15),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final metric in metrics)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _CircleMetricBars(
+                      label: metric.$1,
+                      mine: metric.$2,
+                      focus: metric.$3,
+                      average: showingIndividual ? metric.$4 : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Bar height shows a band—not a money amount: early · building · strong.',
+            style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.3,
+                fontWeight: FontWeight.w700),
+          ),
         ],
       ),
-      const SizedBox(height: 8),
-      const Text(
-        'Each bar is a coarse band, not a money amount: low · building · strong.',
-        style: TextStyle(
-            color: _body,
-            fontSize: 10.5,
-            height: 1.3,
-            fontWeight: FontWeight.w700),
-      ),
-    ]);
+    );
   }
 }
 
@@ -2060,8 +2238,12 @@ class _CircleMetricBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(children: [
+        Text(_bandLabel(focus),
+            style: const TextStyle(
+                color: _body, fontSize: 9.5, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 5),
         SizedBox(
-          height: 112,
+          height: 116,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -2076,13 +2258,19 @@ class _CircleMetricBars extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 7),
+        const SizedBox(height: 8),
         Text(label,
             textAlign: TextAlign.center,
             style: const TextStyle(
                 color: _title, fontSize: 10, fontWeight: FontWeight.w900)),
       ]);
 }
+
+String _bandLabel(double value) => value >= .75
+    ? 'Strong'
+    : value >= .25
+        ? 'Building'
+        : 'Early';
 
 class _VerticalBandBar extends StatelessWidget {
   const _VerticalBandBar({required this.value, required this.color});
@@ -2091,7 +2279,7 @@ class _VerticalBandBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         width: 16,
-        height: 104,
+        height: 108,
         alignment: Alignment.bottomCenter,
         decoration: BoxDecoration(
           color: color.withValues(alpha: .12),
@@ -2100,7 +2288,7 @@ class _VerticalBandBar extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 240),
           width: 16,
-          height: math.max(8, 104 * value.clamp(0.0, 1.0)),
+          height: math.max(8, 108 * value.clamp(0.0, 1.0)),
           decoration: BoxDecoration(
               color: color, borderRadius: BorderRadius.circular(7)),
         ),
@@ -2312,35 +2500,53 @@ class _BenchmarkInsights extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const _BenchmarkSectionHeading(
+          Row(children: [
+            Expanded(
+              child: _PeerSnapshotStat(
+                label: 'Contributors',
+                value: '$total',
+                detail: 'this month',
+                color: _purple,
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _PeerSnapshotStat(
+                label: 'Your emergency band',
+                value: _displayBand(_emergencyBand),
+                detail: 'coarse only',
+                color: _amber,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 18),
+          _CohortDistributionChart(
             icon: Icons.shield_outlined,
             title: 'Emergency coverage',
             subtitle: 'Months of essential expenses covered',
             color: _amber,
+            bands: [
+              _CohortBand(
+                label: 'Under 1 month',
+                count: aggregate.emergencyBands['under_one'] ?? 0,
+                color: const Color(0xFFE77E63),
+                selected: _emergencyBand == 'under_one',
+              ),
+              _CohortBand(
+                label: '1–3 months',
+                count: aggregate.emergencyBands['one_to_three'] ?? 0,
+                color: _amber,
+                selected: _emergencyBand == 'one_to_three',
+              ),
+              _CohortBand(
+                label: '3+ months',
+                count: aggregate.emergencyBands['three_plus'] ?? 0,
+                color: _sage,
+                selected: _emergencyBand == 'three_plus',
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          _BenchmarkBandRow(
-            label: 'Under 1 month',
-            count: aggregate.emergencyBands['under_one'] ?? 0,
-            total: total,
-            color: const Color(0xFFE77E63),
-            isYourBand: _emergencyBand == 'under_one',
-          ),
-          _BenchmarkBandRow(
-            label: '1–3 months',
-            count: aggregate.emergencyBands['one_to_three'] ?? 0,
-            total: total,
-            color: _amber,
-            isYourBand: _emergencyBand == 'one_to_three',
-          ),
-          _BenchmarkBandRow(
-            label: '3+ months',
-            count: aggregate.emergencyBands['three_plus'] ?? 0,
-            total: total,
-            color: _sage,
-            isYourBand: _emergencyBand == 'three_plus',
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           _CohortTakeaway(
             icon: Icons.lightbulb_outline_rounded,
             text: _emergencyTakeaway(emergencyStrong),
@@ -2350,35 +2556,33 @@ class _BenchmarkInsights extends StatelessWidget {
             padding: EdgeInsets.symmetric(vertical: 16),
             child: Divider(height: 1, color: _border),
           ),
-          const _BenchmarkSectionHeading(
+          _CohortDistributionChart(
             icon: Icons.savings_outlined,
             title: 'Monthly saving habit',
             subtitle: 'Share of income set aside',
             color: _sage,
+            bands: [
+              _CohortBand(
+                label: 'Not setting aside yet',
+                count: aggregate.savingBands['none'] ?? 0,
+                color: const Color(0xFFE77E63),
+                selected: _savingBand == 'none',
+              ),
+              _CohortBand(
+                label: 'Some savings',
+                count: aggregate.savingBands['some'] ?? 0,
+                color: _amber,
+                selected: _savingBand == 'some',
+              ),
+              _CohortBand(
+                label: '20% or more',
+                count: aggregate.savingBands['twenty_plus'] ?? 0,
+                color: _sage,
+                selected: _savingBand == 'twenty_plus',
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          _BenchmarkBandRow(
-            label: 'Not setting aside yet',
-            count: aggregate.savingBands['none'] ?? 0,
-            total: total,
-            color: const Color(0xFFE77E63),
-            isYourBand: _savingBand == 'none',
-          ),
-          _BenchmarkBandRow(
-            label: 'Some savings',
-            count: aggregate.savingBands['some'] ?? 0,
-            total: total,
-            color: _amber,
-            isYourBand: _savingBand == 'some',
-          ),
-          _BenchmarkBandRow(
-            label: '20% or more',
-            count: aggregate.savingBands['twenty_plus'] ?? 0,
-            total: total,
-            color: _sage,
-            isYourBand: _savingBand == 'twenty_plus',
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           _CohortTakeaway(
             icon: Icons.auto_graph_rounded,
             text: _savingTakeaway(savingStrong),
@@ -2420,6 +2624,201 @@ class _BenchmarkInsights extends StatelessWidget {
       };
 }
 
+String _displayBand(String value) => switch (value) {
+      'three_plus' || 'twenty_plus' => 'Strong',
+      'one_to_three' || 'some' => 'Building',
+      _ => 'Early',
+    };
+
+class _PeerSnapshotStat extends StatelessWidget {
+  const _PeerSnapshotStat({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final String detail;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: .16)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label,
+              style: const TextStyle(
+                  color: _body, fontSize: 10, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 5),
+          Text(value,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: color, fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 2),
+          Text(detail,
+              style: const TextStyle(
+                  color: _body, fontSize: 9.5, fontWeight: FontWeight.w700)),
+        ]),
+      );
+}
+
+class _CohortBand {
+  const _CohortBand({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.selected,
+  });
+
+  final String label;
+  final int count;
+  final Color color;
+  final bool selected;
+}
+
+class _CohortDistributionChart extends StatelessWidget {
+  const _CohortDistributionChart({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.bands,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final List<_CohortBand> bands;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = bands.fold<int>(0, (sum, band) => sum + band.count);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _BenchmarkSectionHeading(
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+        color: color,
+      ),
+      const SizedBox(height: 12),
+      Row(children: [
+        const Text('Cohort mix',
+            style: TextStyle(
+                color: _body, fontSize: 10.5, fontWeight: FontWeight.w800)),
+        const Spacer(),
+        const Icon(Icons.person_pin_circle_outlined, size: 14, color: _purple),
+        const SizedBox(width: 4),
+        const Text('Your band',
+            style: TextStyle(
+                color: _purple, fontSize: 10.5, fontWeight: FontWeight.w900)),
+      ]),
+      const SizedBox(height: 8),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 46,
+          child: Row(
+            children: [
+              for (final band in bands)
+                Expanded(
+                  flex: math.max(1, band.count),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 560),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, progress, __) => Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 1),
+                      decoration: BoxDecoration(
+                        color:
+                            band.color.withValues(alpha: .25 + .75 * progress),
+                        border: band.selected
+                            ? Border.all(color: _purple, width: 2)
+                            : null,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        total == 0
+                            ? '0%'
+                            : '${(band.count * 100 / total).round()}%',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 9),
+      for (final band in bands)
+        _CohortDistributionLegend(band: band, total: total),
+    ]);
+  }
+}
+
+class _CohortDistributionLegend extends StatelessWidget {
+  const _CohortDistributionLegend({required this.band, required this.total});
+
+  final _CohortBand band;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = total == 0 ? 0 : (band.count * 100 / total).round();
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: band.selected ? _bellySoft : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: band.selected
+              ? _purple.withValues(alpha: .34)
+              : Colors.transparent,
+        ),
+      ),
+      child: Row(children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: band.color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(band.label,
+              style: const TextStyle(
+                  color: _title, fontSize: 10.5, fontWeight: FontWeight.w800)),
+        ),
+        if (band.selected) ...[
+          const Text('YOU',
+              style: TextStyle(
+                  color: _purple,
+                  fontSize: 8.5,
+                  letterSpacing: .35,
+                  fontWeight: FontWeight.w900)),
+          const SizedBox(width: 8),
+        ],
+        Text('$percent% · ${band.count}',
+            style: const TextStyle(
+                color: _body, fontSize: 10, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
+}
+
 class _BenchmarkSectionHeading extends StatelessWidget {
   const _BenchmarkSectionHeading({
     required this.icon,
@@ -2455,83 +2854,6 @@ class _BenchmarkSectionHeading extends StatelessWidget {
           ),
         ),
       ]);
-}
-
-class _BenchmarkBandRow extends StatelessWidget {
-  const _BenchmarkBandRow({
-    required this.label,
-    required this.count,
-    required this.total,
-    required this.color,
-    required this.isYourBand,
-  });
-
-  final String label;
-  final int count;
-  final int total;
-  final Color color;
-  final bool isYourBand;
-
-  @override
-  Widget build(BuildContext context) {
-    final fraction = total == 0 ? 0.0 : count / total;
-    final percent = (fraction * 100).round();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 7),
-              Flexible(
-                child: Text(label,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: _title,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800)),
-              ),
-              if (isYourBand) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: _purple.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                  child: const Text('YOU',
-                      style: TextStyle(
-                          color: _purple,
-                          fontSize: 8.5,
-                          letterSpacing: .3,
-                          fontWeight: FontWeight.w900)),
-                ),
-              ],
-            ]),
-          ),
-          Text('$percent%  ·  $count of $total',
-              style: const TextStyle(
-                  color: _body, fontSize: 10.5, fontWeight: FontWeight.w800)),
-        ]),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(99),
-          child: LinearProgressIndicator(
-            value: fraction,
-            minHeight: 9,
-            color: color,
-            backgroundColor: color.withValues(alpha: .14),
-          ),
-        ),
-      ]),
-    );
-  }
 }
 
 class _CohortTakeaway extends StatelessWidget {
