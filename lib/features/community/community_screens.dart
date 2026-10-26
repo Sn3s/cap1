@@ -1417,37 +1417,11 @@ class _PeerDashboard extends StatelessWidget {
                   color: _amber,
                 );
               }
-              final reserveBase = benchmark.eligibleCount;
-              final starter = (benchmark.emergencyBands['one_to_three'] ?? 0) *
-                  100 ~/
-                  reserveBase;
-              final strong = (benchmark.emergencyBands['three_plus'] ?? 0) *
-                  100 ~/
-                  reserveBase;
-              final savingTwentyPlus =
-                  (benchmark.savingBands['twenty_plus'] ?? 0) *
-                      100 ~/
-                      reserveBase;
-              return Column(
-                children: [
-                  _PeerMetric(
-                    icon: Icons.insights_outlined,
-                    title: 'Anonymous emergency benchmark',
-                    value: '$reserveBase similar users',
-                    detail:
-                        '$starter% report 1–3 months of emergency coverage; $strong% report 3+ months. No individual finances are shown.',
-                    color: _amber,
-                  ),
-                  const SizedBox(height: 10),
-                  _PeerMetric(
-                    icon: Icons.savings_outlined,
-                    title: 'Anonymous savings benchmark',
-                    value: '$savingTwentyPlus% set aside 20%+',
-                    detail:
-                        'This is a coarse monthly band from the same anonymous cohort, not a view of anyone’s income or balance.',
-                    color: _sage,
-                  ),
-                ],
+              return _BenchmarkInsights(
+                aggregate: benchmark,
+                emergencyMonths: state.benchmarkEmergencyMonths,
+                savingsRate: state.benchmarkSavingsRate,
+                cohortLabel: state.employmentStatus,
               );
             },
           )
@@ -1533,6 +1507,347 @@ class _PeerDashboard extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A readable, aggregate-only view of the anonymous contribution records.
+/// The bars deliberately show distributions, not rankings or named people.
+class _BenchmarkInsights extends StatelessWidget {
+  const _BenchmarkInsights({
+    required this.aggregate,
+    required this.emergencyMonths,
+    required this.savingsRate,
+    required this.cohortLabel,
+  });
+
+  final BenchmarkAggregate aggregate;
+  final double emergencyMonths;
+  final double savingsRate;
+  final String cohortLabel;
+
+  String get _emergencyBand => emergencyMonths >= 3
+      ? 'three_plus'
+      : emergencyMonths >= 1
+          ? 'one_to_three'
+          : 'under_one';
+
+  String get _savingBand => savingsRate >= .2
+      ? 'twenty_plus'
+      : savingsRate > 0
+          ? 'some'
+          : 'none';
+
+  @override
+  Widget build(BuildContext context) {
+    final total = aggregate.eligibleCount;
+    final normalizedCohort =
+        cohortLabel.trim().isEmpty ? 'Similar' : cohortLabel.trim();
+    final emergencyStrong = _percent(aggregate.emergencyBands['three_plus']);
+    final savingStrong = _percent(aggregate.savingBands['twenty_plus']);
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _bellySoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.insights_rounded, color: _purple),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Your anonymous peer snapshot',
+                        style: TextStyle(
+                            color: _title,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 2),
+                    Text('$total $normalizedCohort contributors this month',
+                        style: const TextStyle(
+                            color: _body,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _sage.withValues(alpha: .13),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: const Text('LIVE',
+                    style: TextStyle(
+                        color: _sage,
+                        fontSize: 10,
+                        letterSpacing: .5,
+                        fontWeight: FontWeight.w900)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const _BenchmarkSectionHeading(
+            icon: Icons.shield_outlined,
+            title: 'Emergency coverage',
+            subtitle: 'Months of essential expenses covered',
+            color: _amber,
+          ),
+          const SizedBox(height: 10),
+          _BenchmarkBandRow(
+            label: 'Under 1 month',
+            count: aggregate.emergencyBands['under_one'] ?? 0,
+            total: total,
+            color: const Color(0xFFE77E63),
+            isYourBand: _emergencyBand == 'under_one',
+          ),
+          _BenchmarkBandRow(
+            label: '1–3 months',
+            count: aggregate.emergencyBands['one_to_three'] ?? 0,
+            total: total,
+            color: _amber,
+            isYourBand: _emergencyBand == 'one_to_three',
+          ),
+          _BenchmarkBandRow(
+            label: '3+ months',
+            count: aggregate.emergencyBands['three_plus'] ?? 0,
+            total: total,
+            color: _sage,
+            isYourBand: _emergencyBand == 'three_plus',
+          ),
+          const SizedBox(height: 10),
+          _CohortTakeaway(
+            icon: Icons.lightbulb_outline_rounded,
+            text: _emergencyTakeaway(emergencyStrong),
+            color: _amber,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: _border),
+          ),
+          const _BenchmarkSectionHeading(
+            icon: Icons.savings_outlined,
+            title: 'Monthly saving habit',
+            subtitle: 'Share of income set aside',
+            color: _sage,
+          ),
+          const SizedBox(height: 10),
+          _BenchmarkBandRow(
+            label: 'Not setting aside yet',
+            count: aggregate.savingBands['none'] ?? 0,
+            total: total,
+            color: const Color(0xFFE77E63),
+            isYourBand: _savingBand == 'none',
+          ),
+          _BenchmarkBandRow(
+            label: 'Some savings',
+            count: aggregate.savingBands['some'] ?? 0,
+            total: total,
+            color: _amber,
+            isYourBand: _savingBand == 'some',
+          ),
+          _BenchmarkBandRow(
+            label: '20% or more',
+            count: aggregate.savingBands['twenty_plus'] ?? 0,
+            total: total,
+            color: _sage,
+            isYourBand: _savingBand == 'twenty_plus',
+          ),
+          const SizedBox(height: 10),
+          _CohortTakeaway(
+            icon: Icons.auto_graph_rounded,
+            text: _savingTakeaway(savingStrong),
+            color: _sage,
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '“You” marks only your own coarse band. Every other result is an anonymous cohort total—never an income, balance, transaction, score, or name.',
+            style: TextStyle(
+                color: _body,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _percent(int? count) =>
+      ((count ?? 0) * 100 / aggregate.eligibleCount).round();
+
+  String _emergencyTakeaway(int strongPercent) => switch (_emergencyBand) {
+        'three_plus' =>
+          'You are in the 3+ month group. $strongPercent% of this cohort reports the same level of coverage.',
+        'one_to_three' =>
+          'You are in the 1–3 month group. Your next personal milestone is a 3-month cushion.',
+        _ =>
+          'You are building your first month of coverage. Progress is shown as a band, never a balance.',
+      };
+
+  String _savingTakeaway(int strongPercent) => switch (_savingBand) {
+        'twenty_plus' =>
+          'You are in the 20%+ group. $strongPercent% of this cohort reports the same saving range.',
+        'some' =>
+          'You are setting something aside. The chart shows the cohort mix, not anyone’s exact rate.',
+        _ =>
+          'Your snapshot is currently in the “not setting aside yet” band. Refresh after your next update.',
+      };
+}
+
+class _BenchmarkSectionHeading extends StatelessWidget {
+  const _BenchmarkSectionHeading({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Icon(icon, size: 19, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900)),
+              Text(subtitle,
+                  style: const TextStyle(
+                      color: _body,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+      ]);
+}
+
+class _BenchmarkBandRow extends StatelessWidget {
+  const _BenchmarkBandRow({
+    required this.label,
+    required this.count,
+    required this.total,
+    required this.color,
+    required this.isYourBand,
+  });
+
+  final String label;
+  final int count;
+  final int total;
+  final Color color;
+  final bool isYourBand;
+
+  @override
+  Widget build(BuildContext context) {
+    final fraction = total == 0 ? 0.0 : count / total;
+    final percent = (fraction * 100).round();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(label,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: _title,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800)),
+              ),
+              if (isYourBand) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: _purple.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: const Text('YOU',
+                      style: TextStyle(
+                          color: _purple,
+                          fontSize: 8.5,
+                          letterSpacing: .3,
+                          fontWeight: FontWeight.w900)),
+                ),
+              ],
+            ]),
+          ),
+          Text('$percent%  ·  $count of $total',
+              style: const TextStyle(
+                  color: _body, fontSize: 10.5, fontWeight: FontWeight.w800)),
+        ]),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(
+            value: fraction,
+            minHeight: 9,
+            color: color,
+            backgroundColor: color.withValues(alpha: .14),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _CohortTakeaway extends StatelessWidget {
+  const _CohortTakeaway({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .09),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, size: 17, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text,
+                style: const TextStyle(
+                    color: _title,
+                    fontSize: 11,
+                    height: 1.3,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ]),
+      );
 }
 
 class _PeerMetric extends StatelessWidget {
