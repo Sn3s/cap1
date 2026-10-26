@@ -629,6 +629,9 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   final _scrollController = ScrollController();
   late final List<ChatMessage> _messages;
   bool _sending = false;
+  // Shown under the conversation, never added to it, so a failed reply
+  // isn't sent back to the AI as something Shellby said.
+  String? _error;
 
   @override
   void initState() {
@@ -661,13 +664,19 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
+    setState(() => _messages.add(ChatMessage(true, text)));
+    _controller.clear();
+    await _requestReply();
+  }
 
+  /// Asks for a reply to the conversation so far. Also used by "Try again",
+  /// which re-asks without adding the question twice.
+  Future<void> _requestReply() async {
     final state = AppScope.of(context);
     setState(() {
-      _messages.add(ChatMessage(true, text));
       _sending = true;
+      _error = null;
     });
-    _controller.clear();
     _scrollToBottom();
 
     try {
@@ -678,25 +687,17 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
       );
       if (!mounted) return;
       setState(() {
-        _messages.add(
-          ChatMessage(
-            false,
-            reply.isEmpty
-                ? 'I could not form a reply from the current app context yet.'
-                : reply,
-          ),
-        );
+        if (reply.isEmpty) {
+          _error = "Shellby couldn't come up with a reply. Try asking another way.";
+        } else {
+          _messages.add(ChatMessage(false, reply));
+        }
       });
     } catch (error) {
+      // The technical detail is for developers; users get a plain message.
+      debugPrint('Shellby chat failed: $error');
       if (!mounted) return;
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            false,
-            _chatErrorMessage(error),
-          ),
-        );
-      });
+      setState(() => _error = _chatErrorMessage(error));
     } finally {
       if (mounted) {
         setState(() => _sending = false);
@@ -706,21 +707,10 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   }
 
   String _chatErrorMessage(Object error) {
-    final text = error.toString();
-    if (text.contains('Unable to load asset') ||
-        text.contains('Set LOCAL_MODEL_ASSET')) {
-      return 'I need the bundled GGUF model before I can chat locally. Add the Qwen model under assets/models/ or run with the Gemini provider.';
+    if (error is AiSetupException) {
+      return "Shellby's chat isn't available on this device right now.";
     }
-    if (text.contains('AI model is not configured')) {
-      return 'I need either an internet connection for Gemini or the bundled Qwen model under assets/models/ before I can chat.';
-    }
-    if (text.contains('Gemini proxy request failed: 404')) {
-      return 'Gemini proxy was not found. Check GEMINI_PROXY_URL, or run with GEMINI_API_KEY so Shellby can call Gemini directly.';
-    }
-    if (text.contains('Gemini API request failed: 404')) {
-      return 'Gemini model was not found. Shellby is set to $_geminiModel; use a GenerateContent model such as gemini-3.1-flash-lite.';
-    }
-    return 'I hit a setup issue while starting the AI model. $text';
+    return "Shellby can't reply right now. Check your connection and try again.";
   }
 
   void _scrollToBottom() {
@@ -800,10 +790,18 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 itemBuilder: (context, index) {
                   if (index == _messages.length) {
-                    return const ChatBubble(
-                      fromUser: false,
-                      text: 'Thinking...',
-                      loading: true,
+                    if (_sending) {
+                      return const ChatBubble(
+                        fromUser: false,
+                        text: 'Thinking...',
+                        loading: true,
+                      );
+                    }
+                    return _ChatErrorNotice(
+                      message: _error!,
+                      onRetry: _messages.lastOrNull?.fromUser == true
+                          ? _requestReply
+                          : null,
                     );
                   }
                   final message = _messages[index];
@@ -813,7 +811,8 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
                   );
                 },
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemCount: _messages.length + (_sending ? 1 : 0),
+                itemCount:
+                    _messages.length + (_sending || _error != null ? 1 : 0),
               ),
             ),
             AnimatedPadding(
@@ -877,6 +876,46 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A failed chat reply: a plain message and, when there's a question
+/// waiting for an answer, a way to ask again.
+class _ChatErrorNotice extends StatelessWidget {
+  const _ChatErrorNotice({required this.message, this.onRetry});
+
+  final String message;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: _red.withValues(alpha: .06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _red.withValues(alpha: .18)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: _red, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
+          ),
+          if (onRetry != null)
+            TextButton(onPressed: onRetry, child: const Text('Try again')),
+        ],
       ),
     );
   }
@@ -9714,16 +9753,23 @@ double? _plannedSpendingCap(
   return null;
 }
 
+/// This month's action scores across every goal, as Insights shows them.
+Map<String, _CashActionScore> _currentMonthActionScores(AppState state) {
+  final month = _monthStart(AppClock.now());
+  return {
+    for (final score in [
+      for (final goalId in const ['G1', 'G3', 'G8'])
+        ..._monthlyActionScores(state, goalId, month),
+      ..._investmentActionScores(state: state, monthStart: month),
+    ])
+      score.id: score,
+  };
+}
+
 /// This month's score for [actionId] as Insights shows it, or null when
 /// there's no data to score yet.
 int? _currentActionScorePercent(AppState state, String actionId) {
-  final month = _monthStart(AppClock.now());
-  final scores = [
-    for (final goalId in const ['G1', 'G3', 'G8'])
-      ..._monthlyActionScores(state, goalId, month),
-    ..._investmentActionScores(state: state, monthStart: month),
-  ];
-  final score = scores.where((score) => score.id == actionId).firstOrNull;
+  final score = _currentMonthActionScores(state)[actionId];
   if (score == null || score.pattern.isEmpty) return null;
   return _scorePercent(score.score);
 }

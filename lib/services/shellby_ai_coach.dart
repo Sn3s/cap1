@@ -572,127 +572,179 @@ Return only JSON with keys reply, title, description, monthly_target.
     List<ChatMessage> messages, {
     String? screenContext,
   }) {
+    final now = AppClock.now();
+    final month = DateTime(now.year, now.month);
+    String date(DateTime? value) =>
+        value == null ? 'no date' : value.toIso8601String().split('T').first;
+    String lines(Iterable<String> items, String empty) =>
+        items.isEmpty ? empty : items.join('\n');
+
     final transcript = messages
         .map(
           (message) =>
               '${message.fromUser ? 'User' : 'Shellby'}: ${message.text}',
         )
         .join('\n');
-    final summary = state.fakeMayaLink?.summary;
-    final transactions = state.allTransactions
-        .take(10)
-        .map(
-          (transaction) =>
-              '- ${transaction.age}: ${transaction.title} (${transaction.detail}) ${transaction.amountText}; account: ${transaction.account ?? 'Wallet'}; category: ${transaction.category ?? 'unlabeled'}; source: ${transaction.source ?? 'unlabeled'}',
-        )
-        .join('\n');
-    final assets = state.assets
-        .take(8)
-        .map((item) => '- ${item.name}: ${money(item.value)}')
-        .join('\n');
+
+    // Goals and actions, with the numbers and scores users see in the app.
+    final scores = _currentMonthActionScores(state);
+    final actions = state.selectedActionIds.map((id) {
+      final action = _d2Actions[id];
+      final settings = _defaultActionStageTarget(id, state)
+          .entries
+          .map((entry) => '${entry.key} ${entry.value}')
+          .join(', ');
+      final score = scores[id];
+      final progress = score == null || score.pattern.isEmpty
+          ? 'not enough data this month'
+          : '${_scorePercent(score.score)}% this month; ${score.detail}';
+      return '- ${_actionNumber(id)}: ${action?.text ?? id}'
+          '${settings.isEmpty ? '' : ' (settings: $settings)'}'
+          '. Progress: $progress';
+    });
+
+    // Bills: open plans, paid ones, and the scheduled list they come from.
+    final openBills = state.openBasicNeedsBillObligations.map((bill) =>
+        '- ${basicNeedsBillDisplayName(bill)}: ${money(_billRemaining(bill))} '
+        'still owed, due ${date(DateTime.tryParse('${bill['dueDate']}'))}');
+    final paidBills = state.paidBasicNeedsBillsThisMonth.map((bill) =>
+        '- ${basicNeedsBillDisplayName(bill)}: paid '
+        '${money(_doubleValue(bill['expectedAmount'], 0))}');
+    final scheduledBills = state.onboardingExpenseLedger
+        .where((expense) => expense['scheduled'] == true)
+        .map((expense) {
+      final due =
+          DateTime.tryParse('${expense['scheduleAnchorDate'] ?? ''}')?.day;
+      return '- ${basicNeedsBillDisplayName(expense)}: '
+          '${money(_doubleValue(expense['amount'], 0))}'
+          '${due == null ? '' : ', due on day $due of each month'}';
+    });
+
+    final budgets = state.categorySpendingBudgets.entries.map((entry) =>
+        '- ${entry.key}: ${money(state.categoryBudgetSpent(entry.key))} '
+        'spent of ${money(entry.value)} this month');
+
+    // This month's labeled money, by category.
+    final monthTransactions = state.allTransactions
+        .where((transaction) =>
+            transaction.createdAt != null &&
+            transaction.createdAt!.year == month.year &&
+            transaction.createdAt!.month == month.month)
+        .toList();
+    final counted = monthTransactions.where((transaction) =>
+        transaction.isLabeled &&
+        !transaction.excludedFromInsights &&
+        !transaction.isInternalFakeMayaTransfer);
+    final spendingByCategory = <String, double>{};
+    var moneyIn = 0.0;
+    for (final transaction in counted) {
+      if (transaction.amount < 0) {
+        final category = transaction.category ?? 'Other';
+        spendingByCategory[category] =
+            (spendingByCategory[category] ?? 0) + transaction.amount.abs();
+      } else {
+        moneyIn += transaction.amount;
+      }
+    }
+    final categoryTotals = (spendingByCategory.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .map((entry) => '- ${entry.key}: ${money(entry.value)}');
+    final unlabeled = monthTransactions
+        .where((transaction) => !transaction.isLabeled)
+        .length;
+
+    final recent = (state.allTransactions
+            .where((transaction) => transaction.createdAt != null)
+            .toList()
+          ..sort((a, b) => b.createdAt!.compareTo(a.createdAt!)))
+        .take(15)
+        .map((transaction) =>
+            '- ${date(transaction.createdAt)}: ${transaction.title} '
+            '(${transaction.detail}) ${transaction.amountText}; '
+            'account: ${transaction.account ?? 'Wallet'}; '
+            'category: ${transaction.category ?? 'unlabeled'}');
+
+    final incomes = state.onboardingIncomeLedger.take(10).map((income) {
+      final scheduled = income['scheduled'] == true;
+      final anchor =
+          DateTime.tryParse('${income['scheduleAnchorDate'] ?? ''}');
+      return '- ${income['name'] ?? 'Income'}: '
+          '${money(_doubleValue(income['amount'], 0))} '
+          '(${income['stable'] == true ? 'stable' : 'variable'}, '
+          '${scheduled ? 'expected around ${date(anchor)}, repeats ${income['repeatFrequency'] ?? 'Monthly'}' : 'no fixed schedule'})';
+    });
+    final expenses = state.onboardingExpenseLedger.take(15).map((expense) =>
+        '- ${basicNeedsBillDisplayName(expense)}: '
+        '${money(_doubleValue(expense['amount'], 0))} per month '
+        '(${expenseLayerForLedger(expense) == ExpenseLayer.basicNeeds ? 'essential' : 'non-essential'})');
+    final assets =
+        state.assets.take(8).map((item) => '- ${item.name}: ${money(item.value)}');
     final liabilities = state.liabilities
         .take(8)
-        .map((item) => '- ${item.name}: ${money(item.value)}')
-        .join('\n');
-    final incomes = state.onboardingIncomeLedger.take(10).map((income) {
-      final name = income['name'] ?? 'Income';
-      final amount = (income['amount'] as num?)?.toDouble() ?? 0;
-      final type = income['stable'] == true ? 'stable' : 'variable';
-      final scheduled = income['scheduled'] == true;
-      final payDay = (income['payDay'] as num?)?.toInt();
-      final anchorDate = DateTime.tryParse(
-        income['scheduleAnchorDate']?.toString() ?? '',
-      );
-      final anchorType = income['scheduleAnchorType']?.toString() == 'last'
-          ? 'last received'
-          : 'next expected';
-      final repeat = income['repeatFrequency']?.toString() ?? 'Monthly';
-      final timing = scheduled
-          ? anchorDate == null
-              ? 'scheduled${payDay == null ? '' : ' on day $payDay'}'
-              : '$anchorType ${anchorDate.toIso8601String().split('T').first}, repeats $repeat'
-          : 'unscheduled';
-      return '- $name: ${money(amount)} ($type, $timing)';
-    }).join('\n');
-    final expenses = state.onboardingExpenseLedger.take(10).map((expense) {
-      final name = expense['name'] ?? expense['label'] ?? 'Expense';
-      final amount = (expense['amount'] as num?)?.toDouble() ?? 0;
-      final essential = expense['essential'] == true ? 'essential' : 'flex';
-      final scheduled = expense['scheduled'] == true;
-      final dueDay = (expense['dueDay'] as num?)?.toInt();
-      final anchorDate = DateTime.tryParse(
-        expense['scheduleAnchorDate']?.toString() ?? '',
-      );
-      final anchorType = expense['scheduleAnchorType']?.toString() == 'last'
-          ? 'last paid'
-          : 'next due';
-      final repeat = expense['repeatFrequency']?.toString() ?? 'Monthly';
-      final timing = scheduled
-          ? anchorDate == null
-              ? 'scheduled${dueDay == null ? '' : ' on day $dueDay'}'
-              : '$anchorType ${anchorDate.toIso8601String().split('T').first}, repeats $repeat'
-          : 'unscheduled';
-      return '- $name: ${money(amount)} ($essential, $timing)';
-    }).join('\n');
+        .map((item) => '- ${item.name}: ${money(item.value)}');
 
     return '''
-Shellby app context:
-- User name: ${state.name.trim().isEmpty ? 'unknown' : state.name.trim()}
-- Email: ${state.email.trim().isEmpty ? 'unknown' : state.email.trim()}
-- Life stage: ${state.age}
-- Occupation: ${state.occupation}
-- Industry: ${state.industry}
-- Employment: ${state.employmentStatus}
-- Income rhythm: ${state.incomeRhythm}; income type: ${state.incomeType}
-- Primary concern: ${state.primaryConcern}
-- Motivation: ${state.motivation.isEmpty ? state.reflectedMotivation : state.motivation}
-- Selected goal: ${state.selectedGoal}
-- Goal description: ${state.selectedGoalDescription}
-- Goal monthly target: ${money(state.selectedGoalMonthlyTarget)}
-- Required monthly contribution: ${money(state.requiredMonthlyContribution)}
-- Monthly income: ${money(state.income)}
-- Monthly salary: ${money(state.monthlySalary)}
-- Expenses: ${money(state.expenses)}
-- Variable expenses: ${money(state.variableExpenses)}
-- Current monthly savings: ${money(state.savings)}
-- Debt payments: ${money(state.debtPayments)}
-- Investments: ${money(state.investments)}
-- Net worth: ${money(state.netWorth)}
-- Confidence: ${state.confidence.round()}/10
-- Financial pressure: ${state.anxiety.round()}/10
-- Avoidance: ${state.avoidance.round()}/10
-- Peer pressure: ${state.peerPressure.round()}/10
-- Chat summaries: surface="${state.chatSurfaceSummary}", goal="${state.chatGoalFocusSummary}", timeframe="${state.chatTimeframeSummary}", difficulty="${state.chatDifficultySummary}", situations="${state.chatSituationsSummary}", challenges="${state.chatChallengesSummary}"
+Today is ${date(now)} (${_monthLabel(month)}). "This month" means ${_monthLabel(month)}.
+
+About the user:
+- Name: ${state.name.trim().isEmpty ? 'unknown' : state.name.trim()}
+- Life stage: ${state.age}; occupation: ${state.occupation}; industry: ${state.industry}
+- Employment: ${state.employmentStatus}; income rhythm: ${state.incomeRhythm}; income type: ${state.incomeType}
+- What brought them to Shellby: ${state.primaryConcern}
+- From the onboarding conversation: situation "${state.chatSurfaceSummary}", focus "${state.chatGoalFocusSummary}", timeframe "${state.chatTimeframeSummary}", difficulty "${state.chatDifficultySummary}", situations "${state.chatSituationsSummary}", challenges "${state.chatChallengesSummary}"
 - FakeMaya linked: ${state.hasFakeMayaLink ? 'yes' : 'no'}
-- Wallet: ${money(summary?.wallet ?? 0)}
+
+Balances now:
+- Wallet: ${money(state.accountBalance('Wallet'))}
+- Savings: ${money(state.accountBalance('Savings'))}
+- Time deposit: ${money(state.accountBalance('Time Deposit'))}
 - Cash on hand: ${money(state.cashOnHandBalance)}
-- Savings: ${money(summary?.savings ?? 0)}
-- Time deposit: ${money(summary?.timeDeposit ?? 0)}
-- Goal balance: ${money(summary?.goalBalance ?? 0)} of ${money(summary?.goalTarget ?? 0)}
-- Credit used: ${money(summary?.creditUsed ?? 0)} of ${money(summary?.creditLimit ?? 0)}
-- Two-jar needs target: ${money(state.needsTarget)}
-- Needs balance: ${money(state.needsBalance)}
-- Buffer balance: ${money(state.bufferBalance)}
-- Safety shield balance: ${money(state.safetyShieldBalance)}
-- Safety shield target: ${money(state.safetyShieldTarget)}
+- Essential Expenses Fund: ${money(state.essentialExpensesBalance)}
+- Emergency Fund: ${money(state.emergencyFundBalance)} (covers ${state.emergencyMonthsCovered.toStringAsFixed(1)} months of essentials)
+- Investment Portfolio: ${money(state.investmentBalance)}
+- Personal Lifestyle Fund: ${money(state.lifestyleFundBalance)}
+- Credit used: ${money(state.fakeMayaLink?.summary.creditUsed ?? 0)} of ${money(state.fakeMayaLink?.summary.creditLimit ?? 0)}
+- Net worth: ${money(state.netWorth)}
+
+Goals and actions (use the action numbers shown here, like A1):
+- Main goal: ${state.selectedGoal}
+${lines(actions, '- No actions set up yet.')}
+
+Category budgets this month:
+${lines(budgets, 'No category budgets set.')}
+
+Bills still owed:
+${lines(openBills, 'None.')}
+
+Bills paid this month:
+${lines(paidBills, 'None recorded.')}
+
+Scheduled bills:
+${lines(scheduledBills, 'No scheduled bills.')}
+
+This month so far (labeled transactions only):
+- Money in: ${money(moneyIn)}
+- Spending by category:
+${lines(categoryTotals, '- No labeled spending yet.')}
+- Unlabeled transactions this month (not counted above): $unlabeled
+
+Latest transactions, newest first:
+${lines(recent, 'No transactions yet.')}
+
+Planned monthly income:
+${lines(incomes, 'No income entered.')}
+
+Planned monthly expenses:
+${lines(expenses, 'No expenses entered.')}
+
+Assets:
+${lines(assets, 'No manually tracked assets.')}
+
+Liabilities:
+${lines(liabilities, 'No manually tracked liabilities.')}
 
 Current Insights screen:
 ${screenContext?.trim().isNotEmpty == true ? screenContext : 'No specific Insights screen supplied.'}
-
-Assets:
-${assets.isEmpty ? 'No manually tracked assets.' : assets}
-
-Liabilities:
-${liabilities.isEmpty ? 'No manually tracked liabilities.' : liabilities}
-
-Known income:
-${incomes.isEmpty ? 'No detailed income entered.' : incomes}
-
-Known expenses:
-${expenses.isEmpty ? 'No detailed expenses entered.' : expenses}
-
-Recent linked transactions:
-${transactions.isEmpty ? 'No transactions available.' : transactions}
 
 Conversation:
 $transcript
@@ -703,6 +755,9 @@ Use concise bullets, include relevant values, distinguish missing data from
 zero, avoid claiming causation, and use neutral non-judgmental language.
 ''';
   }
+
+  String chatInputForTesting(AppState state, List<ChatMessage> messages) =>
+      _shellbyChatInput(state, messages);
 
   ActionStageSuggestion _actionStageSuggestionFromJson(
     Map<String, dynamic> json,
