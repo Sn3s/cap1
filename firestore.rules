@@ -14,6 +14,11 @@ service cloud.firestore {
       return message is string && message.size() > 0 && message.size() <= 250;
     }
 
+    function currentFriend(otherUid) {
+      return exists(/databases/$(database)/documents/friendships/$(me() + '_' + otherUid))
+        || exists(/databases/$(database)/documents/friendships/$(otherUid + '_' + me()));
+    }
+
     // Private financial profile: owner only (unchanged).
     match /profiles/{userId} {
       // The anonymous benchmark pseudonym may be chosen once, then remains
@@ -95,6 +100,27 @@ service cloud.firestore {
       // Either friend can unfriend.
       allow delete: if signedIn() && me() in resource.data.members;
       allow update: if false;
+    }
+
+    // Coarse, opt-in states for the named trusted-circle comparison. Exact
+    // amounts and private-profile fields never leave `profiles/{uid}`.
+    match /circleSnapshots/{userId} {
+      function ownerSharingEnabled() {
+        return get(/databases/$(database)/documents/profiles/$(userId)).data.consentTrustedCircle == true;
+      }
+      function validCircleSnapshot() {
+        return request.resource.data.keys().hasOnly(
+             ['emergencyBand', 'savingBand', 'planBand', 'updatedAt'])
+          && request.resource.data.emergencyBand in ['under_one', 'one_to_three', 'three_plus']
+          && request.resource.data.savingBand in ['none', 'some', 'twenty_plus']
+          && request.resource.data.planBand in ['starting', 'active', 'committed']
+          && request.resource.data.updatedAt == request.time;
+      }
+      allow read: if signedIn() && (me() == userId
+        || (currentFriend(userId) && ownerSharingEnabled()));
+      allow create, update: if signedIn() && me() == userId
+        && ownerSharingEnabled() && validCircleSnapshot();
+      allow delete: if signedIn() && me() == userId;
     }
 
     // Community notifications (likes, replies, accepted requests). Only the

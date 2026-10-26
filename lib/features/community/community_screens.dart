@@ -1349,55 +1349,773 @@ class _CommunitySectionSwitch extends StatelessWidget {
       );
 }
 
-class _PeerDashboard extends StatelessWidget {
+enum _ComparisonLens { you, friends, peers }
+
+class _PeerDashboard extends StatefulWidget {
   const _PeerDashboard({required this.state});
   final AppState state;
 
   @override
+  State<_PeerDashboard> createState() => _PeerDashboardState();
+}
+
+class _PeerDashboardState extends State<_PeerDashboard> {
+  var _lens = _ComparisonLens.you;
+  String? _selectedFriendUid;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshTrustedCircleSnapshot());
+  }
+
+  Future<void> _refreshTrustedCircleSnapshot() async {
+    final state = widget.state;
+    if (!state.isSignedIn || !state.consentTrustedCircle) return;
+    try {
+      await CooperativeService().publishTrustedCircleSnapshot(
+        emergencyMonths: state.benchmarkEmergencyMonths,
+        savingsRate: state.benchmarkSavingsRate,
+        selectedActions: state.selectedActionIds.length,
+      );
+    } catch (_) {
+      // The comparison itself remains usable if a background refresh is
+      // temporarily offline; the user can revisit after connectivity returns.
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final reserve = state.emergencyMonths;
-    final reserveLabel = reserve >= 3
-        ? 'building a strong cushion'
-        : reserve >= 1
-            ? 'building a starter cushion'
-            : 'still building a starter cushion';
-    final goalLabel = state.selectedGoal.trim().isEmpty
-        ? 'your current plan'
-        : state.selectedGoal;
+    final (title, subtitle, icon) = switch (_lens) {
+      _ComparisonLens.you => (
+          'Your financial context',
+          'See your own progress first. Nothing on this view is shared.',
+          Icons.person_outline_rounded,
+        ),
+      _ComparisonLens.friends => (
+          'Trusted-circle comparison',
+          'Friends appear only when they choose to share these coarse progress bands.',
+          Icons.group_outlined,
+        ),
+      _ComparisonLens.peers => (
+          'Anonymous peer context',
+          'Compare with a collated cohort—not a leaderboard or a list of people.',
+          Icons.visibility_off_rounded,
+        ),
+    };
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      ShelbyHeroHeader(
+        color: const Color(0xFF245C71),
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+      ),
+      const SizedBox(height: 14),
+      _ComparisonLensSwitch(
+        value: _lens,
+        onChanged: (value) => setState(() => _lens = value),
+      ),
+      const SizedBox(height: 14),
+      AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        child: switch (_lens) {
+          _ComparisonLens.you => _YourComparisonView(
+              key: const ValueKey('your-comparison'), state: widget.state),
+          _ComparisonLens.friends => _FriendsComparisonView(
+              key: const ValueKey('friends-comparison'),
+              state: widget.state,
+              selectedFriendUid: _selectedFriendUid,
+              onFriendSelected: (uid) =>
+                  setState(() => _selectedFriendUid = uid),
+            ),
+          _ComparisonLens.peers => _PeerComparisonView(
+              key: const ValueKey('peer-comparison'), state: widget.state),
+        },
+      ),
+    ]);
+  }
+}
+
+class _ComparisonLensSwitch extends StatelessWidget {
+  const _ComparisonLensSwitch({required this.value, required this.onChanged});
+  final _ComparisonLens value;
+  final ValueChanged<_ComparisonLens> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const items = [
+      (_ComparisonLens.you, 'You', Icons.person_outline_rounded),
+      (_ComparisonLens.friends, 'Friends', Icons.group_outlined),
+      (_ComparisonLens.peers, 'Peers', Icons.public_rounded),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+          color: _surface,
+          border: Border.all(color: _border),
+          borderRadius: BorderRadius.circular(15)),
+      child: Row(
+        children: [
+          for (final item in items)
+            Expanded(
+              child: Semantics(
+                selected: value == item.$1,
+                button: true,
+                label: '${item.$2} comparison',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(11),
+                  onTap: () => onChanged(item.$1),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: value == item.$1 ? _purple : Colors.transparent,
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(item.$3,
+                            size: 16,
+                            color: value == item.$1 ? Colors.white : _body),
+                        const SizedBox(width: 6),
+                        Text(item.$2,
+                            style: TextStyle(
+                                color: value == item.$1 ? Colors.white : _body,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w900)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _YourComparisonView extends StatelessWidget {
+  const _YourComparisonView({super.key, required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final emergency = state.benchmarkEmergencyMonths;
+    final savings = state.benchmarkSavingsRate;
+    final trend = _emergencyTrend(state);
+    final hasHistory = state.d1Ledger.isNotEmpty;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      AppCard(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                  color: _bellySoft, borderRadius: BorderRadius.circular(14)),
+              child: const Icon(Icons.show_chart_rounded, color: _purple),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Emergency-cover trend',
+                        style: TextStyle(
+                            color: _title,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900)),
+                    Text('Your last six check-in points',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 150,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _ProgressLinePainter(points: trend, color: _purple),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('6 check-ins ago',
+                style: TextStyle(
+                    color: _body, fontSize: 10, fontWeight: FontWeight.w700)),
+            Text(hasHistory ? 'Today' : 'Baseline today',
+                style: const TextStyle(
+                    color: _body, fontSize: 10, fontWeight: FontWeight.w700)),
+          ]),
+          if (!hasHistory) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'This is your baseline. Your line becomes a real trend as emergency-fund activity is recorded.',
+              style: TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.3,
+                  fontWeight: FontWeight.w700),
+            ),
+          ],
+        ]),
+      ),
+      const SizedBox(height: 12),
+      AppCard(
+        padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Your progress signals',
+              style: TextStyle(
+                  color: _title, fontSize: 15, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 4),
+          const Text(
+              'These stay private unless you explicitly enable trusted-circle sharing.',
+              style: TextStyle(
+                  color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 16),
+          _PersonalProgressBar(
+            label: 'Emergency coverage',
+            detail: emergency >= 3
+                ? '3+ months covered'
+                : '${emergency.toStringAsFixed(1)} months covered',
+            value: (emergency / 3).clamp(0.0, 1.0),
+            color: _sage,
+          ),
+          _PersonalProgressBar(
+            label: 'Saving habit',
+            detail: '${(savings * 100).round()}% of your baseline income',
+            value: (savings / .20).clamp(0.0, 1.0),
+            color: _amber,
+          ),
+          _PersonalProgressBar(
+            label: 'Plan follow-through',
+            detail:
+                '${state.selectedActionIds.length} selected action${state.selectedActionIds.length == 1 ? '' : 's'}',
+            value: (state.selectedActionIds.length / 3).clamp(0.0, 1.0),
+            color: _purple,
+          ),
+        ]),
+      ),
+    ]);
+  }
+}
+
+class _FriendsComparisonView extends StatelessWidget {
+  const _FriendsComparisonView({
+    super.key,
+    required this.state,
+    required this.selectedFriendUid,
+    required this.onFriendSelected,
+  });
+  final AppState state;
+  final String? selectedFriendUid;
+  final ValueChanged<String?> onFriendSelected;
+
+  CircleSnapshot get _mine => CircleSnapshot(
+        uid: state.uid ?? 'you',
+        emergencyBand: state.benchmarkEmergencyMonths >= 3
+            ? 'three_plus'
+            : state.benchmarkEmergencyMonths >= 1
+                ? 'one_to_three'
+                : 'under_one',
+        savingBand: state.benchmarkSavingsRate >= .2
+            ? 'twenty_plus'
+            : state.benchmarkSavingsRate > 0
+                ? 'some'
+                : 'none',
+        planBand: state.selectedActionIds.length >= 3
+            ? 'committed'
+            : state.selectedActionIds.isEmpty
+                ? 'starting'
+                : 'active',
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (!state.consentTrustedCircle) {
+      return const _TrustedCircleRequired();
+    }
+    final friends = state.community.friends;
+    if (friends.isEmpty) {
+      return const _PeerMetric(
+        icon: Icons.group_add_outlined,
+        title: 'Build your trusted circle',
+        value: 'No friends yet',
+        detail:
+            'Add trusted friends first. Each person controls whether their coarse progress bands are shared.',
+        color: _purple,
+      );
+    }
+    return StreamBuilder<List<CircleSnapshot>>(
+      stream: CooperativeService()
+          .circleSnapshotsFor(friends.map((friend) => friend.uid)),
+      builder: (context, snapshot) {
+        final shared = <String, CircleSnapshot>{
+          for (final item in snapshot.data ?? const <CircleSnapshot>[])
+            item.uid: item,
+        };
+        final visibleFriends =
+            friends.where((friend) => shared.containsKey(friend.uid)).toList();
+        if (visibleFriends.isEmpty) {
+          return const _PeerMetric(
+            icon: Icons.lock_outline_rounded,
+            title: 'Waiting for sharing choices',
+            value: 'No shared snapshots yet',
+            detail:
+                'Friends appear here only after they turn on Trusted circle sharing. Shelby never fills this view with their private balances or transactions.',
+            color: _purple,
+          );
+        }
+        final selected =
+            selectedFriendUid == null ? null : shared[selectedFriendUid];
+        final selectedProfile = selected == null
+            ? null
+            : visibleFriends.firstWhere((friend) => friend.uid == selected.uid);
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          AppCard(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Trusted-circle progress',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              const Text(
+                'Select a friend to compare consented high-level bands. Unselected people stay muted.',
+                style: TextStyle(
+                    color: _body,
+                    fontSize: 11.5,
+                    height: 1.3,
+                    fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _FriendSelectionChip(
+                  label: 'Circle average',
+                  selected: selected == null,
+                  onTap: () => onFriendSelected(null),
+                ),
+                for (final friend in visibleFriends)
+                  _FriendSelectionChip(
+                    label: friend.displayName,
+                    selected: selected?.uid == friend.uid,
+                    onTap: () => onFriendSelected(friend.uid),
+                  ),
+              ]),
+              const SizedBox(height: 18),
+              _TrustedCircleBarChart(
+                mine: _mine,
+                focus: selected ?? _circleAverage(shared.values),
+                average: _circleAverage(shared.values),
+                focusLabel: selectedProfile?.displayName ?? 'Circle average',
+                showingIndividual: selectedProfile != null,
+              ),
+            ]),
+          ),
+          const SizedBox(height: 10),
+          const _CohortTakeaway(
+            icon: Icons.verified_user_outlined,
+            color: _purple,
+            text:
+                'The chart compares only three bands: emergency readiness, saving habit, and plan activity. Each friend can turn this sharing off at any time.',
+          ),
+        ]);
+      },
+    );
+  }
+
+  CircleSnapshot _circleAverage(Iterable<CircleSnapshot> snapshots) {
+    final values = snapshots.toList();
+    double mean(double Function(CircleSnapshot value) select) =>
+        values.map(select).fold(0.0, (sum, value) => sum + value) /
+        values.length;
+    String emergency(double score) => score >= .75
+        ? 'three_plus'
+        : score >= .25
+            ? 'one_to_three'
+            : 'under_one';
+    String saving(double score) => score >= .75
+        ? 'twenty_plus'
+        : score >= .25
+            ? 'some'
+            : 'none';
+    String plan(double score) => score >= .75
+        ? 'committed'
+        : score >= .25
+            ? 'active'
+            : 'starting';
+    return CircleSnapshot(
+      uid: 'circle-average',
+      emergencyBand: emergency(mean((item) => item.emergencyScore)),
+      savingBand: saving(mean((item) => item.savingScore)),
+      planBand: plan(mean((item) => item.planScore)),
+    );
+  }
+}
+
+class _TrustedCircleRequired extends StatelessWidget {
+  const _TrustedCircleRequired();
+  @override
+  Widget build(BuildContext context) => AppCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.lock_outline_rounded, color: _purple, size: 30),
+          const SizedBox(height: 10),
+          const Text('Trusted sharing is off',
+              style: TextStyle(
+                  color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 5),
+          const Text(
+            'Turn on Trusted circle sharing in Privacy setup to see this view. It shares only three coarse progress bands with current friends—never balances, income, transactions, or your health score.',
+            style: TextStyle(
+                color: _body,
+                fontSize: 11.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+        ]),
+      );
+}
+
+List<double> _emergencyTrend(AppState state) {
+  final current = math.max(0.0, state.benchmarkEmergencyMonths).toDouble();
+  final events = <(DateTime, double)>[];
+  for (final entry in state.d1Ledger) {
+    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+    final amount = (entry['amount'] as num?)?.toDouble() ?? 0;
+    final type = entry['type']?.toString().toLowerCase() ?? '';
+    if (date == null || amount <= 0) continue;
+    final change = type.contains('use') || type.contains('withdraw')
+        ? -amount
+        : type.contains('replenish') || type.contains('deposit')
+            ? amount
+            : 0.0;
+    if (change != 0) events.add((date, change));
+  }
+  if (events.isEmpty) return List<double>.filled(6, current);
+  events.sort((a, b) => a.$1.compareTo(b.$1));
+  var opening =
+      (current - events.fold(0.0, (sum, event) => sum + event.$2)).toDouble();
+  final observations = <double>[math.max(0.0, opening).toDouble()];
+  for (final event in events) {
+    opening = math.max(0.0, opening + event.$2).toDouble();
+    observations.add(opening);
+  }
+  return List<double>.generate(6, (index) {
+    final source = (index * (observations.length - 1) / 5).round();
+    return observations[source];
+  });
+}
+
+class _ProgressLinePainter extends CustomPainter {
+  const _ProgressLinePainter({required this.points, required this.color});
+  final List<double> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const top = 12.0;
+    const bottom = 14.0;
+    const side = 7.0;
+    final chartHeight = math.max(1, size.height - top - bottom);
+    final minPoint = points.reduce(math.min);
+    final maxPoint = points.reduce(math.max);
+    final range = math.max(.25, maxPoint - minPoint);
+    final grid = Paint()
+      ..color = _border
+      ..strokeWidth = 1;
+    for (var line = 0; line < 4; line++) {
+      final y = top + chartHeight * line / 3;
+      canvas.drawLine(Offset(side, y), Offset(size.width - side, y), grid);
+    }
+    final path = Path();
+    final fill = Path();
+    for (var index = 0; index < points.length; index++) {
+      final x = side + (size.width - side * 2) * index / (points.length - 1);
+      final y = top + chartHeight * (1 - (points[index] - minPoint) / range);
+      if (index == 0) {
+        path.moveTo(x, y);
+        fill.moveTo(x, size.height - bottom);
+        fill.lineTo(x, y);
+      } else {
+        path.lineTo(x, y);
+        fill.lineTo(x, y);
+      }
+    }
+    fill.lineTo(size.width - side, size.height - bottom);
+    fill.close();
+    canvas.drawPath(
+      fill,
+      Paint()..color = color.withValues(alpha: .12),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    for (var index = 0; index < points.length; index++) {
+      final x = side + (size.width - side * 2) * index / (points.length - 1);
+      final y = top + chartHeight * (1 - (points[index] - minPoint) / range);
+      canvas.drawCircle(Offset(x, y), 4.5, Paint()..color = _surface);
+      canvas.drawCircle(Offset(x, y), 3, Paint()..color = color);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProgressLinePainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.color != color;
+}
+
+class _PersonalProgressBar extends StatelessWidget {
+  const _PersonalProgressBar({
+    required this.label,
+    required this.detail,
+    required this.value,
+    required this.color,
+  });
+  final String label;
+  final String detail;
+  final double value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 13),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      color: _title,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+            ),
+            Text(detail,
+                style: const TextStyle(
+                    color: _body, fontSize: 10.5, fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 10,
+              color: color,
+              backgroundColor: color.withValues(alpha: .14),
+            ),
+          ),
+        ]),
+      );
+}
+
+class _FriendSelectionChip extends StatelessWidget {
+  const _FriendSelectionChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(99),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? _purple : _bg,
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(color: selected ? _purple : _border),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: selected ? Colors.white : _body,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900)),
+        ),
+      );
+}
+
+class _TrustedCircleBarChart extends StatelessWidget {
+  const _TrustedCircleBarChart({
+    required this.mine,
+    required this.focus,
+    required this.average,
+    required this.focusLabel,
+    required this.showingIndividual,
+  });
+  final CircleSnapshot mine;
+  final CircleSnapshot focus;
+  final CircleSnapshot average;
+  final String focusLabel;
+  final bool showingIndividual;
+
+  @override
+  Widget build(BuildContext context) {
+    final metrics = [
+      (
+        'Emergency',
+        mine.emergencyScore,
+        focus.emergencyScore,
+        average.emergencyScore
+      ),
+      (
+        'Saving habit',
+        mine.savingScore,
+        focus.savingScore,
+        average.savingScore
+      ),
+      ('Plan activity', mine.planScore, focus.planScore, average.planScore),
+    ];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const _CircleChartLegend(color: _purple, label: 'You'),
+        const SizedBox(width: 12),
+        _CircleChartLegend(color: _sage, label: focusLabel),
+        if (showingIndividual) ...[
+          const SizedBox(width: 12),
+          const _CircleChartLegend(color: _body, label: 'Circle avg'),
+        ],
+      ]),
+      const SizedBox(height: 12),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final metric in metrics)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _CircleMetricBars(
+                  label: metric.$1,
+                  mine: metric.$2,
+                  focus: metric.$3,
+                  average: showingIndividual ? metric.$4 : null,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        'Each bar is a coarse band, not a money amount: low · building · strong.',
+        style: TextStyle(
+            color: _body,
+            fontSize: 10.5,
+            height: 1.3,
+            fontWeight: FontWeight.w700),
+      ),
+    ]);
+  }
+}
+
+class _CircleChartLegend extends StatelessWidget {
+  const _CircleChartLegend({required this.color, required this.label});
+  final Color color;
+  final String label;
+  @override
+  Widget build(BuildContext context) => Flexible(
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+          const SizedBox(width: 5),
+          Flexible(
+              child: Text(label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: _body,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800))),
+        ]),
+      );
+}
+
+class _CircleMetricBars extends StatelessWidget {
+  const _CircleMetricBars({
+    required this.label,
+    required this.mine,
+    required this.focus,
+    required this.average,
+  });
+  final String label;
+  final double mine;
+  final double focus;
+  final double? average;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+        SizedBox(
+          height: 112,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _VerticalBandBar(value: mine, color: _purple),
+              const SizedBox(width: 5),
+              _VerticalBandBar(value: focus, color: _sage),
+              if (average != null) ...[
+                const SizedBox(width: 5),
+                _VerticalBandBar(value: average!, color: _body),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: _title, fontSize: 10, fontWeight: FontWeight.w900)),
+      ]);
+}
+
+class _VerticalBandBar extends StatelessWidget {
+  const _VerticalBandBar({required this.value, required this.color});
+  final double value;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 16,
+        height: 104,
+        alignment: Alignment.bottomCenter,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 240),
+          width: 16,
+          height: math.max(8, 104 * value.clamp(0.0, 1.0)),
+          decoration: BoxDecoration(
+              color: color, borderRadius: BorderRadius.circular(7)),
+        ),
+      );
+}
+
+class _PeerComparisonView extends StatelessWidget {
+  const _PeerComparisonView({super.key, required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ShelbyHeroHeader(
-          color: const Color(0xFF245C71),
-          icon: Icons.visibility_off_rounded,
-          title: 'Private context, not a leaderboard',
-          subtitle:
-              'Compare high-level progress with anonymous peers. No names, balances, or transactions are shown.',
-        ),
-        const SizedBox(height: 14),
-        _PeerMetric(
-          icon: Icons.shield_outlined,
-          title: 'Emergency readiness',
-          value: reserve >= 3
-              ? 'Strong base'
-              : reserve >= 1
-                  ? 'In progress'
-                  : 'Early stage',
-          detail: 'You are $reserveLabel.',
-          color: _sage,
-        ),
-        const SizedBox(height: 10),
-        _PeerMetric(
-          icon: Icons.flag_outlined,
-          title: 'Goal focus',
-          value: state.selectedActionIds.isEmpty
-              ? 'Set up next step'
-              : 'Active plan',
-          detail:
-              '$goalLabel · ${state.selectedActionIds.length} selected action${state.selectedActionIds.length == 1 ? '' : 's'}.',
-          color: _purple,
-        ),
-        const SizedBox(height: 10),
         if (state.isSignedIn && state.consentBenchmarking)
           StreamBuilder<BenchmarkAggregate?>(
             stream: CooperativeService()

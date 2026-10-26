@@ -734,6 +734,18 @@ class AppState extends ChangeNotifier {
     consentTrustedCircle = value;
     notifyListeners();
     await saveProfile();
+    // Widget tests and signed-out local previews deliberately have no
+    // Firebase app. The sharing snapshot exists only for a real account.
+    if (!_hasFirebaseUser) return;
+    if (value) {
+      await CooperativeService().publishTrustedCircleSnapshot(
+        emergencyMonths: benchmarkEmergencyMonths,
+        savingsRate: benchmarkSavingsRate,
+        selectedActions: selectedActionIds.length,
+      );
+    } else {
+      await CooperativeService().removeTrustedCircleSnapshot();
+    }
   }
 
   /// Test hook: route community traffic to [backend] instead of Firestore.

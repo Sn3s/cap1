@@ -189,6 +189,54 @@ class CooperativeService {
       .map((snapshot) => BenchmarkAggregate.fromContributions(
           snapshot.docs.map((doc) => doc.data())));
 
+  /// Writes the only progress information a user may explicitly share with
+  /// their trusted circle. These are categorical states, not balances,
+  /// income, transactions, health scores, or full goals.
+  Future<void> publishTrustedCircleSnapshot({
+    required double emergencyMonths,
+    required double savingsRate,
+    required int selectedActions,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw const CommunityException('Sign in first.');
+    await _db.collection('circleSnapshots').doc(user.uid).set({
+      'emergencyBand': emergencyMonths >= 3
+          ? 'three_plus'
+          : emergencyMonths >= 1
+              ? 'one_to_three'
+              : 'under_one',
+      'savingBand': savingsRate >= .2
+          ? 'twenty_plus'
+          : savingsRate > 0
+              ? 'some'
+              : 'none',
+      'planBand': selectedActions >= 3
+          ? 'committed'
+          : selectedActions > 0
+              ? 'active'
+              : 'starting',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> removeTrustedCircleSnapshot() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await _db.collection('circleSnapshots').doc(user.uid).delete();
+  }
+
+  Stream<List<CircleSnapshot>> circleSnapshotsFor(Iterable<String> friendUids) {
+    final ids = friendUids.toSet().take(10).toList();
+    if (ids.isEmpty) return Stream.value(const []);
+    return _db
+        .collection('circleSnapshots')
+        .where(FieldPath.documentId, whereIn: ids)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => CircleSnapshot.fromMap(doc.id, doc.data()))
+            .toList());
+  }
+
   Future<BenchmarkAggregate> _aggregateFor(String cohort, String month) async {
     final snapshot = await _db
         .collection('benchmarkContributions')
@@ -256,6 +304,47 @@ class BenchmarkAggregate {
       savingBands: savingBands,
     );
   }
+}
+
+/// An intentionally coarse, consented summary for named trusted-circle
+/// comparison. A friend can see only these bands after both are friends and
+/// the owner has enabled Trusted circle sharing.
+class CircleSnapshot {
+  const CircleSnapshot({
+    required this.uid,
+    required this.emergencyBand,
+    required this.savingBand,
+    required this.planBand,
+  });
+
+  final String uid;
+  final String emergencyBand;
+  final String savingBand;
+  final String planBand;
+
+  double get emergencyScore => switch (emergencyBand) {
+        'three_plus' => 1,
+        'one_to_three' => .5,
+        _ => 0,
+      };
+  double get savingScore => switch (savingBand) {
+        'twenty_plus' => 1,
+        'some' => .5,
+        _ => 0,
+      };
+  double get planScore => switch (planBand) {
+        'committed' => 1,
+        'active' => .5,
+        _ => 0,
+      };
+
+  static CircleSnapshot fromMap(String uid, Map<String, dynamic> data) =>
+      CircleSnapshot(
+        uid: uid,
+        emergencyBand: data['emergencyBand']?.toString() ?? 'under_one',
+        savingBand: data['savingBand']?.toString() ?? 'none',
+        planBand: data['planBand']?.toString() ?? 'starting',
+      );
 }
 
 class DecisionRequest {
