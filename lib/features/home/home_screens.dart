@@ -4486,7 +4486,7 @@ class _InsightsOverview extends StatelessWidget {
               ),
             ],
           ),
-          insight: _AiInsightNote(
+          insight: _InsightNote(
             trend: inflow == 0 && outflow == 0
                 ? _InsightTrend.neutral
                 : (netFlow >= 0 ? _InsightTrend.up : _InsightTrend.down),
@@ -4499,7 +4499,7 @@ class _InsightsOverview extends StatelessWidget {
               ? const _ReflectionEmpty(
                   message: 'No spending in the last 14 days yet.')
               : _ColoredBreakdownList(totals: categories),
-          insight: _AiInsightNote(
+          insight: _InsightNote(
             trend: _InsightTrend.neutral,
             text: _categoryInsight(categories, outflow),
           ),
@@ -4510,7 +4510,7 @@ class _InsightsOverview extends StatelessWidget {
               ? const _ReflectionEmpty(
                   message: 'No fund activity in the last 14 days yet.')
               : _ColoredBreakdownList(totals: sources),
-          insight: _AiInsightNote(
+          insight: _InsightNote(
             trend: _InsightTrend.neutral,
             text: _fundInsight(sources),
           ),
@@ -4650,7 +4650,7 @@ class _CashSafetyInterplayCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            _AiInsightNote(
+            _InsightNote(
               trend: score.gap <= 15
                   ? _InsightTrend.up
                   : score.total >= 60
@@ -4660,7 +4660,7 @@ class _CashSafetyInterplayCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Cash Flow keeps bills and wallet movement stable; Financial Safety protects that same cash flow from shocks. The combined score rewards progress in both and subtracts a small penalty when one goal is far ahead of the other.',
+              'Cash Flow keeps your bills paid and your wallet steady. Financial Safety protects that from surprises. The combined score goes up when both improve, and drops a little when one is far ahead of the other.',
               style: TextStyle(
                 color: totalColor,
                 fontSize: 10.5,
@@ -4739,50 +4739,50 @@ class _InterplayMiniScore extends StatelessWidget {
 
 String _cashSafetyInterplayInsight(_CashSafetyInterplayScore score) {
   if (score.gap <= 15) {
-    return 'Cash Flow and Financial Safety are moving together. Keep funding safety without draining everyday coverage.';
+    return 'Both goals are about even. Keep adding to your safety fund, but not so much that day-to-day money runs short.';
   }
-  return '${score.leadingGoal} is ahead by ${score.gap} points. The next best move should help ${score.laggingGoal} catch up without undoing the stronger goal.';
+  return '${score.leadingGoal} is ${score.gap} points ahead of ${score.laggingGoal}. Put your next effort into ${score.laggingGoal}.';
 }
 
 String _cashSafetyActionGuidance(_CashSafetyInterplayScore score) {
   if (score.gap <= 15) {
-    return 'Balanced progress: choose recommendations that preserve this spread, not just the highest single-goal score.';
+    return 'Both goals are moving at a similar pace. Keep doing what you are doing.';
   }
   if (score.cash < score.safety) {
-    return 'Cash Flow is the constraint: keep emergency contributions realistic until bills and weekly cash coverage recover.';
+    return 'Cash Flow is behind. Keep emergency fund deposits small until your bills and weekly spending are covered again.';
   }
-  return 'Financial Safety is the constraint: cash flow has room to direct a steadier amount into the emergency fund.';
+  return 'Financial Safety is behind. You have room to put a regular amount into your emergency fund.';
 }
 
 String _moneyFlowInsight(double inflow, double outflow) {
   if (inflow == 0 && outflow == 0) {
-    return 'No money movement in the last 14 days yet — log a transaction to start seeing insights here.';
+    return 'No money in or out in the last 14 days. Log a transaction to see a summary here.';
   }
   final net = inflow - outflow;
   if (net > 0) {
-    return 'You brought in ${money(net)} more than you spent over the last 14 days — a healthy positive net flow.';
+    return 'You brought in ${money(net)} more than you spent in the last 14 days.';
   }
   if (net < 0) {
-    return 'You spent ${money(net.abs())} more than you brought in over the last 14 days — worth keeping an eye on.';
+    return 'You spent ${money(net.abs())} more than you brought in in the last 14 days.';
   }
-  return 'Money in and money out balanced out exactly over the last 14 days.';
+  return 'Money in and money out were the same in the last 14 days.';
 }
 
 String _categoryInsight(Map<String, double> categories, double outflow) {
   if (categories.isEmpty) {
-    return 'Nothing has been categorized as spending in the last 14 days yet.';
+    return 'No labeled spending in the last 14 days.';
   }
   final top = categories.entries.first;
   final pct = outflow > 0 ? (top.value / outflow * 100).round() : 0;
-  return '${top.key} was your biggest category over the last 14 days — $pct% of your spending (${money(top.value)}).';
+  return 'You spent the most on ${top.key}: ${money(top.value)}, or $pct% of your spending in the last 14 days.';
 }
 
 String _fundInsight(Map<String, double> sources) {
   if (sources.isEmpty) {
-    return 'No fund has handled any transactions in the last 14 days yet.';
+    return 'No spending came from your funds in the last 14 days.';
   }
   final top = sources.entries.first;
-  return '${top.key} saw the most activity over the last 14 days, handling ${money(top.value)} in total.';
+  return 'Most of your spending came from your ${top.key}: ${money(top.value)} in the last 14 days.';
 }
 
 enum _InsightTrend { up, down, neutral }
@@ -4888,8 +4888,8 @@ class _ColoredBreakdownList extends StatelessWidget {
   }
 }
 
-class _AiInsightNote extends StatelessWidget {
-  const _AiInsightNote({required this.text, required this.trend});
+class _InsightNote extends StatelessWidget {
+  const _InsightNote({required this.text, required this.trend});
   final String text;
   final _InsightTrend trend;
 
@@ -4912,42 +4912,21 @@ class _AiInsightNote extends StatelessWidget {
         color: const Color(0xFFF4F4F6),
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.auto_awesome_rounded, color: _purple, size: 12),
-              const SizedBox(width: 5),
-              const Text(
-                'AI INSIGHT',
-                style: TextStyle(
-                  color: _purple,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.0,
-                ),
+          Icon(trendIcon, color: trendColor, size: 15),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(trendIcon, color: trendColor, size: 15),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  text,
-                  style: const TextStyle(
-                    color: _title,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -7112,9 +7091,9 @@ class _InsightMonthSelector extends StatelessWidget {
 String _cashIndexInsight(_CashMonthInsight month) {
   final billScore = _scorePercent(month.billScore);
   if (month.canPayBills) {
-    return 'Your fund, wallet and cash cover ${money(month.billNeed)} in bills for ${_monthLabel(month.start)} with room to spare — ${money(month.walletAvailable - month.billNeed)} left over.';
+    return 'You have enough to pay ${_monthLabel(month.start)}\'s ${money(month.billNeed)} in bills, with ${money(month.walletAvailable - month.billNeed)} left over.';
   }
-  return "You're at $billScore% of what you need to cover ${_monthLabel(month.start)}'s bills — ${money(month.billNeed - month.walletAvailable)} short of the ${money(month.billNeed)} needed.";
+  return 'You have $billScore% of what ${_monthLabel(month.start)}\'s bills need. You\'re ${money(month.billNeed - month.walletAvailable)} short of ${money(month.billNeed)}.';
 }
 
 class _AvailableCashAnswerCard extends StatelessWidget {
@@ -7394,7 +7373,7 @@ class _AvailableCashAnswerCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            _AiInsightNote(
+            _InsightNote(
               trend: month.canPayBills ? _InsightTrend.up : _InsightTrend.down,
               text: _cashIndexInsight(month),
             ),
@@ -7719,7 +7698,6 @@ class _ActionMeasureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final measures = _actionMeasures(action);
     final overall = _actionOverallScore(action);
     return Material(
       color: _surface,
@@ -7792,11 +7770,6 @@ class _ActionMeasureCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 _ActionPartCard(part: part),
               ],
-              const SizedBox(height: 12),
-              _AiInsightNote(
-                trend: _actionInsightTrend(measures),
-                text: _actionInsight(action, measures),
-              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -7925,24 +7898,21 @@ _InsightTrend _actionInsightTrend(List<_ActionMeasure> measures) {
 String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
   final scored = measures.where((measure) => measure.hasScore).toList();
   if (scored.isEmpty) {
-    return 'Not enough data to make a calculation yet. Add or sync more labeled activity for this action.';
+    return 'Not enough data yet. Label more transactions for this action to see how it\'s going.';
   }
   final lowest = scored.reduce((a, b) => a.percent! <= b.percent! ? a : b);
   if (lowest.percent! >= 80) {
-    return "Strong performance across the board for this action — keep it up.";
+    return "You're doing well on this action. Keep going.";
   }
-  final label = lowest.label.toLowerCase();
-  final detail = switch (lowest.label) {
+  return switch (lowest.label) {
     'Consistency' => action.period == 'week'
-        ? "you're not logging activity for this action every week — try to keep it up weekly."
-        : "you're not keeping this action up every ${action.period} — try not to skip one.",
+        ? "Some weeks had no activity for this action. Try to do it every week."
+        : "You skipped this action in some ${action.periodPlural}. Try to do it every ${action.period}.",
     'Adherence' => lowest.percent! < 50
-        ? "you're hitting the target less often than not — consider a smaller target if it feels out of reach."
-        : "you're missing the target for some ${action.periodPlural} — check what was different in those.",
-    _ =>
-      "the target has been hard to hold onto some weeks, even with partial progress.",
+        ? "You missed the target more often than you hit it. A smaller target might be easier to keep."
+        : "You missed the target in some ${action.periodPlural}. Look at what was different then.",
+    _ => "You got part of the way to the target in some weeks, but not all of it.",
   };
-  return 'Your $label is the area to watch here — $detail';
 }
 
 Widget _dialogSectionLabel(String text) => Text(
@@ -8331,6 +8301,11 @@ void _showCashActionScoreDetails(
                           ),
                         ),
                       ],
+                      const SizedBox(height: 12),
+                      _InsightNote(
+                        trend: _actionInsightTrend(measures),
+                        text: _actionInsight(action, measures),
+                      ),
                       const SizedBox(height: 12),
                       Container(
                         width: double.infinity,
