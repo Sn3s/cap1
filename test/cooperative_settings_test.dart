@@ -44,6 +44,29 @@ void main() {
     expect(state.benchmarkSavingsRate, .25);
   });
 
+  test('benchmark aggregation keeps optional standing bands anonymous', () {
+    final aggregate = BenchmarkAggregate.fromContributions(const [
+      {
+        'emergencyBand': 'one_to_three',
+        'savingBand': 'some',
+        'cashflowBand': 'balanced',
+        'goalBand': 'building',
+        'pyramidBand': 'developing',
+      },
+      {
+        'emergencyBand': 'three_plus',
+        'savingBand': 'twenty_plus',
+        'cashflowBand': 'stable',
+        'goalBand': 'on_track',
+        'pyramidBand': 'advancing',
+      },
+    ]);
+
+    expect(aggregate.cashflowBands, {'balanced': 1, 'stable': 1});
+    expect(aggregate.goalBands, {'building': 1, 'on_track': 1});
+    expect(aggregate.pyramidBands, {'developing': 1, 'advancing': 1});
+  });
+
   testWidgets('privacy settings expose all cooperative controls',
       (tester) async {
     final state = AppState()..uid = 'signed-in-user';

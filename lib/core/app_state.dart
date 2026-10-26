@@ -270,6 +270,22 @@ class AppState extends ChangeNotifier {
     return baselineIncome > 0 ? savedAmount / baselineIncome : 0;
   }
 
+  /// A derived, non-monetary cash-flow signal for voluntary comparison.
+  /// The ratio itself is never published; only a three-state band is used.
+  double get benchmarkCashFlowRatio {
+    final baselineIncome = income > 0
+        ? income
+        : monthlySalary > 0
+            ? monthlySalary
+            : irregularIncomeFloor;
+    return baselineIncome <= 0 ? 0 : monthlySurplus / baselineIncome;
+  }
+
+  /// Goal feasibility is similarly reduced to a coarse readiness state before
+  /// it can leave the private profile.
+  double get benchmarkGoalReadiness =>
+      selectedGoalId.trim().isEmpty ? 0 : feasibilityScore / 100;
+
   double get emergencyFundTarget => monthlyEssentialExpenseTotal > 0
       ? monthlyEssentialExpenseTotal * 3
       : math.max(30000, expenses * 3);
@@ -742,6 +758,8 @@ class AppState extends ChangeNotifier {
         emergencyMonths: benchmarkEmergencyMonths,
         savingsRate: benchmarkSavingsRate,
         selectedActions: selectedActionIds.length,
+        cashFlowRatio: benchmarkCashFlowRatio,
+        goalReadiness: benchmarkGoalReadiness,
       );
     } else {
       await CooperativeService().removeTrustedCircleSnapshot();

@@ -101,6 +101,8 @@ class CooperativeService {
     required String employment,
     required double emergencyMonths,
     required double savingsRate,
+    required double cashFlowRatio,
+    required double goalReadiness,
   }) async {
     final cohort = _benchmarkCohort(employment);
     final month = _benchmarkMonth();
@@ -120,6 +122,14 @@ class CooperativeService {
           : savingsRate > 0
               ? 'some'
               : 'none',
+      'cashflowBand': _cashflowBand(cashFlowRatio),
+      'goalBand': _goalBand(goalReadiness),
+      'pyramidBand': _derivePyramidBand(
+        emergencyMonths: emergencyMonths,
+        savingsRate: savingsRate,
+        cashFlowRatio: cashFlowRatio,
+        goalReadiness: goalReadiness,
+      ),
       'updatedAt': FieldValue.serverTimestamp(),
     });
     final aggregate = await _aggregateFor(cohort, month);
@@ -196,6 +206,8 @@ class CooperativeService {
     required double emergencyMonths,
     required double savingsRate,
     required int selectedActions,
+    required double cashFlowRatio,
+    required double goalReadiness,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw const CommunityException('Sign in first.');
@@ -215,6 +227,14 @@ class CooperativeService {
           : selectedActions > 0
               ? 'active'
               : 'starting',
+      'cashflowBand': _cashflowBand(cashFlowRatio),
+      'goalBand': _goalBand(goalReadiness),
+      'pyramidBand': _derivePyramidBand(
+        emergencyMonths: emergencyMonths,
+        savingsRate: savingsRate,
+        cashFlowRatio: cashFlowRatio,
+        goalReadiness: goalReadiness,
+      ),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -248,6 +268,48 @@ class CooperativeService {
   }
 }
 
+String _cashflowBand(double ratio) => ratio >= .15
+    ? 'stable'
+    : ratio >= 0
+        ? 'balanced'
+        : 'tight';
+
+String _goalBand(double readiness) => readiness >= .70
+    ? 'on_track'
+    : readiness >= .40
+        ? 'building'
+        : 'starting';
+
+String _derivePyramidBand({
+  required double emergencyMonths,
+  required double savingsRate,
+  required double cashFlowRatio,
+  required double goalReadiness,
+}) {
+  final emergency = emergencyMonths >= 3
+      ? 1.0
+      : emergencyMonths >= 1
+          ? .5
+          : 0;
+  final saving = savingsRate >= .2
+      ? 1.0
+      : savingsRate > 0
+          ? .5
+          : 0;
+  final cashflow = cashFlowRatio >= .15
+      ? 1.0
+      : cashFlowRatio >= 0
+          ? .5
+          : 0;
+  final mean =
+      (emergency + saving + cashflow + goalReadiness.clamp(0.0, 1.0)) / 4;
+  return mean >= .72
+      ? 'advancing'
+      : mean >= .38
+          ? 'developing'
+          : 'foundation';
+}
+
 const benchmarkMinimumCohort = 3;
 
 String _benchmarkMonth() {
@@ -277,16 +339,25 @@ class BenchmarkAggregate {
     required this.eligibleCount,
     required this.emergencyBands,
     required this.savingBands,
+    required this.cashflowBands,
+    required this.goalBands,
+    required this.pyramidBands,
   });
 
   final int eligibleCount;
   final Map<String, int> emergencyBands;
   final Map<String, int> savingBands;
+  final Map<String, int> cashflowBands;
+  final Map<String, int> goalBands;
+  final Map<String, int> pyramidBands;
 
   static BenchmarkAggregate fromContributions(
       Iterable<Map<String, dynamic>> contributions) {
     final emergencyBands = <String, int>{};
     final savingBands = <String, int>{};
+    final cashflowBands = <String, int>{};
+    final goalBands = <String, int>{};
+    final pyramidBands = <String, int>{};
     var eligibleCount = 0;
     for (final contribution in contributions) {
       final emergency = contribution['emergencyBand']?.toString();
@@ -297,11 +368,26 @@ class BenchmarkAggregate {
       eligibleCount += 1;
       emergencyBands[emergency!] = (emergencyBands[emergency] ?? 0) + 1;
       savingBands[saving!] = (savingBands[saving] ?? 0) + 1;
+      final cashflow = contribution['cashflowBand']?.toString();
+      final goal = contribution['goalBand']?.toString();
+      final pyramid = contribution['pyramidBand']?.toString();
+      if (const {'tight', 'balanced', 'stable'}.contains(cashflow)) {
+        cashflowBands[cashflow!] = (cashflowBands[cashflow] ?? 0) + 1;
+      }
+      if (const {'starting', 'building', 'on_track'}.contains(goal)) {
+        goalBands[goal!] = (goalBands[goal] ?? 0) + 1;
+      }
+      if (const {'foundation', 'developing', 'advancing'}.contains(pyramid)) {
+        pyramidBands[pyramid!] = (pyramidBands[pyramid] ?? 0) + 1;
+      }
     }
     return BenchmarkAggregate(
       eligibleCount: eligibleCount,
       emergencyBands: emergencyBands,
       savingBands: savingBands,
+      cashflowBands: cashflowBands,
+      goalBands: goalBands,
+      pyramidBands: pyramidBands,
     );
   }
 }
@@ -315,12 +401,18 @@ class CircleSnapshot {
     required this.emergencyBand,
     required this.savingBand,
     required this.planBand,
+    required this.cashflowBand,
+    required this.goalBand,
+    required this.pyramidBand,
   });
 
   final String uid;
   final String emergencyBand;
   final String savingBand;
   final String planBand;
+  final String cashflowBand;
+  final String goalBand;
+  final String pyramidBand;
 
   double get emergencyScore => switch (emergencyBand) {
         'three_plus' => 1,
@@ -337,6 +429,21 @@ class CircleSnapshot {
         'active' => .5,
         _ => 0,
       };
+  double get cashflowScore => switch (cashflowBand) {
+        'stable' => 1,
+        'balanced' => .5,
+        _ => 0,
+      };
+  double get goalScore => switch (goalBand) {
+        'on_track' => 1,
+        'building' => .5,
+        _ => 0,
+      };
+  double get pyramidScore => switch (pyramidBand) {
+        'advancing' => 1,
+        'developing' => .5,
+        _ => 0,
+      };
 
   static CircleSnapshot fromMap(String uid, Map<String, dynamic> data) =>
       CircleSnapshot(
@@ -344,6 +451,9 @@ class CircleSnapshot {
         emergencyBand: data['emergencyBand']?.toString() ?? 'under_one',
         savingBand: data['savingBand']?.toString() ?? 'none',
         planBand: data['planBand']?.toString() ?? 'starting',
+        cashflowBand: data['cashflowBand']?.toString() ?? 'tight',
+        goalBand: data['goalBand']?.toString() ?? 'starting',
+        pyramidBand: data['pyramidBand']?.toString() ?? 'foundation',
       );
 }
 

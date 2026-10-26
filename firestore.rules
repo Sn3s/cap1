@@ -110,10 +110,19 @@ service cloud.firestore {
       }
       function validCircleSnapshot() {
         return request.resource.data.keys().hasOnly(
-             ['emergencyBand', 'savingBand', 'planBand', 'updatedAt'])
+             ['emergencyBand', 'savingBand', 'planBand', 'cashflowBand', 'goalBand', 'pyramidBand', 'updatedAt'])
           && request.resource.data.emergencyBand in ['under_one', 'one_to_three', 'three_plus']
           && request.resource.data.savingBand in ['none', 'some', 'twenty_plus']
           && request.resource.data.planBand in ['starting', 'active', 'committed']
+          // Permit the former three-signal payload during the client rollout,
+          // or require all three new derived standing signals together.
+          && (request.resource.data.keys().hasOnly(
+                ['emergencyBand', 'savingBand', 'planBand', 'updatedAt'])
+              || (request.resource.data.keys().hasAll(
+                    ['cashflowBand', 'goalBand', 'pyramidBand'])
+                  && request.resource.data.cashflowBand in ['tight', 'balanced', 'stable']
+                  && request.resource.data.goalBand in ['starting', 'building', 'on_track']
+                  && request.resource.data.pyramidBand in ['foundation', 'developing', 'advancing']))
           && request.resource.data.updatedAt == request.time;
       }
       allow read: if signedIn() && (me() == userId
@@ -296,7 +305,7 @@ service cloud.firestore {
       }
       function validContribution() {
         return request.resource.data.keys().hasOnly(
-             ['month', 'cohort', 'emergencyBand', 'savingBand', 'updatedAt'])
+             ['month', 'cohort', 'emergencyBand', 'savingBand', 'cashflowBand', 'goalBand', 'pyramidBand', 'updatedAt'])
           && request.resource.data.month is string
           && request.resource.data.month.matches('^[0-9]{4}-[0-9]{2}$')
           && request.resource.data.cohort is string
@@ -304,11 +313,22 @@ service cloud.firestore {
           && request.resource.data.cohort.size() <= 40
           && request.resource.data.emergencyBand in ['under_one', 'one_to_three', 'three_plus']
           && request.resource.data.savingBand in ['none', 'some', 'twenty_plus']
+          // Legacy two-signal contributions remain writable while older app
+          // clients are live; new contributions carry the complete standing
+          // signal set so the anonymous dashboard can show all distributions.
+          && (request.resource.data.keys().hasOnly(
+                ['month', 'cohort', 'emergencyBand', 'savingBand', 'updatedAt'])
+              || (request.resource.data.keys().hasAll(
+                    ['cashflowBand', 'goalBand', 'pyramidBand'])
+                  && request.resource.data.cashflowBand in ['tight', 'balanced', 'stable']
+                  && request.resource.data.goalBand in ['starting', 'building', 'on_track']
+                  && request.resource.data.pyramidBand in ['foundation', 'developing', 'advancing']))
           && request.resource.data.updatedAt == request.time;
       }
-      // Records contain only two categorical bands and a random pseudonymous
-      // document id. Opted-in users can query them so their own device can
-      // calculate the aggregate; no income, amount, account, or uid is stored.
+      // Records contain only categorical standing bands and a random
+      // pseudonymous document id. Opted-in users can query them so their own
+      // device can calculate the aggregate; no income, amount, account, or
+      // uid is stored.
       allow read: if benchmarkOptedIn();
       allow create, update: if benchmarkOptedIn() && myContribution() && validContribution();
       allow delete: if false;

@@ -960,6 +960,8 @@ class _CommunityPageState extends State<CommunityPage> {
           if (state.isSignedIn &&
               state.consentCommunity &&
               state.uid != null) ...[
+            _CooperativeValidationGuide(friendCount: community.friends.length),
+            const SizedBox(height: 14),
             _DecisionRequestSection(uid: state.uid!),
             const SizedBox(height: 14),
           ],
@@ -1039,6 +1041,144 @@ class _DecisionRequestSection extends StatelessWidget {
                 ],
               ]);
         },
+      );
+}
+
+/// Makes the paper's cooperative-validation loop legible before the user
+/// starts posting: ask, collect structured perspectives, then decide.
+class _CooperativeValidationGuide extends StatelessWidget {
+  const _CooperativeValidationGuide({required this.friendCount});
+  final int friendCount;
+
+  @override
+  Widget build(BuildContext context) => AppCard(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: _bellySoft,
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(Icons.forum_outlined, color: _purple, size: 21),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Decision support from your circle',
+                        style: TextStyle(
+                            color: _title,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900)),
+                    Text('Perspective and support—not permission.',
+                        style: TextStyle(
+                            color: _body,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700)),
+                  ]),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          Row(children: [
+            const _CooperativeStep(
+              number: '1',
+              label: 'Ask a decision question',
+              icon: Icons.help_outline_rounded,
+            ),
+            _CooperativeStepConnector(active: friendCount > 0),
+            const _CooperativeStep(
+              number: '2',
+              label: 'Receive votes and views',
+              icon: Icons.how_to_vote_outlined,
+            ),
+            _CooperativeStepConnector(active: friendCount > 0),
+            const _CooperativeStep(
+              number: '3',
+              label: 'Choose for yourself',
+              icon: Icons.task_alt_rounded,
+            ),
+          ]),
+          const SizedBox(height: 13),
+          Text(
+            friendCount == 0
+                ? 'Add trusted friends to invite a circle into a decision. Your personal financial data stays private.'
+                : 'Choose “Decision” when you post below. Shelby can summarise shared views, but your final financial action remains yours.',
+            style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.32,
+                fontWeight: FontWeight.w700),
+          ),
+        ]),
+      );
+}
+
+class _CooperativeStep extends StatelessWidget {
+  const _CooperativeStep({
+    required this.number,
+    required this.label,
+    required this.icon,
+  });
+  final String number;
+  final String label;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: Column(children: [
+          Stack(clipBehavior: Clip.none, children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: _purple.withValues(alpha: .10),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 17, color: _purple),
+            ),
+            Positioned(
+              right: -3,
+              top: -3,
+              child: Container(
+                width: 15,
+                height: 15,
+                decoration:
+                    const BoxDecoration(color: _purple, shape: BoxShape.circle),
+                alignment: Alignment.center,
+                child: Text(number,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900)),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          Text(label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: _title,
+                  fontSize: 9,
+                  height: 1.15,
+                  fontWeight: FontWeight.w800)),
+        ]),
+      );
+}
+
+class _CooperativeStepConnector extends StatelessWidget {
+  const _CooperativeStepConnector({required this.active});
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 10,
+        height: 1,
+        margin: const EdgeInsets.only(bottom: 28),
+        color: active ? _purple.withValues(alpha: .35) : _border,
       );
 }
 
@@ -1377,6 +1517,8 @@ class _PeerDashboardState extends State<_PeerDashboard> {
         emergencyMonths: state.benchmarkEmergencyMonths,
         savingsRate: state.benchmarkSavingsRate,
         selectedActions: state.selectedActionIds.length,
+        cashFlowRatio: state.benchmarkCashFlowRatio,
+        goalReadiness: state.benchmarkGoalReadiness,
       );
     } catch (_) {
       // The comparison itself remains usable if a background refresh is
@@ -1525,7 +1667,56 @@ class _YourComparisonView extends StatelessWidget {
     final trend = _emergencyTrend(state);
     final hasHistory = state.d1Ledger.isNotEmpty;
     final trendChange = trend.last - trend.first;
+    final health = state.healthScore;
+    final goalReadiness = state.benchmarkGoalReadiness;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      AppCard(
+        padding: const EdgeInsets.fromLTRB(18, 17, 18, 16),
+        child: Row(children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: _bellySoft,
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(Icons.account_tree_outlined, color: _purple),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Private financial standing',
+                  style: TextStyle(
+                      color: _title,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text(
+                health == null
+                    ? 'Build your first actions to establish an index.'
+                    : 'Your Financial Pyramid Health Index is private to you.',
+                style: const TextStyle(
+                    color: _body, fontSize: 10.5, fontWeight: FontWeight.w700),
+              ),
+            ]),
+          ),
+          if (health != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: _purple.withValues(alpha: .11),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('${health.round()}/100',
+                  style: const TextStyle(
+                      color: _purple,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900)),
+            ),
+        ]),
+      ),
+      const SizedBox(height: 12),
       AppCard(
         padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1588,6 +1779,16 @@ class _YourComparisonView extends StatelessWidget {
                   color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
           const SizedBox(height: 16),
           _PersonalProgressBar(
+            label: 'Cash-flow stability',
+            detail: state.benchmarkCashFlowRatio >= .15
+                ? 'Stable monthly margin'
+                : state.benchmarkCashFlowRatio >= 0
+                    ? 'Balanced, with room to grow'
+                    : 'Needs a tighter monthly plan',
+            value: ((state.benchmarkCashFlowRatio + .05) / .20).clamp(0.0, 1.0),
+            color: _brand,
+          ),
+          _PersonalProgressBar(
             label: 'Emergency coverage',
             detail: emergency >= 3
                 ? '3+ months covered'
@@ -1602,10 +1803,11 @@ class _YourComparisonView extends StatelessWidget {
             color: _amber,
           ),
           _PersonalProgressBar(
-            label: 'Plan follow-through',
-            detail:
-                '${state.selectedActionIds.length} selected action${state.selectedActionIds.length == 1 ? '' : 's'}',
-            value: (state.selectedActionIds.length / 3).clamp(0.0, 1.0),
+            label: 'Goal momentum',
+            detail: state.selectedGoal.trim().isEmpty
+                ? 'Choose a goal to create a path'
+                : '${(goalReadiness * 100).round()}% feasibility for your current goal',
+            value: goalReadiness.clamp(0.0, 1.0),
             color: _purple,
           ),
         ]),
@@ -1642,6 +1844,22 @@ class _FriendsComparisonView extends StatelessWidget {
             : state.selectedActionIds.isEmpty
                 ? 'starting'
                 : 'active',
+        cashflowBand: state.benchmarkCashFlowRatio >= .15
+            ? 'stable'
+            : state.benchmarkCashFlowRatio >= 0
+                ? 'balanced'
+                : 'tight',
+        goalBand: state.benchmarkGoalReadiness >= .70
+            ? 'on_track'
+            : state.benchmarkGoalReadiness >= .40
+                ? 'building'
+                : 'starting',
+        pyramidBand: _derivePyramidBand(
+          emergencyMonths: state.benchmarkEmergencyMonths,
+          savingsRate: state.benchmarkSavingsRate,
+          cashFlowRatio: state.benchmarkCashFlowRatio,
+          goalReadiness: state.benchmarkGoalReadiness,
+        ),
       );
 
   @override
@@ -1751,7 +1969,7 @@ class _FriendsComparisonView extends StatelessWidget {
             icon: Icons.verified_user_outlined,
             color: _purple,
             text:
-                'The chart compares only three bands: emergency readiness, saving habit, and plan activity. Each friend can turn this sharing off at any time.',
+                'The chart compares derived standing signals: cash flow, emergency readiness, saving habit, goal momentum, and pyramid progress. Each friend can turn sharing off at any time.',
           ),
         ]);
       },
@@ -1778,11 +1996,29 @@ class _FriendsComparisonView extends StatelessWidget {
         : score >= .25
             ? 'active'
             : 'starting';
+    String cashflow(double score) => score >= .75
+        ? 'stable'
+        : score >= .25
+            ? 'balanced'
+            : 'tight';
+    String goal(double score) => score >= .75
+        ? 'on_track'
+        : score >= .25
+            ? 'building'
+            : 'starting';
+    String pyramid(double score) => score >= .75
+        ? 'advancing'
+        : score >= .25
+            ? 'developing'
+            : 'foundation';
     return CircleSnapshot(
       uid: 'circle-average',
       emergencyBand: emergency(mean((item) => item.emergencyScore)),
       savingBand: saving(mean((item) => item.savingScore)),
       planBand: plan(mean((item) => item.planScore)),
+      cashflowBand: cashflow(mean((item) => item.cashflowScore)),
+      goalBand: goal(mean((item) => item.goalScore)),
+      pyramidBand: pyramid(mean((item) => item.pyramidScore)),
     );
   }
 }
@@ -1799,7 +2035,7 @@ class _TrustedCircleRequired extends StatelessWidget {
                   color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
           const SizedBox(height: 5),
           const Text(
-            'Turn on Trusted circle sharing in Privacy setup to see this view. It shares only three coarse progress bands with current friends—never balances, income, transactions, or your health score.',
+            'Turn on Trusted circle sharing in Privacy setup to see this view. It shares derived cash-flow, readiness, goal, and pyramid states with current friends—never balances, income, transactions, full goals, or your health score.',
             style: TextStyle(
                 color: _body,
                 fontSize: 11.5,
@@ -2119,18 +2355,20 @@ class _TrustedCircleBarChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final metrics = [
       (
+        'Cash flow',
+        mine.cashflowScore,
+        focus.cashflowScore,
+        average.cashflowScore
+      ),
+      (
         'Emergency',
         mine.emergencyScore,
         focus.emergencyScore,
         average.emergencyScore
       ),
-      (
-        'Saving habit',
-        mine.savingScore,
-        focus.savingScore,
-        average.savingScore
-      ),
-      ('Plan activity', mine.planScore, focus.planScore, average.planScore),
+      ('Saving', mine.savingScore, focus.savingScore, average.savingScore),
+      ('Goals', mine.goalScore, focus.goalScore, average.goalScore),
+      ('Pyramid', mine.pyramidScore, focus.pyramidScore, average.pyramidScore),
     ];
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
@@ -2327,6 +2565,8 @@ class _PeerComparisonView extends StatelessWidget {
                 aggregate: benchmark,
                 emergencyMonths: state.benchmarkEmergencyMonths,
                 savingsRate: state.benchmarkSavingsRate,
+                cashFlowRatio: state.benchmarkCashFlowRatio,
+                goalReadiness: state.benchmarkGoalReadiness,
                 cohortLabel: state.employmentStatus,
               );
             },
@@ -2377,6 +2617,8 @@ class _PeerComparisonView extends StatelessWidget {
                     employment: state.employmentStatus,
                     emergencyMonths: state.benchmarkEmergencyMonths,
                     savingsRate: state.benchmarkSavingsRate,
+                    cashFlowRatio: state.benchmarkCashFlowRatio,
+                    goalReadiness: state.benchmarkGoalReadiness,
                   );
                   if (!context.mounted) return;
                   showAppNotice(
@@ -2422,12 +2664,16 @@ class _BenchmarkInsights extends StatelessWidget {
     required this.aggregate,
     required this.emergencyMonths,
     required this.savingsRate,
+    required this.cashFlowRatio,
+    required this.goalReadiness,
     required this.cohortLabel,
   });
 
   final BenchmarkAggregate aggregate;
   final double emergencyMonths;
   final double savingsRate;
+  final double cashFlowRatio;
+  final double goalReadiness;
   final String cohortLabel;
 
   String get _emergencyBand => emergencyMonths >= 3
@@ -2441,6 +2687,25 @@ class _BenchmarkInsights extends StatelessWidget {
       : savingsRate > 0
           ? 'some'
           : 'none';
+
+  String get _cashflowBand => cashFlowRatio >= .15
+      ? 'stable'
+      : cashFlowRatio >= 0
+          ? 'balanced'
+          : 'tight';
+
+  String get _goalBand => goalReadiness >= .70
+      ? 'on_track'
+      : goalReadiness >= .40
+          ? 'building'
+          : 'starting';
+
+  String get _pyramidBand => _derivePyramidBand(
+        emergencyMonths: emergencyMonths,
+        savingsRate: savingsRate,
+        cashFlowRatio: cashFlowRatio,
+        goalReadiness: goalReadiness,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -2512,14 +2777,86 @@ class _BenchmarkInsights extends StatelessWidget {
             const SizedBox(width: 9),
             Expanded(
               child: _PeerSnapshotStat(
-                label: 'Your emergency band',
-                value: _displayBand(_emergencyBand),
-                detail: 'coarse only',
-                color: _amber,
+                label: 'Your pyramid state',
+                value: _displayPyramidBand(_pyramidBand),
+                detail: 'derived, private inputs',
+                color: _purple,
               ),
             ),
           ]),
           const SizedBox(height: 18),
+          _CohortDistributionChart(
+            icon: Icons.account_tree_outlined,
+            title: 'Financial Pyramid progress',
+            subtitle: 'A derived standing signal across the private pyramid',
+            color: _purple,
+            bands: [
+              _CohortBand(
+                label: 'Foundation',
+                count: aggregate.pyramidBands['foundation'] ?? 0,
+                color: const Color(0xFFE77E63),
+                selected: _pyramidBand == 'foundation',
+              ),
+              _CohortBand(
+                label: 'Developing',
+                count: aggregate.pyramidBands['developing'] ?? 0,
+                color: _amber,
+                selected: _pyramidBand == 'developing',
+              ),
+              _CohortBand(
+                label: 'Advancing',
+                count: aggregate.pyramidBands['advancing'] ?? 0,
+                color: _sage,
+                selected: _pyramidBand == 'advancing',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _CohortTakeaway(
+            icon: Icons.account_balance_outlined,
+            text: _pyramidTakeaway(),
+            color: _purple,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: _border),
+          ),
+          _CohortDistributionChart(
+            icon: Icons.waterfall_chart_rounded,
+            title: 'Cash-flow stability',
+            subtitle: 'Room between the monthly plan and essential spending',
+            color: _brand,
+            bands: [
+              _CohortBand(
+                label: 'Tight',
+                count: aggregate.cashflowBands['tight'] ?? 0,
+                color: const Color(0xFFE77E63),
+                selected: _cashflowBand == 'tight',
+              ),
+              _CohortBand(
+                label: 'Balanced',
+                count: aggregate.cashflowBands['balanced'] ?? 0,
+                color: _amber,
+                selected: _cashflowBand == 'balanced',
+              ),
+              _CohortBand(
+                label: 'Stable',
+                count: aggregate.cashflowBands['stable'] ?? 0,
+                color: _sage,
+                selected: _cashflowBand == 'stable',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _CohortTakeaway(
+            icon: Icons.tips_and_updates_outlined,
+            text: _cashflowTakeaway(),
+            color: _brand,
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: _border),
+          ),
           _CohortDistributionChart(
             icon: Icons.shield_outlined,
             title: 'Emergency coverage',
@@ -2588,9 +2925,45 @@ class _BenchmarkInsights extends StatelessWidget {
             text: _savingTakeaway(savingStrong),
             color: _sage,
           ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: _border),
+          ),
+          _CohortDistributionChart(
+            icon: Icons.flag_outlined,
+            title: 'Goal momentum',
+            subtitle: 'Feasibility and progress towards a current plan',
+            color: _purple,
+            bands: [
+              _CohortBand(
+                label: 'Starting',
+                count: aggregate.goalBands['starting'] ?? 0,
+                color: const Color(0xFFE77E63),
+                selected: _goalBand == 'starting',
+              ),
+              _CohortBand(
+                label: 'Building',
+                count: aggregate.goalBands['building'] ?? 0,
+                color: _amber,
+                selected: _goalBand == 'building',
+              ),
+              _CohortBand(
+                label: 'On track',
+                count: aggregate.goalBands['on_track'] ?? 0,
+                color: _sage,
+                selected: _goalBand == 'on_track',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _CohortTakeaway(
+            icon: Icons.flag_circle_outlined,
+            text: _goalTakeaway(),
+            color: _purple,
+          ),
           const SizedBox(height: 14),
           const Text(
-            '“You” marks only your own coarse band. Every other result is an anonymous cohort total—never an income, balance, transaction, score, or name.',
+            '“You” marks only your own derived band. Every other result is an anonymous cohort total—never an income, balance, transaction, exact index, goal detail, or name.',
             style: TextStyle(
                 color: _body,
                 fontSize: 11,
@@ -2622,12 +2995,39 @@ class _BenchmarkInsights extends StatelessWidget {
         _ =>
           'Your snapshot is currently in the “not setting aside yet” band. Refresh after your next update.',
       };
+
+  String _pyramidTakeaway() => switch (_pyramidBand) {
+        'advancing' =>
+          'Your private inputs place you in the advancing pyramid state. Keep building the habits that support your current goal.',
+        'developing' =>
+          'Your standing is developing. A focused next action can strengthen the layer of your plan that needs attention.',
+        _ =>
+          'You are establishing the foundation. The comparison is context, not a scorecard or a ranking.',
+      };
+
+  String _cashflowTakeaway() => switch (_cashflowBand) {
+        'stable' =>
+          'Your monthly plan has a stable margin. Consider directing part of it to the goal you chose.',
+        'balanced' =>
+          'Your cash flow is currently balanced. A small buffer can make the plan more resilient.',
+        _ =>
+          'Your plan is tight right now. Review essential spending before adding a new financial commitment.',
+      };
+
+  String _goalTakeaway() => switch (_goalBand) {
+        'on_track' =>
+          'Your current goal looks feasible from your private plan. Keep the next action small and repeatable.',
+        'building' =>
+          'Your goal is taking shape. Reviewing the next allocation can make its path clearer.',
+        _ =>
+          'Start with one realistic action for your current goal; Shelby keeps the detailed target private.',
+      };
 }
 
-String _displayBand(String value) => switch (value) {
-      'three_plus' || 'twenty_plus' => 'Strong',
-      'one_to_three' || 'some' => 'Building',
-      _ => 'Early',
+String _displayPyramidBand(String value) => switch (value) {
+      'advancing' => 'Advancing',
+      'developing' => 'Developing',
+      _ => 'Foundation',
     };
 
 class _PeerSnapshotStat extends StatelessWidget {
@@ -2708,62 +3108,82 @@ class _CohortDistributionChart extends StatelessWidget {
         color: color,
       ),
       const SizedBox(height: 12),
-      Row(children: [
-        const Text('Cohort mix',
+      if (total == 0)
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .07),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Text(
+            'This new derived signal will appear as similar members refresh their anonymous summary.',
             style: TextStyle(
-                color: _body, fontSize: 10.5, fontWeight: FontWeight.w800)),
-        const Spacer(),
-        const Icon(Icons.person_pin_circle_outlined, size: 14, color: _purple),
-        const SizedBox(width: 4),
-        const Text('Your band',
-            style: TextStyle(
-                color: _purple, fontSize: 10.5, fontWeight: FontWeight.w900)),
-      ]),
-      const SizedBox(height: 8),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: SizedBox(
-          height: 46,
-          child: Row(
-            children: [
-              for (final band in bands)
-                Expanded(
-                  flex: math.max(1, band.count),
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0, end: 1),
-                    duration: const Duration(milliseconds: 560),
-                    curve: Curves.easeOutCubic,
-                    builder: (_, progress, __) => Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 1),
-                      decoration: BoxDecoration(
-                        color:
-                            band.color.withValues(alpha: .25 + .75 * progress),
-                        border: band.selected
-                            ? Border.all(color: _purple, width: 2)
-                            : null,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        total == 0
-                            ? '0%'
-                            : '${(band.count * 100 / total).round()}%',
-                        style: TextStyle(
-                          color: _title,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w900,
+                color: _body,
+                fontSize: 10.5,
+                height: 1.3,
+                fontWeight: FontWeight.w700),
+          ),
+        )
+      else ...[
+        Row(children: [
+          const Text('Cohort mix',
+              style: TextStyle(
+                  color: _body, fontSize: 10.5, fontWeight: FontWeight.w800)),
+          const Spacer(),
+          const Icon(Icons.person_pin_circle_outlined,
+              size: 14, color: _purple),
+          const SizedBox(width: 4),
+          const Text('Your band',
+              style: TextStyle(
+                  color: _purple, fontSize: 10.5, fontWeight: FontWeight.w900)),
+        ]),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 46,
+            child: Row(
+              children: [
+                for (final band in bands)
+                  Expanded(
+                    flex: math.max(1, band.count),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 560),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, progress, __) => Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 1),
+                        decoration: BoxDecoration(
+                          color: band.color
+                              .withValues(alpha: .25 + .75 * progress),
+                          border: band.selected
+                              ? Border.all(color: _purple, width: 2)
+                              : null,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          total == 0
+                              ? '0%'
+                              : '${(band.count * 100 / total).round()}%',
+                          style: TextStyle(
+                            color: _title,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: 9),
-      for (final band in bands)
-        _CohortDistributionLegend(band: band, total: total),
+        const SizedBox(height: 9),
+        for (final band in bands)
+          _CohortDistributionLegend(band: band, total: total),
+      ],
     ]);
   }
 }
