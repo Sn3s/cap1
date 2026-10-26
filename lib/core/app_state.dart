@@ -258,7 +258,16 @@ class AppState extends ChangeNotifier {
         : monthlySalary > 0
             ? monthlySalary
             : irregularIncomeFloor;
-    return baselineIncome > 0 ? savings / baselineIncome : 0;
+    // `savings` is a session-derived value for linked accounts. For a
+    // manually tracked account it is rebuilt from the saved balances only
+    // after some account actions, so use those balances as a safe fallback
+    // when publishing the coarse anonymous benchmark after a relaunch.
+    final savedAmount = savings > 0
+        ? savings
+        : accountBalance('Savings') +
+            accountBalance('Time Deposit') +
+            accountBalance('Goal Savings');
+    return baselineIncome > 0 ? savedAmount / baselineIncome : 0;
   }
 
   double get emergencyFundTarget => monthlyEssentialExpenseTotal > 0
@@ -690,6 +699,40 @@ class AppState extends ChangeNotifier {
     discoverableByEmail = value;
     notifyListeners();
     if (community.isConnected) await community.setDiscoverable(value);
+    await saveProfile();
+  }
+
+  /// Updates the optional, coarse monthly peer comparison. The contribution
+  /// itself is published only from the Peer dashboard; turning this off hides
+  /// comparisons and prevents future contributions.
+  Future<void> setConsentBenchmarking(bool value) async {
+    if (consentBenchmarking == value) return;
+    consentBenchmarking = value;
+    notifyListeners();
+    await saveProfile();
+  }
+
+  /// Community is opt-in for signed-in users. Enabling it starts the
+  /// Firestore-backed friends/feed session; disabling it closes that session
+  /// and removes the signed-in user from the live community UI.
+  Future<void> setConsentCommunity(bool value) async {
+    if (consentCommunity == value) return;
+    consentCommunity = value;
+    notifyListeners();
+    await saveProfile();
+    if (value) {
+      await connectCommunity();
+    } else {
+      await community.disconnect();
+    }
+  }
+
+  /// Controls whether the user can participate in explicit trusted-circle
+  /// sharing. It never exposes balances, transactions, or full goals.
+  Future<void> setConsentTrustedCircle(bool value) async {
+    if (consentTrustedCircle == value) return;
+    consentTrustedCircle = value;
+    notifyListeners();
     await saveProfile();
   }
 

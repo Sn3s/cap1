@@ -19,14 +19,30 @@ service cloud.firestore {
       // The anonymous benchmark pseudonym may be chosen once, then remains
       // locked in the private profile. This prevents a later profile edit
       // from taking over somebody else's contribution document.
+      function validBenchmarkContributorId(value) {
+        return value is string
+          && value.matches('^[0-9a-f]{32}$');
+      }
+      function validBenchmarkContributorState(profile) {
+        return !profile.keys().hasAll(['benchmarkContributorId'])
+          || profile.benchmarkContributorId == ''
+          || validBenchmarkContributorId(profile.benchmarkContributorId);
+      }
       function keepsBenchmarkContributorId() {
+        // Older profiles have no id. They may remain blank or choose one
+        // valid id once. A valid id can never be replaced afterwards.
         return !resource.data.keys().hasAll(['benchmarkContributorId'])
-          || !(resource.data.benchmarkContributorId is string
-          && resource.data.benchmarkContributorId.size() == 32)
-          || request.resource.data.benchmarkContributorId == resource.data.benchmarkContributorId;
+          ? (!request.resource.data.keys().hasAll(['benchmarkContributorId'])
+            || request.resource.data.benchmarkContributorId == ''
+            || validBenchmarkContributorId(request.resource.data.benchmarkContributorId))
+          : validBenchmarkContributorId(resource.data.benchmarkContributorId)
+            ? request.resource.data.benchmarkContributorId == resource.data.benchmarkContributorId
+            : (request.resource.data.benchmarkContributorId == ''
+              || validBenchmarkContributorId(request.resource.data.benchmarkContributorId));
       }
       allow read: if signedIn() && me() == userId;
-      allow create: if signedIn() && me() == userId;
+      allow create: if signedIn() && me() == userId
+        && validBenchmarkContributorState(request.resource.data);
       allow update: if signedIn() && me() == userId && keepsBenchmarkContributorId();
       allow delete: if signedIn() && me() == userId;
     }

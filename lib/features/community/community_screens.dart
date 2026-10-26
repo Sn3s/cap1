@@ -1406,12 +1406,14 @@ class _PeerDashboard extends StatelessWidget {
               final benchmark = snapshot.data;
               if (benchmark == null ||
                   benchmark.eligibleCount < benchmarkMinimumCohort) {
-                return const _PeerMetric(
+                final contributors = benchmark?.eligibleCount ?? 0;
+                return _PeerMetric(
                   icon: Icons.insights_outlined,
                   title: 'Anonymous benchmarks',
-                  value: 'Building your cohort',
-                  detail:
-                      'Shelby only shows a comparison after at least 3 similar opted-in users participate.',
+                  value: '$contributors / $benchmarkMinimumCohort contributors',
+                  detail: contributors == 0
+                      ? 'Refresh your anonymous summary, then invite similar opted-in users to contribute. Shelby shows the comparison once at least $benchmarkMinimumCohort people participate.'
+                      : 'Your cohort is building. Shelby shows the comparison once at least $benchmarkMinimumCohort similar opted-in users participate.',
                   color: _amber,
                 );
               }
@@ -3641,6 +3643,114 @@ class CommunityPrivacyScreen extends StatelessWidget {
                   state.discoverableByEmail
                       ? 'People who type your exact email can send you a friend request.'
                       : 'Hidden from email search. Existing friends and requests stay.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AppCard(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: SwitchListTile.adaptive(
+                value: state.consentBenchmarking,
+                activeTrackColor: _brand,
+                onChanged: state.isSignedIn
+                    ? (value) => state.setConsentBenchmarking(value)
+                    : null,
+                secondary: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.insights_outlined,
+                      color: _purple, size: 20),
+                ),
+                title: const Text(
+                  'Anonymous peer benchmarks',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  state.isSignedIn
+                      ? 'Share only coarse monthly bands to compare with similar opted-in users. No identity, income, balances, or transactions are included.'
+                      : 'Sign in to choose whether you join anonymous peer comparisons.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AppCard(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: SwitchListTile.adaptive(
+                value: state.consentCommunity,
+                activeTrackColor: _brand,
+                onChanged: state.isSignedIn
+                    ? (value) => state.setConsentCommunity(value)
+                    : null,
+                secondary: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.forum_outlined,
+                      color: _purple, size: 20),
+                ),
+                title: const Text(
+                  'Community feedback',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  state.isSignedIn
+                      ? 'Use the friends feed for posts, comments, and selected updates. You choose every item you share.'
+                      : 'Sign in to use the friends feed.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AppCard(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: SwitchListTile.adaptive(
+                value: state.consentTrustedCircle,
+                activeTrackColor: _brand,
+                onChanged: state.isSignedIn
+                    ? (value) => state.setConsentTrustedCircle(value)
+                    : null,
+                secondary: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.group_outlined,
+                      color: _purple, size: 20),
+                ),
+                title: const Text(
+                  'Trusted circle sharing',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  state.isSignedIn
+                      ? 'Let people you explicitly add exchange chosen posts and decision perspectives.'
+                      : 'Sign in to manage trusted-circle sharing.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 12,
