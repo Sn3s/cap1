@@ -579,7 +579,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 }
                 return Column(
                   children: [
-                    for (var index = 0; index < activeLayers.length; index++) ...[
+                    for (var index = 0;
+                        index < activeLayers.length;
+                        index++) ...[
                       if (index > 0) const SizedBox(height: 10),
                       _PyramidCard(
                         icon: _pyramidLayerIcon(activeLayers[index]),
@@ -688,7 +690,8 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
       if (!mounted) return;
       setState(() {
         if (reply.isEmpty) {
-          _error = "Shellby couldn't come up with a reply. Try asking another way.";
+          _error =
+              "Shellby couldn't come up with a reply. Try asking another way.";
         } else {
           _messages.add(ChatMessage(false, reply));
         }
@@ -1557,6 +1560,8 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
             ),
           ),
           _LedgerTotalsStrip(income: income, expenses: expenses),
+          if (currentLayer == _pyramidCashFlowLayer && mode == 1)
+            const _RecurringTransactionSuggestionsPanel(),
           if (showingWealthAssets && state.hasFakeMayaLink)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
@@ -1714,6 +1719,258 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     await state.saveOnboardingLedgerEdits();
     if (mounted) setState(() {});
   }
+}
+
+class _RecurringTransactionSuggestionsPanel extends StatelessWidget {
+  const _RecurringTransactionSuggestionsPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final suggestions = state.recurringTransactionSuggestions;
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+    final suggestion = suggestions.first;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: _purple.withValues(alpha: .12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.repeat_rounded,
+                      color: _purple, size: 19),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Possible recurring payment',
+                    style: TextStyle(
+                      color: _title,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                if (suggestions.length > 1)
+                  Text(
+                    '+${suggestions.length - 1}',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Shellby saw ${suggestion.occurrences} ${suggestion.frequency.toLowerCase()} payments to ${suggestion.merchantName}, usually ${money(suggestion.typicalAmount)}.',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Last paid ${_shortDate(suggestion.lastOccurredAt)} · next expected ${_shortDate(suggestion.nextExpectedAt)}',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () =>
+                      state.dismissRecurringTransactionSuggestion(suggestion),
+                  child: const Text('Not recurring'),
+                ),
+                const SizedBox(width: 4),
+                FilledButton(
+                  onPressed: () => _showRecurringTransactionSuggestionSheet(
+                    context,
+                    state,
+                    suggestion,
+                  ),
+                  child: const Text('Review'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _showRecurringTransactionSuggestionSheet(
+  BuildContext context,
+  AppState state,
+  RecurringTransactionSuggestion suggestion,
+) async {
+  final formKey = GlobalKey<FormState>();
+  final inferred = canonicalExpenseCategory(
+    suggestion.category ?? inferExpenseCategory(null, suggestion.merchantName),
+  );
+  var category = expenseCategoryPresets.contains(inferred) ? inferred : 'Other';
+  var layer = suggestedExpenseLayer(category) ?? ExpenseLayer.nonEssentials;
+  var anchorDate = suggestion.lastOccurredAt;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (context, setSheetState) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            18,
+            20,
+            20 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Add recurring bill?',
+                    style: TextStyle(
+                      color: _title,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    '${suggestion.merchantName} · ${money(suggestion.typicalAmount)} · ${suggestion.frequency}',
+                    style: const TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: category,
+                    decoration: inputDecoration('Category').copyWith(
+                      labelText: 'Category',
+                    ),
+                    items: expenseCategoryPresets
+                        .map((value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value),
+                            ))
+                        .toList(),
+                    onChanged: (value) => setSheetState(() {
+                      category = value ?? category;
+                      layer = suggestedExpenseLayer(category) ?? layer;
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<ExpenseLayer>(
+                    value: layer,
+                    decoration: inputDecoration('Financial layer').copyWith(
+                      labelText: 'Financial layer',
+                    ),
+                    items: ExpenseLayer.values
+                        .map((value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value.label),
+                            ))
+                        .toList(),
+                    onChanged: (value) =>
+                        setSheetState(() => layer = value ?? layer),
+                  ),
+                  const SizedBox(height: 8),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.event_rounded, color: _purple),
+                    title: const Text('Last payment date'),
+                    subtitle: Text(_shortDate(anchorDate)),
+                    trailing: const Icon(Icons.edit_calendar_rounded),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: anchorDate,
+                        firstDate: DateTime(anchorDate.year - 5),
+                        lastDate: DateTime(anchorDate.year + 5),
+                      );
+                      if (picked != null) {
+                        setSheetState(() => anchorDate = picked);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          await state.dismissRecurringTransactionSuggestion(
+                            suggestion,
+                          );
+                          if (sheetContext.mounted) {
+                            Navigator.pop(sheetContext);
+                          }
+                        },
+                        child: const Text('Not recurring'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () async {
+                          if (!(formKey.currentState?.validate() ?? false)) {
+                            return;
+                          }
+                          await state.acceptRecurringTransactionSuggestion(
+                            suggestion,
+                            category: category,
+                            expenseLayer: layer,
+                            anchorDate: anchorDate,
+                          );
+                          if (sheetContext.mounted) {
+                            Navigator.pop(sheetContext);
+                          }
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '${suggestion.merchantName} was added as a scheduled expense.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('Add bill'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _LedgerModeButton extends StatelessWidget {
@@ -5805,9 +6062,7 @@ _CashActionScore? _cashActionScoreFor({
           _essentialSetAsideForIncomeIn(state, week.start, week.end);
       final expected = weekIncome * targetPct;
       incomeWeeks.add(week);
-      pattern.add(targetPct <= 0
-          ? 1.0
-          : (setAside / expected).clamp(0.0, 1.0));
+      pattern.add(targetPct <= 0 ? 1.0 : (setAside / expected).clamp(0.0, 1.0));
       weekDetails.add('${money(setAside)} of ${money(expected)} set aside');
     }
     return _CashActionScore(
@@ -5890,8 +6145,8 @@ _CashActionScore? _cashActionScoreFor({
       final spentSoFar = capped
           .where((transaction) => transaction.createdAt!.isBefore(weekEnd))
           .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-      pattern.add(
-          spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0));
+      pattern
+          .add(spentSoFar <= 0 ? 1.0 : (capSoFar / spentSoFar).clamp(0.0, 1.0));
       weekDetails.add(
           '${money(spentSoFar)} spent of ${money(capSoFar)} allowed so far');
     }
@@ -6075,8 +6330,7 @@ _CashActionScore? _cashActionScoreFor({
           state, week.start, week.end, const {'emergency_deposit'});
       final expected = week.weekIncome * targetPct;
       incomeWeeks.add(week);
-      pattern.add(
-          targetPct <= 0 ? 1.0 : (setAside / expected).clamp(0.0, 1.0));
+      pattern.add(targetPct <= 0 ? 1.0 : (setAside / expected).clamp(0.0, 1.0));
       weekDetails.add('${money(setAside)} of ${money(expected)} set aside');
     }
     return _CashActionScore(
@@ -7950,7 +8204,8 @@ String _actionInsight(_CashActionScore action, List<_ActionMeasure> measures) {
     'Adherence' => lowest.percent! < 50
         ? "You missed the target more often than you hit it. A smaller target might be easier to keep."
         : "You missed the target in some ${action.periodPlural}. Look at what was different then.",
-    _ => "You got part of the way to the target in some weeks, but not all of it.",
+    _ =>
+      "You got part of the way to the target in some weeks, but not all of it.",
   };
 }
 
@@ -8937,8 +9192,10 @@ Future<bool?> _confirmActionStageSuggestion(
   final (declineLabel, acceptLabel) = switch (option) {
     'change_parameterized_target' => ('Keep current', 'Apply new target'),
     'suggest_new_action' => ('Not now', 'Add action'),
-    'remove_and_replace_action' when isReplace =>
-      ('Keep ${_actionNumber(removedId)}', 'Replace'),
+    'remove_and_replace_action' when isReplace => (
+        'Keep ${_actionNumber(removedId)}',
+        'Replace'
+      ),
     _ => ('Not now', 'Apply'),
   };
   final removedValues =
@@ -9048,96 +9305,98 @@ Future<bool?> _confirmActionStageSuggestion(
                     ),
                   ),
                 ] else ...[
-                if (isReplace) ...[
+                  if (isReplace) ...[
+                    const SizedBox(height: 18),
+                    const Text(
+                      'REMOVED FROM YOUR PLAN',
+                      style: TextStyle(
+                        color: _red,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${_actionNumber(removedId)}: '
+                      '${_d2Actions[removedId]?.text ?? removedId}'
+                      '${removedValues.isEmpty ? '' : ' (currently ${_actionValuesSummary(removedId, removedValues)})'}',
+                      style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ],
                   const SizedBox(height: 18),
-                  const Text(
-                    'REMOVED FROM YOUR PLAN',
-                    style: TextStyle(
-                      color: _red,
+                  Text(
+                    isReplace
+                        ? 'ADDED: $number'
+                        : option == 'suggest_new_action'
+                            ? 'ADDED TO YOUR PLAN'
+                            : 'WHAT\'S CHANGING',
+                    style: const TextStyle(
+                      color: _body,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${_actionNumber(removedId)}: '
-                    '${_d2Actions[removedId]?.text ?? removedId}'
-                    '${removedValues.isEmpty ? '' : ' (currently ${_actionValuesSummary(removedId, removedValues)})'}',
-                    style: const TextStyle(
-                        color: _title,
-                        fontSize: 12,
-                        height: 1.35,
-                        fontWeight: FontWeight.w700),
-                  ),
-                ],
-                const SizedBox(height: 18),
-                Text(
-                  isReplace
-                      ? 'ADDED: $number'
-                      : option == 'suggest_new_action'
-                          ? 'ADDED TO YOUR PLAN'
-                          : 'WHAT\'S CHANGING',
-                  style: const TextStyle(
-                    color: _body,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (changes.isEmpty)
-                  Text(
-                    option == 'suggest_new_action' || isReplace
-                        ? '$number is added with its usual settings.'
-                        : 'No settings change.',
-                    style: const TextStyle(
-                        color: _body, fontSize: 12, height: 1.35),
-                  )
-                else
-                  ...changes.map(
-                    (row) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ActionStageChangeRow(row: row),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _body,
-                          side: const BorderSide(color: _border),
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text(declineLabel,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 10),
+                  if (changes.isEmpty)
+                    Text(
+                      option == 'suggest_new_action' || isReplace
+                          ? '$number is added with its usual settings.'
+                          : 'No settings change.',
+                      style: const TextStyle(
+                          color: _body, fontSize: 12, height: 1.35),
+                    )
+                  else
+                    ...changes.map(
+                      (row) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _ActionStageChangeRow(row: row),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(true),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _brand,
-                          padding: const EdgeInsets.symmetric(vertical: 13),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(false),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _body,
+                            side: const BorderSide(color: _border),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
+                          child: Text(declineLabel,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w800)),
                         ),
-                        child: Text(acceptLabel,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w900)),
                       ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () =>
+                              Navigator.of(dialogContext).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _brand,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: Text(acceptLabel,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ],
             ),
@@ -19394,8 +19653,8 @@ class _BillObligationsPanel extends StatelessWidget {
                           : paidBills.isNotEmpty
                               ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} paid this month'
                               : scheduledCount > 0
-                              ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
-                              : 'Add a scheduled Basic Needs bill first',
+                                  ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
+                                  : 'Add a scheduled Basic Needs bill first',
                       style: const TextStyle(
                         color: _body,
                         fontSize: 11,
@@ -19595,8 +19854,8 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
         essentialAvailable: state.essentialExpensesBalance,
         walletAvailable: state.accountBalance('Wallet'),
         savingsAvailable: state.safetyShieldBalance,
-        needed: math.max(
-            0.0, _moneyFieldValue(amountController) - selected.paid),
+        needed:
+            math.max(0.0, _moneyFieldValue(amountController) - selected.paid),
       );
 
   void applyRecommendation() {
@@ -19632,238 +19891,238 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
         savingsController.dispose();
       },
       child: Builder(builder: (sheetContext) {
-      return StatefulBuilder(
-        builder: (context, setSheetState) {
-          final amount = _moneyFieldValue(amountController);
-          final essential = _moneyFieldValue(essentialController);
-          final wallet = _moneyFieldValue(walletController);
-          final savings = _moneyFieldValue(savingsController);
-          final dueNow = math.max(0.0, amount - selected.paid);
-          final split = capSources(
-            essential: essential,
-            wallet: wallet,
-            savings: savings,
-          );
-          final planned = split.essential + split.wallet + split.savings;
-          final unpaid = math.max(0.0, dueNow - planned);
-          final wasCapped = essential + wallet + savings > planned + 0.005;
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                18,
-                20,
-                20 + MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Can I pay this bill?',
-                      style: TextStyle(
-                        color: _title,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final amount = _moneyFieldValue(amountController);
+            final essential = _moneyFieldValue(essentialController);
+            final wallet = _moneyFieldValue(walletController);
+            final savings = _moneyFieldValue(savingsController);
+            final dueNow = math.max(0.0, amount - selected.paid);
+            final split = capSources(
+              essential: essential,
+              wallet: wallet,
+              savings: savings,
+            );
+            final planned = split.essential + split.wallet + split.savings;
+            final unpaid = math.max(0.0, dueNow - planned);
+            final wasCapped = essential + wallet + savings > planned + 0.005;
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  18,
+                  20,
+                  20 + MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Can I pay this bill?',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      hasBillCandidates
-                          ? 'Choose a scheduled basic-needs bill, then adjust where the money will come from.'
-                          : 'Only Basic Needs expenses with a scheduled date can be checked as bills.',
-                      style: const TextStyle(
-                        color: _body,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                      const SizedBox(height: 4),
+                      Text(
+                        hasBillCandidates
+                            ? 'Choose a scheduled basic-needs bill, then adjust where the money will come from.'
+                            : 'Only Basic Needs expenses with a scheduled date can be checked as bills.',
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    if (!hasBillCandidates) ...[
+                      const SizedBox(height: 14),
+                      if (!hasBillCandidates) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _amber.withValues(alpha: .08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: _amber.withValues(alpha: .2),
+                            ),
+                          ),
+                          child: const Text(
+                            'Unscheduled expenses are treated as monthly category estimates. Add a scheduled date to a Basic Needs expense before using bill readiness.',
+                            style: TextStyle(
+                              color: _body,
+                              fontSize: 12,
+                              height: 1.35,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (hasBillCandidates) ...[
+                        DropdownButtonFormField<String>(
+                          value: selected.key,
+                          isExpanded: true,
+                          decoration: inputDecoration('Bill').copyWith(
+                            labelText: 'Bill',
+                          ),
+                          items: [
+                            for (final candidate in candidates)
+                              DropdownMenuItem(
+                                value: candidate.key,
+                                child: Text(
+                                  candidate.label,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            final next = candidates.firstWhere(
+                              (candidate) => candidate.key == value,
+                              orElse: () => selected,
+                            );
+                            setSheetState(() {
+                              selected = next;
+                              amountController.text =
+                                  next.amount.toStringAsFixed(0);
+                              dueDate = next.dueDate ?? AppClock.now();
+                              applyRecommendation();
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      TextField(
+                        controller: amountController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: inputDecoration('Amount').copyWith(
+                          labelText: 'Amount',
+                          prefixText: '₱ ',
+                          helperText: selected.paid > 0
+                              ? '${money(selected.paid)} already covered'
+                              : null,
+                        ),
+                        onChanged: (_) => setSheetState(() {
+                          if (!sourcesEdited) applyRecommendation();
+                        }),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _BillSourceField(
+                            controller: essentialController,
+                            label: 'Essential fund',
+                            helper: money(state.essentialExpensesBalance),
+                            onChanged: () =>
+                                setSheetState(() => sourcesEdited = true),
+                          ),
+                          _BillSourceField(
+                            controller: walletController,
+                            label: 'Wallet',
+                            helper: money(state.accountBalance('Wallet')),
+                            onChanged: () =>
+                                setSheetState(() => sourcesEdited = true),
+                          ),
+                          _BillSourceField(
+                            controller: savingsController,
+                            label: 'Savings',
+                            helper: money(state.safetyShieldBalance),
+                            onChanged: () =>
+                                setSheetState(() => sourcesEdited = true),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: _amber.withValues(alpha: .08),
+                          color: unpaid > 0
+                              ? _red.withValues(alpha: .07)
+                              : _sage.withValues(alpha: .08),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: _amber.withValues(alpha: .2),
+                            color: unpaid > 0
+                                ? _red.withValues(alpha: .18)
+                                : _sage.withValues(alpha: .2),
                           ),
                         ),
-                        child: const Text(
-                          'Unscheduled expenses are treated as monthly category estimates. Add a scheduled date to a Basic Needs expense before using bill readiness.',
+                        child: Text(
+                          '${unpaid > 0 ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.' : '${money(planned)} covers this bill.'}'
+                          '${wasCapped ? ' Amounts above what each source has or what the bill needs won\'t be used.' : ''}',
                           style: TextStyle(
-                            color: _body,
+                            color: unpaid > 0 ? _red : _sage,
                             fontSize: 12,
-                            height: 1.35,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                    ],
-                    if (hasBillCandidates) ...[
-                      DropdownButtonFormField<String>(
-                        value: selected.key,
-                        isExpanded: true,
-                        decoration: inputDecoration('Bill').copyWith(
-                          labelText: 'Bill',
+                      const SizedBox(height: 14),
+                      // Two rows: three buttons don't fit one line on a phone.
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          onPressed: () => setSheetState(applyRecommendation),
+                          child: const Text('Use recommendation'),
                         ),
-                        items: [
-                          for (final candidate in candidates)
-                            DropdownMenuItem(
-                              value: candidate.key,
-                              child: Text(
-                                candidate.label,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            child: const Text('Cancel'),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            onPressed: !hasBillCandidates || amount <= 0
+                                ? null
+                                : () async {
+                                    final messenger =
+                                        ScaffoldMessenger.of(context);
+                                    final plan =
+                                        await state.recordBasicNeedsBillPlan(
+                                      obligationId: selected.obligationId,
+                                      sourceExpenseKey:
+                                          selected.sourceExpenseKey,
+                                      name: selected.name,
+                                      expectedAmount: amount,
+                                      fromEssentialFund: essential,
+                                      fromWallet: wallet,
+                                      fromSavings: savings,
+                                      dueDate: dueDate,
+                                    );
+                                    if (sheetContext.mounted) {
+                                      Navigator.pop(sheetContext);
+                                    }
+                                    if (plan == null) return;
+                                    final left = _billRemaining(plan);
+                                    final billName =
+                                        basicNeedsBillDisplayName(plan);
+                                    messenger.showSnackBar(SnackBar(
+                                      content: Text(left <= 0
+                                          ? '$billName marked paid'
+                                          : '${money(_doubleValue(plan['paidAmount'], 0))} recorded for $billName · ${money(left)} still owed'),
+                                    ));
+                                  },
+                            child: const Text('Record plan'),
+                          ),
                         ],
-                        onChanged: (value) {
-                          final next = candidates.firstWhere(
-                            (candidate) => candidate.key == value,
-                            orElse: () => selected,
-                          );
-                          setSheetState(() {
-                            selected = next;
-                            amountController.text =
-                                next.amount.toStringAsFixed(0);
-                            dueDate = next.dueDate ?? AppClock.now();
-                            applyRecommendation();
-                          });
-                        },
                       ),
-                      const SizedBox(height: 10),
                     ],
-                    TextField(
-                      controller: amountController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: inputDecoration('Amount').copyWith(
-                        labelText: 'Amount',
-                        prefixText: '₱ ',
-                        helperText: selected.paid > 0
-                            ? '${money(selected.paid)} already covered'
-                            : null,
-                      ),
-                      onChanged: (_) => setSheetState(() {
-                        if (!sourcesEdited) applyRecommendation();
-                      }),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _BillSourceField(
-                          controller: essentialController,
-                          label: 'Essential fund',
-                          helper: money(state.essentialExpensesBalance),
-                          onChanged: () =>
-                              setSheetState(() => sourcesEdited = true),
-                        ),
-                        _BillSourceField(
-                          controller: walletController,
-                          label: 'Wallet',
-                          helper: money(state.accountBalance('Wallet')),
-                          onChanged: () =>
-                              setSheetState(() => sourcesEdited = true),
-                        ),
-                        _BillSourceField(
-                          controller: savingsController,
-                          label: 'Savings',
-                          helper: money(state.safetyShieldBalance),
-                          onChanged: () =>
-                              setSheetState(() => sourcesEdited = true),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: unpaid > 0
-                            ? _red.withValues(alpha: .07)
-                            : _sage.withValues(alpha: .08),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: unpaid > 0
-                              ? _red.withValues(alpha: .18)
-                              : _sage.withValues(alpha: .2),
-                        ),
-                      ),
-                      child: Text(
-                        '${unpaid > 0 ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.' : '${money(planned)} covers this bill.'}'
-                        '${wasCapped ? ' Amounts above what each source has or what the bill needs won\'t be used.' : ''}',
-                        style: TextStyle(
-                          color: unpaid > 0 ? _red : _sage,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    // Two rows: three buttons don't fit one line on a phone.
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton(
-                        onPressed: () => setSheetState(applyRecommendation),
-                        child: const Text('Use recommendation'),
-                      ),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(sheetContext),
-                          child: const Text('Cancel'),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton(
-                          onPressed: !hasBillCandidates || amount <= 0
-                              ? null
-                              : () async {
-                                  final messenger =
-                                      ScaffoldMessenger.of(context);
-                                  final plan =
-                                      await state.recordBasicNeedsBillPlan(
-                                    obligationId: selected.obligationId,
-                                    sourceExpenseKey:
-                                        selected.sourceExpenseKey,
-                                    name: selected.name,
-                                    expectedAmount: amount,
-                                    fromEssentialFund: essential,
-                                    fromWallet: wallet,
-                                    fromSavings: savings,
-                                    dueDate: dueDate,
-                                  );
-                                  if (sheetContext.mounted) {
-                                    Navigator.pop(sheetContext);
-                                  }
-                                  if (plan == null) return;
-                                  final left = _billRemaining(plan);
-                                  final billName =
-                                      basicNeedsBillDisplayName(plan);
-                                  messenger.showSnackBar(SnackBar(
-                                    content: Text(left <= 0
-                                        ? '$billName marked paid'
-                                        : '${money(_doubleValue(plan['paidAmount'], 0))} recorded for $billName · ${money(left)} still owed'),
-                                  ));
-                                },
-                          child: const Text('Record plan'),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
-        },
-      );
-    }),
+            );
+          },
+        );
+      }),
     ),
   );
 }

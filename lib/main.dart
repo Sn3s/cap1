@@ -50,6 +50,7 @@ part 'services/notification_service.dart';
 part 'services/shellby_ai_coach.dart';
 part 'shared/data_entry_presets.dart';
 part 'shared/merchant_category_rules.dart';
+part 'shared/recurring_transaction_suggestions.dart';
 part 'shared/widgets/shared_widgets.dart';
 
 Future<void> main() async {

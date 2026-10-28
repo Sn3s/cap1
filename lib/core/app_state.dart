@@ -135,6 +135,10 @@ class AppState extends ChangeNotifier {
   final List<FakeMayaTransaction> _unlinkedFakeMayaLabels = [];
   final Map<String, TransactionLabelRule> transactionLabelRules = {};
   final Map<String, String> merchantCategoryRules = {};
+
+  /// Suggestions the user accepted or dismissed. Persisting these prevents
+  /// Shellby repeatedly offering the same recurring bill.
+  final Set<String> handledRecurringTransactionSuggestionKeys = {};
   final Map<String, String> planAdjustmentActions = {};
   final Map<String, double> anxietyCheckIns = {};
   double allocatedThisCycle = 0;
@@ -4706,6 +4710,8 @@ class AppState extends ChangeNotifier {
         (key, value) => MapEntry(key, value.toMap()),
       ),
       'merchantCategoryRules': merchantCategoryRules,
+      'handledRecurringTransactionSuggestionKeys':
+          handledRecurringTransactionSuggestionKeys.toList()..sort(),
       'planAdjustmentActions': planAdjustmentActions,
       'anxietyCheckIns': anxietyCheckIns,
       'allocatedThisCycle': allocatedThisCycle,
@@ -5213,6 +5219,11 @@ class AppState extends ChangeNotifier {
       }
     }
     loadMerchantCategoryRules(_mapFrom(data['merchantCategoryRules']));
+    handledRecurringTransactionSuggestionKeys.clear();
+    _replaceSet(
+      handledRecurringTransactionSuggestionKeys,
+      data['handledRecurringTransactionSuggestionKeys'],
+    );
     final adjustmentData = _mapFrom(data['planAdjustmentActions']);
     planAdjustmentActions
       ..clear()
@@ -8989,6 +9000,61 @@ class AppState extends ChangeNotifier {
       category: builtInCategory,
       source: MerchantCategorySuggestionSource.builtIn,
     );
+  }
+
+  List<RecurringTransactionSuggestion> get recurringTransactionSuggestions =>
+      detectRecurringTransactionSuggestions(allTransactions)
+          .where((suggestion) =>
+              !handledRecurringTransactionSuggestionKeys
+                  .contains(suggestion.key) &&
+              !_hasScheduledExpenseForRecurringSuggestion(suggestion))
+          .toList();
+
+  bool _hasScheduledExpenseForRecurringSuggestion(
+    RecurringTransactionSuggestion suggestion,
+  ) {
+    final merchant = suggestion.merchantName.trim().toLowerCase();
+    return onboardingExpenseLedger.any((expense) {
+      if (expense['scheduled'] != true) return false;
+      final name = expense['name']?.toString().trim().toLowerCase() ?? '';
+      return name == merchant &&
+          expense['repeatFrequency']?.toString() == suggestion.frequency;
+    });
+  }
+
+  Future<void> acceptRecurringTransactionSuggestion(
+    RecurringTransactionSuggestion suggestion, {
+    required String category,
+    required ExpenseLayer expenseLayer,
+    required DateTime anchorDate,
+  }) async {
+    final normalizedCategory = canonicalExpenseCategory(category);
+    onboardingExpenseLedger.add({
+      'id': 'recurring_${suggestion.key.hashCode.abs()}',
+      'name': suggestion.merchantName,
+      'category': expenseCategoryPresets.contains(normalizedCategory)
+          ? normalizedCategory
+          : 'Other',
+      'amount': suggestion.typicalAmount,
+      'essential': expenseLayer == ExpenseLayer.basicNeeds,
+      'expenseType': expenseLayer.name,
+      'scheduled': true,
+      'dueDay': anchorDate.day,
+      'scheduleAnchorType': 'last',
+      'scheduleAnchorDate': anchorDate.toIso8601String(),
+      'repeatFrequency': suggestion.frequency,
+      'recurringSuggestionKey': suggestion.key,
+    });
+    handledRecurringTransactionSuggestionKeys.add(suggestion.key);
+    await saveOnboardingLedgerEdits();
+  }
+
+  Future<void> dismissRecurringTransactionSuggestion(
+    RecurringTransactionSuggestion suggestion,
+  ) async {
+    handledRecurringTransactionSuggestionKeys.add(suggestion.key);
+    await saveProfile();
+    notifyListeners();
   }
 
   /// Restores only category choices. Fund, bucket, and source data are never
