@@ -8901,14 +8901,21 @@ class AppState extends ChangeNotifier {
       (transaction) => transaction.transactionId == transactionId,
     );
     if (manualIndex >= 0) {
-      _undoBucketFundedExpenseForTransaction(
-        manualTransactions[manualIndex].transactionId,
-      );
-      final labeled = manualTransactions[manualIndex].copyWithLabel(
+      final existing = manualTransactions[manualIndex];
+      // An unexpected expense already has a multi-layer recovery allocation
+      // and, when applicable, a real FakeMaya Emergency Fund withdrawal.
+      // Editing its category or note must not roll back only the Emergency
+      // Fund portion while leaving its Needs/Buffer history in place.
+      final keepsUnexpectedRecovery =
+          existing.tag?.trim().toLowerCase() == 'unexpected expense';
+      if (!keepsUnexpectedRecovery) {
+        _undoBucketFundedExpenseForTransaction(existing.transactionId);
+      }
+      final labeled = existing.copyWithLabel(
         category: category,
         source: source,
         subcategory: subcategory,
-        tag: tag,
+        tag: keepsUnexpectedRecovery ? existing.tag : tag,
         note: note,
         excludedFromInsights: excludedFromInsights,
       );
@@ -8920,7 +8927,9 @@ class AppState extends ChangeNotifier {
             TransactionLabelRule.fromTransaction(labeled);
         _learnMerchantCategoryRule(labeled);
       }
-      _recordBucketFundedExpenseFromTransaction(labeled);
+      if (!keepsUnexpectedRecovery) {
+        _recordBucketFundedExpenseFromTransaction(labeled);
+      }
       if (isSignedIn) await saveProfile();
       notifyListeners();
       return;
@@ -9201,11 +9210,12 @@ class AppState extends ChangeNotifier {
         .any((transaction) => transaction.transactionId == id)) {
       return;
     }
+    final isUnexpectedOutflow = unexpectedExpense && amount < 0;
     final balance = accountBalance(account);
     if (amount < 0 && amount.abs() > balance) {
       throw StateError('Not enough money in $account for this transaction.');
     }
-    if (unexpectedExpense && amount < 0) {
+    if (isUnexpectedOutflow) {
       await _recordUnexpectedExpenseRecovery(
         amount: amount.abs(),
         label: title,
@@ -9225,7 +9235,7 @@ class AppState extends ChangeNotifier {
         source: source,
         account: account,
         subcategory: subcategory,
-        tag: unexpectedExpense ? 'Unexpected expense' : tag,
+        tag: isUnexpectedOutflow ? 'Unexpected expense' : tag,
         note: note,
         labeledAt: AppClock.now(),
       ),

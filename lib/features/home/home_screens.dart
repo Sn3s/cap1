@@ -29145,12 +29145,16 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
     final amount = double.tryParse(_amount.text.replaceAll(',', ''));
     final category = _category;
     if (title.isEmpty || amount == null || category == null) return;
+    final state = AppScope.of(context);
+    final recovery = _unexpectedExpense && !_moneyIn
+        ? state.planUnexpectedExpenseRecovery(amount)
+        : null;
+    if (recovery != null && !recovery.isFullyCovered) {
+      final shouldRecord = await _confirmUncoveredUnexpectedExpense(recovery);
+      if (!shouldRecord || !mounted) return;
+    }
     setState(() => _saving = true);
     try {
-      final state = AppScope.of(context);
-      final recovery = _unexpectedExpense && !_moneyIn
-          ? state.planUnexpectedExpenseRecovery(amount)
-          : null;
       await state.addManualCashTransaction(
         title: title,
         detail: _detail.text,
@@ -29194,6 +29198,14 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         message: error.message,
         icon: Icons.warning_amber_rounded,
       );
+    } on FakeMayaException catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      showAppNotice(
+        context,
+        message: error.message,
+        icon: Icons.warning_amber_rounded,
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -29203,6 +29215,33 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         icon: Icons.warning_amber_rounded,
       );
     }
+  }
+
+  Future<bool> _confirmUncoveredUnexpectedExpense(
+    UnexpectedExpenseRecovery recovery,
+  ) async {
+    final choice = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_rounded, color: _amber),
+        title: const Text('Part of this expense is uncovered'),
+        content: Text(
+          '${money(recovery.uncovered)} is not available in Basic Needs, Buffer, or your Emergency Fund. You can go back to adjust the amount, or record it as an uncovered expense so it remains visible in your plan.',
+          style: const TextStyle(color: _body, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Go back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Record anyway'),
+          ),
+        ],
+      ),
+    );
+    return choice ?? false;
   }
 }
 

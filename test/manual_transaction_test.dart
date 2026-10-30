@@ -107,6 +107,65 @@ void main() {
     expect(preview.uncovered, 150);
   });
 
+  test('unexpected expense type is ignored for money in', () async {
+    final state = AppState();
+
+    await state.addManualCashTransaction(
+      title: 'Allowance',
+      detail: 'Weekly',
+      amount: 500,
+      occurredAt: DateTime(2026, 10, 30, 9),
+      category: 'Gift',
+      source: 'Cash on Hand',
+      unexpectedExpense: true,
+    );
+
+    expect(state.manualTransactions.single.tag, isNull);
+    expect(state.jarLedger, isEmpty);
+    expect(state.d1Ledger, isEmpty);
+  });
+
+  test('relabeling an unexpected expense preserves its recovery allocation',
+      () async {
+    final state = AppState()
+      ..cashOnHandBalance = 1000
+      ..needsBalance = 100
+      ..bufferBalance = 100
+      ..emergencyFundBalance = 500;
+
+    await state.addManualCashTransaction(
+      title: 'Urgent care',
+      detail: 'Clinic',
+      amount: -400,
+      occurredAt: DateTime(2026, 10, 30, 9),
+      category: 'Health',
+      source: 'Cash on Hand',
+      unexpectedExpense: true,
+    );
+    final transaction = state.manualTransactions.single;
+    final emergencyAfterRecovery = state.emergencyFundBalance;
+
+    await state.labelFakeMayaTransaction(
+      transactionId: transaction.transactionId,
+      category: 'Health',
+      source: 'Cash on Hand',
+      note: 'Receipt attached',
+    );
+
+    expect(state.emergencyFundBalance, emergencyAfterRecovery);
+    expect(
+      state.d1Ledger.where((entry) => entry['type'] == 'use_emergency'),
+      hasLength(1),
+    );
+    expect(
+      state.jarLedger
+          .where((event) => event.type == JarEventType.unexpectedExpense),
+      hasLength(1),
+    );
+    expect(state.manualTransactions.single.tag, 'Unexpected expense');
+    expect(state.manualTransactions.single.note, 'Receipt attached');
+  });
+
   test(
       'unexpected expense withdraws a linked Emergency Fund only for its remainder',
       () async {
