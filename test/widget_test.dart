@@ -12,7 +12,14 @@ import 'package:cap1/main.dart';
 
 void main() {
   testWidgets('Shellby welcome flow smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const ShellbyApp());
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(
+      AppScope(
+        state: AppState(),
+        child: const MaterialApp(home: WelcomeScreen()),
+      ),
+    );
 
     expect(find.text('Shelby'), findsOneWidget);
     expect(find.text('Your Finance friend'), findsOneWidget);
@@ -22,15 +29,19 @@ void main() {
     await tester.tap(find.text('Create an account'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Let Shelby know you.'), findsOneWidget);
-    expect(find.text('NAME'), findsOneWidget);
+    expect(find.text('Create your account.'), findsOneWidget);
     expect(find.text('EMAIL'), findsOneWidget);
+    expect(find.text('CONFIRM PASSWORD'), findsOneWidget);
+    expect(find.textContaining('Already have an account?'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpWidget(const ShellbyApp());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Login'));
+    await tester.pump();
+    await tester.pumpWidget(
+      AppScope(
+        state: AppState(),
+        child: const MaterialApp(home: LoginScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Welcome back'), findsOneWidget);
@@ -38,22 +49,28 @@ void main() {
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Sign in with Google'), findsOneWidget);
 
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
     await tester.pumpWidget(
       AppScope(
         state: AppState(),
         child: const MaterialApp(home: LifeContextScreen()),
       ),
     );
+    await tester.pumpAndSettle();
 
     expect(find.text('What are you doing now?'), findsOneWidget);
     expect(find.text('AGE & LIFE STAGE'), findsOneWidget);
 
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
     await tester.pumpWidget(
       AppScope(
         state: AppState(),
         child: const MaterialApp(home: LifeRhythmScreen()),
       ),
     );
+    await tester.pumpAndSettle();
 
     expect(find.text('How does money move for you?'), findsOneWidget);
   });

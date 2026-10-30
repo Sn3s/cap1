@@ -167,64 +167,80 @@ class WelcomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F6F6),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(),
-              SizedBox(
-                width: 220,
-                height: 285,
-                child: Transform.translate(
-                  offset: const Offset(-5, 0),
-                  child: Image.asset(
-                    'assets/images/shellby_wave.webp',
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Shelby',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontStyle: FontStyle.italic,
-                      fontSize: 48,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 650;
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Spacer(),
+                  SizedBox(
+                    width: 220,
+                    height: compact ? 235 : 285,
+                    child: Transform.translate(
+                      offset: const Offset(-5, 0),
+                      child: Image.asset(
+                        'assets/images/shellby_wave.webp',
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Shelby',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                          fontStyle: FontStyle.italic,
+                          fontSize: compact ? 42 : 48,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your Finance friend',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 20,
+                      height: 1.35,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Spacer(),
+                  PrimaryButton(
+                    label: 'Create an account',
+                    icon: Icons.person_add_alt_1_rounded,
+                    onPressed: () async {
+                      final state = AppScope.of(context);
+                      await state.beginFreshOnboardingDraft();
+                      if (!context.mounted) return;
+                      _push(context, const PreparationCredentialsScreen());
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Create your account, then build your first plan in about 4 minutes.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 12,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SecondaryButton(
+                    label: 'Login',
+                    icon: Icons.login_rounded,
+                    onPressed: () => _push(context, const LoginScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                ],
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Your Finance friend',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _body,
-                  fontSize: 20,
-                  height: 1.35,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Spacer(),
-              PrimaryButton(
-                label: 'Create an account',
-                icon: Icons.person_add_alt_1_rounded,
-                onPressed: () async {
-                  final state = AppScope.of(context);
-                  await state.beginFreshOnboardingDraft();
-                  if (!context.mounted) return;
-                  _push(context, const PreparationContextScreen());
-                },
-              ),
-              const SizedBox(height: 14),
-              SecondaryButton(
-                label: 'Login',
-                icon: Icons.login_rounded,
-                onPressed: () => _push(context, const LoginScreen()),
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -379,7 +395,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {},
+                          onPressed: () => _showPasswordResetDialog(
+                            context,
+                            initialEmail: emailController.text,
+                          ),
                           child: const Text(
                             'Forgot password?',
                             style: TextStyle(
@@ -481,7 +500,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       final state = AppScope.of(context);
                       await state.beginFreshOnboardingDraft();
                       if (!context.mounted) return;
-                      _push(context, const PreparationContextScreen());
+                      _push(context, const PreparationCredentialsScreen());
                     },
                     child: const Text(
                       'Create an account',
@@ -531,10 +550,12 @@ class GoogleSignInButton extends StatelessWidget {
     super.key,
     required this.onPressed,
     this.busy = false,
+    this.label = 'Sign in with Google',
   });
 
   final VoidCallback? onPressed;
   final bool busy;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -580,7 +601,7 @@ class GoogleSignInButton extends StatelessWidget {
               ),
             const SizedBox(width: 12),
             Text(
-              busy ? 'Signing in...' : 'Sign in with Google',
+              busy ? 'Please wait...' : label,
               style: TextStyle(
                 color: _title,
                 fontSize: 16,
@@ -592,6 +613,87 @@ class GoogleSignInButton extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _showPasswordResetDialog(
+  BuildContext context, {
+  String initialEmail = '',
+}) async {
+  final pageContext = context;
+  final emailController = TextEditingController(text: initialEmail.trim());
+  final formKey = GlobalKey<FormState>();
+  var sending = false;
+
+  Future<void> submit(
+    BuildContext dialogContext,
+    StateSetter setDialogState,
+  ) async {
+    if (sending || !(formKey.currentState?.validate() ?? false)) return;
+    setDialogState(() => sending = true);
+    try {
+      await AppScope.of(dialogContext)
+          .sendPasswordResetEmail(emailController.text);
+      if (!dialogContext.mounted || !pageContext.mounted) return;
+      Navigator.of(dialogContext).pop();
+      ScaffoldMessenger.of(pageContext).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'If that email has a Shellby account, password-reset instructions are on the way.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (dialogContext.mounted) _showAuthError(pageContext, error);
+    } finally {
+      if (dialogContext.mounted) setDialogState(() => sending = false);
+    }
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (_, setDialogState) => AlertDialog(
+        title: const Text('Reset your password'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter the email you use for Shellby. We will send a secure reset link if an account exists.',
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.email],
+                decoration: inputDecoration('you@example.com').copyWith(
+                  labelText: 'Email address',
+                  prefixIcon: const Icon(Icons.mail_rounded, color: _body),
+                ),
+                validator: validateEmail,
+                onFieldSubmitted: (_) => submit(dialogContext, setDialogState),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: sending ? null : () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed:
+                sending ? null : () => submit(dialogContext, setDialogState),
+            child: Text(sending ? 'Sending...' : 'Send reset link'),
+          ),
+        ],
+      ),
+    ),
+  );
+  emailController.dispose();
 }
 
 void _showAuthError(BuildContext context, Object error) {

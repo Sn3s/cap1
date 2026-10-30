@@ -736,6 +736,15 @@ class AppState extends ChangeNotifier {
     await saveProfile();
   }
 
+  /// AI is strictly optional. When this is off, no profile, goal, balance, or
+  /// transaction context may be sent to an AI provider.
+  Future<void> setConsentAi(bool value) async {
+    if (consentAi == value) return;
+    consentAi = value;
+    notifyListeners();
+    await saveProfile();
+  }
+
   /// Community is opt-in for signed-in users. Enabling it starts the
   /// Firestore-backed friends/feed session; disabling it closes that session
   /// and removes the signed-in user from the live community UI.
@@ -1179,6 +1188,15 @@ class AppState extends ChangeNotifier {
     await _refreshLinkedAccountsAfterSignIn();
     await saveProfile();
     notifyListeners();
+  }
+
+  Future<void> sendPasswordResetEmail(String email) async {
+    final normalizedEmail = email.trim();
+    final emailError = validateEmail(normalizedEmail);
+    if (emailError != null) {
+      throw FirebaseAuthException(code: 'invalid-email', message: emailError);
+    }
+    await FirebaseProfileService.sendPasswordResetEmail(email: normalizedEmail);
   }
 
   Future<void> _refreshLinkedAccountsAfterSignIn() async {

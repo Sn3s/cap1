@@ -58,6 +58,10 @@ class FirebaseProfileService {
     );
   }
 
+  static Future<void> sendPasswordResetEmail({required String email}) {
+    return _auth.sendPasswordResetEmail(email: email);
+  }
+
   static Future<Map<String, dynamic>?> loadProfile(String uid) async {
     final snapshot = await _profileRef(uid).get();
     return snapshot.data();

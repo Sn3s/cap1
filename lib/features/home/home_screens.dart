@@ -649,6 +649,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
     if (widget.analysisContext?.trim().isNotEmpty == true) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        if (!AppScope.of(context).consentAi) return;
         _controller.text =
             'Analyze this screen and explain the most important patterns.';
         _send();
@@ -664,6 +665,13 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   }
 
   Future<void> _send() async {
+    if (!AppScope.of(context).consentAi) {
+      setState(() {
+        _error =
+            'AI insights are off. Turn them on in Privacy & security before sharing app context with Shellby.';
+      });
+      return;
+    }
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
     setState(() => _messages.add(ChatMessage(true, text)));
@@ -675,6 +683,18 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
   /// which re-asks without adding the question twice.
   Future<void> _requestReply() async {
     final state = AppScope.of(context);
+    // This is deliberately checked again at the provider boundary. A chat
+    // screen may have been opened before consent was withdrawn in Settings.
+    if (!state.consentAi) {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _error =
+              'AI insights are off. Shellby has not sent your information anywhere.';
+        });
+      }
+      return;
+    }
     setState(() {
       _sending = true;
       _error = null;
@@ -729,63 +749,26 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!AppScope.of(context).consentAi) {
+      return Scaffold(
+        backgroundColor: _bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(context),
+              const Expanded(child: _AiConsentRequiredView()),
+            ],
+          ),
+        ),
+      );
+    }
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    tooltip: 'Back',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: const BoxDecoration(
-                      color: _bellySoft,
-                      shape: BoxShape.circle,
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Image.asset(
-                      'assets/images/shellby_wave.webp',
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Shellby',
-                          style: GoogleFonts.fredoka(
-                            color: _title,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          widget.analysisTitle == null
-                              ? 'Your app & money chat mate'
-                              : '${widget.analysisTitle} chat',
-                          style: const TextStyle(
-                            color: _body,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildHeader(context),
             Expanded(
               child: ListView.separated(
                 controller: _scrollController,
@@ -878,6 +861,128 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 16, 8),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: 'Back',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(
+              color: _bellySoft,
+              shape: BoxShape.circle,
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              'assets/images/shellby_wave.webp',
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Shellby',
+                  style: GoogleFonts.fredoka(
+                    color: _title,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  widget.analysisTitle == null
+                      ? 'Your app & money chat mate'
+                      : '${widget.analysisTitle} chat',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiConsentRequiredView extends StatelessWidget {
+  const _AiConsentRequiredView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: AppCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: const BoxDecoration(
+                    color: _bellySoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.lock_outline_rounded,
+                    color: _purple,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'AI insights are off',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.fredoka(
+                    color: _title,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Shellby will not send your profile, goals, balances, or transactions to an AI service unless you explicitly enable AI-assisted insights.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _body,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                PrimaryButton(
+                  label: 'Review AI privacy settings',
+                  icon: Icons.shield_outlined,
+                  onPressed: () =>
+                      _push(context, const CommunityPrivacyScreen()),
+                ),
+                const SizedBox(height: 10),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Not now'),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
