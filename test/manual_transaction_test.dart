@@ -51,6 +51,91 @@ void main() {
     );
   });
 
+  test('unexpected expense uses Needs, Buffer, then Emergency Fund', () async {
+    final state = AppState()
+      ..cashOnHandBalance = 1500
+      ..needsTarget = 1000
+      ..needsBalance = 200
+      ..bufferBalance = 300
+      ..emergencyFundBalance = 500;
+
+    final preview = state.planUnexpectedExpenseRecovery(900);
+    expect(preview.fromNeeds, 200);
+    expect(preview.fromBuffer, 300);
+    expect(preview.fromEmergencyFund, 400);
+    expect(preview.uncovered, 0);
+    expect(preview.amountToRebuild, 700);
+
+    await state.addManualCashTransaction(
+      title: 'Urgent clinic visit',
+      detail: 'Walk-in consultation',
+      amount: -900,
+      occurredAt: DateTime(2026, 10, 30, 9),
+      category: 'Health',
+      source: 'Cash on Hand',
+      unexpectedExpense: true,
+    );
+
+    expect(state.cashOnHandBalance, 600);
+    expect(state.needsBalance, 0);
+    expect(state.bufferBalance, 0);
+    expect(state.emergencyFundBalance, 100);
+    expect(state.manualTransactions.single.tag, 'Unexpected expense');
+    expect(state.jarLedger.first.type, JarEventType.unexpectedExpense);
+    expect(state.jarLedger.first.needsOut, 200);
+    expect(state.jarLedger.first.bufferOut, 300);
+    expect(state.jarLedger.first.emergencyOut, 400);
+    expect(state.pendingEmergencyReplenishment, 400);
+    expect(
+      state.d1Ledger.single,
+      containsPair('sourceTransactionId', state.manualTransactions.single.id),
+    );
+  });
+
+  test('unexpected expense reports any amount that needs another source', () {
+    final state = AppState()
+      ..needsBalance = 100
+      ..bufferBalance = 50
+      ..emergencyFundBalance = 200;
+
+    final preview = state.planUnexpectedExpenseRecovery(500);
+
+    expect(preview.isFullyCovered, isFalse);
+    expect(preview.fromNeeds, 100);
+    expect(preview.fromBuffer, 50);
+    expect(preview.fromEmergencyFund, 200);
+    expect(preview.uncovered, 150);
+  });
+
+  test(
+      'unexpected expense withdraws a linked Emergency Fund only for its remainder',
+      () async {
+    final state = AppState()
+      ..seedEmergencyFundMockDataForTesting()
+      ..cashOnHandBalance = 1000
+      ..needsBalance = 100
+      ..bufferBalance = 100;
+    final beforeGoal = state.fakeMayaLink!.summary
+        .personalGoalById(FakeMayaPersonalGoal.emergencyFundId)!
+        .balance;
+
+    await state.addManualCashTransaction(
+      title: 'Emergency medicine',
+      detail: 'Pharmacy',
+      amount: -500,
+      occurredAt: DateTime(2026, 10, 30, 9),
+      category: 'Health',
+      source: 'Cash on Hand',
+      unexpectedExpense: true,
+    );
+
+    final afterGoal = state.fakeMayaLink!.summary
+        .personalGoalById(FakeMayaPersonalGoal.emergencyFundId)!
+        .balance;
+    expect(afterGoal, beforeGoal - 300);
+    expect(state.jarLedger.first.emergencyOut, 300);
+  });
+
   test('essential fund allocation is refused without a FakeMaya Wallet',
       () async {
     final state = AppState();

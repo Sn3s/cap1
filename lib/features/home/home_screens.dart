@@ -21330,13 +21330,21 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
             icon: Icons.savings_rounded,
           ));
         case 'use_emergency':
+          final isUnexpectedExpense = entry['unexpectedExpense'] == true;
+          final label = entry['label']?.toString().trim();
           activity.add(_EmergencyActivityItem(
-            title: 'Emergency Fund used',
-            detail: 'Waiting to be replenished',
+            title: isUnexpectedExpense
+                ? 'Unexpected expense recovery'
+                : 'Emergency Fund used',
+            detail: isUnexpectedExpense
+                ? '${label?.isNotEmpty == true ? label : 'Emergency expense'} · Replenish after your next income'
+                : 'Waiting to be replenished',
             amount: amount,
             date: date,
             incoming: false,
-            icon: Icons.outbox_rounded,
+            icon: isUnexpectedExpense
+                ? Icons.health_and_safety_rounded
+                : Icons.outbox_rounded,
           ));
         case 'ef_replenish':
           activity.add(_EmergencyActivityItem(
@@ -28911,6 +28919,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   String? _category;
   DateTime _occurredAt = AppClock.now();
   bool _saving = false;
+  bool _unexpectedExpense = false;
 
   @override
   void dispose() {
@@ -28952,6 +28961,11 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         if (!state.isAccountSynced(account)) account,
     ];
     if (!accounts.contains(_account)) _account = accounts.first;
+    final enteredAmount =
+        double.tryParse(_amount.text.replaceAll(',', '')) ?? 0;
+    final unexpectedPlan = !_moneyIn && _unexpectedExpense && enteredAmount > 0
+        ? state.planUnexpectedExpenseRecovery(enteredAmount)
+        : null;
     return _GoalSheetFrame(
       child: Form(
         key: _formKey,
@@ -28999,6 +29013,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               onSelectionChanged: (selection) => setState(() {
                 _moneyIn = selection.first;
                 _category = null;
+                if (_moneyIn) _unexpectedExpense = false;
               }),
             ),
             const SizedBox(height: 12),
@@ -29020,6 +29035,9 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
                 labelText: 'Amount',
                 prefixText: '₱ ',
               ),
+              onChanged: (_) {
+                if (_unexpectedExpense) setState(() {});
+              },
               validator: validatePositiveAmount,
             ),
             const SizedBox(height: 12),
@@ -29035,6 +29053,30 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               onChanged: (value) => setState(() => _category = value),
               validator: (value) => value == null ? 'Choose a category.' : null,
             ),
+            if (!_moneyIn) ...[
+              const SizedBox(height: 8),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _unexpectedExpense,
+                activeColor: _red,
+                secondary: const Icon(
+                  Icons.health_and_safety_rounded,
+                  color: _red,
+                ),
+                title: const Text(
+                  'Unexpected / emergency expense',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Use Basic Needs, then Buffer, then Emergency Fund.',
+                  style: TextStyle(color: _body, fontSize: 12),
+                ),
+                onChanged: (value) =>
+                    setState(() => _unexpectedExpense = value),
+              ),
+              if (_unexpectedExpense)
+                _UnexpectedExpensePlanCard(plan: unexpectedPlan),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: _detail,
@@ -29105,7 +29147,11 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
     if (title.isEmpty || amount == null || category == null) return;
     setState(() => _saving = true);
     try {
-      await AppScope.of(context).addManualCashTransaction(
+      final state = AppScope.of(context);
+      final recovery = _unexpectedExpense && !_moneyIn
+          ? state.planUnexpectedExpenseRecovery(amount)
+          : null;
+      await state.addManualCashTransaction(
         title: title,
         detail: _detail.text,
         amount: _moneyIn ? amount : -amount,
@@ -29117,13 +29163,28 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         source: _account,
         note: _optionalManualText(_note.text),
         account: _account,
+        unexpectedExpense: _unexpectedExpense && !_moneyIn,
       );
       if (!mounted) return;
+      if (recovery != null) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => _UnexpectedExpenseRecoveryDialog(
+            plan: recovery,
+            label: title,
+          ),
+        );
+        if (!mounted) return;
+      }
       Navigator.pop(context);
       showAppNotice(
         context,
-        message: 'Cash transaction saved.',
-        icon: Icons.check_circle_rounded,
+        message: recovery == null
+            ? 'Cash transaction saved.'
+            : 'Unexpected expense saved with a recovery plan.',
+        icon: recovery == null
+            ? Icons.check_circle_rounded
+            : Icons.health_and_safety_rounded,
       );
     } on StateError catch (error) {
       if (!mounted) return;
@@ -29133,7 +29194,234 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         message: error.message,
         icon: Icons.warning_amber_rounded,
       );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      showAppNotice(
+        context,
+        message: 'We could not save this expense. Please try again.',
+        icon: Icons.warning_amber_rounded,
+      );
     }
+  }
+}
+
+class _UnexpectedExpensePlanCard extends StatelessWidget {
+  const _UnexpectedExpensePlanCard({required this.plan});
+
+  final UnexpectedExpenseRecovery? plan;
+
+  @override
+  Widget build(BuildContext context) {
+    if (plan == null) {
+      return const _UnexpectedExpensePlanShell(
+        child: Text(
+          'Enter an amount to preview how Shellby will cover it.',
+          style: TextStyle(color: _body, fontSize: 12),
+        ),
+      );
+    }
+    return _UnexpectedExpensePlanShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Recovery path preview',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Shellby uses your safest available layer first.',
+            style: TextStyle(color: _body, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          _UnexpectedExpenseAllocationRow(
+            icon: Icons.account_balance_wallet_rounded,
+            label: '1. Basic Needs',
+            amount: plan!.fromNeeds,
+            color: _brand,
+          ),
+          _UnexpectedExpenseAllocationRow(
+            icon: Icons.savings_rounded,
+            label: '2. Buffer',
+            amount: plan!.fromBuffer,
+            color: _amber,
+          ),
+          _UnexpectedExpenseAllocationRow(
+            icon: Icons.shield_rounded,
+            label: '3. Emergency Fund',
+            amount: plan!.fromEmergencyFund,
+            color: _red,
+          ),
+          if (plan!.uncovered > 0) ...[
+            const Divider(height: 18),
+            Text(
+              '${money(plan!.uncovered)} is not covered yet. Review or defer non-essential spending before confirming.',
+              style: const TextStyle(
+                color: _red,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ] else ...[
+            const Divider(height: 18),
+            Text(
+              plan!.amountToRebuild > 0
+                  ? 'Recovery plan: rebuild ${money(plan!.amountToRebuild)} after your next income.'
+                  : 'Recovery plan: continue your regular income split to restore Basic Needs.',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UnexpectedExpensePlanShell extends StatelessWidget {
+  const _UnexpectedExpensePlanShell({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF2F2),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _red.withOpacity(.20)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _UnexpectedExpenseAllocationRow extends StatelessWidget {
+  const _UnexpectedExpenseAllocationRow({
+    required this.icon,
+    required this.label,
+    required this.amount,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final double amount;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(color: _title, fontSize: 12),
+            ),
+          ),
+          Text(
+            money(amount),
+            style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UnexpectedExpenseRecoveryDialog extends StatelessWidget {
+  const _UnexpectedExpenseRecoveryDialog({
+    required this.plan,
+    required this.label,
+  });
+
+  final UnexpectedExpenseRecovery plan;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final fullyCovered = plan.isFullyCovered;
+    return AlertDialog(
+      icon: Icon(
+        fullyCovered
+            ? Icons.health_and_safety_rounded
+            : Icons.warning_amber_rounded,
+        color: fullyCovered ? _red : _amber,
+      ),
+      title: Text(
+          fullyCovered ? 'Recovery plan created' : 'Coverage needs review'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${money(plan.amount)} for $label',
+              style:
+                  const TextStyle(color: _title, fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 12),
+            _UnexpectedExpenseAllocationRow(
+              icon: Icons.account_balance_wallet_rounded,
+              label: 'Basic Needs used',
+              amount: plan.fromNeeds,
+              color: _brand,
+            ),
+            _UnexpectedExpenseAllocationRow(
+              icon: Icons.savings_rounded,
+              label: 'Buffer used',
+              amount: plan.fromBuffer,
+              color: _amber,
+            ),
+            _UnexpectedExpenseAllocationRow(
+              icon: Icons.shield_rounded,
+              label: 'Emergency Fund used',
+              amount: plan.fromEmergencyFund,
+              color: _red,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              fullyCovered
+                  ? _recoveryPlanText(plan)
+                  : '${money(plan.uncovered)} remains uncovered. Reduce, defer, or find another source for that amount before relying on this plan.',
+              style: const TextStyle(color: _body, height: 1.35),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+
+  String _recoveryPlanText(UnexpectedExpenseRecovery recovery) {
+    final steps = <String>[];
+    if (recovery.fromNeeds > 0) {
+      steps.add('Keep the next income split on schedule to refill Basic Needs');
+    }
+    if (recovery.fromBuffer > 0) {
+      steps.add('restore ${money(recovery.fromBuffer)} to Buffer');
+    }
+    if (recovery.fromEmergencyFund > 0) {
+      steps.add(
+          'replenish ${money(recovery.fromEmergencyFund)} to the Emergency Fund within 7 days of your next income');
+    }
+    if (steps.isEmpty) return 'No fund balance was available to allocate.';
+    return 'Next steps: ${steps.join('; ')}.';
   }
 }
 

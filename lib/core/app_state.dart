@@ -9189,6 +9189,7 @@ class AppState extends ChangeNotifier {
     String? note,
     String account = 'Cash on Hand',
     String? transactionId,
+    bool unexpectedExpense = false,
   }) async {
     if (amount == 0) return;
     final id = transactionId?.trim().isNotEmpty == true
@@ -9204,6 +9205,14 @@ class AppState extends ChangeNotifier {
     if (amount < 0 && amount.abs() > balance) {
       throw StateError('Not enough money in $account for this transaction.');
     }
+    if (unexpectedExpense && amount < 0) {
+      await _recordUnexpectedExpenseRecovery(
+        amount: amount.abs(),
+        label: title,
+        occurredAt: occurredAt,
+        transactionId: id,
+      );
+    }
     manualTransactions.add(
       FakeMayaTransaction(
         id: id,
@@ -9216,7 +9225,7 @@ class AppState extends ChangeNotifier {
         source: source,
         account: account,
         subcategory: subcategory,
-        tag: tag,
+        tag: unexpectedExpense ? 'Unexpected expense' : tag,
         note: note,
         labeledAt: AppClock.now(),
       ),
@@ -9243,6 +9252,100 @@ class AppState extends ChangeNotifier {
     }
     if (isSignedIn) await saveProfile();
     notifyListeners();
+  }
+
+  /// Shows how an unexpected cost would be covered without changing money.
+  /// The order is deliberately fixed: day-to-day Basic Needs first, then the
+  /// income Buffer, then the Emergency Fund as the last safety net.
+  UnexpectedExpenseRecovery planUnexpectedExpenseRecovery(double amount) {
+    final total = math.max(0.0, amount);
+    var remainder = total;
+    final fromNeeds = math.min(needsBalance, remainder).toDouble();
+    remainder -= fromNeeds;
+    final fromBuffer = math.min(bufferBalance, remainder).toDouble();
+    remainder -= fromBuffer;
+    final fromEmergency =
+        math.min(displayedEmergencyFundBalance, remainder).toDouble();
+    remainder -= fromEmergency;
+    return UnexpectedExpenseRecovery(
+      amount: total,
+      fromNeeds: fromNeeds,
+      fromBuffer: fromBuffer,
+      fromEmergencyFund: fromEmergency,
+      uncovered: math.max(0.0, remainder).toDouble(),
+      needsBalanceAfter: math.max(0.0, needsBalance - fromNeeds).toDouble(),
+      bufferBalanceAfter: math.max(0.0, bufferBalance - fromBuffer).toDouble(),
+      emergencyFundBalanceAfter: math
+          .max(0.0, displayedEmergencyFundBalance - fromEmergency)
+          .toDouble(),
+      needsTarget: needsTarget,
+    );
+  }
+
+  /// Applies the unexpected-expense recovery plan and leaves a durable trail
+  /// in both the Two-Jar history and the Emergency Fund action ledger.
+  ///
+  /// If a linked FakeMaya Emergency Fund is used, the remote withdrawal is
+  /// completed first. A failed transfer therefore cannot leave the local plan
+  /// claiming that emergency money was spent.
+  Future<UnexpectedExpenseRecovery> _recordUnexpectedExpenseRecovery({
+    required double amount,
+    required String label,
+    required DateTime occurredAt,
+    required String transactionId,
+  }) async {
+    final recovery = planUnexpectedExpenseRecovery(amount);
+    if (recovery.fromEmergencyFund > 0) {
+      final linkedEmergencyFund = fakeMayaLink?.summary
+          .personalGoalById(FakeMayaPersonalGoal.emergencyFundId);
+      if (linkedEmergencyFund != null) {
+        await _withdrawFakeMayaPersonalGoalToWallet(
+          recovery.fromEmergencyFund,
+          personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+        );
+        emergencyFundBalance = fakeMayaLink?.summary
+                .personalGoalById(FakeMayaPersonalGoal.emergencyFundId)
+                ?.balance ??
+            math.max(
+                0, linkedEmergencyFund.balance - recovery.fromEmergencyFund);
+      } else {
+        emergencyFundBalance = math.max(
+          0,
+          emergencyFundBalance - recovery.fromEmergencyFund,
+        );
+      }
+      financialSafetyBalance = emergencyFundBalance;
+      shieldTrackedBalance = emergencyFundBalance;
+      _lastEfWithdrawalStr = occurredAt.toIso8601String();
+      d1Ledger.insert(0, {
+        'type': 'use_emergency',
+        'date': AppClock.now().toIso8601String(),
+        'sourceDate': occurredAt.toIso8601String(),
+        'sourceTransactionId': transactionId,
+        'amount': recovery.fromEmergencyFund,
+        'label': label.trim().isEmpty ? 'Unexpected expense' : label.trim(),
+        'unexpectedExpense': true,
+      });
+    }
+    needsBalance = recovery.needsBalanceAfter;
+    bufferBalance = recovery.bufferBalanceAfter;
+    jarLedger.insert(
+      0,
+      JarEvent(
+        timestamp: occurredAt,
+        type: JarEventType.unexpectedExpense,
+        needsIn: 0,
+        needsOut: recovery.fromNeeds,
+        bufferIn: 0,
+        bufferOut: recovery.fromBuffer,
+        emergencyOut: recovery.fromEmergencyFund,
+        sourceTransactionId: transactionId,
+        sentence: recovery.ledgerSentence(
+          label: label.trim().isEmpty ? 'Unexpected expense' : label.trim(),
+        ),
+      ),
+    );
+    return recovery;
   }
 
   /// Manual entry has an explicit income category, so use that signal rather
@@ -9601,7 +9704,7 @@ class IncomeSourceDefaults {
   final String repeatFrequency;
 }
 
-enum JarEventType { income, billPaid, transfer }
+enum JarEventType { income, billPaid, unexpectedExpense, transfer }
 
 enum JarSource { buffer, emergency }
 
@@ -9627,6 +9730,8 @@ class JarEvent {
     required this.bufferIn,
     required this.bufferOut,
     required this.sentence,
+    this.emergencyOut = 0,
+    this.sourceTransactionId,
   });
 
   final DateTime timestamp;
@@ -9635,6 +9740,8 @@ class JarEvent {
   final double needsOut;
   final double bufferIn;
   final double bufferOut;
+  final double emergencyOut;
+  final String? sourceTransactionId;
   final String sentence;
 
   Map<String, dynamic> toMap() => {
@@ -9644,6 +9751,9 @@ class JarEvent {
         'needsOut': needsOut,
         'bufferIn': bufferIn,
         'bufferOut': bufferOut,
+        'emergencyOut': emergencyOut,
+        if (sourceTransactionId != null)
+          'sourceTransactionId': sourceTransactionId,
         'sentence': sentence,
       };
 
@@ -9660,6 +9770,8 @@ class JarEvent {
       needsOut: _num(data['needsOut']),
       bufferIn: _num(data['bufferIn']),
       bufferOut: _num(data['bufferOut']),
+      emergencyOut: _num(data['emergencyOut']),
+      sourceTransactionId: data['sourceTransactionId'] as String?,
       sentence: data['sentence'] as String? ?? '',
     );
   }
@@ -9667,6 +9779,47 @@ class JarEvent {
   static double _num(Object? v) {
     if (v is num) return v.toDouble();
     return double.tryParse(v?.toString() ?? '') ?? 0;
+  }
+}
+
+/// The transparent allocation produced when a user logs an unexpected cost.
+/// It is intentionally independent of UI so the same recovery explanation is
+/// shown in the transaction form, confirmation, activity feed, and tests.
+class UnexpectedExpenseRecovery {
+  const UnexpectedExpenseRecovery({
+    required this.amount,
+    required this.fromNeeds,
+    required this.fromBuffer,
+    required this.fromEmergencyFund,
+    required this.uncovered,
+    required this.needsBalanceAfter,
+    required this.bufferBalanceAfter,
+    required this.emergencyFundBalanceAfter,
+    required this.needsTarget,
+  });
+
+  final double amount;
+  final double fromNeeds;
+  final double fromBuffer;
+  final double fromEmergencyFund;
+  final double uncovered;
+  final double needsBalanceAfter;
+  final double bufferBalanceAfter;
+  final double emergencyFundBalanceAfter;
+  final double needsTarget;
+
+  bool get isFullyCovered => uncovered <= .005;
+  double get amountToRebuild => fromBuffer + fromEmergencyFund;
+
+  String ledgerSentence({required String label}) {
+    final sources = <String>[];
+    if (fromNeeds > 0) sources.add('${money(fromNeeds)} Basic Needs');
+    if (fromBuffer > 0) sources.add('${money(fromBuffer)} Buffer');
+    if (fromEmergencyFund > 0) {
+      sources.add('${money(fromEmergencyFund)} Emergency Fund');
+    }
+    if (uncovered > 0) sources.add('${money(uncovered)} still to cover');
+    return '$label · unexpected expense: ${sources.join(' → ')}';
   }
 }
 
