@@ -5475,7 +5475,7 @@ Configured Maintain Available Cash actions:
 Selected category budgets:
 ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.entries.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
 Monthly cash indexes:
-${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, money available (fund + wallet + cash) ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal resiliency ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
+${months.map((month) => '- ${_monthLabel(month.start)}: canPayBills=${month.canPayBills}, bills needed ${money(month.billNeed)}, money available (fund + wallet + cash) ${money(month.walletAvailable)}, income ${money(month.income)}, spending ${money(month.spending)}, goal progress ${_scorePercent(month.goalResiliencyScore)}%').join('\n')}
 Open basic-needs bill obligations:
 ${state.openBasicNeedsBillObligations.isEmpty ? 'No unpaid basic-needs bill obligations.' : state.openBasicNeedsBillObligations.map((bill) => '- ${basicNeedsBillDisplayName(bill)}: remaining ${money(_billRemaining(bill))}').join('\n')}
 Current month action evidence:
@@ -5772,8 +5772,8 @@ void _showGoalResiliencyExplanation(
   final scores = month.actionScores;
   _showScoreExplanation(
     context,
-    title: 'How goal resiliency is calculated',
-    formula: 'Goal resiliency = average of your actions\' scores',
+    title: 'How goal progress is calculated',
+    formula: 'Goal progress = average of your actions\' scores',
     children: [
       if (scores.isEmpty)
         _explanationNote(
@@ -7115,7 +7115,7 @@ _CashActionScore? _lifestyleActionScoreFor({
             ? 1.0
             : (limit / week.amount).clamp(0.0, 1.0),
     ];
-    // Consistency = the longest unbroken run of weeks within the limit.
+    // The longest unbroken run of weeks within the limit (evidence only).
     final withinLimit = [for (final value in ratios) value >= 1.0];
     var run = 0;
     var longestRun = 0;
@@ -7143,21 +7143,16 @@ _CashActionScore? _lifestyleActionScoreFor({
       actualLabel: money(spent),
       targetLabel: money(target),
       formula: 'Each week: 100% when spending stays within ${money(limit)}, '
-          'otherwise limit ÷ spending. Consistency = your longest run of '
-          'weeks in a row within the limit. Adherence = weeks within the '
-          'limit. Score = average of the weeks so far.',
+          'otherwise limit ÷ spending. Adherence = weeks within the limit. '
+          'Score = average of the weeks so far.',
       evidence: [
         'Configured weekly limit: ${money(limit)}',
         'Lifestyle spend counted: ${money(spent)}',
         'Weeks within the limit: ${withinLimit.where((w) => w).length} of ${weeks.length}',
         'Longest run within the limit: $longestRun week${longestRun == 1 ? '' : 's'}',
       ],
-      applicableMeasures: const ['Consistency', 'Adherence'],
-      // Only the count matters here: flag as many weeks as the longest run.
-      consistencyChecks: [
-        for (var i = 0; i < weeks.length; i++) i < longestRun,
-      ],
-      consistencyCaption: 'weeks in a row',
+      // The longest run stays in the evidence; streaks show on Goals.
+      applicableMeasures: const ['Adherence'],
     );
   }
   if (id == 'A29') {
@@ -7806,7 +7801,7 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: _OverviewMetric(
-                          label: 'Goal resiliency',
+                          label: 'Goal progress',
                           value: '$resiliencyScore%',
                           onExplain: () =>
                               _showGoalResiliencyExplanation(context, month),
@@ -7913,7 +7908,7 @@ class _CashMonthStatusSection extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _OverviewMetric(
-                  label: 'Goal resiliency',
+                  label: 'Goal progress',
                   value: '$resiliencyScore%',
                   onExplain: () =>
                       _showGoalResiliencyExplanation(context, month),
@@ -7927,6 +7922,42 @@ class _CashMonthStatusSection extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The plain names users see for each measure. The research terms
+/// (Consistency, Resiliency, Adherence) stay in code, the AI prompts and the
+/// paper.
+String _measureDisplayLabel(String label) => switch (label) {
+      'Consistency' => 'Active',
+      'Adherence' => 'On target',
+      'Resiliency' || 'Progress' => 'Progress',
+      _ => label,
+    };
+
+/// Swaps the research terms in user-facing text (e.g. formulas) for the
+/// plain names.
+String _plainMeasureNames(String text) => text
+    .replaceAll(RegExp(r'\bResiliency\b'), 'Progress')
+    .replaceAll(RegExp(r'\bAdherence\b'), 'On target')
+    .replaceAll(RegExp(r'\bConsistency\b'), 'Active');
+
+/// One-line meaning shown under each gauge, worded the same for every
+/// action except where the measure means something different.
+String _measureMeaning(_CashActionScore action, String label) {
+  switch (label) {
+    case 'Consistency':
+      return 'how often you did this action at all.';
+    case 'Adherence':
+      return 'how often you fully hit the target.';
+  }
+  if (action.id == 'A10') {
+    return 'how quickly you refilled the fund, compared with your day limit.';
+  }
+  if (!action.showPeriodBreakdown) {
+    return 'how much of the target is done so far.';
+  }
+  return 'how close you got to the target on average, counting partial '
+      'progress.';
 }
 
 class _ActionMeasure {
@@ -7952,6 +7983,9 @@ class _ActionMeasure {
   /// The action's main measure (Resiliency, or e.g. Progress), shown as the
   /// circular gauge.
   final bool primary;
+
+  /// What users see; [label] keeps the research term used in code.
+  String get displayLabel => _measureDisplayLabel(label);
 
   bool get hasScore => percent != null;
 }
@@ -7982,10 +8016,14 @@ List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
         ),
     ];
   }
+  // A single-number measure shows what it's counting, e.g. "₱X of ₱Y".
   final resiliency = _ActionMeasure(
     action.resiliencyLabel,
     _scorePercent(action.score),
     primary: true,
+    caption: action.showPeriodBreakdown
+        ? null
+        : '${action.actualLabel} of ${action.targetLabel}',
   );
   // Adherence reads as "X of Y weeks fully met" rather than a bare %.
   final metWeeks =
@@ -7995,21 +8033,22 @@ List<_ActionMeasure> _actionMeasures(_CashActionScore action) {
   final activeWeeks = action.consistencyChecks?.where((done) => done).length ??
       action.pattern.where((value) => value > 0).length;
   final consistency = _scorePercent(activeWeeks / totalWeeks);
+  // Active and On target read as counts of the action's own period, e.g.
+  // "3/4 weeks" or "2/3 incomes".
+  final periods = totalWeeks == 1 ? action.period : action.periodPlural;
   final byLabel = {
     'Consistency': _ActionMeasure(
       'Consistency',
       consistency,
-      centerText:
-          action.consistencyCaption == null ? null : '$activeWeeks/$totalWeeks',
-      caption: action.consistencyCaption,
+      centerText: '$activeWeeks/$totalWeeks',
+      caption: periods,
     ),
     'Resiliency': resiliency,
     'Adherence': _ActionMeasure(
       'Adherence',
       adherence,
       centerText: '$metWeeks/$totalWeeks',
-      caption:
-          '${totalWeeks == 1 ? action.period : action.periodPlural} fully met',
+      caption: periods,
     ),
   };
   return [for (final label in applicable) byLabel[label]!];
@@ -8028,7 +8067,7 @@ class _CircularScoreGauge extends StatelessWidget {
 
   factory _CircularScoreGauge.forMeasure(_ActionMeasure measure) =>
       _CircularScoreGauge(
-        label: measure.label,
+        label: measure.displayLabel,
         percent: measure.percent,
         centerText: measure.centerText,
         caption: measure.caption,
@@ -8205,7 +8244,7 @@ class _ActionMeasureCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   _CircularScoreGauge(
-                    label: 'Score',
+                    label: 'Overall',
                     percent: overall,
                     size: 54,
                     strokeWidth: 5,
@@ -8304,7 +8343,7 @@ class _ActionPartCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: 6),
               child: _CircularScoreGauge(
-                label: measure.label,
+                label: measure.displayLabel,
                 percent: measure.percent,
                 centerText: measure.centerText,
                 caption: measure.caption,
@@ -8713,9 +8752,7 @@ void _showCashActionScoreDetails(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                action.applicableMeasures.contains('Resiliency')
-                    ? '${action.title} ${action.resiliencyLabel.toLowerCase()}'
-                    : '${action.title} score',
+                action.title,
                 style: const TextStyle(
                   color: _title,
                   fontSize: 16,
@@ -8737,6 +8774,28 @@ void _showCashActionScoreDetails(
                             _CircularScoreGauge.forMeasure(measure),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      for (final measure in measures)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text.rich(
+                            TextSpan(children: [
+                              TextSpan(
+                                text: '${measure.displayLabel}: ',
+                                style: const TextStyle(
+                                    color: _title, fontWeight: FontWeight.w900),
+                              ),
+                              TextSpan(
+                                  text: _measureMeaning(action, measure.label)),
+                            ]),
+                            style: const TextStyle(
+                              color: _body,
+                              fontSize: 11.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
                       if (missingReason != null) ...[
                         const SizedBox(height: 10),
                         Text(
@@ -8774,7 +8833,7 @@ void _showCashActionScoreDetails(
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        action.formula,
+                        _plainMeasureNames(action.formula),
                         style: const TextStyle(
                           color: _body,
                           fontSize: 11.5,
@@ -8801,7 +8860,7 @@ void _showCashActionScoreDetails(
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  item,
+                                  _plainMeasureNames(item),
                                   style: const TextStyle(
                                     color: _body,
                                     fontSize: 11.5,

@@ -796,9 +796,10 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
       final measures = _actionMeasures(score);
       final adherence =
           measures.where((m) => m.label == 'Adherence').firstOrNull;
-      return '- ${score.id}: ${score.resiliencyLabel} '
+      // Plain names, the same ones users see, so replies use them too.
+      return '- ${score.id}: Progress '
           '${_scorePercent(score.score)}%'
-          '${adherence?.centerText != null ? '; fully met ${adherence!.centerText} ${score.periodPlural}' : ''}'
+          '${adherence?.centerText != null ? '; on target ${adherence!.centerText} ${score.periodPlural}' : ''}'
           '; ${score.detail}';
     }).join('\n');
     return '''
