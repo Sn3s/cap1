@@ -2266,7 +2266,7 @@ class _PreparationContextScreenState extends State<PreparationContextScreen> {
         label: 'Continue',
         icon: Icons.arrow_forward_rounded,
         enabled: canContinue,
-        onPressed: () => _push(context, const PreparationCredentialsScreen()),
+        onPressed: () => _push(context, const LifeContextScreen()),
       ),
       child: Column(
         children: [
@@ -2299,17 +2299,22 @@ class _PreparationCredentialsScreenState
   final formKey = GlobalKey<FormState>();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
   bool busy = false;
+  bool obscurePassword = true;
+  bool obscureConfirmation = true;
 
   bool get _canCreateAccount =>
       !busy &&
       emailController.text.trim().isNotEmpty &&
-      passwordController.text.length >= 6;
+      passwordController.text.length >= 6 &&
+      passwordController.text == confirmPasswordController.text;
 
   @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -2326,7 +2331,7 @@ class _PreparationCredentialsScreenState
       final state = AppScope.of(context);
       await action(state);
       if (!mounted) return;
-      _push(context, const LifeContextScreen());
+      _pushReplacement(context, const PreparationContextScreen());
     } catch (error) {
       if (!mounted) return;
       _showAuthError(context, error);
@@ -2341,7 +2346,7 @@ class _PreparationCredentialsScreenState
       phase: 1,
       title: 'Create your account.',
       subtitle:
-          'Use email and password or continue with Google so Shelby can save your profile.',
+          'Save your plan securely with email and password or Google. The rest of setup takes about 4 minutes.',
       bottom: const SizedBox.shrink(),
       child: Form(
         key: formKey,
@@ -2354,6 +2359,7 @@ class _PreparationCredentialsScreenState
                 controller: emailController,
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.email],
                 decoration: inputDecoration('you@example.com'),
                 validator: validateEmail,
                 onChanged: (_) => setState(() {}),
@@ -2365,16 +2371,70 @@ class _PreparationCredentialsScreenState
               icon: Icons.lock_rounded,
               child: TextFormField(
                 controller: passwordController,
-                obscureText: true,
+                obscureText: obscurePassword,
                 textInputAction: TextInputAction.done,
-                decoration: inputDecoration('At least 6 characters'),
+                autofillHints: const [AutofillHints.newPassword],
+                decoration: inputDecoration('At least 6 characters').copyWith(
+                  suffixIcon: IconButton(
+                    tooltip:
+                        obscurePassword ? 'Show password' : 'Hide password',
+                    onPressed: () =>
+                        setState(() => obscurePassword = !obscurePassword),
+                    icon: Icon(
+                      obscurePassword
+                          ? Icons.visibility_rounded
+                          : Icons.visibility_off_rounded,
+                    ),
+                  ),
+                ),
                 validator: validatePassword,
                 onChanged: (_) => setState(() {}),
               ),
             ),
             const SizedBox(height: 18),
+            LabeledField(
+              label: 'Confirm password',
+              icon: Icons.lock_reset_rounded,
+              child: TextFormField(
+                controller: confirmPasswordController,
+                obscureText: obscureConfirmation,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.newPassword],
+                decoration:
+                    inputDecoration('Enter your password again').copyWith(
+                  suffixIcon: IconButton(
+                    tooltip: obscureConfirmation
+                        ? 'Show password confirmation'
+                        : 'Hide password confirmation',
+                    onPressed: () => setState(
+                      () => obscureConfirmation = !obscureConfirmation,
+                    ),
+                    icon: Icon(
+                      obscureConfirmation
+                          ? Icons.visibility_rounded
+                          : Icons.visibility_off_rounded,
+                    ),
+                  ),
+                ),
+                validator: (value) => value != passwordController.text
+                    ? 'Passwords do not match.'
+                    : null,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Your account is finalized after setup. Shellby will not connect or move money without your approval.',
+              style: TextStyle(
+                color: _body,
+                fontSize: 12,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 18),
             PrimaryButton(
-              label: 'Create account',
+              label: 'Continue to setup',
               icon: Icons.person_add_alt_1_rounded,
               enabled: _canCreateAccount,
               onPressed: () => _runAuth(
@@ -2389,10 +2449,28 @@ class _PreparationCredentialsScreenState
             const SizedBox(height: 18),
             GoogleSignInButton(
               busy: busy,
+              label: 'Continue with Google',
               onPressed: () => _runAuth(
                 (state) => state.stageGoogleAccount(),
                 validateForm: false,
               ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Already have an account? ',
+                  style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+                ),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => _pushReplacement(context, const LoginScreen()),
+                  child: const Text('Log in'),
+                ),
+              ],
             ),
           ],
         ),
@@ -4558,8 +4636,8 @@ String _a2BudgetSummary(Map<String, double> budgets) => budgets.entries
 
 bool _a2BudgetValuesValid(Map<String, String> values) =>
     values.isNotEmpty &&
-    values.entries.every(
-        (entry) => _actionFieldError(_a2BudgetField(entry.key), entry.value) == null);
+    values.entries.every((entry) =>
+        _actionFieldError(_a2BudgetField(entry.key), entry.value) == null);
 
 /// Saves the onboarding A2 budgets to the ledger (custom categories go under
 /// Financial Freedom) and keeps the single A2 amount as their average.
@@ -4728,8 +4806,7 @@ class _PlanActionRow extends StatelessWidget {
         ),
         const SizedBox(width: 9),
         Expanded(
-            child: Text(
-                _actionPlanText(AppScope.of(context), action, values),
+            child: Text(_actionPlanText(AppScope.of(context), action, values),
                 style: const TextStyle(
                     color: _title, height: 1.35, fontWeight: FontWeight.w800))),
       ],

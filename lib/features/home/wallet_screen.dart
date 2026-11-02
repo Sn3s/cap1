@@ -450,10 +450,16 @@ _TxData _txFromFakeMaya(FakeMayaTransaction tx) {
 String _transactionSubtitle(FakeMayaTransaction transaction) {
   final detail = transaction.detail.trim();
   final category = transaction.category?.trim() ?? '';
-  if (category.isEmpty || category.toLowerCase() == detail.toLowerCase()) {
-    return detail;
-  }
-  return '$detail • $category';
+  final tag = transaction.tag?.trim() ?? '';
+  final labels = <String>[
+    if (detail.isNotEmpty) detail,
+    if (tag.isNotEmpty && tag.toLowerCase() != detail.toLowerCase()) tag,
+    if (category.isNotEmpty &&
+        category.toLowerCase() != detail.toLowerCase() &&
+        category.toLowerCase() != tag.toLowerCase())
+      category,
+  ];
+  return labels.isEmpty ? 'Transaction' : labels.join(' • ');
 }
 
 List<(String, List<_TxData>)> _groupTransactionsByDate(

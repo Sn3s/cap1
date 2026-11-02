@@ -5397,6 +5397,42 @@ class CommunityPrivacyScreen extends StatelessWidget {
             AppCard(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: SwitchListTile.adaptive(
+                value: state.consentAi,
+                activeTrackColor: _brand,
+                onChanged: state.isSignedIn
+                    ? (value) => state.setConsentAi(value)
+                    : null,
+                secondary: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: _bellySoft,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.auto_awesome_rounded,
+                      color: _purple, size: 20),
+                ),
+                title: const Text(
+                  'AI-assisted insights',
+                  style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  state.isSignedIn
+                      ? 'Off by default. When enabled, Shellby may send selected app context to AI so it can explain your financial data. It never moves money or makes decisions for you.'
+                      : 'Sign in to choose whether Shellby may use AI to explain your app data.',
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            AppCard(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: SwitchListTile.adaptive(
                 value: state.discoverableByEmail,
                 activeTrackColor: _brand,
                 onChanged: (value) => state.setDiscoverableByEmail(value),
