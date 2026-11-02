@@ -2883,6 +2883,55 @@ bool _isGoalOnTrack(String goalId, AppState state) {
   }
 }
 
+/// A goal counts as achieved when its Goal Progress shows "Target reached",
+/// or, for goals without an end target, "Consistent" after at least two
+/// full months of tracked activity (so a first good week doesn't count).
+bool goalCountsAsAchieved({
+  required String progressLabel,
+  required int fullMonthsTracked,
+}) =>
+    progressLabel == 'Target reached' ||
+    (progressLabel == 'Consistent' && fullMonthsTracked >= 2);
+
+bool _isGoalAchievedNow(String goalId, AppState state) {
+  final progress = switch (goalId) {
+    'G1' => _cashFlowGoalProgress(state),
+    'G3' => _emergencyGoalProgress(state),
+    'G5' => _investmentGoalProgress(state),
+    'G8' => _lifestyleGoalProgress(state),
+    _ => null,
+  };
+  if (progress == null) return false;
+  return goalCountsAsAchieved(
+    progressLabel: progress.label,
+    fullMonthsTracked: _fullMonthsTracked(state),
+  );
+}
+
+/// Full calendar months between the first labeled transaction and this
+/// month.
+int _fullMonthsTracked(AppState state) {
+  final dates = state.allTransactions
+      .where((transaction) => transaction.isLabeled)
+      .map((transaction) => transaction.createdAt)
+      .whereType<DateTime>();
+  if (dates.isEmpty) return 0;
+  final first = dates.reduce((a, b) => a.isBefore(b) ? a : b);
+  final now = AppClock.now();
+  return math.max(
+    0,
+    (now.year - first.year) * 12 + now.month - first.month - 1,
+  );
+}
+
+/// Whether [goalId] is achieved, remembering it the first time it is.
+bool _goalAchieved(String goalId, AppState state) {
+  if (state.achievedGoalIds.contains(goalId)) return true;
+  if (!_isGoalAchievedNow(goalId, state)) return false;
+  state.markGoalsAchieved([goalId]);
+  return true;
+}
+
 double _goalPercent(String goalId, AppState state) {
   switch (goalId) {
     case 'G1':

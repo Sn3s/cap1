@@ -712,6 +712,22 @@ class AppState extends ChangeNotifier {
   final Set<String> seenBadgeIds = {};
   bool _badgeBaselineSet = false;
 
+  /// Goals the user has achieved. Like badges, an achieved goal stays
+  /// achieved even if its progress dips later.
+  final Set<String> achievedGoalIds = {};
+
+  /// Records newly achieved goals and saves them; returns whether any were new.
+  bool markGoalsAchieved(Iterable<String> goalIds) {
+    final added = goalIds.where(achievedGoalIds.add).toList();
+    if (added.isEmpty) return false;
+    if (isSignedIn) {
+      unawaited(saveProfile().catchError((Object error) {
+        debugPrint('Saving achieved goals failed: $error');
+      }));
+    }
+    return true;
+  }
+
   /// "Let friends find me" (Settings → Privacy & security).
   bool discoverableByEmail = true;
 
@@ -1646,6 +1662,7 @@ class AppState extends ChangeNotifier {
     loginStreakBreaks.clear();
     appOpenDays.clear();
     seenBadgeIds.clear();
+    achievedGoalIds.clear();
     _badgeBaselineSet = false;
     discoverableByEmail = true;
     messages
@@ -4738,6 +4755,7 @@ class AppState extends ChangeNotifier {
       'loginStreakBreaks': loginStreakBreaks,
       'appOpenDays': appOpenDays.toList()..sort(),
       'seenBadgeIds': seenBadgeIds.toList()..sort(),
+      'achievedGoalIds': achievedGoalIds.toList()..sort(),
       'badgeBaselineSet': _badgeBaselineSet,
       'discoverableByEmail': discoverableByEmail,
       'consentAi': consentAi,
@@ -4986,6 +5004,13 @@ class AppState extends ChangeNotifier {
       ..addAll([
         if (badgeIds is List)
           for (final id in badgeIds) id.toString(),
+      ]);
+    final achievedIds = data['achievedGoalIds'];
+    achievedGoalIds
+      ..clear()
+      ..addAll([
+        if (achievedIds is List)
+          for (final id in achievedIds) id.toString(),
       ]);
     _badgeBaselineSet = data['badgeBaselineSet'] == true;
     discoverableByEmail = data['discoverableByEmail'] != false;

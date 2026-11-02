@@ -39,12 +39,6 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     // locked for everyone (see `_addGoalOpenLayers`).
     final isDemo = _insightsIsReflectionDemoAccount(state);
     final unlockedLayer = _addGoalUnlockMap[state.primaryConcern];
-    final unlockedGoalId =
-        unlockedLayer == null ? null : _layerCanonicalGoalId[unlockedLayer];
-    final alreadyAdded = !isDemo &&
-        unlockedGoalId != null &&
-        _visibleGoalIds(state).contains(unlockedGoalId);
-    final noneAvailable = !isDemo && unlockedLayer == null;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -58,79 +52,76 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
         ),
       ),
       body: SafeArea(
-        child: noneAvailable || alreadyAdded
-            ? _buildLocked(state, alreadyAdded: alreadyAdded)
-            : _chosenLayer == null
-                ? _buildLayerPicker(state,
-                    isDemo: isDemo, unlockedLayer: unlockedLayer)
-                : _surfaceAnswer == null
-                    ? _buildSurface(_chosenLayer!)
-                    : !_actionsConfirmed
-                        ? _buildActionPicker(state)
-                        : _buildNumbers(state),
+        child: _chosenLayer == null
+            ? _buildLayerPicker(state,
+                isDemo: isDemo, unlockedLayer: unlockedLayer)
+            : _surfaceAnswer == null
+                ? _buildSurface(_chosenLayer!)
+                : !_actionsConfirmed
+                    ? _buildActionPicker(state)
+                    : _buildNumbers(state),
       ),
     );
   }
 
-  Widget _buildLocked(AppState state, {required bool alreadyAdded}) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      children: [
-        ChatBubble(
-          fromUser: false,
-          text: alreadyAdded
-              ? "You've already added your second goal! We're focused on "
-                  'the two foundational layers for now — more will unlock '
-                  'as we build them out.'
-              : "We're currently focused on the two foundational layers of "
-                  'the pyramid — Cash Flow & Basic Needs and Financial '
-                  'Safety. This layer is **Coming Soon**.',
-        ),
-        const SizedBox(height: 18),
-        for (final branch in _goalBranches) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: SelectableOption(
-              icon: branch.icon,
-              title: branch.layer,
-              body: branch.layerDescription,
-              selected: false,
-              enabled: false,
-              onTap: () {},
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
+  /// Every layer with its status: the user's own goals (achieved or in
+  /// progress) are never dimmed, the one they can add next is tappable, and
+  /// layers the app doesn't offer yet say "Coming soon".
   Widget _buildLayerPicker(
     AppState state, {
     required bool isDemo,
     required String? unlockedLayer,
   }) {
+    final yourGoalIds = isDemo ? const <String>{} : _visibleGoalIds(state);
+    _AddGoalLayerStatus statusOf(String layer) {
+      final goalId = _layerCanonicalGoalId[layer];
+      if (goalId != null && yourGoalIds.contains(goalId)) {
+        return _goalAchieved(goalId, state)
+            ? _AddGoalLayerStatus.achieved
+            : _AddGoalLayerStatus.yourGoal;
+      }
+      final open = _addGoalOpenLayers.contains(layer) &&
+          (isDemo || layer == unlockedLayer);
+      return open
+          ? _AddGoalLayerStatus.available
+          : _AddGoalLayerStatus.comingSoon;
+    }
+
+    final statuses = {
+      for (final branch in _goalBranches) branch.layer: statusOf(branch.layer),
+    };
+    final addable = statuses.entries
+        .where((entry) => entry.value == _AddGoalLayerStatus.available)
+        .map((entry) => entry.key)
+        .toList();
+    final String message;
+    if (isDemo) {
+      message = 'Reflection Demo account — pick any layer to explore its '
+          'goal and actions.';
+    } else if (addable.isNotEmpty) {
+      message = 'Which goal do you want to add next? You can add '
+          '**${addable.first}** now. Your current goal stays as it is.';
+    } else if (unlockedLayer == null) {
+      message = "Adding a second goal isn't available for "
+          '${state.primaryConcern} yet. Your current goal stays as it is.';
+    } else {
+      message = "You're working on both goals you can have right now. "
+          'Accumulating Wealth and Financial Freedom are coming soon.';
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       children: [
-        ChatBubble(
-          fromUser: false,
-          text: isDemo
-              ? "Reflection Demo account — pick any layer to explore its "
-                  'goal and actions.'
-              : 'Which motivation do you want to add next? Right now you '
-                  'can unlock the one next in line.',
-        ),
+        ChatBubble(fromUser: false, text: message),
         const SizedBox(height: 18),
         for (final branch in _goalBranches) ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: SelectableOption(
+            child: _AddGoalLayerTile(
               icon: branch.icon,
               title: branch.layer,
               body: branch.layerDescription,
-              selected: _chosenLayer == branch.layer,
-              enabled: _addGoalOpenLayers.contains(branch.layer) &&
-                  (isDemo || branch.layer == unlockedLayer),
+              status: statuses[branch.layer]!,
               onTap: () => setState(() => _chosenLayer = branch.layer),
             ),
           ),
@@ -379,6 +370,124 @@ class _AddGoalActionTile extends StatelessWidget {
               color: selected ? _brand : _body,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _AddGoalLayerStatus { achieved, yourGoal, available, comingSoon }
+
+/// One pyramid layer on the Add goal screen, labeled by [status].
+class _AddGoalLayerTile extends StatelessWidget {
+  const _AddGoalLayerTile({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.status,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final _AddGoalLayerStatus status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, labelIcon, color) = switch (status) {
+      _AddGoalLayerStatus.achieved => (
+          'Achieved · still on your Goals page',
+          Icons.check_circle_rounded,
+          _sage,
+        ),
+      _AddGoalLayerStatus.yourGoal => (
+          'Your goal · in progress',
+          Icons.flag_rounded,
+          _brand,
+        ),
+      _AddGoalLayerStatus.available => (
+          'Available to add',
+          Icons.add_circle_outline_rounded,
+          _brand,
+        ),
+      _AddGoalLayerStatus.comingSoon => (
+          'Coming soon',
+          Icons.schedule_rounded,
+          _body,
+        ),
+    };
+    final comingSoon = status == _AddGoalLayerStatus.comingSoon;
+    final available = status == _AddGoalLayerStatus.available;
+    final owned = status == _AddGoalLayerStatus.achieved ||
+        status == _AddGoalLayerStatus.yourGoal;
+    return InkWell(
+      onTap: available ? onTap : null,
+      borderRadius: BorderRadius.circular(22),
+      child: Opacity(
+        opacity: comingSoon ? .5 : 1,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: owned ? color.withValues(alpha: .07) : _surface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: owned || available ? color : _border,
+              width: 2,
+            ),
+          ),
+          child: Row(
+            children: [
+              IconBubble(icon, color: color, background: _bellySoft),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: _title,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      body,
+                      style: const TextStyle(
+                        color: _body,
+                        height: 1.3,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(labelIcon, size: 14, color: color),
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (available)
+                const Icon(Icons.chevron_right_rounded, color: _brand),
+            ],
+          ),
         ),
       ),
     );
