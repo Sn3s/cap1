@@ -675,9 +675,9 @@ Return only JSON with keys reply, title, description, monthly_target.
     // Bills: open plans, paid ones, and the scheduled list they come from.
     final openBills = state.openBasicNeedsBillObligations.map((bill) =>
         '- ${basicNeedsBillDisplayName(bill)}: ${money(_billRemaining(bill))} '
-        'still owed, due ${date(DateTime.tryParse('${bill['dueDate']}'))}');
+        'still to cover, due ${date(DateTime.tryParse('${bill['dueDate']}'))}');
     final paidBills = state.paidBasicNeedsBillsThisMonth.map((bill) =>
-        '- ${basicNeedsBillDisplayName(bill)}: paid '
+        '- ${basicNeedsBillDisplayName(bill)}: covered '
         '${money(_doubleValue(bill['expectedAmount'], 0))}');
     final scheduledBills = state.onboardingExpenseLedger
         .where((expense) => expense['scheduled'] == true)
@@ -782,10 +782,10 @@ ${lines(actions, '- No actions set up yet.')}
 Category budgets this month:
 ${lines(budgets, 'No category budgets set.')}
 
-Bills still owed:
+Bills not yet covered:
 ${lines(openBills, 'None.')}
 
-Bills paid this month:
+Bills covered this month (funds set aside; the payment itself is a separate transaction):
 ${lines(paidBills, 'None recorded.')}
 
 Scheduled bills:

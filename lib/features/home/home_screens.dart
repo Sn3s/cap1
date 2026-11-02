@@ -7337,7 +7337,8 @@ double _essentialSetAsideForIncomeIn(
 
 /// The Essential Expenses Fund's balance at the end of [day]: today's
 /// balance with every later fund change undone (A1 transfers in, fund
-/// spending and bill payments out).
+/// spending out, and bill plans recorded before plans stopped moving
+/// money).
 double _essentialFundBalanceAtEndOf(AppState state, DateTime day) {
   final endOfDay = DateTime(day.year, day.month, day.day + 1);
   var balance = state.essentialExpensesBalance;
@@ -7347,7 +7348,8 @@ double _essentialFundBalanceAtEndOf(AppState state, DateTime day) {
     final change = switch (entry['type']) {
       'essential_deposit' => (entry['amount'] as num?)?.toDouble() ?? 0,
       'use_essential' => -((entry['amount'] as num?)?.toDouble() ?? 0),
-      'bill_plan' => -((entry['fromEssentialFund'] as num?)?.toDouble() ?? 0),
+      'bill_plan' when entry['planOnly'] != true =>
+        -((entry['fromEssentialFund'] as num?)?.toDouble() ?? 0),
       _ => 0.0,
     };
     balance -= change;
@@ -19896,7 +19898,7 @@ class _BillObligationsPanel extends StatelessWidget {
                       totalNeed > 0
                           ? '${money(totalNeed)} still needs to be covered'
                           : paidBills.isNotEmpty
-                              ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} paid this month'
+                              ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} covered this month'
                               : scheduledCount > 0
                                   ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
                                   : 'Add a scheduled Basic Needs bill first',
@@ -19927,7 +19929,7 @@ class _BillObligationsPanel extends StatelessWidget {
           if (paidBills.isNotEmpty) ...[
             const SizedBox(height: 14),
             const Text(
-              'Paid this month',
+              'Covered this month',
               style: TextStyle(
                 color: _body,
                 fontSize: 11,
@@ -19978,8 +19980,8 @@ class _BillObligationRow extends StatelessWidget {
               ),
               Text(
                 dueDate == null
-                    ? 'Paid ${money(paid)} of ${money(expected)}'
-                    : '${_shortDate(dueDate)} · Paid ${money(paid)} of ${money(expected)}',
+                    ? 'Covered ${money(paid)} of ${money(expected)}'
+                    : '${_shortDate(dueDate)} · Covered ${money(paid)} of ${money(expected)}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -20000,7 +20002,7 @@ class _BillObligationRow extends StatelessWidget {
             border: Border.all(color: badgeColor.withValues(alpha: .18)),
           ),
           child: Text(
-            isPaid ? 'Paid' : money(remaining),
+            isPaid ? 'Covered' : money(remaining),
             style: TextStyle(
               color: badgeColor,
               fontSize: 11,
@@ -20299,7 +20301,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           ),
                         ),
                         child: Text(
-                          '${unpaid > 0 ? '${money(planned)} can be paid now. ${money(unpaid)} will stay as unpaid.' : '${money(planned)} covers this bill.'}'
+                          '${unpaid > 0 ? '${money(planned)} is covered. ${money(unpaid)} still needs to be covered.' : '${money(planned)} covers this bill. Pay it from your account and label it when it\'s due.'}'
                           '${wasCapped ? ' Amounts above what each source has or what the bill needs won\'t be used.' : ''}',
                           style: TextStyle(
                             color: unpaid > 0 ? _red : _sage,
@@ -20352,8 +20354,8 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                         basicNeedsBillDisplayName(plan);
                                     messenger.showSnackBar(SnackBar(
                                       content: Text(left <= 0
-                                          ? '$billName marked paid'
-                                          : '${money(_doubleValue(plan['paidAmount'], 0))} recorded for $billName · ${money(left)} still owed'),
+                                          ? '$billName covered'
+                                          : '${money(_doubleValue(plan['paidAmount'], 0))} covered for $billName · ${money(left)} still to cover'),
                                     ));
                                   },
                             child: const Text('Record plan'),

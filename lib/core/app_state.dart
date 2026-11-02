@@ -6069,18 +6069,11 @@ class AppState extends ChangeNotifier {
     final essential = split.essential;
     final wallet = split.wallet;
     final savings = split.savings;
+    // A plan only records which funds will cover the bill; no money moves.
+    // The money leaves once, when the real payment is made and labeled
+    // (e.g. with the Basic Needs Fund as its source), so it isn't counted
+    // twice.
     final paidAmount = essential + wallet + savings;
-    if (essential > 0) {
-      await _withdrawFakeMayaPersonalGoalToWallet(
-        essential,
-        personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
-      );
-      essentialExpensesBalance =
-          math.max(0, essentialExpensesBalance - essential);
-    }
-    if (savings > 0) {
-      await _withdrawFakeMayaSavingsToWallet(savings);
-    }
 
     final now = AppClock.now();
     final id = planId?.trim().isNotEmpty == true
@@ -6125,6 +6118,8 @@ class AppState extends ChangeNotifier {
       'fromEssentialFund': essential,
       'fromWallet': wallet,
       'fromSavings': savings,
+      // Older plans moved money; these don't (see above).
+      'planOnly': true,
     });
     await saveProfile();
     notifyListeners();
