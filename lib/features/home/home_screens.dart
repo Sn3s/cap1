@@ -668,7 +668,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
     if (!AppScope.of(context).consentAi) {
       setState(() {
         _error =
-            'AI insights are off. Turn them on in Privacy & security before sharing app context with Shellby.';
+            'Shellby chat is off. Turn it on in Privacy & security before sharing app context with Shellby.';
       });
       return;
     }
@@ -690,7 +690,7 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
         setState(() {
           _sending = false;
           _error =
-              'AI insights are off. Shellby has not sent your information anywhere.';
+              'Shellby chat is off. The chat has not sent your information anywhere.';
         });
       }
       return;
@@ -950,7 +950,7 @@ class _AiConsentRequiredView extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  'AI insights are off',
+                  'Shellby chat is off',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.fredoka(
                     color: _title,
@@ -960,7 +960,7 @@ class _AiConsentRequiredView extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'Shellby will not send your profile, goals, balances, or transactions to an AI service unless you explicitly enable AI-assisted insights.',
+                  'The chat uses AI and sends your profile, goals, balances and transactions to it, so it stays off until you turn it on. Action stage suggestions are set separately in Privacy & security.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _body,
@@ -9142,7 +9142,7 @@ class _GoalSuggestionBannerState extends State<_GoalSuggestionBanner> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '$count suggestion${count == 1 ? '' : 's'} for ${widget.goalLabel}',
+                  '$count AI suggestion${count == 1 ? '' : 's'} for ${widget.goalLabel}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -9156,6 +9156,59 @@ class _GoalSuggestionBannerState extends State<_GoalSuggestionBanner> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Says the suggestions come from AI, what data they're based on and when
+/// they were made, so users can tell them apart from Shellby's own scores.
+class _ActionStageSourceNote extends StatelessWidget {
+  const _ActionStageSourceNote({required this.result});
+
+  final ActionStageResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final reviewed = result.reviewedAt;
+    final windowEnd = result.windowEnd;
+    final today = AppClock.now();
+    final endsBeforeToday = windowEnd != null &&
+        DateTime(windowEnd.year, windowEnd.month, windowEnd.day)
+            .isBefore(DateTime(today.year, today.month, today.day));
+    final lines = [
+      [
+        'AI suggestions',
+        if (result.basedOn.isNotEmpty) 'based on ${result.basedOn}',
+        if (reviewed != null) 'reviewed ${_shortDate(reviewed)}',
+      ].join(' · '),
+      if (endsBeforeToday)
+        'Your latest transaction was on ${_shortDate(windowEnd)}, so this '
+            "doesn't cover the days since then. Log new transactions to "
+            'include them.',
+      if (result.fromCache)
+        'No new activity since that review, so the suggestions are the same.',
+      if (result.offline) 'Reviewed offline with the on-device model.',
+    ];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 1),
+          child: Icon(Icons.auto_awesome_rounded, color: _purple, size: 13),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            lines.join('\n'),
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -9225,7 +9278,7 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
   @override
   Widget build(BuildContext context) {
     return _ExplorerSection(
-      eyebrow: 'ACTION STAGE · LATEST 14 DAYS',
+      eyebrow: 'ACTION STAGE',
       title: 'What should change first?',
       subtitle: widget.subtitle,
       child: Column(
@@ -9261,24 +9314,8 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
             ),
           ],
           if (_result != null) ...[
-            if (_result!.fromCache || _result!.offline) ...[
-              const SizedBox(height: 10),
-              Text(
-                [
-                  if (_result!.fromCache)
-                    'No new activity since your last review, so the '
-                        'suggestions are the same.',
-                  if (_result!.offline)
-                    'Reviewed offline with the on-device model.',
-                ].join(' '),
-                style: const TextStyle(
-                  color: _body,
-                  fontSize: 11,
-                  height: 1.35,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+            const SizedBox(height: 10),
+            _ActionStageSourceNote(result: _result!),
             const SizedBox(height: 14),
             _ActionStageFirstChange(result: _result!),
             const SizedBox(height: 12),
@@ -9897,18 +9934,13 @@ class _ActionStageSuggestionCard extends StatelessWidget {
 }
 
 String _aiActionStageError(Object error) {
-  final text = error.toString();
-  if (text.contains('Unable to load asset') ||
-      text.contains('Set LOCAL_MODEL_ASSET')) {
-    return 'Shellby needs the bundled Qwen model for offline action review, or internet access for Gemini.';
+  // The technical detail is for developers; users get a plain message.
+  debugPrint('Shellby action stage failed: $error');
+  if (error is AiSetupException) {
+    return "Action stage suggestions aren't available on this device right now.";
   }
-  if (text.contains('Gemini proxy request failed: 404')) {
-    return 'Gemini proxy was not found. Check GEMINI_PROXY_URL, or run with GEMINI_API_KEY so Shellby can call Gemini directly.';
-  }
-  if (text.contains('Gemini API request failed: 404')) {
-    return 'Gemini model was not found. Shellby is set to $_geminiModel; use a GenerateContent model such as gemini-3.1-flash-lite.';
-  }
-  return 'Shellby could not complete the action review yet. $text';
+  return "Shellby can't review your actions right now. Check your connection "
+      'and try again.';
 }
 
 String _actionStageOptionLabel(String option) {
@@ -10480,7 +10512,7 @@ class _CashReflectionExplorer extends StatelessWidget {
             goalLabel: 'Maintain Available Cash',
             allowedActionIds: _availableCashGoalActionIds,
             subtitle:
-                'Shellby reviews the latest integration data against the Maintain Available Cash action set.',
+                "Shellby's AI reviews the 14 days up to your latest transaction against the Maintain Available Cash action set.",
             emptyMessage:
                 'The stage will compare current actions with the Maintain Available Cash action set, then rank what to review first.',
             runStage: (coach, state) =>
@@ -13109,7 +13141,7 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
           goalLabel: 'Build Emergency Fund',
           allowedActionIds: _emergencyFundGoalActionIds,
           subtitle:
-              'Shellby reviews the latest Emergency Fund activity against the Build Emergency Fund action set.',
+              "Shellby's AI reviews the 14 days up to your latest transaction against the Build Emergency Fund action set.",
           emptyMessage:
               'The stage will compare current actions with the Build Emergency Fund action set, then rank what to review first.',
           runStage: (coach, state) =>

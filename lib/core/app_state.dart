@@ -92,6 +92,12 @@ class AppState extends ChangeNotifier {
   int salaryWeekday = DateTime.friday;
   bool consentBaseline = true;
   bool consentAi = false;
+
+  /// What the Action stage's AI may see. It always runs, at one of two
+  /// levels. Basic (the default): action scores, targets, fund balances and
+  /// the user's own plan. Full: also transactions, merchant names and
+  /// category spending. [consentAi] only controls the chat.
+  bool aiFullData = false;
   bool consentBenchmarking = false;
   bool consentCommunity = false;
   bool consentTrustedCircle = false;
@@ -716,6 +722,36 @@ class AppState extends ChangeNotifier {
   final Set<String> seenBadgeIds = {};
   bool _badgeBaselineSet = false;
 
+  /// The last AI Action stage review per goal, with a fingerprint of the
+  /// data it looked at. Reused until that data changes, also after a
+  /// restart, so the same data always shows the same suggestions.
+  final Map<String, Map<String, dynamic>> savedActionStageResults = {};
+
+  ActionStageResult? savedActionStageResult(String goal, String fingerprint) {
+    final saved = savedActionStageResults[goal];
+    if (saved == null || saved['fingerprint'] != fingerprint) return null;
+    final result = saved['result'];
+    return result is Map
+        ? ActionStageResult.fromMap(Map<String, dynamic>.from(result))
+        : null;
+  }
+
+  void saveActionStageResult(
+    String goal,
+    String fingerprint,
+    ActionStageResult result,
+  ) {
+    savedActionStageResults[goal] = {
+      'fingerprint': fingerprint,
+      'result': result.toMap(),
+    };
+    if (isSignedIn) {
+      unawaited(saveProfile().catchError((Object error) {
+        debugPrint('Saving the Action stage review failed: $error');
+      }));
+    }
+  }
+
   /// Goals the user has achieved. Like badges, an achieved goal stays
   /// achieved even if its progress dips later.
   final Set<String> achievedGoalIds = {};
@@ -757,6 +793,13 @@ class AppState extends ChangeNotifier {
   Future<void> setConsentAi(bool value) async {
     if (consentAi == value) return;
     consentAi = value;
+    notifyListeners();
+    await saveProfile();
+  }
+
+  Future<void> setAiFullData(bool value) async {
+    if (aiFullData == value) return;
+    aiFullData = value;
     notifyListeners();
     await saveProfile();
   }
@@ -1622,6 +1665,7 @@ class AppState extends ChangeNotifier {
     salaryWeekday = DateTime.friday;
     consentBaseline = true;
     consentAi = false;
+    aiFullData = false;
     consentBenchmarking = false;
     consentCommunity = false;
     consentTrustedCircle = false;
@@ -1685,6 +1729,7 @@ class AppState extends ChangeNotifier {
     appOpenDays.clear();
     seenBadgeIds.clear();
     achievedGoalIds.clear();
+    savedActionStageResults.clear();
     _badgeBaselineSet = false;
     discoverableByEmail = true;
     messages
@@ -4780,9 +4825,11 @@ class AppState extends ChangeNotifier {
       'appOpenDays': appOpenDays.toList()..sort(),
       'seenBadgeIds': seenBadgeIds.toList()..sort(),
       'achievedGoalIds': achievedGoalIds.toList()..sort(),
+      'savedActionStageResults': savedActionStageResults,
       'badgeBaselineSet': _badgeBaselineSet,
       'discoverableByEmail': discoverableByEmail,
       'consentAi': consentAi,
+      'aiFullData': aiFullData,
       'consentBenchmarking': consentBenchmarking,
       'consentCommunity': consentCommunity,
       'consentTrustedCircle': consentTrustedCircle,
@@ -5029,6 +5076,15 @@ class AppState extends ChangeNotifier {
         if (badgeIds is List)
           for (final id in badgeIds) id.toString(),
       ]);
+    final savedReviews = _mapFrom(data['savedActionStageResults']);
+    savedActionStageResults
+      ..clear()
+      ..addAll({
+        if (savedReviews != null)
+          for (final entry in savedReviews.entries)
+            if (entry.value is Map)
+              entry.key: Map<String, dynamic>.from(entry.value as Map),
+      });
     final achievedIds = data['achievedGoalIds'];
     achievedGoalIds
       ..clear()
@@ -5039,6 +5095,7 @@ class AppState extends ChangeNotifier {
     _badgeBaselineSet = data['badgeBaselineSet'] == true;
     discoverableByEmail = data['discoverableByEmail'] != false;
     consentAi = data['consentAi'] == true;
+    aiFullData = data['aiFullData'] == true;
     consentBenchmarking = data['consentBenchmarking'] == true;
     consentCommunity = data['consentCommunity'] == true;
     consentTrustedCircle = data['consentTrustedCircle'] == true;
@@ -5850,6 +5907,7 @@ class AppState extends ChangeNotifier {
     emotionalLogsEnabled = false;
     stressIndicatorsEnabled = false;
     consentAi = false;
+    aiFullData = false;
     consentTrustedCircle = false;
     benchmarkContributorId = '';
     if (socialStructure == 'Collaborative goal') {
@@ -9684,7 +9742,25 @@ class ActionStageResult {
     required this.suggestions,
     this.fromCache = false,
     this.offline = false,
+    this.reviewedAt,
+    this.basedOn = '',
+    this.windowEnd,
   });
+
+  factory ActionStageResult.fromMap(Map<String, dynamic> data) =>
+      ActionStageResult(
+        summary: data['summary']?.toString() ?? '',
+        firstChange: data['firstChange']?.toString() ?? '',
+        suggestions: [
+          if (data['suggestions'] is List)
+            for (final item in data['suggestions'] as List)
+              if (item is Map)
+                ActionStageSuggestion.fromMap(Map<String, dynamic>.from(item)),
+        ],
+        reviewedAt: DateTime.tryParse(data['reviewedAt']?.toString() ?? ''),
+        basedOn: data['basedOn']?.toString() ?? '',
+        windowEnd: DateTime.tryParse(data['windowEnd']?.toString() ?? ''),
+      );
 
   final String summary;
   final String firstChange;
@@ -9696,13 +9772,35 @@ class ActionStageResult {
   /// Answered by the on-device model because Gemini couldn't be reached.
   final bool offline;
 
+  /// When the AI made these suggestions.
+  final DateTime? reviewedAt;
+
+  /// The data the review looked at, e.g. "Oct 20 – Nov 2".
+  final String basedOn;
+
+  /// The last day of a 14-day review window: the latest transaction's
+  /// date, which may be before today.
+  final DateTime? windowEnd;
+
   ActionStageResult copyWith({bool? fromCache}) => ActionStageResult(
         summary: summary,
         firstChange: firstChange,
         suggestions: suggestions,
         fromCache: fromCache ?? this.fromCache,
         offline: offline,
+        reviewedAt: reviewedAt,
+        basedOn: basedOn,
+        windowEnd: windowEnd,
       );
+
+  Map<String, dynamic> toMap() => {
+        'summary': summary,
+        'firstChange': firstChange,
+        'suggestions': [for (final item in suggestions) item.toMap()],
+        'reviewedAt': reviewedAt?.toIso8601String(),
+        'basedOn': basedOn,
+        'windowEnd': windowEnd?.toIso8601String(),
+      };
 }
 
 class ActionStageSuggestion {
@@ -9716,6 +9814,21 @@ class ActionStageSuggestion {
     required this.replacementActionId,
   });
 
+  factory ActionStageSuggestion.fromMap(Map<String, dynamic> data) =>
+      ActionStageSuggestion(
+        option: data['option']?.toString() ?? 'retain_action',
+        actionId: data['actionId']?.toString() ?? '',
+        actionText: data['actionText']?.toString() ?? '',
+        priority: (data['priority'] as num?)?.toInt() ?? 99,
+        reason: data['reason']?.toString() ?? '',
+        target: {
+          if (data['target'] is Map)
+            for (final entry in (data['target'] as Map).entries)
+              entry.key.toString(): entry.value?.toString() ?? '',
+        },
+        replacementActionId: data['replacementActionId']?.toString(),
+      );
+
   final String option;
   final String actionId;
   final String actionText;
@@ -9723,6 +9836,16 @@ class ActionStageSuggestion {
   final String reason;
   final Map<String, String> target;
   final String? replacementActionId;
+
+  Map<String, dynamic> toMap() => {
+        'option': option,
+        'actionId': actionId,
+        'actionText': actionText,
+        'priority': priority,
+        'reason': reason,
+        'target': target,
+        'replacementActionId': replacementActionId,
+      };
 }
 
 // ─── Two-jar system types ─────────────────────────────────────────────────────

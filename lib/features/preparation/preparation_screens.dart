@@ -6575,6 +6575,11 @@ class PersonalDataConsentScreen extends StatelessWidget {
                       'The one-time balances, averages, bills, categories, debts, investments, or goal inventory required by your selected actions.',
                 ),
                 ConsentDataRow(
+                  label: 'AI suggestions',
+                  value:
+                      'The Action stage uses AI to suggest plan changes. By default it only sees your action scores, targets and balances, never your transactions. You can change this, and turn on the AI chat, in Privacy & security.',
+                ),
+                ConsentDataRow(
                   label: 'Permissions and consent',
                   value:
                       'Notification choice, future data-linking permission, automatic data-gathering permission, personal data consent, and data retention consent.',

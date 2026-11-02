@@ -89,6 +89,7 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
+    if (!state.consentAi) throw const AiConsentRequiredException();
 
     return _sendText(
       instructions: _shellbyChatInstructions,
@@ -108,7 +109,12 @@ class ShellbyAiCoach {
       throw const AiSetupException();
     }
     final scores = _availableCashActionScoresForStage(state);
+    final window = _actionStageWindow(state);
     return _runActionStage(
+      state: state,
+      goal: 'G1',
+      basedOn: window.label,
+      windowEnd: window.end,
       instructions: _availableCashActionStageInstructions,
       input: '${_availableCashActionStageInput(state)}\n'
           '${_actionStageScoreLines(scores)}',
@@ -120,24 +126,58 @@ class ShellbyAiCoach {
     );
   }
 
-  /// Last result per goal, reused while the data sent is unchanged.
-  static final _lastActionStage =
-      <String, ({String input, ActionStageResult result})>{};
+  /// This month's scores for [actionIds], the same ones Insights shows.
+  List<_CashActionScore> _goalActionScoresForStage(
+    AppState state,
+    List<String> actionIds,
+  ) {
+    final scores = _currentMonthActionScores(state);
+    return [
+      for (final id in actionIds)
+        if (scores[id] != null) scores[id]!,
+    ];
+  }
+
+  /// The 14 days an Action stage review looks at: ending on the latest
+  /// transaction, so seeded and demo data with past dates still get a review.
+  ({DateTime start, DateTime end, String label}) _actionStageWindow(
+    AppState state,
+  ) {
+    final dates = state.allTransactions
+        .map((transaction) => transaction.createdAt?.toLocal())
+        .whereType<DateTime>();
+    final latest = dates.isEmpty
+        ? AppClock.now()
+        : dates.reduce((a, b) => a.isAfter(b) ? a : b);
+    final start = DateTime(latest.year, latest.month, latest.day)
+        .subtract(const Duration(days: 13));
+    final range = '${_shortDate(start)} – ${_shortDate(latest)}';
+    return (
+      start: start,
+      end: latest,
+      label: dates.isEmpty
+          ? 'the last 14 days ($range)'
+          : 'the 14 days up to your latest transaction ($range)',
+    );
+  }
 
   /// One action-stage review: reuses the last result when nothing changed
   /// (B), asks the model at temperature 0 so the same data gets the same
   /// answer (A), orders suggestions by Shellby's own scores (C), and marks
   /// answers from the offline model (D).
   Future<ActionStageResult> _runActionStage({
+    required AppState state,
+    required String goal,
+    required String basedOn,
+    DateTime? windowEnd,
     required String instructions,
     required String input,
     required String fallbackSummary,
     Map<String, int> actionScores = const {},
   }) async {
-    final cached = _lastActionStage[instructions];
-    if (cached != null && cached.input == input) {
-      return cached.result.copyWith(fromCache: true);
-    }
+    final fingerprint = actionStageFingerprint('$instructions\n$input');
+    final saved = state.savedActionStageResult(goal, fingerprint);
+    if (saved != null) return saved.copyWith(fromCache: true);
     var offline = false;
     final parsed = await _sendJson(
       instructions: instructions,
@@ -181,11 +221,12 @@ class ShellbyAiCoach {
               : 'No change is recommended yet.',
       suggestions: suggestions,
       offline: offline,
+      reviewedAt: AppClock.now(),
+      basedOn: basedOn,
+      windowEnd: windowEnd,
     );
     // Offline answers aren't reused, so the next run can ask Gemini again.
-    if (!offline) {
-      _lastActionStage[instructions] = (input: input, result: result);
-    }
+    if (!offline) state.saveActionStageResult(goal, fingerprint, result);
     return result;
   }
 
@@ -231,10 +272,21 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
+    final scores =
+        _goalActionScoresForStage(state, _emergencyFundGoalActionIds);
+    final window = _actionStageWindow(state);
     return _runActionStage(
+      state: state,
+      goal: 'G3',
+      basedOn: window.label,
+      windowEnd: window.end,
       instructions: _emergencyFundActionStageInstructions,
-      input: _emergencyFundActionStageInput(state),
+      input: '${_emergencyFundActionStageInput(state)}\n'
+          '${_actionStageScoreLines(scores)}',
       fallbackSummary: 'Shellby reviewed the latest 14 days and prepared action updates.',
+      actionScores: {
+        for (final score in scores) score.id: _scorePercent(score.score),
+      },
     );
   }
 
@@ -244,10 +296,18 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
+    final scores = _goalActionScoresForStage(state, _investmentGoalActionIds);
     return _runActionStage(
+      state: state,
+      goal: 'G5',
+      basedOn: 'your portfolio as of ${_shortDate(AppClock.now())}',
       instructions: _investmentActionStageInstructions,
-      input: _investmentActionStageInput(state),
+      input: '${_investmentActionStageInput(state)}\n'
+          '${_actionStageScoreLines(scores)}',
       fallbackSummary: 'Shellby reviewed the latest portfolio activity and prepared action updates.',
+      actionScores: {
+        for (final score in scores) score.id: _scorePercent(score.score),
+      },
     );
   }
 
@@ -257,10 +317,19 @@ class ShellbyAiCoach {
     if (!isConfigured) {
       throw const AiSetupException();
     }
+    final scores =
+        _goalActionScoresForStage(state, _lifestyleActionStageActionIds);
     return _runActionStage(
+      state: state,
+      goal: 'G8',
+      basedOn: 'your Lifestyle Fund as of ${_shortDate(AppClock.now())}',
       instructions: _lifestyleActionStageInstructions,
-      input: _lifestyleActionStageInput(state),
+      input: '${_lifestyleActionStageInput(state)}\n'
+          '${_actionStageScoreLines(scores)}',
       fallbackSummary: 'Shellby reviewed the latest lifestyle activity and prepared action updates.',
+      actionScores: {
+        for (final score in scores) score.id: _scorePercent(score.score),
+      },
     );
   }
 
@@ -759,6 +828,9 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
   String chatInputForTesting(AppState state, List<ChatMessage> messages) =>
       _shellbyChatInput(state, messages);
 
+  String availableCashActionStageInputForTesting(AppState state) =>
+      _availableCashActionStageInput(state);
+
   ActionStageSuggestion _actionStageSuggestionFromJson(
     Map<String, dynamic> json,
   ) {
@@ -830,17 +902,29 @@ $lines''';
     final latestWeeks = service.weekRecords
         .where((week) => !week.end.isBefore(cutoff))
         .toList();
-    final income = latest14
+    // Moving money between your own accounts and funds isn't income or
+    // spending, and unlabeled transactions are reported on their own.
+    final counted = latest14
+        .where((transaction) =>
+            transaction.isLabeled &&
+            !transaction.isInternalFakeMayaTransfer &&
+            !transaction.excludedFromInsights)
+        .toList();
+    final unlabeled = latest14
+        .where((transaction) =>
+            !transaction.isLabeled && !transaction.isInternalFakeMayaTransfer)
+        .toList();
+    final unlabeledAmount = unlabeled.fold(
+        0.0, (sum, transaction) => sum + transaction.amount.abs());
+    final income = counted
         .where((transaction) => transaction.amount > 0)
         .fold(0.0, (sum, transaction) => sum + transaction.amount);
-    final spending = latest14
+    final spending = counted
         .where((transaction) => transaction.amount < 0)
         .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
     final categoryTotals = <String, double>{};
-    for (final transaction in latest14.where((item) => item.amount < 0)) {
-      final category = transaction.category?.trim().isEmpty == false
-          ? transaction.category!.trim()
-          : 'Unlabeled';
+    for (final transaction in counted.where((item) => item.amount < 0)) {
+      final category = transaction.category!.trim();
       categoryTotals.update(
         category,
         (value) => value + transaction.amount.abs(),
@@ -849,6 +933,7 @@ $lines''';
     }
     final sortedCategories = categoryTotals.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final full = state.aiFullData;
     final selectedBudgets = state.categorySpendingBudgets.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     final selectedCategoryNames = state.categorySpendingBudgets.keys.toSet();
@@ -868,7 +953,12 @@ $lines''';
         .map((id) => '- $id: ${_d2Actions[id]?.text ?? id}')
         .join('\n');
     final txLines = latest14.take(40).map((transaction) {
-      return '- ${transaction.createdAt!.toLocal().toIso8601String().split('T').first}: ${transaction.title}; ${transaction.amount >= 0 ? 'income' : 'spend'} ${money(transaction.amount.abs())}; category=${transaction.category ?? 'unlabeled'}; fund=${transaction.source ?? 'unlabeled'}; account=${transaction.account ?? 'Wallet'}';
+      final kind = transaction.isInternalFakeMayaTransfer
+          ? 'internal transfer (not income or spending)'
+          : transaction.amount >= 0
+              ? 'income'
+              : 'spend';
+      return '- ${transaction.createdAt!.toLocal().toIso8601String().split('T').first}: ${transaction.title}; $kind ${money(transaction.amount.abs())}; category=${transaction.category ?? 'unlabeled'}; fund=${transaction.source ?? 'unlabeled'}; account=${transaction.account ?? 'Wallet'}';
     }).join('\n');
     final weekLines = latestWeeks.map((week) {
       return '- ${_shortDate(week.start)}-${_shortDate(week.end)}: income=${money(week.weekIncome)}, spending=${money(week.weekExpense)}, essential_allocation=${money(week.weekRefill)}, classified=${(week.propDaysClassified * 100).round()}%, income_week=${week.isSalaryWeek}, bill_week=${week.isBillWeek}';
@@ -882,12 +972,8 @@ User/onboarding profile:
 - Income rhythm: ${state.incomeRhythm}; income type: ${state.incomeType}
 - Monthly income baseline: ${money(state.income)}
 - Monthly salary: ${money(state.monthlySalary)}
-- Monthly expenses baseline: ${money(state.expenses)}
-- Monthly essential expenses: ${money(state.monthlyEssentialExpenseTotal)}
-- Monthly non-essential expenses: ${money(state.monthlyNonEssentialExpenseTotal)}
-- Variable expenses: ${money(state.variableExpenses)}
-- Current monthly savings: ${money(state.savings)}
-- Confidence: ${state.confidence.round()}/10; pressure: ${state.anxiety.round()}/10
+- Planned monthly essential expenses: ${money(state.monthlyEssentialExpenseTotal)}
+- Planned monthly non-essential expenses: ${money(state.monthlyNonEssentialExpenseTotal)}
 
 Integration balances:
 - FakeMaya linked: ${state.hasFakeMayaLink ? 'yes' : 'no'}
@@ -903,31 +989,25 @@ Cross-goal context with Financial Safety:
 - Current Emergency Fund monthly contribution action: ${jsonEncode(state.actionFieldValues['A9'] ?? const <String, String>{})}
 - Current Emergency Fund income percent action: ${jsonEncode(state.actionFieldValues['A8'] ?? const <String, String>{})}
 
-Latest 14-day totals:
+Latest 14-day totals (labeled transactions only; transfers between your own accounts and funds are left out):
 - Income: ${money(income)}
 - Spending: ${money(spending)}
 - Net flow: ${money(income - spending)}
+- Unlabeled, not counted above: ${unlabeled.length} transaction${unlabeled.length == 1 ? '' : 's'}, ${money(unlabeledAmount)}. If this is large, suggest labeling them before changing targets.
 
-Category spending, latest 14 days:
-${sortedCategories.isEmpty ? 'No spending categories available.' : sortedCategories.take(12).map((entry) => '- ${entry.key}: ${money(entry.value)}').join('\n')}
+${full ? 'Category spending, latest 14 days:\n${sortedCategories.isEmpty ? 'No spending categories available.' : sortedCategories.take(12).map((entry) => '- ${entry.key}: ${money(entry.value)}').join('\n')}' : _basicSharingNote}
 
 Selected category budgets:
 ${selectedBudgets.isEmpty ? 'No selected category budgets configured yet.' : selectedBudgets.map((entry) => '- ${entry.key}: ${money(entry.value)} monthly cap').join('\n')}
 
-Selected category spending, latest 14 days:
-${selectedCategorySpend.isEmpty ? 'No selected category spending recorded in the latest 14 days.' : selectedCategorySpend.map((entry) => '- ${entry.key}: ${money(entry.value)} spent').join('\n')}
-
+${full ? 'Selected category spending, latest 14 days:\n${selectedCategorySpend.isEmpty ? 'No selected category spending recorded in the latest 14 days.' : selectedCategorySpend.map((entry) => '- ${entry.key}: ${money(entry.value)} spent').join('\n')}\n' : ''}
 Current configured actions:
 ${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentActions}
 
 Available action set:
 $candidateActions
 
-Week records:
-${weekLines.isEmpty ? 'No week records available.' : weekLines}
-
-Latest transactions:
-${txLines.isEmpty ? 'No linked or manual transactions available.' : txLines}
+${full ? 'Week records:\n${weekLines.isEmpty ? 'No week records available.' : weekLines}\n\nLatest transactions:\n${txLines.isEmpty ? 'No linked or manual transactions available.' : txLines}' : ''}
 
 Analyze the integration data and recommend what to change first.
 ''';
@@ -987,7 +1067,6 @@ Cross-goal context with Cash Flow:
 - Essential Expenses Fund balance: ${money(state.essentialExpensesBalance)}
 - Unallocated FakeMaya wallet: ${money(state.unallocatedFakeMayaWallet)}
 - Monthly income baseline: ${money(state.income)}
-- Monthly expenses baseline: ${money(state.expenses)}
 - Current Cash Flow floor action: ${jsonEncode(state.actionFieldValues['A19'] ?? const <String, String>{})}
 - Current Cash Flow income allocation action: ${jsonEncode(state.actionFieldValues['A1'] ?? const <String, String>{})}
 
@@ -1001,8 +1080,7 @@ ${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentAction
 Available action set:
 $candidateActions
 
-Emergency fund activity, latest 14 days:
-${activityLines.isEmpty ? 'No emergency fund activity recorded in the latest 14 days.' : activityLines}
+${state.aiFullData ? 'Emergency fund activity, latest 14 days:\n${activityLines.isEmpty ? 'No emergency fund activity recorded in the latest 14 days.' : activityLines}' : _basicSharingNote}
 
 Analyze the integration data and recommend what to change first.
 ''';
@@ -1049,8 +1127,7 @@ Annual return tracking:
 FakeMaya stock/crypto holdings (BTC/NVDA):
 ${holdingLines.isEmpty ? 'No stock or crypto holdings yet.' : holdingLines}
 
-Recent FakeMaya stock/crypto trades:
-${recentTrades.isEmpty ? 'No trades recorded yet.' : recentTrades}
+${state.aiFullData ? 'Recent FakeMaya stock/crypto trades:\n${recentTrades.isEmpty ? 'No trades recorded yet.' : recentTrades}' : _basicSharingNote}
 
 Current configured actions:
 ${currentActions.isEmpty ? 'No configured action ids saved yet.' : currentActions}
@@ -1090,6 +1167,7 @@ Personal Lifestyle Fund:
 - Current balance: ${money(state.lifestyleFundBalance)}
 - Reserved this month for subscriptions/memberships: ${money(state.lifestyleReservedThisMonth)}
 - This week's non-essential spending: ${money(_currentWeekLifestyleSpend(state))}
+- Planned monthly non-essential budget: ${money(state.monthlyNonEssentialExpenseTotal)}
 
 Hobby/activity targets (for context only - these are managed as a separate named list in the app, not through the actions below):
 ${hobbyLines.isEmpty ? 'No hobby or activity targets configured yet.' : hobbyLines}
@@ -1148,6 +1226,27 @@ Analyze the integration data and recommend what to change first.
     }
     return text.substring(start, end + 1);
   }
+}
+
+/// FNV-1a hash of the data an Action stage review was based on, the same on
+/// every platform (web included), so a saved review is reused only while
+/// that data is unchanged.
+String actionStageFingerprint(String text) {
+  var hash = 0x811c9dc5;
+  for (final unit in text.codeUnits) {
+    hash ^= unit;
+    // hash * 0x01000193, kept to 32 bits without overflowing on the web.
+    hash = ((hash << 24) + hash * 0x193) & 0xffffffff;
+  }
+  return hash.toRadixString(16);
+}
+
+/// The user hasn't turned on Shellby chat, so the chat sends nothing.
+class AiConsentRequiredException implements Exception {
+  const AiConsentRequiredException();
+
+  @override
+  String toString() => 'Shellby chat is off.';
 }
 
 class AiSetupException implements Exception {
@@ -1454,6 +1553,13 @@ Return only valid JSON:
   "monthly_target": number
 }
 ''';
+
+// Sent in place of transaction details when the user chose Basic for the
+// Action stage.
+const _basicSharingNote =
+    'Transactions, merchant names and spending by category are not shared: '
+    'the user chose Basic AI sharing. Base your answer on the scores, '
+    'targets, balances and plan above, and do not guess spending details.';
 
 // Shared by every Action stage: a reached target is praised, never treated
 // as permission to spend. Shellby also drops suggestions that break this

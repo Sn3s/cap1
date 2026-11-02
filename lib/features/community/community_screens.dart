@@ -5391,7 +5391,7 @@ class CommunityPrivacyScreen extends StatelessWidget {
               icon: Icons.shield_rounded,
               title: 'You decide who finds you',
               subtitle:
-                  'Your balances never leave your account. Shared cards only show progress.',
+                  'Friends never see your balances. Shared cards only show progress.',
             ),
             const SizedBox(height: 14),
             AppCard(
@@ -5413,13 +5413,13 @@ class CommunityPrivacyScreen extends StatelessWidget {
                       color: _purple, size: 20),
                 ),
                 title: const Text(
-                  'AI-assisted insights',
+                  'Shellby chat (AI)',
                   style: TextStyle(color: _title, fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
                   state.isSignedIn
-                      ? 'Off by default. When enabled, Shellby may send selected app context to AI so it can explain your financial data. It never moves money or makes decisions for you.'
-                      : 'Sign in to choose whether Shellby may use AI to explain your app data.',
+                      ? 'Off by default. When on, the chat sends your profile, goals, balances and transactions to AI so it can answer questions about your money. It never moves money or makes decisions for you.'
+                      : 'Sign in to choose whether Shellby chat may use AI to explain your app data.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 12,
@@ -5429,6 +5429,8 @@ class CommunityPrivacyScreen extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+            const _AiDataLevelCard(),
             const SizedBox(height: 12),
             AppCard(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -6288,4 +6290,89 @@ Future<void> showBadgeUnlockedDialog(BuildContext context, ShelbyBadge badge) {
       );
     },
   );
+}
+
+/// Basic or Full: how much of the user's data the Action stage's AI uses.
+/// The Action stage always runs, so there is no "off".
+class _AiDataLevelCard extends StatelessWidget {
+  const _AiDataLevelCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    Widget option({
+      required bool full,
+      required String title,
+      required String body,
+    }) =>
+        RadioListTile<bool>.adaptive(
+          value: full,
+          activeColor: _brand,
+          title: Text(
+            title,
+            style: const TextStyle(color: _title, fontWeight: FontWeight.w900),
+          ),
+          subtitle: Text(
+            body,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(6, 12, 6, 4),
+      // Its own Material so the options' tap ripple shows on the card.
+      child: Material(
+        type: MaterialType.transparency,
+        child: RadioGroup<bool>(
+          groupValue: state.aiFullData,
+          onChanged: (value) => state.setAiFullData(value ?? false),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14),
+                child: Text(
+                  'Action stage suggestions (AI)',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(14, 4, 14, 0),
+                child: Text(
+                  'The Action stage always uses AI to suggest '
+                  'changes to your plan. Choose how much it can see.',
+                  style: TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              option(
+                full: false,
+                title: 'Basic (default)',
+                body: 'Your action scores, targets, fund balances and planned '
+                    'budget. No transactions or merchant names.',
+              ),
+              option(
+                full: true,
+                title: 'Full',
+                body: 'Also your transactions, merchant names and spending by '
+                    'category, for more specific suggestions.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
