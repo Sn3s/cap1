@@ -6307,6 +6307,8 @@ class _AiDataLevelCard extends StatelessWidget {
     }) =>
         RadioListTile<bool>.adaptive(
           value: full,
+          groupValue: state.aiFullData,
+          onChanged: (value) => state.setAiFullData(value ?? false),
           activeColor: _brand,
           title: Text(
             title,
@@ -6327,50 +6329,46 @@ class _AiDataLevelCard extends StatelessWidget {
       // Its own Material so the options' tap ripple shows on the card.
       child: Material(
         type: MaterialType.transparency,
-        child: RadioGroup<bool>(
-          groupValue: state.aiFullData,
-          onChanged: (value) => state.setAiFullData(value ?? false),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 14),
-                child: Text(
-                  'Action stage suggestions (AI)',
-                  style: TextStyle(
-                    color: _title,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900,
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                'Action stage suggestions (AI)',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(14, 4, 14, 0),
-                child: Text(
-                  'The Action stage always uses AI to suggest '
-                  'changes to your plan. Choose how much it can see.',
-                  style: TextStyle(
-                    color: _body,
-                    fontSize: 12,
-                    height: 1.35,
-                    fontWeight: FontWeight.w600,
-                  ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(14, 4, 14, 0),
+              child: Text(
+                'The Action stage always uses AI to suggest '
+                'changes to your plan. Choose how much it can see.',
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              option(
-                full: false,
-                title: 'Basic (default)',
-                body: 'Your action scores, targets, fund balances and planned '
-                    'budget. No transactions or merchant names.',
-              ),
-              option(
-                full: true,
-                title: 'Full',
-                body: 'Also your transactions, merchant names and spending by '
-                    'category, for more specific suggestions.',
-              ),
-            ],
-          ),
+            ),
+            option(
+              full: false,
+              title: 'Basic (default)',
+              body: 'Your action scores, targets, fund balances and planned '
+                  'budget. No transactions or merchant names.',
+            ),
+            option(
+              full: true,
+              title: 'Full',
+              body: 'Also your transactions, merchant names and spending by '
+                  'category, for more specific suggestions.',
+            ),
+          ],
         ),
       ),
     );

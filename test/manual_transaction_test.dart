@@ -226,7 +226,9 @@ void main() {
       source: 'Wallet',
     );
 
-    expect(state.pendingEssentialIncomeTransactions, hasLength(2));
+    // The queue retains the earlier income as well; the action must not lose
+    // it merely because another income arrived later in the month.
+    expect(state.pendingEssentialIncomeTransactions, hasLength(3));
 
     // Without a FakeMaya Wallet to pay for it, nothing can be set aside:
     // the transfer is refused instead of creating money.
@@ -239,7 +241,7 @@ void main() {
     );
 
     expect(state.essentialExpensesBalance, 0);
-    expect(state.pendingEssentialIncomeTransactions, hasLength(2));
+    expect(state.pendingEssentialIncomeTransactions, hasLength(3));
   });
 
   test('essential fund allocation ignores FakeMaya goal transfers', () {

@@ -63,4 +63,45 @@ void main() {
     final state = AppState()..manualTransactions.add(salary);
     expect(state.latestEmergencyFundIncomeTransaction, same(salary));
   });
+
+  test('income action queues retain every unallocated current-month income',
+      () {
+    final now = DateTime.now();
+    final firstDay = DateTime(now.year, now.month, 1, 9);
+    final state = AppState()
+      ..manualTransactions.addAll([
+        income('first',
+            category: 'Salary', source: 'Wallet', createdAt: firstDay),
+        income('second',
+            category: 'Business income',
+            source: 'Wallet',
+            createdAt: firstDay.add(const Duration(hours: 1))),
+        income('last-month',
+            category: 'Salary',
+            source: 'Wallet',
+            createdAt: DateTime(now.year, now.month - 1, 15)),
+      ]);
+
+    state.d1Ledger.addAll([
+      {'type': 'emergency_deposit', 'sourceTransactionId': 'first'},
+      {'type': 'investment_deposit', 'sourceTransactionId': 'second'},
+      {'type': 'lifestyle_payday', 'sourceTransactionId': 'first'},
+    ]);
+
+    expect(
+      state.pendingEmergencyIncomeTransactions
+          .map((income) => income.transactionId),
+      ['second'],
+    );
+    expect(
+      state.pendingInvestmentIncomeTransactions
+          .map((income) => income.transactionId),
+      ['first'],
+    );
+    expect(
+      state.pendingLifestyleIncomeTransactions
+          .map((income) => income.transactionId),
+      ['second'],
+    );
+  });
 }

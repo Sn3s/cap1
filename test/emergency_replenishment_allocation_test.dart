@@ -88,4 +88,23 @@ void main() {
     expect(records[1].outstandingAmount, 500);
     expect(state.pendingRecordedEmergencyReplenishment, 500);
   });
+
+  test('A9 counts new Emergency Fund contributions, not A10 restorations', () {
+    final state = AppState();
+    final month = DateTime(2026, 4, 1);
+    state.d1Ledger.addAll([
+      {
+        'type': 'emergency_deposit',
+        'date': DateTime(2026, 4, 2).toIso8601String(),
+        'amount': 300.0,
+      },
+      {
+        'type': 'ef_replenish',
+        'date': DateTime(2026, 4, 3).toIso8601String(),
+        'amount': 700.0,
+      },
+    ]);
+
+    expect(state.emergencyFundContributionsForMonth(month), 300);
+  });
 }

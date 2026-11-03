@@ -6154,21 +6154,63 @@ class AppState extends ChangeNotifier {
 
   List<FakeMayaTransaction> get pendingEssentialIncomeTransactions {
     final now = AppClock.now();
-    return allTransactions
-        .where((transaction) =>
-            _isEssentialIncomeCandidate(transaction) &&
-            !hasEssentialAllocationForIncome(transaction.transactionId))
-        .where((transaction) {
+    return _pendingIncomeTransactionsFor(
+      hasEssentialAllocationForIncome,
+      month: now,
+    );
+  }
+
+  /// Every labelled, unallocated income in the current month is kept visible
+  /// to the relevant action. This avoids silently dropping an earlier income
+  /// just because a newer one arrived.
+  List<FakeMayaTransaction> _pendingIncomeTransactionsFor(
+    bool Function(String transactionId) hasAllocation, {
+    required DateTime month,
+  }) {
+    return allTransactions.where((transaction) {
       final date = transaction.createdAt ?? transaction.labeledAt;
-      return date != null &&
-          date.year == now.year &&
-          date.month == now.month &&
-          date.day == now.day;
+      return _isEssentialIncomeCandidate(transaction) &&
+          !hasAllocation(transaction.transactionId) &&
+          date != null &&
+          date.year == month.year &&
+          date.month == month.month;
     }).toList()
-      ..sort((a, b) =>
-          (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
-            a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+      ..sort((a, b) => (a.createdAt ?? a.labeledAt!).compareTo(
+            b.createdAt ?? b.labeledAt!,
           ));
+  }
+
+  List<FakeMayaTransaction> get pendingEmergencyIncomeTransactions =>
+      _pendingIncomeTransactionsFor(
+        hasEmergencyAllocationForIncome,
+        month: AppClock.now(),
+      );
+
+  List<FakeMayaTransaction> get pendingInvestmentIncomeTransactions =>
+      _pendingIncomeTransactionsFor(
+        hasInvestmentAllocationForIncome,
+        month: AppClock.now(),
+      );
+
+  List<FakeMayaTransaction> get pendingLifestyleIncomeTransactions =>
+      _pendingIncomeTransactionsFor(
+        hasLifestylePaydayAllocation,
+        month: AppClock.now(),
+      );
+
+  /// A9 is about new savings contributions. A10 replenishments restore a
+  /// previous withdrawal and must never satisfy this separate monthly target.
+  double emergencyFundContributionsForMonth(DateTime month) {
+    return d1Ledger.where((entry) {
+      if (entry['type'] != 'emergency_deposit') return false;
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      return date != null &&
+          date.year == month.year &&
+          date.month == month.month;
+    }).fold<double>(
+      0,
+      (total, entry) => total + _ledgerAmount(entry),
+    );
   }
 
   bool hasEmergencyAllocationForIncome(String transactionId) =>

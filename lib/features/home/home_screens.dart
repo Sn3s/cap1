@@ -6517,9 +6517,7 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final minDeposit = configuredNumber('amt', recommended);
-    final monthTotal =
-        _monthLedgerAmount(state, monthStart, 'emergency_deposit') +
-            _monthLedgerAmount(state, monthStart, 'ef_replenish');
+    final monthTotal = state.emergencyFundContributionsForMonth(monthStart);
     // A monthly minimum: one lump-sum deposit meets it just as well as
     // weekly ones, so it's scored once for the month, not per week.
     final ratio =
@@ -6535,7 +6533,7 @@ _CashActionScore? _cashActionScoreFor({
       actualLabel: money(monthTotal),
       targetLabel: money(minDeposit),
       formula:
-          'Progress = monthly Emergency Fund deposits ÷ configured ${money(minDeposit)} minimum, capped at 100%.',
+          'Progress = new monthly Emergency Fund contributions ÷ configured ${money(minDeposit)} minimum, capped at 100%. Replenishments are excluded because they only restore an earlier withdrawal.',
       evidence: [
         'Configured minimum monthly deposit: ${money(minDeposit)}',
         'Emergency Fund deposits found: ${money(monthTotal)}',
@@ -22629,7 +22627,7 @@ class _EssentialExpensesActionPanelState
           const SizedBox(height: 12),
           if (incomes.isEmpty)
             const Text(
-                'No unallocated labeled income found for the current income day. When salary, racket income, gifts, or received income are labeled, they will appear here.',
+                'No unallocated labeled income found this month. When salary, racket income, gifts, or received income are labeled, they will appear here.',
                 style: TextStyle(
                     color: _body, height: 1.35, fontWeight: FontWeight.w700))
           else ...[
@@ -22656,10 +22654,12 @@ class _EssentialExpensesActionPanelState
             _ActionMetricTile(
               icon: Icons.payments_rounded,
               label:
-                  '${incomes.length} income transaction${incomes.length == 1 ? '' : 's'} today',
+                  '${incomes.length} income transaction${incomes.length == 1 ? '' : 's'} waiting this month',
               value: money(totalIncome),
               color: _sage,
             ),
+            const SizedBox(height: 10),
+            _PendingIncomeQueue(incomes: incomes, color: widget.color),
             const SizedBox(height: 10),
             _ActionMetricTile(
               icon: Icons.savings_rounded,
@@ -22709,14 +22709,15 @@ class _InvestmentIncomeActionPanelState
   bool busy = false;
 
   Future<void> _deposit(AppState state, FakeMayaTransaction? income) async {
-    if (busy || income == null || income.createdAt == null) return;
+    final incomeDate = income?.createdAt ?? income?.labeledAt;
+    if (busy || income == null || incomeDate == null) return;
     setState(() => busy = true);
     await _runWalletTransfer(
       context,
       () => state.depositIncomeToInvestment(
         transactionId: income.transactionId,
         incomeAmount: income.amount,
-        incomeDate: income.createdAt!,
+        incomeDate: incomeDate,
         percentage: widget.percentage,
       ),
     );
@@ -22726,11 +22727,10 @@ class _InvestmentIncomeActionPanelState
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final income = _latestIncomeTransaction(state);
+    final incomes = state.pendingInvestmentIncomeTransactions;
+    final income = incomes.firstOrNull;
     final percentage = widget.percentage;
     final contribution = (income?.amount ?? 0) * percentage / 100;
-    final deposited = income != null &&
-        state.hasInvestmentAllocationForIncome(income.transactionId);
     final walletBlock = _walletBlockReason(state, contribution);
     final canDeposit = walletBlock == null;
     return _ActionCardShell(
@@ -22746,11 +22746,15 @@ class _InvestmentIncomeActionPanelState
           const SizedBox(height: 14),
           _ActionMetricTile(
             icon: Icons.payments_rounded,
-            label: 'Latest income',
+            label: incomes.isEmpty
+                ? 'Income waiting'
+                : '${incomes.length} income event${incomes.length == 1 ? '' : 's'} waiting',
             value: income == null ? 'None' : money(income.amount),
             color: _sage,
           ),
           const SizedBox(height: 10),
+          _PendingIncomeQueue(incomes: incomes, color: widget.color),
+          if (incomes.isNotEmpty) const SizedBox(height: 10),
           _ActionMetricTile(
             icon: Icons.trending_up_rounded,
             label: 'Investment amount',
@@ -22759,19 +22763,14 @@ class _InvestmentIncomeActionPanelState
           ),
           const SizedBox(height: 12),
           PrimaryButton(
-            label: deposited
-                ? '${percentage.toStringAsFixed(0)}% invested'
-                : busy
-                    ? 'Investing...'
-                    : 'Invest ${percentage.toStringAsFixed(0)}% (${money(contribution)})',
-            icon: deposited
-                ? Icons.check_circle_rounded
-                : Icons.show_chart_rounded,
-            enabled:
-                !busy && !deposited && canDeposit && income?.createdAt != null,
+            label: busy
+                ? 'Investing...'
+                : 'Invest next ${percentage.toStringAsFixed(0)}% (${money(contribution)})',
+            icon: Icons.show_chart_rounded,
+            enabled: !busy && canDeposit && income != null,
             onPressed: () => _deposit(state, income),
           ),
-          if (walletBlock != null && income != null && !deposited)
+          if (walletBlock != null && income != null)
             _walletBlockText(walletBlock),
         ],
       ),
@@ -23330,14 +23329,15 @@ class _LifestylePaydayActionPanelState
   bool busy = false;
 
   Future<void> _deposit(AppState state, FakeMayaTransaction? income) async {
-    if (busy || income?.createdAt == null) return;
+    final incomeDate = income?.createdAt ?? income?.labeledAt;
+    if (busy || income == null || incomeDate == null) return;
     setState(() => busy = true);
     await _runWalletTransfer(
       context,
       () => state.depositLifestylePayday(
-        transactionId: income!.transactionId,
+        transactionId: income.transactionId,
         incomeAmount: income.amount,
-        incomeDate: income.createdAt!,
+        incomeDate: incomeDate,
       ),
     );
     if (mounted) setState(() => busy = false);
@@ -23361,10 +23361,9 @@ class _LifestylePaydayActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final percentage = state.lifestyleIncomePercent;
-    final income = _latestIncomeTransaction(state);
+    final incomes = state.pendingLifestyleIncomeTransactions;
+    final income = incomes.firstOrNull;
     final contribution = (income?.amount ?? 0) * percentage / 100;
-    final deposited = income != null &&
-        state.hasLifestylePaydayAllocation(income.transactionId);
     final walletBlock = _walletBlockReason(state, contribution);
     final canDeposit = walletBlock == null;
     return _ActionCardShell(
@@ -23380,11 +23379,15 @@ class _LifestylePaydayActionPanelState
           const SizedBox(height: 14),
           _ActionMetricTile(
             icon: Icons.payments_rounded,
-            label: 'Latest income',
+            label: incomes.isEmpty
+                ? 'Income waiting'
+                : '${incomes.length} income event${incomes.length == 1 ? '' : 's'} waiting',
             value: income == null ? 'None detected' : money(income.amount),
             color: _sage,
           ),
           const SizedBox(height: 10),
+          _PendingIncomeQueue(incomes: incomes, color: widget.color),
+          if (incomes.isNotEmpty) const SizedBox(height: 10),
           _ActionMetricTile(
             icon: Icons.account_balance_wallet_rounded,
             label: 'Lifestyle Fund available',
@@ -23396,19 +23399,12 @@ class _LifestylePaydayActionPanelState
             children: [
               Expanded(
                 child: PrimaryButton(
-                  label: deposited
-                      ? '${percentage.toStringAsFixed(0)}% allocated'
-                      : busy
-                          ? 'Allocating...'
-                          : 'Allocate ${money(contribution)}',
-                  icon: deposited
-                      ? Icons.check_circle_rounded
-                      : Icons.savings_rounded,
-                  enabled: !busy &&
-                      !deposited &&
-                      canDeposit &&
-                      contribution > 0 &&
-                      income?.createdAt != null,
+                  label: busy
+                      ? 'Allocating...'
+                      : 'Allocate next ${percentage.toStringAsFixed(0)}% (${money(contribution)})',
+                  icon: Icons.savings_rounded,
+                  enabled:
+                      !busy && canDeposit && contribution > 0 && income != null,
                   onPressed: () => _deposit(state, income),
                 ),
               ),
@@ -23420,7 +23416,7 @@ class _LifestylePaydayActionPanelState
               ),
             ],
           ),
-          if (walletBlock != null && income != null && !deposited)
+          if (walletBlock != null && income != null)
             _walletBlockText(walletBlock),
         ],
       ),
@@ -24041,8 +24037,8 @@ class _EmergencyFundIncomeActionPanelState
     final incomeDate = income.createdAt ?? income.labeledAt;
     if (busy ||
         incomeDate == null ||
-        state.latestEmergencyFundIncomeTransaction?.transactionId !=
-            income.transactionId) {
+        !state.pendingEmergencyIncomeTransactions
+            .any((pending) => pending.transactionId == income.transactionId)) {
       return;
     }
     setState(() => busy = true);
@@ -24116,15 +24112,12 @@ class _EmergencyFundIncomeActionPanelState
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final income = state.latestEmergencyFundIncomeTransaction;
+    final incomes = state.pendingEmergencyIncomeTransactions;
+    final income = incomes.firstOrNull;
     final percentage = widget.percentage;
     final allocation = (income?.amount ?? 0) * percentage / 100;
-    final deposited = income != null &&
-        state.hasEmergencyAllocationForIncome(income.transactionId);
     final walletBlock = _walletBlockReason(state, allocation);
     final canDeposit = walletBlock == null;
-    final date = income?.createdAt ?? income?.labeledAt;
-    final localizations = MaterialLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -24194,56 +24187,28 @@ class _EmergencyFundIncomeActionPanelState
           const SizedBox(height: 12),
           if (income == null)
             const Text(
-                'Label today’s income as salary to set aside money for the Emergency Fund.',
+                'Label this month’s income as salary, income, or gift to set aside money for the Emergency Fund.',
                 style: TextStyle(color: _body, fontWeight: FontWeight.w700))
           else ...[
-            const Text('LATEST INCOME',
+            Text(
+                '${incomes.length} INCOME EVENT${incomes.length == 1 ? '' : 'S'} WAITING',
                 style: TextStyle(
                     color: _body,
                     fontSize: 10,
                     letterSpacing: 1.1,
                     fontWeight: FontWeight.w900)),
             const SizedBox(height: 7),
-            Row(
-              children: [
-                const Icon(Icons.payments_rounded, color: _sage, size: 20),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(income.title,
-                          style: const TextStyle(
-                              color: _title, fontWeight: FontWeight.w900)),
-                      if (date != null)
-                        Text(
-                            '${localizations.formatShortDate(date)} · ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(date))}',
-                            style: const TextStyle(
-                                color: _body,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-                Text(money(income.amount),
-                    style: const TextStyle(
-                        color: _sage, fontWeight: FontWeight.w900)),
-              ],
-            ),
+            _PendingIncomeQueue(incomes: incomes, color: widget.color),
             const SizedBox(height: 12),
             PrimaryButton(
-              label: deposited
-                  ? '${percentage.toStringAsFixed(0)}% deposited to fund'
-                  : busy
-                      ? 'Depositing...'
-                      : 'Deposit ${percentage.toStringAsFixed(0)}% (${money(allocation)})',
-              icon:
-                  deposited ? Icons.check_circle_rounded : Icons.shield_rounded,
-              enabled: !busy && !deposited && canDeposit && date != null,
+              label: busy
+                  ? 'Depositing...'
+                  : 'Deposit next ${percentage.toStringAsFixed(0)}% (${money(allocation)})',
+              icon: Icons.shield_rounded,
+              enabled: !busy && canDeposit,
               onPressed: () => _deposit(state, income),
             ),
-            if (walletBlock != null && !deposited)
-              _walletBlockText(walletBlock),
+            if (walletBlock != null) _walletBlockText(walletBlock),
           ],
           if (state.displayedEmergencyFundBalance > 0) ...[
             const SizedBox(height: 9),
@@ -26221,14 +26186,7 @@ List<FakeMayaTransaction> _currentMonthPositiveTransactions(AppState state) {
 }
 
 double _currentMonthEmergencyDeposits(AppState state) {
-  return state.d1Ledger.where((entry) {
-    if (entry['type'] != 'emergency_deposit') return false;
-    final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-    return _isInCurrentMonth(date);
-  }).fold<double>(
-    0,
-    (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
-  );
+  return state.emergencyFundContributionsForMonth(AppClock.now());
 }
 
 double _currentEverydayFundAmount(AppState state) {
@@ -26236,6 +26194,74 @@ double _currentEverydayFundAmount(AppState state) {
     state.essentialExpensesBalance,
     math.max(state.needsBalance, state.accountBalance('Wallet')),
   );
+}
+
+/// Shared queue for actions that promise to handle every income. The card is
+/// deliberately explicit rather than only showing the latest transaction, so
+/// older unallocated income cannot disappear from the user's view.
+class _PendingIncomeQueue extends StatelessWidget {
+  const _PendingIncomeQueue({required this.incomes, required this.color});
+
+  final List<FakeMayaTransaction> incomes;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (incomes.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: .18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${incomes.length} INCOME EVENT${incomes.length == 1 ? '' : 'S'} WAITING THIS MONTH',
+            style: const TextStyle(
+              color: _body,
+              fontSize: 9.5,
+              letterSpacing: 1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final income in incomes) ...[
+            Row(
+              children: [
+                const Icon(Icons.payments_rounded, size: 15, color: _sage),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${income.title} · ${_shortDate(income.createdAt ?? income.labeledAt ?? AppClock.now())}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  money(income.amount),
+                  style: const TextStyle(
+                    color: _sage,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            if (income != incomes.last) const SizedBox(height: 5),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _ActionMetricTile extends StatelessWidget {
