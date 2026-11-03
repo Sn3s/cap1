@@ -6552,40 +6552,36 @@ _CashActionScore? _cashActionScoreFor({
             _recommendationsForActionField(state, action, action.fields.first)
                 .first);
     final targetDays = configuredNumber('days', recommended);
-    final withdrawals = state.d1Ledger.where((entry) {
-      if (entry['type']?.toString() != 'use_emergency') return false;
-      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-      return date != null && _sameMonth(date, monthStart);
-    }).toList()
-      ..sort((a, b) => DateTime.parse(a['date'].toString())
-          .compareTo(DateTime.parse(b['date'].toString())));
-    final replenishDates = state.d1Ledger
-        .where((entry) => const {'ef_replenish', 'emergency_deposit'}
-            .contains(entry['type']?.toString()))
-        .map((entry) => DateTime.tryParse(entry['date']?.toString() ?? ''))
-        .whereType<DateTime>()
-        .toList()
-      ..sort();
-    final now = AppClock.now();
+    final withdrawals = state.emergencyReplenishmentRecords
+        .where((record) => _sameMonth(record.withdrawnAt, monthStart))
+        .toList();
     final pattern = <double>[];
     final labels = <String>[];
     final elapsedDays = <int>[];
     final evidenceLines = <String>[];
     for (final withdrawal in withdrawals) {
-      final withdrawDate = DateTime.parse(withdrawal['date'].toString());
-      final amount = (withdrawal['amount'] as num?)?.toDouble() ?? 0;
-      final nextReplenish = replenishDates
-          .where((date) => date.isAfter(withdrawDate))
-          .firstOrNull;
-      final elapsed = (nextReplenish ?? now).difference(withdrawDate).inDays;
+      final income = state.firstEmergencyReplenishmentIncomeAfter(
+        withdrawal.withdrawnAt,
+      );
+      final incomeDate = income?.createdAt ?? income?.labeledAt;
+      if (incomeDate == null) {
+        evidenceLines.add(
+          '${_shortDate(withdrawal.withdrawnAt)}: withdrew ${money(withdrawal.withdrawnAmount)}; waiting for the next recorded income before the replenishment window starts.',
+        );
+        continue;
+      }
+      final completion = withdrawal.fullyReplenishedAt;
+      final elapsed = completion == null
+          ? AppClock.now().difference(incomeDate).inDays
+          : math.max(0, completion.difference(incomeDate).inDays);
       elapsedDays.add(elapsed);
-      pattern.add(targetDays <= 0
+      pattern.add(completion == null || targetDays <= 0
           ? 0.0
           : (targetDays / math.max(1, elapsed)).clamp(0.0, 1.0));
-      labels.add(_shortDate(withdrawDate));
-      evidenceLines.add(nextReplenish == null
-          ? '${_shortDate(withdrawDate)}: withdrew ${money(amount)}, not yet replenished ($elapsed days so far)'
-          : '${_shortDate(withdrawDate)}: withdrew ${money(amount)}, replenished in $elapsed days');
+      labels.add(_shortDate(withdrawal.withdrawnAt));
+      evidenceLines.add(completion == null
+          ? '${_shortDate(withdrawal.withdrawnAt)}: withdrew ${money(withdrawal.withdrawnAmount)}; ${money(withdrawal.outstandingAmount)} remains after income on ${_shortDate(incomeDate)} ($elapsed days so far).'
+          : '${_shortDate(withdrawal.withdrawnAt)}: withdrew ${money(withdrawal.withdrawnAmount)}, fully replenished in $elapsed days after income.');
     }
     final avgDays = elapsedDays.isEmpty
         ? 0.0
@@ -6596,7 +6592,7 @@ _CashActionScore? _cashActionScoreFor({
       score: _averageWeeklyResiliency(pattern),
       detail: withdrawals.isEmpty
           ? 'No withdrawals were recorded this month.'
-          : '${withdrawals.length} withdrawal${withdrawals.length == 1 ? '' : 's'} checked against a ${targetDays.toStringAsFixed(0)}-day replenishment target.',
+          : '${withdrawals.length} withdrawal${withdrawals.length == 1 ? '' : 's'} linked to their own replenishment amount and income window.',
       pattern: pattern,
       weekLabels: labels,
       actualLabel: withdrawals.isEmpty
@@ -6604,7 +6600,7 @@ _CashActionScore? _cashActionScoreFor({
           : '${avgDays.toStringAsFixed(1)}d avg',
       targetLabel: '${targetDays.toStringAsFixed(0)}d',
       formula:
-          'Resiliency = for each withdrawal this month, configured ${targetDays.toStringAsFixed(0)}-day target ÷ actual days to replenish, capped at 100%.',
+          'Resiliency = for each fully replenished withdrawal this month, configured ${targetDays.toStringAsFixed(0)}-day target ÷ days from its next income to its own full replenishment, capped at 100%.',
       evidence: evidenceLines.isEmpty
           ? const ['No Emergency Fund withdrawals were recorded this month.']
           : evidenceLines,
@@ -13330,6 +13326,14 @@ List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
               transaction.source!.trim(),
             transaction.detail,
           ].where((part) => part.trim().isNotEmpty).join(' · ');
+    final replenishment = type == 'use_emergency'
+        ? state.emergencyReplenishmentForEntry(entry)
+        : null;
+    final restored = type == 'ef_replenish'
+        ? state
+            .replenishmentAllocationsForEntry(entry)
+            .fold<double>(0, (total, allocation) => total + allocation.amount)
+        : 0.0;
     activity.add(_EmergencyReflectionItem(
       title: switch (type) {
         'emergency_deposit' => transaction?.title ?? 'Income contribution',
@@ -13338,8 +13342,14 @@ List<_EmergencyReflectionItem> _emergencyReflectionActivity(AppState state) {
       },
       detail: switch (type) {
         'emergency_deposit' => transactionDetail ?? 'Scheduled contribution',
-        'ef_replenish' => 'Previous withdrawal restored',
-        _ => transactionDetail ?? 'Withdrawal',
+        'ef_replenish' => restored > 0
+            ? '${money(restored)} allocated to earlier withdrawal${restored == (entry['amount'] as num?)?.toDouble() ? '' : 's'}'
+            : 'Previous withdrawal restored',
+        _ => replenishment == null
+            ? (transactionDetail ?? 'Withdrawal')
+            : replenishment.isFullyReplenished
+                ? 'Fully replenished ${_shortDate(replenishment.fullyReplenishedAt!)}'
+                : '${money(replenishment.outstandingAmount)} still to replenish',
       },
       amount: (entry['amount'] as num?)?.toDouble() ?? 0,
       date: date,
@@ -21474,13 +21484,16 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
         case 'use_emergency':
           final isUnexpectedExpense = entry['unexpectedExpense'] == true;
           final label = entry['label']?.toString().trim();
+          final replenishment = state.emergencyReplenishmentForEntry(entry);
           activity.add(_EmergencyActivityItem(
             title: isUnexpectedExpense
                 ? 'Unexpected expense recovery'
                 : 'Emergency Fund used',
-            detail: isUnexpectedExpense
-                ? '${label?.isNotEmpty == true ? label : 'Emergency expense'} · Replenish after your next income'
-                : 'Waiting to be replenished',
+            detail: replenishment?.isFullyReplenished == true
+                ? '${isUnexpectedExpense ? (label?.isNotEmpty == true ? label : 'Emergency expense') : 'Emergency withdrawal'} · Fully replenished ${_shortDate(replenishment!.fullyReplenishedAt!)}'
+                : isUnexpectedExpense
+                    ? '${label?.isNotEmpty == true ? label : 'Emergency expense'} · ${money(replenishment?.outstandingAmount ?? amount)} to replenish after your next income'
+                    : '${money(replenishment?.outstandingAmount ?? amount)} waiting to be replenished',
             amount: amount,
             date: date,
             incoming: false,
@@ -21489,9 +21502,15 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
                 : Icons.outbox_rounded,
           ));
         case 'ef_replenish':
+          final restored = state
+              .replenishmentAllocationsForEntry(entry)
+              .fold<double>(
+                  0, (total, allocation) => total + allocation.amount);
           activity.add(_EmergencyActivityItem(
             title: 'Emergency Fund replenished',
-            detail: 'Withdrawn amount restored',
+            detail: restored > 0
+                ? '${money(restored)} matched to withdrawal${restored == amount ? '' : 's'}'
+                : 'Historic withdrawal restored',
             amount: amount,
             date: date,
             incoming: true,
@@ -24267,12 +24286,14 @@ class _EmergencyReplenishmentActionPanelState
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final pending = state.pendingEmergencyReplenishment;
-    final withdrawalDate = state.latestEmergencyWithdrawalDate;
-    final latestIncome = _latestIncomeTransaction(state);
-    final incomeDate = latestIncome?.createdAt;
-    final incomeAfterWithdrawal = withdrawalDate != null &&
-        incomeDate != null &&
-        incomeDate.isAfter(withdrawalDate);
+    final recordedPending = state.pendingRecordedEmergencyReplenishment;
+    final unlabeledPending = state.pendingLabeledEmergencyReplenishment;
+    final withdrawal = state.oldestPendingEmergencyReplenishment;
+    final income = withdrawal == null
+        ? null
+        : state.firstEmergencyReplenishmentIncomeAfter(withdrawal.withdrawnAt);
+    final incomeDate = income?.createdAt ?? income?.labeledAt;
+    final incomeAfterWithdrawal = incomeDate != null;
     final configuredDays = widget.days.round();
     final deadline = incomeAfterWithdrawal
         ? incomeDate.add(Duration(days: configuredDays))
@@ -24339,6 +24360,14 @@ class _EmergencyReplenishmentActionPanelState
                 value: money(pending),
                 color: _red),
             const SizedBox(height: 10),
+            if (unlabeledPending > 0) ...[
+              Text(
+                '${money(unlabeledPending)} is from an Emergency Fund transaction that still needs to be recorded in its activity trail. Label it first so it can be matched to a replenishment.',
+                style: const TextStyle(
+                    color: _body, height: 1.35, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+            ],
             if (!incomeAfterWithdrawal)
               Text(
                   'Waiting for your next income. The $configuredDays-day replenishment countdown starts when that income arrives.',
@@ -24354,14 +24383,20 @@ class _EmergencyReplenishmentActionPanelState
                 color: overdue ? _red : _amber,
               ),
               const SizedBox(height: 10),
-              PrimaryButton(
-                label: busy ? 'Replenishing...' : 'Replenish ${money(pending)}',
-                icon: Icons.restore_rounded,
-                enabled: !busy && _walletBlockReason(state, pending) == null,
-                onPressed: () => _replenish(state, pending),
-              ),
-              if (_walletBlockReason(state, pending) case final reason?)
-                _walletBlockText(reason),
+              if (recordedPending > 0) ...[
+                PrimaryButton(
+                  label: busy
+                      ? 'Replenishing...'
+                      : 'Replenish ${money(recordedPending)}',
+                  icon: Icons.restore_rounded,
+                  enabled: !busy &&
+                      _walletBlockReason(state, recordedPending) == null,
+                  onPressed: () => _replenish(state, recordedPending),
+                ),
+                if (_walletBlockReason(state, recordedPending)
+                    case final reason?)
+                  _walletBlockText(reason),
+              ],
             ],
           ],
         ],

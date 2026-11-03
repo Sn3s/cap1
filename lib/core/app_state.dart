@@ -6193,28 +6193,153 @@ class AppState extends ChangeNotifier {
     return incomes.isEmpty ? null : incomes.first;
   }
 
-  DateTime? get latestEmergencyReplenishmentDate {
-    for (final entry in d1Ledger) {
-      if (entry['type'] == 'ef_replenish') {
-        return DateTime.tryParse(entry['date']?.toString() ?? '');
+  /// Each A10 replenishment stores its own amount-capped allocation. This
+  /// prevents one later deposit from being treated as repayment for every
+  /// earlier withdrawal and preserves partial replenishments.
+  List<EmergencyReplenishmentRecord> get emergencyReplenishmentRecords {
+    final events = d1Ledger
+        .asMap()
+        .entries
+        .map((item) {
+          final entry = item.value;
+          return (
+            entry: entry,
+            originalIndex: item.key,
+            date: _emergencyEventDate(entry),
+          );
+        })
+        .where((event) => event.date != null)
+        .toList()
+      ..sort((a, b) {
+        final byDate = a.date!.compareTo(b.date!);
+        return byDate != 0
+            ? byDate
+            : a.originalIndex.compareTo(b.originalIndex);
+      });
+
+    final records = <EmergencyReplenishmentRecord>[];
+    for (final event in events) {
+      final entry = event.entry;
+      final type = entry['type']?.toString();
+      if (type == 'use_emergency') {
+        final amount = _ledgerAmount(entry);
+        if (amount <= 0) continue;
+        records.add(EmergencyReplenishmentRecord(
+          withdrawalId: _emergencyWithdrawalId(entry, event.originalIndex),
+          withdrawnAmount: amount,
+          withdrawnAt: event.date!,
+          label: entry['label']?.toString().trim().isNotEmpty == true
+              ? entry['label'].toString().trim()
+              : 'Emergency Fund withdrawal',
+        ));
+        continue;
+      }
+      if (type != 'ef_replenish') continue;
+
+      final allocationMaps = entry['allocations'];
+      if (allocationMaps is Iterable) {
+        for (final allocation in allocationMaps.whereType<Map>()) {
+          final withdrawalId = allocation['withdrawalId']?.toString() ?? '';
+          final amount = _ledgerAmount(allocation);
+          final record = records
+              .where((candidate) => candidate.withdrawalId == withdrawalId)
+              .firstOrNull;
+          if (record == null || amount <= 0) continue;
+          record.addAllocation(
+            amount: math.min(amount, record.outstandingAmount),
+            replenishedAt: event.date!,
+          );
+        }
+      } else {
+        // Older saved profiles do not name a withdrawal. Replaying them FIFO
+        // keeps history usable without allowing a deposit to be reused.
+        var remaining = _ledgerAmount(entry);
+        for (final record in records) {
+          if (remaining <= .005) break;
+          final allocated = math.min(remaining, record.outstandingAmount);
+          if (allocated <= 0) continue;
+          record.addAllocation(amount: allocated, replenishedAt: event.date!);
+          remaining -= allocated;
+        }
       }
     }
-    return null;
+    return List<EmergencyReplenishmentRecord>.unmodifiable(records);
   }
 
-  double get pendingRecordedEmergencyReplenishment {
-    var total = 0.0;
-    for (final entry in d1Ledger) {
-      if (entry['type'] == 'ef_replenish') break;
-      if (entry['type'] == 'use_emergency') {
-        total += (entry['amount'] as num?)?.toDouble() ?? 0;
-      }
-    }
-    return total;
+  DateTime? _emergencyEventDate(Map<String, dynamic> entry) =>
+      DateTime.tryParse(entry['sourceDate']?.toString() ?? '') ??
+      DateTime.tryParse(entry['date']?.toString() ?? '');
+
+  double _ledgerAmount(Map entry) =>
+      (entry['amount'] as num?)?.toDouble() ??
+      double.tryParse(entry['amount']?.toString() ?? '') ??
+      0;
+
+  String _emergencyWithdrawalId(Map<String, dynamic> entry, int index) {
+    final saved = entry['withdrawalId']?.toString().trim() ?? '';
+    if (saved.isNotEmpty) return saved;
+    final sourceId = entry['sourceTransactionId']?.toString().trim() ?? '';
+    if (sourceId.isNotEmpty) return 'legacy-source:$sourceId';
+    return 'legacy:${entry['date']}:${_ledgerAmount(entry).toStringAsFixed(2)}:$index';
+  }
+
+  String _newEmergencyWithdrawalId({String? sourceTransactionId}) =>
+      'efw_${sourceTransactionId?.trim().isNotEmpty == true ? sourceTransactionId!.trim() : 'manual'}_${AppClock.now().microsecondsSinceEpoch}';
+
+  double get pendingRecordedEmergencyReplenishment =>
+      emergencyReplenishmentRecords.fold<double>(
+        0,
+        (total, record) => total + record.outstandingAmount,
+      );
+
+  EmergencyReplenishmentRecord? get oldestPendingEmergencyReplenishment =>
+      emergencyReplenishmentRecords
+          .where((record) => record.outstandingAmount > .005)
+          .firstOrNull;
+
+  EmergencyReplenishmentRecord? emergencyReplenishmentForEntry(
+    Map<String, dynamic> entry,
+  ) {
+    final index = d1Ledger.indexOf(entry);
+    final id = _emergencyWithdrawalId(entry, index < 0 ? 0 : index);
+    return emergencyReplenishmentRecords
+        .where((record) => record.withdrawalId == id)
+        .firstOrNull;
+  }
+
+  List<EmergencyReplenishmentAllocation> replenishmentAllocationsForEntry(
+    Map<String, dynamic> entry,
+  ) {
+    final raw = entry['allocations'];
+    if (raw is! Iterable) return const [];
+    return raw
+        .whereType<Map>()
+        .map((allocation) {
+          return EmergencyReplenishmentAllocation(
+            withdrawalId: allocation['withdrawalId']?.toString() ?? '',
+            amount: _ledgerAmount(allocation),
+            replenishedAt: _emergencyEventDate(entry) ?? AppClock.now(),
+          );
+        })
+        .where((allocation) => allocation.amount > 0)
+        .toList(growable: false);
+  }
+
+  FakeMayaTransaction? firstEmergencyReplenishmentIncomeAfter(
+    DateTime withdrawalAt,
+  ) {
+    final incomes = allTransactions.where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return _isEssentialIncomeCandidate(transaction) &&
+          date != null &&
+          !date.isBefore(withdrawalAt);
+    }).toList()
+      ..sort((a, b) =>
+          (a.createdAt ?? a.labeledAt!).compareTo(b.createdAt ?? b.labeledAt!));
+    return incomes.firstOrNull;
   }
 
   List<FakeMayaTransaction> get pendingLabeledEmergencyWithdrawals {
-    final replenishedAt = latestEmergencyReplenishmentDate;
     final recordedIds = d1Ledger
         .where((entry) => entry['sourceTransactionId'] != null)
         .map((entry) => entry['sourceTransactionId'].toString())
@@ -6225,9 +6350,7 @@ class AppState extends ChangeNotifier {
       return transaction.amount < 0 &&
           transaction.source?.trim().toLowerCase() == 'emergency fund' &&
           !recordedIds.contains(transaction.transactionId) &&
-          (replenishedAt == null ||
-              date == null ||
-              date.isAfter(replenishedAt));
+          date != null;
     }).toList();
   }
 
@@ -6248,12 +6371,10 @@ class AppState extends ChangeNotifier {
 
   DateTime? get latestEmergencyWithdrawalDate {
     DateTime? latest;
-    for (final entry in d1Ledger) {
-      if (entry['type'] == 'ef_replenish') break;
-      if (entry['type'] == 'use_emergency') {
-        final date = DateTime.tryParse(entry['date']?.toString() ?? '');
-        if (date != null && (latest == null || date.isAfter(latest)))
-          latest = date;
+    for (final record in emergencyReplenishmentRecords) {
+      if (record.outstandingAmount > .005 &&
+          (latest == null || record.withdrawnAt.isAfter(latest))) {
+        latest = record.withdrawnAt;
       }
     }
     for (final transaction in pendingLabeledEmergencyWithdrawals) {
@@ -7275,6 +7396,7 @@ class AppState extends ChangeNotifier {
       'type': 'use_$bucket',
       'date': AppClock.now().toIso8601String(),
       'amount': amount,
+      if (bucket == 'emergency') 'withdrawalId': _newEmergencyWithdrawalId(),
     });
     await saveProfile();
     notifyListeners();
@@ -7285,21 +7407,42 @@ class AppState extends ChangeNotifier {
   /// the same bucket A8/A9 deposits go to.
   Future<void> replenishD1EmergencyFund(double amount) async {
     if (amount <= 0) return;
-    _requireWalletFunds(amount);
-    await _moveFakeMayaWalletTo(
+    final outstanding = emergencyReplenishmentRecords
+        .where((record) => record.outstandingAmount > .005)
+        .toList();
+    var remaining = math.min(
       amount,
+      outstanding.fold<double>(
+          0, (total, record) => total + record.outstandingAmount),
+    );
+    if (remaining <= .005) return;
+    final allocations = <Map<String, dynamic>>[];
+    for (final record in outstanding) {
+      if (remaining <= .005) break;
+      final allocated = math.min(remaining, record.outstandingAmount);
+      allocations
+          .add({'withdrawalId': record.withdrawalId, 'amount': allocated});
+      remaining -= allocated;
+    }
+    final amountToMove = allocations.fold<double>(
+      0,
+      (total, allocation) => total + _ledgerAmount(allocation),
+    );
+    _requireWalletFunds(amountToMove);
+    await _moveFakeMayaWalletTo(
+      amountToMove,
       FakeMayaGoalAccount.personalGoal,
       personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
     );
-    emergencyFundBalance += math.min(
-      amount,
-      pendingRecordedEmergencyReplenishment,
-    );
-    _lastEfWithdrawalStr = null;
+    emergencyFundBalance += amountToMove;
+    if (amountToMove + .005 >= pendingRecordedEmergencyReplenishment) {
+      _lastEfWithdrawalStr = null;
+    }
     d1Ledger.insert(0, {
       'type': 'ef_replenish',
       'date': AppClock.now().toIso8601String(),
-      'amount': amount,
+      'amount': amountToMove,
+      'allocations': allocations,
     });
     await saveProfile();
     notifyListeners();
@@ -7765,6 +7908,9 @@ class AppState extends ChangeNotifier {
           'type': 'use_emergency',
           'date': now.toIso8601String(),
           'sourceDate': date.toIso8601String(),
+          'withdrawalId': _newEmergencyWithdrawalId(
+            sourceTransactionId: transactionId,
+          ),
           if (transactionId?.trim().isNotEmpty == true)
             'sourceTransactionId': transactionId,
           'amount': amount,
@@ -9409,6 +9555,9 @@ class AppState extends ChangeNotifier {
         'type': 'use_emergency',
         'date': AppClock.now().toIso8601String(),
         'sourceDate': occurredAt.toIso8601String(),
+        'withdrawalId': _newEmergencyWithdrawalId(
+          sourceTransactionId: transactionId,
+        ),
         'sourceTransactionId': transactionId,
         'amount': recovery.fromEmergencyFund,
         'label': label.trim().isEmpty ? 'Unexpected expense' : label.trim(),
@@ -9938,6 +10087,60 @@ class JarEvent {
 /// The transparent allocation produced when a user logs an unexpected cost.
 /// It is intentionally independent of UI so the same recovery explanation is
 /// shown in the transaction form, confirmation, activity feed, and tests.
+/// A persisted A10 allocation is deliberately small: it identifies the
+/// withdrawal it restored, its amount, and the replenishment event date.
+class EmergencyReplenishmentAllocation {
+  const EmergencyReplenishmentAllocation({
+    required this.withdrawalId,
+    required this.amount,
+    required this.replenishedAt,
+  });
+
+  final String withdrawalId;
+  final double amount;
+  final DateTime replenishedAt;
+}
+
+/// Derived, immutable view of one Emergency Fund withdrawal and the A10
+/// replenishments allocated to it. Entries are reconstructed from [d1Ledger]
+/// so old profiles remain readable and no parallel source of truth is needed.
+class EmergencyReplenishmentRecord {
+  EmergencyReplenishmentRecord({
+    required this.withdrawalId,
+    required this.withdrawnAmount,
+    required this.withdrawnAt,
+    required this.label,
+  });
+
+  final String withdrawalId;
+  final double withdrawnAmount;
+  final DateTime withdrawnAt;
+  final String label;
+  final List<EmergencyReplenishmentAllocation> _allocations = [];
+
+  List<EmergencyReplenishmentAllocation> get allocations =>
+      List<EmergencyReplenishmentAllocation>.unmodifiable(_allocations);
+  double get replenishedAmount =>
+      _allocations.fold(0, (total, allocation) => total + allocation.amount);
+  double get outstandingAmount =>
+      math.max(0, withdrawnAmount - replenishedAmount);
+  bool get isFullyReplenished => outstandingAmount <= .005;
+  DateTime? get fullyReplenishedAt =>
+      isFullyReplenished && _allocations.isNotEmpty
+          ? _allocations.last.replenishedAt
+          : null;
+
+  void addAllocation(
+      {required double amount, required DateTime replenishedAt}) {
+    if (amount <= 0) return;
+    _allocations.add(EmergencyReplenishmentAllocation(
+      withdrawalId: withdrawalId,
+      amount: amount,
+      replenishedAt: replenishedAt,
+    ));
+  }
+}
+
 class UnexpectedExpenseRecovery {
   const UnexpectedExpenseRecovery({
     required this.amount,
