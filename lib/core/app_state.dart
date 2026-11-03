@@ -668,6 +668,120 @@ class AppState extends ChangeNotifier {
         (total, bill) => total + _billRemaining(bill),
       );
 
+  double billReservedAmount(Map<String, dynamic> bill) =>
+      _doubleFrom(bill['reservedAmount'], 0);
+  double billReservedFromEssentialFund(Map<String, dynamic> bill) =>
+      _doubleFrom(bill['reservedFromEssentialFund'], 0);
+  double billReservedFromWallet(Map<String, dynamic> bill) =>
+      _doubleFrom(bill['reservedFromWallet'], 0);
+  double billReservedFromSavings(Map<String, dynamic> bill) =>
+      _doubleFrom(bill['reservedFromSavings'], 0);
+
+  double billAmountStillNeedingReservation(Map<String, dynamic> bill) =>
+      math.max(0, _billRemaining(bill) - billReservedAmount(bill));
+
+  bool _isActiveBillReservation(Map<String, dynamic> bill) =>
+      _billRemaining(bill) > .005 && billReservedAmount(bill) > .005;
+
+  double _reservedForBills(
+    double Function(Map<String, dynamic> bill) value, {
+    String? excludingBillId,
+  }) =>
+      billObligations
+          .where((bill) =>
+              _isActiveBillReservation(bill) && bill['id'] != excludingBillId)
+          .fold(0, (total, bill) => total + value(bill));
+
+  double reservedWalletForBills({String? excludingBillId}) =>
+      _reservedForBills(billReservedFromWallet,
+          excludingBillId: excludingBillId);
+  double reservedEssentialFundForBills({String? excludingBillId}) =>
+      _reservedForBills(billReservedFromEssentialFund,
+          excludingBillId: excludingBillId);
+  double reservedSavingsForBills({String? excludingBillId}) =>
+      _reservedForBills(billReservedFromSavings,
+          excludingBillId: excludingBillId);
+
+  double availableWalletForBillReservation({String? excludingBillId}) =>
+      math.max(
+        0,
+        accountBalance('Wallet') -
+            (_fakeMayaEssentialFundBalance == null
+                ? _essentialExpensesLocalBalance
+                : 0) -
+            billsObligationsBalance -
+            reservedWalletForBills(excludingBillId: excludingBillId),
+      );
+
+  double availableEssentialFundForBillReservation({String? excludingBillId}) =>
+      math.max(
+        0,
+        essentialExpensesBalance -
+            reservedEssentialFundForBills(excludingBillId: excludingBillId),
+      );
+
+  double availableSavingsForBillReservation({String? excludingBillId}) =>
+      math.max(
+        0,
+        safetyShieldBalance -
+            reservedSavingsForBills(excludingBillId: excludingBillId),
+      );
+
+  /// Reservations are advisory: users retain control of their actual funds.
+  /// This reports where a proposed source split would overlap another plan or
+  /// exceed the present balance, so the UI can warn without blocking it.
+  ({double essential, double wallet, double savings})
+      billReservationOverlapFor({
+    String? excludingBillId,
+    required double essential,
+    required double wallet,
+    required double savings,
+  }) =>
+          (
+            essential: math.max(
+              0,
+              reservedEssentialFundForBills(excludingBillId: excludingBillId) +
+                  essential -
+                  essentialExpensesBalance,
+            ),
+            wallet: math.max(
+              0,
+              reservedWalletForBills(excludingBillId: excludingBillId) +
+                  wallet -
+                  accountBalance('Wallet'),
+            ),
+            savings: math.max(
+              0,
+              reservedSavingsForBills(excludingBillId: excludingBillId) +
+                  savings -
+                  safetyShieldBalance,
+            ),
+          );
+
+  double get totalBillReservationOverbooking {
+    final overlap = billReservationOverlapFor(
+      essential: 0,
+      wallet: 0,
+      savings: 0,
+    );
+    return overlap.essential + overlap.wallet + overlap.savings;
+  }
+
+  List<Map<String, dynamic>> get reservedBasicNeedsBillsThisMonth {
+    final monthKey = basicNeedsBillMonthKey(AppClock.now());
+    return billObligations.where((bill) {
+      if (expenseLayerForLedger(bill) != ExpenseLayer.basicNeeds ||
+          !_isActiveBillReservation(bill)) {
+        return false;
+      }
+      final billMonth = bill['billMonth']?.toString() ??
+          basicNeedsBillMonthKey(
+              DateTime.tryParse(bill['dueDate']?.toString() ?? '') ??
+                  AppClock.now());
+      return billMonth == monthKey;
+    }).toList();
+  }
+
   /// Basic Needs bill plans fully paid for the current month.
   List<Map<String, dynamic>> get paidBasicNeedsBillsThisMonth {
     final monthKey = basicNeedsBillMonthKey(AppClock.now());
@@ -6061,6 +6175,8 @@ class AppState extends ChangeNotifier {
       essential: fromEssentialFund,
       wallet: fromWallet,
       savings: fromSavings,
+      // Plans stay advisory. A user can intentionally overbook a source, but
+      // the UI shows a warning before confirmation and keeps an audit trail.
       essentialAvailable: essentialExpensesBalance,
       walletAvailable: accountBalance('Wallet'),
       savingsAvailable: safetyShieldBalance,
@@ -6069,11 +6185,11 @@ class AppState extends ChangeNotifier {
     final essential = split.essential;
     final wallet = split.wallet;
     final savings = split.savings;
-    // A plan only records which funds will cover the bill; no money moves.
-    // The money leaves once, when the real payment is made and labeled
-    // (e.g. with the Basic Needs Fund as its source), so it isn't counted
-    // twice.
-    final paidAmount = essential + wallet + savings;
+    // A plan only reserves which funds will cover the bill; no money moves.
+    // The actual payment is still recorded when its transaction is labelled.
+    // Keeping this distinct from paidAmount prevents a plan from both
+    // spending money early and letting the same balance fund another action.
+    final reservedAmount = essential + wallet + savings;
 
     final now = AppClock.now();
     final id = planId?.trim().isNotEmpty == true
@@ -6082,13 +6198,21 @@ class AppState extends ChangeNotifier {
     final index = existingIndex >= 0
         ? existingIndex
         : billObligations.indexWhere((bill) => bill['id'] == id);
-    final totalPaid = math.min(expectedAmount, priorPaid + paidAmount);
     final next = {
       ...existing,
       'id': id,
       'name': name.trim().isEmpty ? 'Basic needs bill' : name.trim(),
       'expectedAmount': expectedAmount,
-      'paidAmount': totalPaid,
+      'paidAmount': priorPaid,
+      'reservedFromEssentialFund': essential,
+      'reservedFromWallet': wallet,
+      'reservedFromSavings': savings,
+      'reservedAmount': reservedAmount,
+      'reservationStatus': reservedAmount <= .005
+          ? 'unreserved'
+          : reservedAmount + .005 >= paymentCapacity
+              ? 'reserved'
+              : 'partial',
       'dueDate': (dueDate ??
               DateTime.tryParse(existing['dueDate']?.toString() ?? '') ??
               now)
@@ -6098,7 +6222,7 @@ class AppState extends ChangeNotifier {
         'billMonth': basicNeedsBillMonthKey(billDate),
       },
       'expenseType': ExpenseLayer.basicNeeds.name,
-      'status': totalPaid >= expectedAmount ? 'paid' : 'partial',
+      'status': priorPaid >= expectedAmount ? 'paid' : 'planned',
       'updatedAt': now.toIso8601String(),
       'createdAt': existing['createdAt'] ?? now.toIso8601String(),
     };
@@ -6113,17 +6237,82 @@ class AppState extends ChangeNotifier {
       'billId': id,
       'billName': next['name'],
       'expectedAmount': expectedAmount,
-      'paidAmount': paidAmount,
-      'remainingAmount': math.max(0, expectedAmount - totalPaid),
+      'reservedAmount': reservedAmount,
+      'remainingAmount':
+          math.max(0, expectedAmount - priorPaid - reservedAmount),
       'fromEssentialFund': essential,
       'fromWallet': wallet,
       'fromSavings': savings,
-      // Older plans moved money; these don't (see above).
+      // Older plans moved money; these only reserve it (see above).
       'planOnly': true,
     });
     await saveProfile();
     notifyListeners();
     return next;
+  }
+
+  /// Releases a plan-only hold. Nothing is moved back because reserving a bill
+  /// never moved money in the first place; it simply becomes spendable again.
+  Future<void> releaseBasicNeedsBillReservation(String billId) async {
+    final index = billObligations.indexWhere((bill) => bill['id'] == billId);
+    if (index < 0) return;
+    final bill = billObligations[index];
+    final reserved = billReservedAmount(bill);
+    if (reserved <= .005) return;
+    billObligations[index] = {
+      ...bill,
+      'reservedFromEssentialFund': 0.0,
+      'reservedFromWallet': 0.0,
+      'reservedFromSavings': 0.0,
+      'reservedAmount': 0.0,
+      'reservationStatus': 'released',
+      'updatedAt': AppClock.now().toIso8601String(),
+    };
+    d1Ledger.insert(0, {
+      'type': 'bill_reservation_released',
+      'date': AppClock.now().toIso8601String(),
+      'billId': billId,
+      'billName': basicNeedsBillDisplayName(bill),
+      'amount': reserved,
+      'planOnly': true,
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
+  /// Records that a user-confirmed external payment consumed the reservation.
+  /// This never moves money: the real wallet transaction must already exist.
+  Future<void> markBasicNeedsBillReservationPaid(String billId) async {
+    final index = billObligations.indexWhere((bill) => bill['id'] == billId);
+    if (index < 0) return;
+    final bill = billObligations[index];
+    final reserved = billReservedAmount(bill);
+    final applied = math.min(reserved, _billRemaining(bill));
+    if (applied <= .005) return;
+    final paid = _doubleFrom(bill['paidAmount'], 0) + applied;
+    billObligations[index] = {
+      ...bill,
+      'paidAmount': paid,
+      'reservedFromEssentialFund': 0.0,
+      'reservedFromWallet': 0.0,
+      'reservedFromSavings': 0.0,
+      'reservedAmount': 0.0,
+      'reservationStatus': 'paid',
+      'status': paid + .005 >= _doubleFrom(bill['expectedAmount'], 0)
+          ? 'paid'
+          : 'partial',
+      'updatedAt': AppClock.now().toIso8601String(),
+    };
+    d1Ledger.insert(0, {
+      'type': 'bill_reservation_paid',
+      'date': AppClock.now().toIso8601String(),
+      'billId': billId,
+      'billName': basicNeedsBillDisplayName(bill),
+      'amount': applied,
+      'planOnly': true,
+    });
+    await saveProfile();
+    notifyListeners();
   }
 
   bool hasEssentialAllocationForIncome(String transactionId) =>

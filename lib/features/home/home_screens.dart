@@ -19868,7 +19868,15 @@ class _BillObligationsPanel extends StatelessWidget {
     final state = AppScope.of(context);
     final openBills = state.openBasicNeedsBillObligations;
     final paidBills = state.paidBasicNeedsBillsThisMonth;
-    final totalNeed = state.openBasicNeedsBillNeed;
+    final totalNeed = openBills.fold<double>(
+      0,
+      (total, bill) => total + state.billAmountStillNeedingReservation(bill),
+    );
+    final reserved = state.reservedBasicNeedsBillsThisMonth.fold<double>(
+      0,
+      (total, bill) => total + state.billReservedAmount(bill),
+    );
+    final overbooked = state.totalBillReservationOverbooking;
     final scheduledCount = _scheduledBasicNeedsBills(state).length;
     return AppCard(
       child: Column(
@@ -19904,12 +19912,14 @@ class _BillObligationsPanel extends StatelessWidget {
                     ),
                     Text(
                       totalNeed > 0
-                          ? '${money(totalNeed)} still needs to be covered'
-                          : paidBills.isNotEmpty
-                              ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} covered this month'
-                              : scheduledCount > 0
-                                  ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
-                                  : 'Add a scheduled Basic Needs bill first',
+                          ? '${money(totalNeed)} still needs a funding reservation'
+                          : reserved > 0
+                              ? '${money(reserved)} reserved for upcoming bills'
+                              : paidBills.isNotEmpty
+                                  ? '${paidBills.length} bill${paidBills.length == 1 ? '' : 's'} covered this month'
+                                  : scheduledCount > 0
+                                      ? '$scheduledCount scheduled bill${scheduledCount == 1 ? '' : 's'} ready to check'
+                                      : 'Add a scheduled Basic Needs bill first',
                       style: const TextStyle(
                         color: _body,
                         fontSize: 11,
@@ -19933,6 +19943,27 @@ class _BillObligationsPanel extends StatelessWidget {
               if (bill != openBills.take(3).last)
                 const Divider(height: 14, color: _border),
             ],
+          ],
+          if (overbooked > .005) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: _amber.withValues(alpha: .09),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _amber.withValues(alpha: .22)),
+              ),
+              child: Text(
+                '${money(overbooked)} of bill reservations overlap available account balances. Review your bill plans before relying on all of them.',
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 11,
+                  height: 1.35,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
           ],
           if (paidBills.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -19966,9 +19997,16 @@ class _BillObligationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final expected = _doubleValue(bill['expectedAmount'], 0);
     final paid = _doubleValue(bill['paidAmount'], 0);
+    final reserved = _doubleValue(bill['reservedAmount'], 0);
     final remaining = math.max(0.0, expected - paid);
+    final unreserved = math.max(0.0, remaining - reserved);
     final isPaid = remaining <= 0;
-    final badgeColor = isPaid ? _sage : _red;
+    final isFullyReserved = !isPaid && unreserved <= .005;
+    final badgeColor = isPaid
+        ? _sage
+        : isFullyReserved
+            ? _purple
+            : _red;
     final dueDate = DateTime.tryParse(bill['dueDate']?.toString() ?? '');
     return Row(
       children: [
@@ -19988,8 +20026,8 @@ class _BillObligationRow extends StatelessWidget {
               ),
               Text(
                 dueDate == null
-                    ? 'Covered ${money(paid)} of ${money(expected)}'
-                    : '${_shortDate(dueDate)} · Covered ${money(paid)} of ${money(expected)}',
+                    ? '${money(reserved)} reserved · ${money(paid)} paid of ${money(expected)}'
+                    : '${_shortDate(dueDate)} · ${money(reserved)} reserved · ${money(paid)} paid',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -20010,7 +20048,11 @@ class _BillObligationRow extends StatelessWidget {
             border: Border.all(color: badgeColor.withValues(alpha: .18)),
           ),
           child: Text(
-            isPaid ? 'Covered' : money(remaining),
+            isPaid
+                ? 'Paid'
+                : isFullyReserved
+                    ? 'Reserved'
+                    : money(unreserved),
             style: TextStyle(
               color: badgeColor,
               fontSize: 11,
@@ -20036,6 +20078,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
     String name,
     double amount,
     double paid,
+    double reservedEssential,
+    double reservedWallet,
+    double reservedSavings,
     DateTime? dueDate
   })>[
     for (final (index, bill) in openBills.indexed)
@@ -20048,6 +20093,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
         name: basicNeedsBillDisplayName(bill),
         amount: _doubleValue(bill['expectedAmount'], 0),
         paid: _doubleValue(bill['paidAmount'], 0),
+        reservedEssential: _doubleValue(bill['reservedFromEssentialFund'], 0),
+        reservedWallet: _doubleValue(bill['reservedFromWallet'], 0),
+        reservedSavings: _doubleValue(bill['reservedFromSavings'], 0),
         dueDate: DateTime.tryParse(bill['dueDate']?.toString() ?? ''),
       ),
   ];
@@ -20071,6 +20119,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
       name: basicNeedsBillDisplayName(expense),
       amount: _doubleValue(expense['amount'], 0),
       paid: 0.0,
+      reservedEssential: 0.0,
+      reservedWallet: 0.0,
+      reservedSavings: 0.0,
       dueDate: dueDate,
     ));
   }
@@ -20085,6 +20136,9 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
           name: '',
           amount: 0.0,
           paid: 0.0,
+          reservedEssential: 0.0,
+          reservedWallet: 0.0,
+          reservedSavings: 0.0,
           dueDate: null,
         );
   var selected = initial;
@@ -20127,7 +20181,21 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
     savingsController.text = split.savings.toStringAsFixed(0);
   }
 
-  applyRecommendation();
+  void restoreExistingReservationOrRecommendation() {
+    sourcesEdited = false;
+    final existingTotal = selected.reservedEssential +
+        selected.reservedWallet +
+        selected.reservedSavings;
+    if (existingTotal > .005) {
+      essentialController.text = selected.reservedEssential.toStringAsFixed(0);
+      walletController.text = selected.reservedWallet.toStringAsFixed(0);
+      savingsController.text = selected.reservedSavings.toStringAsFixed(0);
+    } else {
+      applyRecommendation();
+    }
+  }
+
+  restoreExistingReservationOrRecommendation();
 
   await showModalBottomSheet<void>(
     context: context,
@@ -20161,6 +20229,14 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
             final planned = split.essential + split.wallet + split.savings;
             final unpaid = math.max(0.0, dueNow - planned);
             final wasCapped = essential + wallet + savings > planned + 0.005;
+            final overlap = state.billReservationOverlapFor(
+              excludingBillId: selected.obligationId,
+              essential: split.essential,
+              wallet: split.wallet,
+              savings: split.savings,
+            );
+            final overlapTotal =
+                overlap.essential + overlap.wallet + overlap.savings;
             return SafeArea(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
@@ -20185,7 +20261,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                       const SizedBox(height: 4),
                       Text(
                         hasBillCandidates
-                            ? 'Choose a scheduled basic-needs bill, then adjust where the money will come from.'
+                            ? 'Choose a scheduled basic-needs bill, then decide which funds to reserve. Reserving never pays or transfers money.'
                             : 'Only Basic Needs expenses with a scheduled date can be checked as bills.',
                         style: const TextStyle(
                           color: _body,
@@ -20243,7 +20319,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                               amountController.text =
                                   next.amount.toStringAsFixed(0);
                               dueDate = next.dueDate ?? AppClock.now();
-                              applyRecommendation();
+                              restoreExistingReservationOrRecommendation();
                             });
                           },
                         ),
@@ -20258,7 +20334,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           labelText: 'Amount',
                           prefixText: '₱ ',
                           helperText: selected.paid > 0
-                              ? '${money(selected.paid)} already covered'
+                              ? '${money(selected.paid)} already paid'
                               : null,
                         ),
                         onChanged: (_) => setSheetState(() {
@@ -20273,21 +20349,24 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           _BillSourceField(
                             controller: essentialController,
                             label: 'Essential fund',
-                            helper: money(state.essentialExpensesBalance),
+                            helper:
+                                '${money(state.availableEssentialFundForBillReservation(excludingBillId: selected.obligationId))} available',
                             onChanged: () =>
                                 setSheetState(() => sourcesEdited = true),
                           ),
                           _BillSourceField(
                             controller: walletController,
                             label: 'Wallet',
-                            helper: money(state.accountBalance('Wallet')),
+                            helper:
+                                '${money(state.availableWalletForBillReservation(excludingBillId: selected.obligationId))} available',
                             onChanged: () =>
                                 setSheetState(() => sourcesEdited = true),
                           ),
                           _BillSourceField(
                             controller: savingsController,
                             label: 'Savings',
-                            helper: money(state.safetyShieldBalance),
+                            helper:
+                                '${money(state.availableSavingsForBillReservation(excludingBillId: selected.obligationId))} available',
                             onChanged: () =>
                                 setSheetState(() => sourcesEdited = true),
                           ),
@@ -20309,7 +20388,7 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           ),
                         ),
                         child: Text(
-                          '${unpaid > 0 ? '${money(planned)} is covered. ${money(unpaid)} still needs to be covered.' : '${money(planned)} covers this bill. Pay it from your account and label it when it\'s due.'}'
+                          '${unpaid > 0 ? '${money(planned)} will be reserved. ${money(unpaid)} still needs a source.' : '${money(planned)} will be reserved for this bill. Pay it from your account and label it when it\'s due.'}'
                           '${wasCapped ? ' Amounts above what each source has or what the bill needs won\'t be used.' : ''}',
                           style: TextStyle(
                             color: unpaid > 0 ? _red : _sage,
@@ -20318,6 +20397,31 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           ),
                         ),
                       ),
+                      if (overlapTotal > .005) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _amber.withValues(alpha: .09),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: _amber.withValues(alpha: .24)),
+                          ),
+                          child: Text(
+                            'Plan warning: ${money(overlapTotal)} overlaps money already reserved for other bills. You can still save this plan, but those bills rely on the same funds.'
+                            '${overlap.wallet > .005 ? ' Wallet overlap: ${money(overlap.wallet)}.' : ''}'
+                            '${overlap.essential > .005 ? ' Essential Fund overlap: ${money(overlap.essential)}.' : ''}'
+                            '${overlap.savings > .005 ? ' Savings overlap: ${money(overlap.savings)}.' : ''}',
+                            style: const TextStyle(
+                              color: _body,
+                              fontSize: 12,
+                              height: 1.35,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       // Two rows: three buttons don't fit one line on a phone.
                       Align(
@@ -20327,6 +20431,58 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                           child: const Text('Use recommendation'),
                         ),
                       ),
+                      if (selected.obligationId != null &&
+                          selected.reservedEssential +
+                                  selected.reservedWallet +
+                                  selected.reservedSavings >
+                              .005)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.lock_open_rounded, size: 17),
+                            label: const Text('Release current reservation'),
+                            onPressed: () async {
+                              final release =
+                                  await _confirmBillReservationRelease(
+                                context: context,
+                                billName: selected.name,
+                              );
+                              if (!release || !sheetContext.mounted) return;
+                              await state.releaseBasicNeedsBillReservation(
+                                selected.obligationId!,
+                              );
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                            },
+                          ),
+                        ),
+                      if (selected.obligationId != null &&
+                          selected.reservedEssential +
+                                  selected.reservedWallet +
+                                  selected.reservedSavings >=
+                              math.max(0.0, amount - selected.paid) - .005)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.receipt_long_rounded,
+                                size: 17),
+                            label: const Text('Mark reserved amount paid'),
+                            onPressed: () async {
+                              final paid = await _confirmBillReservationPaid(
+                                context: context,
+                                billName: selected.name,
+                              );
+                              if (!paid || !sheetContext.mounted) return;
+                              await state.markBasicNeedsBillReservationPaid(
+                                selected.obligationId!,
+                              );
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                            },
+                          ),
+                        ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -20341,6 +20497,21 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                 : () async {
                                     final messenger =
                                         ScaffoldMessenger.of(context);
+                                    final confirmed =
+                                        await _confirmBillReservation(
+                                      context: context,
+                                      billName: selected.name,
+                                      dueDate: dueDate,
+                                      essential: split.essential,
+                                      wallet: split.wallet,
+                                      savings: split.savings,
+                                      amount: planned,
+                                      unpaid: unpaid,
+                                      overlap: overlapTotal,
+                                    );
+                                    if (!confirmed || !sheetContext.mounted) {
+                                      return;
+                                    }
                                     final plan =
                                         await state.recordBasicNeedsBillPlan(
                                       obligationId: selected.obligationId,
@@ -20357,16 +20528,18 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
                                       Navigator.pop(sheetContext);
                                     }
                                     if (plan == null) return;
-                                    final left = _billRemaining(plan);
+                                    final left =
+                                        state.billAmountStillNeedingReservation(
+                                            plan);
                                     final billName =
                                         basicNeedsBillDisplayName(plan);
                                     messenger.showSnackBar(SnackBar(
                                       content: Text(left <= 0
-                                          ? '$billName covered'
-                                          : '${money(_doubleValue(plan['paidAmount'], 0))} covered for $billName · ${money(left)} still to cover'),
+                                          ? '$billName reservation confirmed'
+                                          : '${money(state.billReservedAmount(plan))} reserved for $billName · ${money(left)} still needs a source'),
                                     ));
                                   },
-                            child: const Text('Record plan'),
+                            child: const Text('Review reservation'),
                           ),
                         ],
                       ),
@@ -20380,6 +20553,135 @@ Future<void> _showBillPlanSheet(BuildContext context) async {
       }),
     ),
   );
+}
+
+Future<bool> _confirmBillReservation({
+  required BuildContext context,
+  required String billName,
+  required DateTime dueDate,
+  required double essential,
+  required double wallet,
+  required double savings,
+  required double amount,
+  required double unpaid,
+  required double overlap,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: _surface,
+      title: const Text(
+        'Reserve funds for bill?',
+        style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$billName · due ${_shortDate(dueDate)}',
+            style: const TextStyle(color: _body, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          _TransactionDetailLine(
+              label: 'Essential Fund', value: money(essential)),
+          _TransactionDetailLine(
+              label: 'FakeMaya Wallet', value: money(wallet)),
+          _TransactionDetailLine(label: 'Savings', value: money(savings)),
+          const Divider(height: 20),
+          _TransactionDetailLine(label: 'Total reserved', value: money(amount)),
+          if (unpaid > .005)
+            _TransactionDetailLine(
+              label: 'Still without a source',
+              value: money(unpaid),
+            ),
+          if (overlap > .005)
+            _TransactionDetailLine(
+              label: 'Overlap with other bill plans',
+              value: money(overlap),
+            ),
+          const SizedBox(height: 10),
+          const Text(
+            'This does not pay, transfer, or lock money. It records your plan and highlights any overlaps so you can decide whether it remains realistic.',
+            style: TextStyle(color: _body, fontSize: 12, height: 1.35),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Reserve funds'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+Future<bool> _confirmBillReservationRelease({
+  required BuildContext context,
+  required String billName,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: _surface,
+      title: const Text(
+        'Release reservation?',
+        style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+      ),
+      content: Text(
+        'Release the funds reserved for $billName? No money is moved; the amount simply becomes available to other plans and goals again.',
+        style: const TextStyle(color: _body, height: 1.35),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Keep reservation'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Release funds'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+Future<bool> _confirmBillReservationPaid({
+  required BuildContext context,
+  required String billName,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: _surface,
+      title: const Text(
+        'Mark bill as paid?',
+        style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+      ),
+      content: Text(
+        'Only continue after the real payment for $billName has gone through and is visible in your account. Shellby will mark this reservation as paid and release the hold; it will not transfer or deduct money again.',
+        style: const TextStyle(color: _body, height: 1.35),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Not yet'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Mark paid'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
 }
 
 double _moneyFieldValue(TextEditingController controller) {
