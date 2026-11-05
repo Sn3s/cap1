@@ -289,7 +289,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final state = AppScope.of(context);
       await action(state);
       if (!mounted) return;
-      _pushReplacement(context, const MainShell());
+      // Home starts a new session history: iOS back gestures must not
+      // reveal any login, welcome, or account-creation routes underneath it.
+      _pushAndRemoveAll(context, const MainShell());
     } catch (error) {
       if (!mounted) return;
       _showAuthError(context, error);
