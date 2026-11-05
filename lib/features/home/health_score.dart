@@ -12,11 +12,9 @@ const _healthWindow = Duration(days: 30);
 const _healthIncomeGrace = Duration(days: 3);
 
 /// Difficulty weights, by internal action ID.
-const _healthActionWeights = <String, int>{
-  'A1': 15, 'A3': 15, 'A20': 20, 'A19': 10, // G1
-  'A9': 15, 'A8': 15, 'A22': 20, 'A10': 20, // G2
-  'A12': 15, 'A23': 20, 'A30': 10, // G3
-  'A26': 10, 'A27': 10, 'A28': 15, 'A29': 10, // G4
+final _healthActionWeights = <String, int>{
+  for (final entry in _actionMetricRegistry.entries)
+    if (entry.value.healthWeight case final weight?) entry.key: weight,
 };
 
 /// One active action's contribution.
@@ -289,6 +287,25 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
         return (
           completion: (balance / floor).clamp(0.0, 1.0),
           detail: '${money(balance)} in the fund vs a ${money(floor)} floor'
+        );
+
+      case 'A21':
+        final essentials = state.monthlyEssentialExpenseTotal;
+        final targetDays = double.tryParse(
+              state.actionFieldValues['A21']?['days'] ?? '',
+            ) ??
+            _recommendedEverydayCoverageDays(state);
+        if (essentials <= 0 || targetDays <= 0) {
+          return (
+            completion: null,
+            detail: 'Add monthly essential expenses to calculate coverage'
+          );
+        }
+        final daysCovered = _everydayFundAvailable(state) / (essentials / 30);
+        return (
+          completion: (daysCovered / targetDays).clamp(0.0, 1.0),
+          detail: '${daysCovered.toStringAsFixed(1)} of '
+              '${targetDays.toStringAsFixed(0)} days of essentials covered'
         );
 
       case 'A9':

@@ -39,22 +39,21 @@ void main() {
   final transfers = <String, Future<void> Function(AppState)>{
     'A1': (s) => s.depositPendingIncomeToEssentialFund(
         incomes: [income('a1', 10000)], percentage: 50),
-    'A5': (s) => s.depositMonthlyEmergencyFund(5000),
-    'A6': (s) => s.depositIncomeToEmergencyFund(
-        transactionId: 'a6',
+    'A6': (s) => s.depositMonthlyEmergencyFund(5000),
+    'A7': (s) => s.depositIncomeToEmergencyFund(
+        transactionId: 'a7',
         incomeAmount: 10000,
         incomeDate: now,
         percentage: 50),
-    'A8': (s) => s.replenishD1EmergencyFund(5000),
-    'A9': (s) => s.depositIncomeToInvestment(
-        transactionId: 'a9',
+    'A10': (s) => s.depositIncomeToInvestment(
+        transactionId: 'a10',
         incomeAmount: 10000,
         incomeDate: now,
         percentage: 50),
-    'A10': (s) => s.depositMonthlyInvestment(5000),
-    'A12': (s) => s.depositLifestyleSubscriptionReserve(5000),
-    'A13': (s) => s.depositLifestylePayday(
-        transactionId: 'a13', incomeAmount: 50000, incomeDate: now),
+    'A13': (s) => s.depositMonthlyInvestment(5000),
+    'A15': (s) => s.depositLifestyleSubscriptionReserve(5000),
+    'A16': (s) => s.depositLifestylePayday(
+        transactionId: 'a16', incomeAmount: 50000, incomeDate: now),
   };
 
   for (final entry in transfers.entries) {
@@ -79,8 +78,10 @@ void main() {
     });
   }
 
-  test('A8 Replenish refills the Emergency Fund bucket, not Savings', () async {
+  test('A9 Replenish refills the Emergency Fund bucket, not Savings', () async {
     final state = linked(wallet: 10000);
+    // Replenishment is only due after an actual Emergency Fund withdrawal.
+    await state.useD1BucketFunds('emergency', 3000);
     final summary = state.fakeMayaLink!.summary;
     final savingsBefore = summary.savings;
     final bucketBefore = summary
@@ -91,7 +92,7 @@ void main() {
     await state.replenishD1EmergencyFund(3000);
 
     final after = state.fakeMayaLink!.summary;
-    expect(after.wallet, 7000);
+    expect(after.wallet, summary.wallet - 3000);
     expect(after.savings, savingsBefore);
     expect(
         after.personalGoalById(FakeMayaPersonalGoal.emergencyFundId)!.balance,
@@ -99,7 +100,7 @@ void main() {
   });
 
   testWidgets(
-      'A5 card blocks the deposit and says why when the Wallet is empty',
+      'A6 card blocks the deposit and says why when the Wallet is empty',
       (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;

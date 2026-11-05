@@ -5976,6 +5976,20 @@ double _averageWeeklyResiliency(List<double> pattern) {
       pattern.length;
 }
 
+/// A21's available everyday money. [unallocatedFakeMayaWallet] already
+/// subtracts a locally tracked Essential Expenses Fund, so adding the fund
+/// here counts it exactly once for both linked and manual accounts.
+double _everydayFundAvailable(AppState state) =>
+    state.essentialExpensesBalance +
+    state.unallocatedFakeMayaWallet +
+    state.cashOnHandBalance;
+
+double _everydayFundBillReservations(AppState state) =>
+    state.reservedEssentialFundForBills() + state.reservedWalletForBills();
+
+double _recommendedEverydayCoverageDays(AppState state) =>
+    state.usesEventBasedIncomeHandling ? 14 : 7;
+
 List<String> _weekLabels(List<WeekRecord> weeks) {
   return [
     for (final week in weeks)
@@ -6131,14 +6145,15 @@ List<_CashActionScore> _availableCashActionScores({
       configured.isEmpty ? _availableCashGoalActionIds : configured;
   return [
     for (final id in actionIds)
-      _cashActionScoreFor(
-        id: id,
-        state: state,
-        monthStart: monthStart,
-        weeks: weeks,
-        transactions: transactions,
-        income: income,
-      ),
+      if (_hasCalculatedMetric(id))
+        _cashActionScoreFor(
+          id: id,
+          state: state,
+          monthStart: monthStart,
+          weeks: weeks,
+          transactions: transactions,
+          income: income,
+        ),
   ].whereType<_CashActionScore>().toList();
 }
 
@@ -6156,14 +6171,15 @@ List<_CashActionScore> _emergencyFundActionScores({
       configured.isEmpty ? _emergencyFundGoalActionIds : configured;
   return [
     for (final id in actionIds)
-      _cashActionScoreFor(
-        id: id,
-        state: state,
-        monthStart: monthStart,
-        weeks: weeks,
-        transactions: transactions,
-        income: income,
-      ),
+      if (_hasCalculatedMetric(id))
+        _cashActionScoreFor(
+          id: id,
+          state: state,
+          monthStart: monthStart,
+          weeks: weeks,
+          transactions: transactions,
+          income: income,
+        ),
   ].whereType<_CashActionScore>().toList();
 }
 
@@ -6461,6 +6477,62 @@ _CashActionScore? _cashActionScoreFor({
       ],
     );
   }
+  if (id == 'A21') {
+    final targetDays = configuredNumber(
+      'days',
+      _recommendedEverydayCoverageDays(state),
+    );
+    final monthlyEssentials = state.monthlyEssentialExpenseTotal;
+    if (monthlyEssentials <= 0 || targetDays <= 0) {
+      return _CashActionScore(
+        id: id,
+        title: 'Keep Everyday Fund days covered',
+        score: 0,
+        detail:
+            'Add a monthly essential-expense estimate to calculate days covered.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: 'Not enough data',
+        targetLabel: '${targetDays.toStringAsFixed(0)} days',
+        formula:
+            'Days covered = available everyday money ÷ (monthly essential expenses ÷ 30).',
+        evidence: const ['Monthly essential expenses have not been set.'],
+        applicableMeasures: const ['Resiliency'],
+        resiliencyLabel: 'Progress',
+        showPeriodBreakdown: false,
+        emptyReason:
+            'Add monthly essential expenses before Shellby can calculate coverage.',
+      );
+    }
+    final available = _everydayFundAvailable(state);
+    final dailyEssential = monthlyEssentials / 30;
+    final coveredDays = dailyEssential <= 0 ? 0.0 : available / dailyEssential;
+    final ratio = (coveredDays / targetDays).clamp(0.0, 1.0);
+    final reservations = _everydayFundBillReservations(state);
+    return _CashActionScore(
+      id: id,
+      title: 'Keep Everyday Fund days covered',
+      score: ratio,
+      detail:
+          '${coveredDays.toStringAsFixed(1)} days covered toward a ${targetDays.toStringAsFixed(0)}-day target.',
+      pattern: [ratio],
+      weekLabels: const ['Current'],
+      actualLabel: '${coveredDays.toStringAsFixed(1)} days',
+      targetLabel: '${targetDays.toStringAsFixed(0)} days',
+      formula:
+          'Progress = days covered ÷ target days, capped at 100%. Days covered = Essential Expenses Fund + unallocated Wallet + cash on hand, divided by monthly essential expenses ÷ 30.',
+      evidence: [
+        'Everyday money available: ${money(available)}',
+        'Monthly essential expenses: ${money(monthlyEssentials)}',
+        'Daily essential expenses: ${money(dailyEssential)}',
+        if (reservations > 0)
+          '${money(reservations)} is reserved in bill plans; it is shown as a warning and is not deducted from this physical-cash score.',
+      ],
+      applicableMeasures: const ['Resiliency'],
+      resiliencyLabel: 'Progress',
+      showPeriodBreakdown: false,
+    );
+  }
   if (id == 'A8') {
     final recommended = action == null
         ? 10.0
@@ -6648,11 +6720,12 @@ List<_CashActionScore> _investmentActionScores({
   final actionIds = configured.isEmpty ? _investmentGoalActionIds : configured;
   return [
     for (final id in actionIds)
-      _investmentActionScoreFor(
-        id: id,
-        state: state,
-        monthStart: monthStart,
-      ),
+      if (_hasCalculatedMetric(id))
+        _investmentActionScoreFor(
+          id: id,
+          state: state,
+          monthStart: monthStart,
+        ),
   ].whereType<_CashActionScore>().toList();
 }
 
@@ -6748,6 +6821,209 @@ _CashActionScore? _investmentActionScoreFor({
       period: 'income',
       periodPlural: 'incomes',
       consistencyCaption: 'incomes invested from',
+    );
+  }
+  if (id == 'A13') {
+    final pct = configuredNumber('pct', 35);
+    final selected = monthStart ?? _monthStart(AppClock.now());
+    final windfalls = <String, ({double amount, DateTime date})>{};
+    final decisions = <String, Map<String, dynamic>>{};
+    for (final transaction in state.allTransactions) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      if (transaction.amount <= 0 ||
+          date == null ||
+          !_sameMonth(date, selected) ||
+          !transaction.isUnexpectedIncome ||
+          transaction.isInternalFakeMayaTransfer) {
+        continue;
+      }
+      windfalls[transaction.transactionId] =
+          (amount: transaction.amount, date: date);
+    }
+    for (final entry in state.d1Ledger) {
+      final type = entry['type']?.toString();
+      if (type != 'investment_windfall' &&
+          type != 'investment_windfall_skipped') {
+        continue;
+      }
+      final sourceDate = DateTime.tryParse(entry['sourceDate']?.toString() ??
+              entry['date']?.toString() ??
+              '') ??
+          DateTime(1970);
+      final sourceId = entry['sourceTransactionId']?.toString() ??
+          'historic-${entry['date']}-${entry['cashInAmount']}';
+      if (!_sameMonth(sourceDate, selected)) {
+        continue;
+      }
+      // Retain historic decisions made before the income-pattern field was
+      // introduced, while new records must originate from an explicit tag.
+      windfalls.putIfAbsent(
+        sourceId,
+        () => (
+          amount: _doubleValue(entry['cashInAmount'], 0),
+          date: sourceDate,
+        ),
+      );
+      decisions[sourceId] = entry;
+    }
+    const formula = 'For each receipt labelled Unexpected income: '
+        'amount invested ÷ your configured share of that cash-in, capped at '
+        '100%. Shellby never guesses this label. A receipt kept outside '
+        'investment counts as 0%; no unexpected receipts is N/A.';
+    if (windfalls.isEmpty) {
+      return _CashActionScore(
+        id: id,
+        title: 'Invest a share of identified windfalls',
+        score: 0,
+        detail:
+            'No receipts are labelled Unexpected income in ${_monthLabel(selected)}.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: 'No unexpected income',
+        targetLabel: '${pct.toStringAsFixed(0)}% of each windfall',
+        formula: formula,
+        evidence: const [
+          'Shellby only scores receipts explicitly labelled Unexpected income.'
+        ],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'windfall',
+        periodPlural: 'windfalls',
+        consistencyCaption: 'windfalls invested from',
+        emptyReason:
+            'Label an income receipt as Unexpected income to measure this action.',
+      );
+    }
+    final pattern = <double>[];
+    final labels = <String>[];
+    var invested = 0.0;
+    var expected = 0.0;
+    final ordered = windfalls.entries.toList()
+      ..sort((a, b) => a.value.date.compareTo(b.value.date));
+    for (final event in ordered) {
+      final entry = decisions[event.key];
+      final cashIn = event.value.amount;
+      final target = cashIn * pct / 100;
+      final amount = entry?['type'] == 'investment_windfall'
+          ? _doubleValue(entry?['amount'], 0)
+          : 0.0;
+      invested += amount;
+      expected += target;
+      pattern.add(target <= 0 ? 0.0 : (amount / target).clamp(0.0, 1.0));
+      labels.add(_shortDate(event.value.date));
+    }
+    return _CashActionScore(
+      id: id,
+      title: 'Invest a share of identified windfalls',
+      score: _averageWeeklyResiliency(pattern),
+      detail:
+          '${money(invested)} invested toward ${money(expected)} from ${ordered.length} unexpected receipt${ordered.length == 1 ? '' : 's'}.',
+      pattern: pattern,
+      weekLabels: labels,
+      actualLabel: money(invested),
+      targetLabel: money(expected),
+      formula: formula,
+      evidence: [
+        'Configured share: ${pct.toStringAsFixed(0)}%',
+        'Unexpected income receipts: ${ordered.length}',
+        'Investment from unexpected income: ${money(invested)}',
+      ],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'windfall',
+      periodPlural: 'windfalls',
+      consistencyCaption: 'windfalls invested from',
+    );
+  }
+  if (id == 'A14') {
+    final pct = configuredNumber('pct', 50);
+    final selected = monthStart ?? _monthStart(AppClock.now());
+    final nowMonth = _monthStart(AppClock.now());
+    final isCurrentMonth = _sameMonth(selected, nowMonth);
+    final sweep = state.d1Ledger.where((entry) {
+      if (entry['type'] != 'investment_sweep') return false;
+      final key = entry['monthKey']?.toString();
+      if (key ==
+          '${selected.year}-${selected.month.toString().padLeft(2, '0')}') {
+        return true;
+      }
+      final date = DateTime.tryParse(entry['date']?.toString() ?? '');
+      return date != null && _sameMonth(date, selected);
+    }).firstOrNull;
+    // A monthly sweep is not due until the month is finished. If someone
+    // makes it early, its saved surplus snapshot lets us measure it now.
+    if (sweep == null && isCurrentMonth) {
+      return _CashActionScore(
+        id: id,
+        title: 'Sweep unspent monthly funds into investments',
+        score: 0,
+        detail: 'This month is still open; review the sweep at month end.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: 'Not due yet',
+        targetLabel: '${pct.toStringAsFixed(0)}% of unspent funds',
+        formula:
+            'At month end: sweep amount ÷ (positive unspent monthly funds × configured percentage), capped at 100%. Months with no positive unspent funds are not scored.',
+        evidence: const [
+          'The current month has not ended and no sweep is recorded.'
+        ],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'month',
+        periodPlural: 'months',
+        consistencyCaption: 'months swept',
+        emptyReason: 'This action is due at month end.',
+      );
+    }
+    final unspent = sweep == null
+        ? _unspentFundsForMonth(state, selected)
+        : _doubleValue(sweep['unspentAmount'], 0);
+    if (unspent <= 0) {
+      return _CashActionScore(
+        id: id,
+        title: 'Sweep unspent monthly funds into investments',
+        score: 0,
+        detail:
+            'There were no positive unspent funds to sweep in ${_monthLabel(selected)}.',
+        pattern: const [],
+        weekLabels: const [],
+        actualLabel: money(0),
+        targetLabel: '${pct.toStringAsFixed(0)}% of unspent funds',
+        formula:
+            'At month end: sweep amount ÷ (positive unspent monthly funds × configured percentage), capped at 100%. Months with no positive unspent funds are not scored.',
+        evidence: const [
+          'No positive unspent funds were available for a sweep.'
+        ],
+        applicableMeasures: const ['Consistency', 'Adherence'],
+        period: 'month',
+        periodPlural: 'months',
+        consistencyCaption: 'months swept',
+        emptyReason: 'No positive unspent funds were available this month.',
+      );
+    }
+    final expected = unspent * pct / 100;
+    final actual = sweep == null ? 0.0 : _doubleValue(sweep['amount'], 0);
+    final ratio = expected <= 0 ? 0.0 : (actual / expected).clamp(0.0, 1.0);
+    return _CashActionScore(
+      id: id,
+      title: 'Sweep unspent monthly funds into investments',
+      score: ratio,
+      detail:
+          '${money(actual)} swept toward ${money(expected)} from ${money(unspent)} unspent funds.',
+      pattern: [ratio],
+      weekLabels: [_monthLabel(selected)],
+      actualLabel: money(actual),
+      targetLabel: money(expected),
+      formula:
+          'At month end: sweep amount ÷ (positive unspent monthly funds × configured percentage), capped at 100%. Months with no positive unspent funds are not scored.',
+      evidence: [
+        'Unspent funds at sweep: ${money(unspent)}',
+        'Configured sweep: ${pct.toStringAsFixed(0)}%',
+        'Sweep recorded: ${money(actual)}',
+      ],
+      applicableMeasures: const ['Consistency', 'Adherence'],
+      period: 'month',
+      periodPlural: 'months',
+      consistencyChecks: [actual > 0],
+      consistencyCaption: 'months swept',
+      emptyReason: 'No positive unspent funds were available this month.',
     );
   }
   if (id == 'A23') {
@@ -6926,6 +7202,29 @@ double _investmentLedgerForMonth(
     return date != null && _sameMonth(date, month);
   }).fold(0.0,
       (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0));
+}
+
+/// The reproducible month-end basis for A14 when no saved sweep snapshot is
+/// available. Internal bucket transfers are excluded because they do not add
+/// or remove household cash.
+double _unspentFundsForMonth(AppState state, DateTime month) {
+  var cashIn = 0.0;
+  var cashOut = 0.0;
+  for (final transaction in state.allTransactions) {
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    if (date == null ||
+        !_sameMonth(date, month) ||
+        transaction.isInternalFakeMayaTransfer ||
+        transaction.excludedFromInsights) {
+      continue;
+    }
+    if (transaction.amount > 0) {
+      cashIn += transaction.amount;
+    } else if (transaction.amount < 0) {
+      cashOut += transaction.amount.abs();
+    }
+  }
+  return math.max(0.0, cashIn - cashOut);
 }
 
 /// Financial Freedom (G8)'s action scores, each measured on its own rhythm:
@@ -21071,6 +21370,62 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
     }
   }
 
+  // A13 only has a denominator after the user labels a receipt Unexpected
+  // income. Review the same monthly score used by Insights rather than
+  // inferring a windfall from a large deposit.
+  if (actions.contains('A13')) {
+    final scores = [
+      for (var offset = 0; offset < 3; offset++)
+        _investmentActionScoreFor(
+          id: 'A13',
+          state: state,
+          monthStart: DateTime(now.year, now.month - offset),
+        ),
+    ]
+        .whereType<_CashActionScore>()
+        .where((score) => score.pattern.isNotEmpty)
+        .toList();
+    if (scores.isEmpty) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text:
+            '${_actionNumber('A13')} · No receipts are labelled Unexpected income yet.',
+      ));
+    } else {
+      final rate = scores.fold<double>(0, (sum, score) => sum + score.score) /
+          scores.length;
+      incomeRate ??= rate;
+      lines.add((
+        icon: rate >= .8 ? Icons.check_circle_rounded : Icons.bolt_rounded,
+        color: rate >= .8 ? _sage : _amber,
+        text:
+            '${_actionNumber('A13')} · Invested the target share from ${(rate * 100).round()}% of unexpected-income receipts.',
+      ));
+    }
+  }
+
+  if (actions.contains('A14')) {
+    final hits = _monthlyActionHits(state, 'G5', 'A14');
+    if (hits.months == 0) {
+      lines.add((
+        icon: Icons.schedule_rounded,
+        color: _body,
+        text:
+            '${_actionNumber('A14')} · No completed month with positive unspent funds yet.',
+      ));
+    } else {
+      final rate = hits.hit / hits.months;
+      lines.add((
+        icon:
+            rate >= .8 ? Icons.check_circle_rounded : Icons.auto_graph_rounded,
+        color: rate >= .8 ? _sage : _amber,
+        text:
+            '${_actionNumber('A14')} · Swept the target share in ${hits.hit} of the last ${hits.months} eligible months.',
+      ));
+    }
+  }
+
   final started = incomeRate != null || monthlyPace > 0;
   final (label, color) = reached
       ? ('Target reached', _sage)
@@ -21360,6 +21715,7 @@ List<_CashActionScore> _monthlyActionScores(
             .where((tx) => tx.amount > 0 && !tx.isInternalFakeMayaTransfer)
             .fold(0.0, (sum, tx) => sum + tx.amount),
       ),
+    'G5' => _investmentActionScores(state: state, monthStart: month),
     'G8' => _lifestyleActionScores(state: state, monthStart: month),
     _ => const <_CashActionScore>[],
   };
@@ -21381,8 +21737,8 @@ List<_CashActionScore> _monthlyActionScores(
     final score = _monthlyActionScores(state, goalId, month, service: service)
         .where((s) => s.id == actionId)
         .firstOrNull;
-    final met =
-        score != null && score.pattern.isNotEmpty && score.score >= .999;
+    if (score == null || score.pattern.isEmpty) continue;
+    final met = score.score >= .999;
     if (offset == 0 && !met) continue;
     months++;
     if (met) hit++;
@@ -22200,6 +22556,9 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
     if (action.id == 'A19') {
       return _EverydayFundFloorActionPanel(color: color);
     }
+    if (action.id == 'A21') {
+      return _EverydayFundCoverageActionPanel(color: color);
+    }
     if (action.id == 'A8') {
       final pct = double.tryParse(
             (_configuredActionValues(AppScope.of(context), 'A8')['pct'] ?? '')
@@ -22237,6 +22596,28 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
       return _InvestmentIncomeActionPanel(
         color: color,
         percentage: pct.clamp(0, 100).toDouble(),
+      );
+    }
+    if (action.id == 'A13') {
+      final pct = double.tryParse(
+            (_configuredActionValues(AppScope.of(context), 'A13')['pct'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          35;
+      return _InvestmentWindfallActionPanel(
+        color: color,
+        percentage: pct.clamp(1, 100).toDouble(),
+      );
+    }
+    if (action.id == 'A14') {
+      final pct = double.tryParse(
+            (_configuredActionValues(AppScope.of(context), 'A14')['pct'] ?? '')
+                .replaceAll(',', ''),
+          ) ??
+          50;
+      return _InvestmentSweepActionPanel(
+        color: color,
+        percentage: pct.clamp(1, 100).toDouble(),
       );
     }
     if (action.id == 'A23') {
@@ -23074,6 +23455,324 @@ class _InvestmentIncomeActionPanelState
           ),
           if (walletBlock != null && income != null)
             _walletBlockText(walletBlock),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentWindfallActionPanel extends StatefulWidget {
+  const _InvestmentWindfallActionPanel({
+    required this.color,
+    required this.percentage,
+  });
+  final Color color;
+  final double percentage;
+
+  @override
+  State<_InvestmentWindfallActionPanel> createState() =>
+      _InvestmentWindfallActionPanelState();
+}
+
+class _InvestmentWindfallActionPanelState
+    extends State<_InvestmentWindfallActionPanel> {
+  bool busy = false;
+
+  List<FakeMayaTransaction> _unreviewedCashIns(AppState state) {
+    final since = AppClock.now().subtract(const Duration(days: 90));
+    final seen = <String>{};
+    return state.allTransactions.where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return transaction.amount > 0 &&
+          date != null &&
+          !date.isBefore(since) &&
+          transaction.isUnexpectedIncome &&
+          !transaction.isInternalFakeMayaTransfer &&
+          seen.add(transaction.transactionId) &&
+          !state.hasInvestmentWindfallDecision(transaction.transactionId);
+    }).toList()
+      ..sort((a, b) => (b.createdAt ?? b.labeledAt ?? DateTime(1970))
+          .compareTo(a.createdAt ?? a.labeledAt ?? DateTime(1970)));
+  }
+
+  Future<void> _review(AppState state, FakeMayaTransaction cashIn) async {
+    final date = cashIn.createdAt ?? cashIn.labeledAt;
+    if (date == null || busy) return;
+    final allocation = cashIn.amount * widget.percentage / 100;
+    final decision = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text('Handle unexpected income',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900)),
+        content: Text(
+          '${cashIn.title} · ${money(cashIn.amount)}\n\nThis receipt was labelled Unexpected income. Choose whether to invest ${widget.percentage.toStringAsFixed(0)}% now or keep it outside investments.',
+          style: const TextStyle(color: _body, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('skip'),
+            child: const Text('Keep outside investment'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop('invest'),
+            child: Text('Invest ${money(allocation)}'),
+          ),
+        ],
+      ),
+    );
+    if (decision == null || !mounted) return;
+    setState(() => busy = true);
+    if (decision == 'skip') {
+      await state.markWindfallNotInvested(
+        transactionId: cashIn.transactionId,
+        cashInAmount: cashIn.amount,
+        cashInDate: date,
+      );
+    } else {
+      await _runWalletTransfer(
+        context,
+        () => state.depositWindfallToInvestment(
+          transactionId: cashIn.transactionId,
+          cashInAmount: cashIn.amount,
+          cashInDate: date,
+          percentage: widget.percentage,
+        ),
+      );
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state) async {
+    final updated = await _showPercentTargetDialog(
+      context: context,
+      title: 'Set windfall investment share',
+      label: 'Share of each identified windfall',
+      initialPercent: widget.percentage,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A13'] = {'pct': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final candidates = _unreviewedCashIns(state);
+    final next = candidates.firstOrNull;
+    final allocation = (next?.amount ?? 0) * widget.percentage / 100;
+    final decisions = state.d1Ledger
+        .where((entry) =>
+            entry['type'] == 'investment_windfall' ||
+            entry['type'] == 'investment_windfall_skipped')
+        .length;
+    final walletBlock = _walletBlockReason(state, allocation);
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A13',
+            color: widget.color,
+            text:
+                'Invest ${widget.percentage.toStringAsFixed(0)}% of receipts labelled Unexpected income.',
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Label income as Regular, Irregular, or Unexpected when you review the transaction. Only Unexpected income appears here.',
+            style: TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          _ActionMetricTile(
+            icon: Icons.bolt_rounded,
+            label: 'Unexpected income ready to handle',
+            value: next == null ? 'None' : money(next.amount),
+            color: widget.color,
+          ),
+          if (next != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${next.title} · ${_shortDate(next.createdAt ?? next.labeledAt ?? AppClock.now())}',
+              style: const TextStyle(
+                  color: _body, fontSize: 10.5, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            _ActionMetricTile(
+              icon: Icons.show_chart_rounded,
+              label: 'Investment amount',
+              value: money(allocation),
+              color: _sage,
+            ),
+          ],
+          const SizedBox(height: 12),
+          PrimaryButton(
+            label: busy
+                ? 'Saving...'
+                : next == null
+                    ? 'No unexpected income to handle'
+                    : 'Handle unexpected income',
+            icon: Icons.fact_check_rounded,
+            enabled: !busy && next != null,
+            onPressed: () => _review(state, next!),
+          ),
+          if (next != null && walletBlock != null)
+            _walletBlockText(
+                '$walletBlock You can still choose “Keep outside investment.”'),
+          const SizedBox(height: 10),
+          Text(
+            '$decisions unexpected-income decision${decisions == 1 ? '' : 's'} recorded. Only receipts labelled Unexpected income are used in this action\'s score.',
+            style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => _editTarget(state),
+            icon: const Icon(Icons.tune_rounded, size: 17),
+            label: const Text('Edit windfall share'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InvestmentSweepActionPanel extends StatefulWidget {
+  const _InvestmentSweepActionPanel({
+    required this.color,
+    required this.percentage,
+  });
+  final Color color;
+  final double percentage;
+
+  @override
+  State<_InvestmentSweepActionPanel> createState() =>
+      _InvestmentSweepActionPanelState();
+}
+
+class _InvestmentSweepActionPanelState
+    extends State<_InvestmentSweepActionPanel> {
+  bool busy = false;
+
+  Future<void> _sweep(AppState state, double target) async {
+    if (busy || target <= 0) return;
+    final amount = await _showFundedTransferDialog(
+      context: context,
+      title: 'Sweep unspent funds',
+      notice:
+          'This moves money from your FakeMaya Wallet into your Investment Fund. The amount is based on the unspent cash currently recorded for this month.',
+      sourceLabel: 'FakeMaya Wallet available',
+      // A14 is a percentage action: users may choose a smaller sweep, but
+      // never more than this month's configured target.
+      available: math.min(state.unallocatedFakeMayaWallet, target),
+      suggested: math.min(target, state.unallocatedFakeMayaWallet),
+      emptyMessage: 'Deposit into FakeMaya to proceed',
+      helper: 'Your configured sweep is ${money(target)}.',
+      confirmLabel: 'Confirm sweep',
+      color: widget.color,
+    );
+    if (amount == null || amount <= 0 || !mounted) return;
+    setState(() => busy = true);
+    await _runWalletTransfer(
+      context,
+      () => state.sweepUnspentFundsToInvestment(
+        percentage: widget.percentage,
+        amount: amount,
+      ),
+    );
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> _editTarget(AppState state) async {
+    final updated = await _showPercentTargetDialog(
+      context: context,
+      title: 'Set month-end sweep share',
+      label: 'Share of positive unspent funds to invest',
+      initialPercent: widget.percentage,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A14'] = {'pct': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final unspent = math.max(0.0, state.monthlySurplus);
+    final target = unspent * widget.percentage / 100;
+    final completed = state.hasInvestmentSweepForCurrentMonth;
+    final walletAvailable = state.unallocatedFakeMayaWallet;
+    final canSweep = walletAvailable > 0;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A14',
+            color: widget.color,
+            text:
+                'Sweep ${widget.percentage.toStringAsFixed(0)}% of positive unspent monthly funds into the Investment Portfolio.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.savings_rounded,
+            label: 'Positive unspent funds this month',
+            value: money(unspent),
+            color: widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.auto_graph_rounded,
+            label: 'Configured sweep',
+            value: money(target),
+            color: _sage,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            completed
+                ? 'A sweep has already been recorded for this month.'
+                : 'This is a month-end action. Shellby records the unspent amount when you confirm the sweep.',
+            style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          PrimaryButton(
+            label: busy
+                ? 'Sweeping...'
+                : completed
+                    ? 'Sweep recorded this month'
+                    : 'Sweep ${money(target)}',
+            icon: Icons.auto_graph_rounded,
+            enabled: !busy && !completed && target > 0 && canSweep,
+            onPressed: () => _sweep(state, target),
+          ),
+          if (!completed && target > walletAvailable)
+            _walletBlockText(
+              '${money(walletAvailable)} is currently free in the Wallet, so you can make a smaller partial sweep. The score will show the share completed.',
+            ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => _editTarget(state),
+            icon: const Icon(Icons.tune_rounded, size: 17),
+            label: const Text('Edit sweep share'),
+          ),
         ],
       ),
     );
@@ -25583,6 +26282,127 @@ class _MonthlyCashInActionPanelState extends State<_MonthlyCashInActionPanel> {
   }
 }
 
+class _EverydayFundCoverageActionPanel extends StatefulWidget {
+  const _EverydayFundCoverageActionPanel({required this.color});
+  final Color color;
+
+  @override
+  State<_EverydayFundCoverageActionPanel> createState() =>
+      _EverydayFundCoverageActionPanelState();
+}
+
+class _EverydayFundCoverageActionPanelState
+    extends State<_EverydayFundCoverageActionPanel> {
+  Future<void> _editDays(AppState state, double current) async {
+    final updated = await _showDaysTargetDialog(
+      context: context,
+      title: 'Set Everyday Fund coverage target',
+      label: 'Days of essential expenses to cover',
+      initialDays: current,
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.actionFieldValues['A21'] = {'days': updated.toStringAsFixed(0)};
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final targetDays = double.tryParse(
+          (_configuredActionValues(state, 'A21')['days'] ?? '')
+              .replaceAll(',', ''),
+        ) ??
+        _recommendedEverydayCoverageDays(state);
+    final essentials = state.monthlyEssentialExpenseTotal;
+    final daily = essentials <= 0 ? 0.0 : essentials / 30;
+    final available = _everydayFundAvailable(state);
+    final covered = daily <= 0 ? 0.0 : available / daily;
+    final progress =
+        targetDays <= 0 ? 0.0 : (covered / targetDays).clamp(0.0, 1.0);
+    final shortfall = math.max(0.0, targetDays * daily - available);
+    final reservations = _everydayFundBillReservations(state);
+    final onTrack = progress >= 1;
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A21',
+            color: widget.color,
+            text:
+                'Keep enough everyday money to cover ${targetDays.toStringAsFixed(0)} days of essential expenses.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.timelapse_rounded,
+            label: 'Days of essentials covered',
+            value: essentials <= 0
+                ? 'Add essentials'
+                : '${covered.toStringAsFixed(1)} days',
+            color: essentials <= 0 ? _amber : (onTrack ? _sage : _amber),
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.account_balance_wallet_rounded,
+            label: 'Everyday money available',
+            value: money(available),
+            color: widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.calendar_today_rounded,
+            label: 'Daily essential expenses',
+            value: essentials <= 0 ? 'Add monthly essentials' : money(daily),
+            color: widget.color,
+          ),
+          const SizedBox(height: 14),
+          _LabeledProgressBar(
+            value: progress,
+            color: onTrack ? _sage : widget.color,
+            leadingLabel:
+                essentials <= 0 ? '—' : '${covered.toStringAsFixed(1)} days',
+            trailingLabel: '${targetDays.toStringAsFixed(0)} days',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            essentials <= 0
+                ? 'Add a monthly essential-expense estimate before Shellby can calculate coverage.'
+                : onTrack
+                    ? 'Your current physical everyday money covers the target.'
+                    : '${money(shortfall)} more would cover the remaining ${(targetDays - covered).clamp(0, targetDays).toStringAsFixed(1)} days.',
+            style: TextStyle(
+              color: essentials <= 0 || !onTrack ? _amber : _sage,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (reservations > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${money(reservations)} is reserved in bill plans. It is not deducted here because reservations are advisory; review it before spending.',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.35,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => _editDays(state, targetDays),
+            icon: const Icon(Icons.tune_rounded, size: 17),
+            label: const Text('Edit coverage target'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EverydayFundFloorActionPanel extends StatefulWidget {
   const _EverydayFundFloorActionPanel({required this.color});
   final Color color;
@@ -26224,6 +27044,84 @@ Future<double?> _showMonthsTargetDialog({
                   );
                 },
               )),
+    ),
+  );
+}
+
+Future<double?> _showDaysTargetDialog({
+  required BuildContext context,
+  required String title,
+  required String label,
+  required double initialDays,
+  required Color color,
+}) {
+  final controller =
+      TextEditingController(text: initialDays.toStringAsFixed(0));
+  return showDialog<double>(
+    context: context,
+    builder: (_) => _DisposeOnUnmount(
+      onDispose: controller.dispose,
+      child: Builder(
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            final days = double.tryParse(controller.text.trim()) ?? 0;
+            final valid =
+                days >= 1 && days <= 31 && days == days.roundToDouble();
+            return AlertDialog(
+              backgroundColor: _surface,
+              title: Text(title,
+                  style: const TextStyle(
+                      color: _title, fontWeight: FontWeight.w900)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: const TextStyle(
+                          color: _title,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: false),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration:
+                        inputDecoration('7').copyWith(suffixText: 'days'),
+                    onChanged: (_) => setDialogState(() {}),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    valid
+                        ? 'Shellby will use ${days.toStringAsFixed(0)} days of essential expenses.'
+                        : 'Use a whole number from 1 to 31 days.',
+                    style: TextStyle(
+                      color: valid ? color : _red,
+                      fontSize: 11,
+                      height: 1.3,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: valid
+                      ? () => Navigator.of(dialogContext).pop(days)
+                      : null,
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     ),
   );
 }
@@ -29422,6 +30320,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
   bool _moneyIn = false;
   String _account = 'Cash on Hand';
   String? _category;
+  IncomeClassification? _incomeClassification;
   DateTime _occurredAt = AppClock.now();
   bool _saving = false;
   bool _unexpectedExpense = false;
@@ -29518,7 +30417,11 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               onSelectionChanged: (selection) => setState(() {
                 _moneyIn = selection.first;
                 _category = null;
-                if (_moneyIn) _unexpectedExpense = false;
+                if (_moneyIn) {
+                  _unexpectedExpense = false;
+                } else {
+                  _incomeClassification = null;
+                }
               }),
             ),
             const SizedBox(height: 12),
@@ -29558,6 +30461,32 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
               onChanged: (value) => setState(() => _category = value),
               validator: (value) => value == null ? 'Choose a category.' : null,
             ),
+            if (_moneyIn) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Income pattern',
+                style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Choose Regular for predictable pay, Irregular for expected variable work, or Unexpected for a bonus, gift, refund, or other windfall.',
+                style: TextStyle(color: _body, fontSize: 11, height: 1.3),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final classification in IncomeClassification.values)
+                    ChoiceChip(
+                      label: Text(incomeClassificationLabel(classification)),
+                      selected: _incomeClassification == classification,
+                      onSelected: (_) => setState(
+                          () => _incomeClassification = classification),
+                    ),
+                ],
+              ),
+            ],
             if (!_moneyIn) ...[
               const SizedBox(height: 8),
               SwitchListTile.adaptive(
@@ -29616,7 +30545,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
             PrimaryButton(
               label: _saving ? 'Saving…' : 'Save transaction',
               icon: Icons.check_rounded,
-              enabled: !_saving,
+              enabled: !_saving && (!_moneyIn || _incomeClassification != null),
               onPressed: _save,
             ),
           ],
@@ -29649,7 +30578,12 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
     final title = _nameController.text.trim();
     final amount = double.tryParse(_amount.text.replaceAll(',', ''));
     final category = _category;
-    if (title.isEmpty || amount == null || category == null) return;
+    if (title.isEmpty ||
+        amount == null ||
+        category == null ||
+        (_moneyIn && _incomeClassification == null)) {
+      return;
+    }
     final state = AppScope.of(context);
     final recovery = _unexpectedExpense && !_moneyIn
         ? state.planUnexpectedExpenseRecovery(amount)
@@ -29670,6 +30604,7 @@ class _ManualTransactionSheetState extends State<_ManualTransactionSheet> {
         // the account is the source (the layer comes from the category).
         // A source is still needed for the entry to count as labeled.
         source: _account,
+        incomeClassification: _incomeClassification,
         note: _optionalManualText(_note.text),
         account: _account,
         unexpectedExpense: _unexpectedExpense && !_moneyIn,
@@ -30073,6 +31008,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     text: widget.transaction.subcategory ?? '',
   );
   late String? _tag = widget.transaction.tag;
+  late IncomeClassification? _incomeClassification =
+      widget.transaction.incomeClassification;
   late final TextEditingController _note = TextEditingController(
     text: widget.transaction.note ?? '',
   );
@@ -30458,6 +31395,32 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                   }
                 : null,
           ),
+          if (isIncome) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Income pattern',
+              style: TextStyle(color: _title, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'This determines whether the receipt is part of your usual income plan or an unexpected windfall.',
+              style: TextStyle(color: _body, fontSize: 11, height: 1.3),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final classification in IncomeClassification.values)
+                  ChoiceChip(
+                    label: Text(incomeClassificationLabel(classification)),
+                    selected: _incomeClassification == classification,
+                    onSelected: (_) =>
+                        setState(() => _incomeClassification = classification),
+                  ),
+              ],
+            ),
+          ],
           if (_merchantSuggestion != null &&
               _merchantSuggestion!.source !=
                   MerchantCategorySuggestionSource.savedTransaction) ...[
@@ -30534,20 +31497,22 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               labelText: 'Subcategory (optional)',
             ),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _tags.contains(_tag) ? _tag : null,
-            decoration: inputDecoration('Choose a tag').copyWith(
-              labelText: 'Tag (optional)',
+          if (!isIncome) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _tags.contains(_tag) ? _tag : null,
+              decoration: inputDecoration('Choose a tag').copyWith(
+                labelText: 'Tag (optional)',
+              ),
+              items: _tags
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(value),
+                      ))
+                  .toList(),
+              onChanged: (value) => setState(() => _tag = value),
             ),
-            items: _tags
-                .map((value) => DropdownMenuItem(
-                      value: value,
-                      child: Text(value),
-                    ))
-                .toList(),
-            onChanged: (value) => setState(() => _tag = value),
-          ),
+          ],
           const SizedBox(height: 12),
           TextFormField(
             controller: _note,
@@ -30580,6 +31545,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                 (isIncome || _financialLayer != null) &&
                 _source != null &&
                 selectedSourceIsEnabled &&
+                (!isIncome || _incomeClassification != null) &&
                 !_saving,
             onPressed: _save,
           ),
@@ -30701,9 +31667,11 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final source = widget.transaction.automaticDestination ??
         _source ??
         (isIncome ? widget.transaction.account ?? 'Wallet' : null);
+    final tag = _tag;
     if (category == null ||
         (!isIncome && financialLayer == null) ||
         source == null ||
+        (isIncome && _incomeClassification == null) ||
         (!isIncome &&
             (!_enabledCategoryValuesForLayer(state, false).contains(category) ||
                 !_sourcesForLayer(state, false).any(
@@ -30734,7 +31702,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       category: category,
       source: source,
       subcategory: _optionalText(_subcategory.text),
-      tag: _tag,
+      incomeClassification: _incomeClassification,
+      tag: tag,
       note: _optionalText(_note.text),
       excludedFromInsights: _excluded,
     );

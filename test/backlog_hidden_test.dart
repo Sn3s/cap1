@@ -2,21 +2,21 @@ import 'package:cap1/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Backlog goals (G2, G4, G6, G7) and actions (A2, A4-A7, A11, A13-A18)
+// Backlog goals (G2, G4, G6, G7) and actions (A2, A4-A7, A11, A15-A18)
 // stay in the code for future work but must never reach a user.
 void main() {
   const backlogActions = [
     'A2', 'A4', 'A5', 'A6', 'A7', 'A11', //
-    'A13', 'A14', 'A15', 'A16', 'A17', 'A18',
+    'A15', 'A16', 'A17', 'A18',
   ];
 
   test('backlog actions cannot be selected', () {
     final state = AppState()
       ..configureGoalActions(actionIds: ['A1', 'A5', 'A13', 'A3']);
-    expect(state.selectedActionIds, {'A1', 'A3'});
+    expect(state.selectedActionIds, {'A1', 'A3', 'A13'});
 
-    state.addActionsForGoal(['A12', ...backlogActions]);
-    expect(state.selectedActionIds, {'A1', 'A3', 'A12'});
+    state.addActionsForGoal(['A12', 'A13', 'A14', ...backlogActions]);
+    expect(state.selectedActionIds, {'A1', 'A3', 'A12', 'A13', 'A14'});
   });
 
   testWidgets('a profile that picked a backlog goal sees the working goal',

@@ -69,7 +69,7 @@ void main() {
     expect(breakdown.engagementPoints, closeTo(10, 1e-9));
     expect(breakdown.deductions, isEmpty);
     expect(breakdown.score, closeTo(95, 1e-9));
-    expect(breakdown.actions.single.number, 'A9'); // display numbering
+    expect(breakdown.actions.single.number, 'A10'); // display numbering
   });
 
   test('1 action half done: 42.5 action points', () {
@@ -172,7 +172,7 @@ void main() {
     expect(find.text('Actions'), findsWidgets);
     expect(find.text('Engagement'), findsWidgets);
     expect(find.text('Deductions'), findsWidgets);
-    expect(find.text('A9'), findsOneWidget);
+    expect(find.text('A10'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Opened Shellby'), 300,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Opened Shellby'), findsOneWidget);

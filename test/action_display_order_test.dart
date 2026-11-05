@@ -2,7 +2,7 @@ import 'package:cap1/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Users see A1-A15 in order; internal IDs (A26-A29 for Financial Freedom)
+// Users see A1-A18 in order; internal IDs (A26-A29 for Financial Freedom)
 // never show, and active actions always list in that order.
 void main() {
   void phone(WidgetTester tester) {
@@ -30,7 +30,7 @@ void main() {
         ['A1', 'A12', 'A26', 'A27', 'A28', 'A29']);
   });
 
-  testWidgets('Financial Freedom cards and Edit actions use A12-A15 in order',
+  testWidgets('Financial Freedom cards and Edit actions use A15-A18 in order',
       (tester) async {
     phone(tester);
     final state = AppState()
@@ -59,7 +59,7 @@ void main() {
           warnIfMissed: false);
       await tester.pumpAndSettle();
     }
-    expect(seen, ['A12', 'A14', 'A15']);
+    expect(seen, ['A15', 'A17', 'A18']);
 
     await tester.ensureVisible(find.text('Edit actions'));
     await tester.pumpAndSettle();
@@ -78,14 +78,17 @@ void main() {
             .first
             .data!,
     ];
-    expect(sheetBadges, ['A12', 'A13', 'A14', 'A15']);
+    expect(sheetBadges, ['A15', 'A16', 'A17', 'A18']);
   });
 
   const goals = {
-    'G1': (['A1', 'A3', 'A20', 'A19'], ['A1', 'A2', 'A3', 'A4']),
-    'G3': (['A9', 'A8', 'A22', 'A10'], ['A5', 'A6', 'A7', 'A8']),
-    'G5': (['A12', 'A23', 'A30'], ['A9', 'A10', 'A11']),
-    'G8': (['A26', 'A27', 'A28', 'A29'], ['A12', 'A13', 'A14', 'A15']),
+    'G1': (['A1', 'A3', 'A20', 'A19', 'A21'], ['A1', 'A2', 'A3', 'A4', 'A5']),
+    'G3': (['A9', 'A8', 'A22', 'A10'], ['A6', 'A7', 'A8', 'A9']),
+    'G5': (
+      ['A12', 'A13', 'A14', 'A23', 'A30'],
+      ['A10', 'A11', 'A12', 'A13', 'A14']
+    ),
+    'G8': (['A26', 'A27', 'A28', 'A29'], ['A15', 'A16', 'A17', 'A18']),
   };
   for (final entry in goals.entries) {
     testWidgets('${entry.key} cards are numbered ${entry.value.$2}, once each',

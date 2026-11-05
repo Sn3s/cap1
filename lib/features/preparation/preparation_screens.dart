@@ -767,6 +767,7 @@ List<String> _recommendationsForActionField(
                   ? 3
                   : 5,
       'A10' => irregularIncome ? 14 : 7,
+      'A21' => irregularIncome ? 14 : 7,
       _ => 3,
     };
     return _dayOptions(recommended);
@@ -985,6 +986,8 @@ String _recommendationFormulaForActionField(
       '$value: a feasible floor from your essential expenses, monthly income, and surplus.',
     'A20' =>
       '$value: max(current income, expenses + max(10% expense cushion, Everyday Fund gap divided by 6)).',
+    'A21' =>
+      '$value: 14 days for irregular income and 7 days for predictable income; you can set a different coverage target.',
     _ =>
       '$value: calculated from the onboarding baseline that matches this action.',
   };
@@ -1308,21 +1311,79 @@ const _d1Goals = <D1Goal>[
 const _backlogGoalIds = {'G2', 'G4', 'G6', 'G7'};
 const _backlogActionIds = {
   'A2', 'A4', 'A5', 'A6', 'A7', 'A11', //
-  'A13', 'A14', 'A15', 'A16', 'A17', 'A18',
+  'A15', 'A16', 'A17', 'A18',
 };
 
+/// Declares whether an action has an actual, reproducible metric behind it.
+/// Keep a new action out of the calculated score paths until its inputs,
+/// period and empty-data rule are all defined here. This prevents a card from
+/// looking measured when it is only guidance.
+class _ActionMetricDefinition {
+  const _ActionMetricDefinition({
+    required this.goalId,
+    required this.period,
+    this.healthWeight,
+  });
+
+  final String goalId;
+  final String period;
+  final int? healthWeight;
+}
+
+const _actionMetricRegistry = <String, _ActionMetricDefinition>{
+  'A1':
+      _ActionMetricDefinition(goalId: 'G1', period: 'income', healthWeight: 15),
+  'A3': _ActionMetricDefinition(goalId: 'G1', period: 'week', healthWeight: 15),
+  'A20':
+      _ActionMetricDefinition(goalId: 'G1', period: 'month', healthWeight: 20),
+  'A19':
+      _ActionMetricDefinition(goalId: 'G1', period: 'week', healthWeight: 10),
+  'A21': _ActionMetricDefinition(
+      goalId: 'G1', period: 'current', healthWeight: 10),
+  'A9':
+      _ActionMetricDefinition(goalId: 'G3', period: 'month', healthWeight: 15),
+  'A8':
+      _ActionMetricDefinition(goalId: 'G3', period: 'income', healthWeight: 15),
+  'A22': _ActionMetricDefinition(
+      goalId: 'G3', period: 'current', healthWeight: 20),
+  'A10': _ActionMetricDefinition(
+      goalId: 'G3', period: 'withdrawal', healthWeight: 20),
+  'A12':
+      _ActionMetricDefinition(goalId: 'G5', period: 'income', healthWeight: 15),
+  // Windfalls are only measured after the user explicitly identifies a
+  // cash-in as a windfall; no heuristic guesses from amount or merchant.
+  'A13': _ActionMetricDefinition(goalId: 'G5', period: 'windfall'),
+  // A sweep is measured only for a completed month or a recorded sweep.
+  'A14': _ActionMetricDefinition(goalId: 'G5', period: 'month'),
+  'A23':
+      _ActionMetricDefinition(goalId: 'G5', period: 'month', healthWeight: 20),
+  'A30':
+      _ActionMetricDefinition(goalId: 'G5', period: 'week', healthWeight: 10),
+  'A26':
+      _ActionMetricDefinition(goalId: 'G8', period: 'month', healthWeight: 10),
+  'A27':
+      _ActionMetricDefinition(goalId: 'G8', period: 'income', healthWeight: 10),
+  'A28':
+      _ActionMetricDefinition(goalId: 'G8', period: 'week', healthWeight: 15),
+  'A29':
+      _ActionMetricDefinition(goalId: 'G8', period: 'month', healthWeight: 10),
+};
+
+bool _hasCalculatedMetric(String actionId) =>
+    _actionMetricRegistry.containsKey(actionId);
+
 // DISPLAY NUMBERING (display-only): the single source of truth for the
-// action numbers users see. Users see A1-A15 in this exact order; saved
+// action numbers users see. Users see A1-A18 in this exact order; saved
 // profiles keep the original internal IDs. Every label, list and sort in the
 // app goes through [_actionNumber] / [_compareActionIds], so one number
 // always means one action.
 // Goals are shown by name/motivation, never by code. Their display order
 // is G1 = G1, G3 = G2, G5 = G3, G8 = G4.
 const _actionDisplayOrder = [
-  ..._availableCashGoalActionIds, // M1 Cash Flow & Basic Needs: A1-A4
-  ..._emergencyFundGoalActionIds, // M2 Financial Safety: A5-A8
-  ..._investmentGoalActionIds, // M3 Accumulating Wealth: A9-A11
-  ..._lifestyleGoalActionIds, // M4 Financial Freedom: A12-A15
+  ..._availableCashGoalActionIds, // M1 Cash Flow & Basic Needs: A1-A5
+  ..._emergencyFundGoalActionIds, // M2 Financial Safety: A6-A9
+  ..._investmentGoalActionIds, // M3 Accumulating Wealth: A10-A14
+  ..._lifestyleGoalActionIds, // M4 Financial Freedom: A15-A18
 ];
 
 /// Internal ID -> the number users see ("A20" -> "A3").
@@ -1625,6 +1686,12 @@ const _d2Actions = <String, D2Action>{
         ActionField(
             key: 'amt', label: 'Monthly cash-in target (₱)', hint: 'e.g. 25000')
       ]),
+  'A21': D2Action(
+      id: 'A21',
+      text: 'Keep enough everyday money to cover X days of essential expenses.',
+      fields: [
+        ActionField(key: 'days', label: 'Days of essentials', hint: 'e.g. 7')
+      ]),
   'A22': D2Action(
       id: 'A22',
       text:
@@ -1634,9 +1701,9 @@ const _d2Actions = <String, D2Action>{
       ]),
 };
 
-const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19'];
+const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19', 'A21'];
 const _emergencyFundGoalActionIds = ['A9', 'A8', 'A22', 'A10'];
-const _investmentGoalActionIds = ['A12', 'A23', 'A30'];
+const _investmentGoalActionIds = ['A12', 'A13', 'A14', 'A23', 'A30'];
 const _lifestyleGoalActionIds = ['A26', 'A27', 'A28', 'A29'];
 // A29 is excluded from AI-actionable suggestions: its target now lives in
 // AppState.lifestyleHobbies (a named list, up to 3), not a single

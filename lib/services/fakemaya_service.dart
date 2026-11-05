@@ -2232,6 +2232,22 @@ String? fakeMayaBucketNameForMotivation(String motivation) {
   return id == null ? null : FakeMayaPersonalGoal.defaultForId(id).name;
 }
 
+enum IncomeClassification { regular, irregular, unexpected }
+
+String incomeClassificationLabel(IncomeClassification value) => switch (value) {
+      IncomeClassification.regular => 'Regular income',
+      IncomeClassification.irregular => 'Irregular income',
+      IncomeClassification.unexpected => 'Unexpected income',
+    };
+
+IncomeClassification? incomeClassificationFromStored(Object? value) =>
+    switch (value?.toString().trim().toLowerCase()) {
+      'regular' => IncomeClassification.regular,
+      'irregular' => IncomeClassification.irregular,
+      'unexpected' => IncomeClassification.unexpected,
+      _ => null,
+    };
+
 class FakeMayaTransaction {
   const FakeMayaTransaction({
     this.id,
@@ -2244,6 +2260,7 @@ class FakeMayaTransaction {
     this.source,
     this.account,
     this.subcategory,
+    this.incomeClassification,
     this.tag,
     this.note,
     this.excludedFromInsights = false,
@@ -2260,6 +2277,7 @@ class FakeMayaTransaction {
   final String? source;
   final String? account;
   final String? subcategory;
+  final IncomeClassification? incomeClassification;
   final String? tag;
   final String? note;
   final bool excludedFromInsights;
@@ -2298,6 +2316,9 @@ class FakeMayaTransaction {
         title.toLowerCase().contains('cash in') &&
         (accountName == null || accountName.isEmpty || accountName == 'Wallet');
   }
+
+  bool get isUnexpectedIncome =>
+      incomeClassification == IncomeClassification.unexpected;
 
   bool get isInternalFakeMayaTransfer {
     final normalizedTitle = title.trim().toLowerCase();
@@ -2356,6 +2377,7 @@ class FakeMayaTransaction {
     required String category,
     required String source,
     String? subcategory,
+    IncomeClassification? incomeClassification,
     String? tag,
     String? note,
     bool excludedFromInsights = false,
@@ -2372,6 +2394,7 @@ class FakeMayaTransaction {
       source: source,
       account: account,
       subcategory: subcategory,
+      incomeClassification: incomeClassification ?? this.incomeClassification,
       tag: tag,
       note: note,
       excludedFromInsights: excludedFromInsights,
@@ -2385,6 +2408,7 @@ class FakeMayaTransaction {
       category: other.category!,
       source: other.source ?? 'Basic Needs Fund',
       subcategory: other.subcategory,
+      incomeClassification: other.incomeClassification,
       tag: other.tag,
       note: other.note,
       excludedFromInsights: other.excludedFromInsights,
@@ -2404,6 +2428,7 @@ class FakeMayaTransaction {
       'source': source,
       'account': account,
       'subcategory': subcategory,
+      'incomeClassification': incomeClassification?.name,
       'tag': tag,
       'note': note,
       'excludedFromInsights': excludedFromInsights,
@@ -2436,6 +2461,8 @@ class FakeMayaTransaction {
         final value => value,
       },
       subcategory: data['subcategory'] as String?,
+      incomeClassification:
+          incomeClassificationFromStored(data['incomeClassification']),
       tag: data['tag'] as String?,
       note: data['note'] as String?,
       excludedFromInsights: data['excludedFromInsights'] as bool? ?? false,

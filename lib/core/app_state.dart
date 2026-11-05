@@ -6999,13 +6999,45 @@ class AppState extends ChangeNotifier {
           entry['type'] == 'investment_windfall' &&
           entry['sourceTransactionId'] == transactionId);
 
+  /// A13 only measures a cash-in after the person identifies it as an
+  /// unexpected windfall. This deliberately avoids guessing from an amount
+  /// or a merchant name, which would turn ordinary pay into a false miss.
+  bool hasInvestmentWindfallDecision(String transactionId) => d1Ledger.any(
+        (entry) =>
+            (entry['type'] == 'investment_windfall' ||
+                entry['type'] == 'investment_windfall_skipped') &&
+            entry['sourceTransactionId'] == transactionId,
+      );
+
+  Future<void> markWindfallNotInvested({
+    required String transactionId,
+    required double cashInAmount,
+    required DateTime cashInDate,
+  }) async {
+    if (cashInAmount <= 0 || hasInvestmentWindfallDecision(transactionId)) {
+      return;
+    }
+    d1Ledger.insert(0, {
+      'type': 'investment_windfall_skipped',
+      'date': AppClock.now().toIso8601String(),
+      'sourceDate': cashInDate.toIso8601String(),
+      'sourceTransactionId': transactionId,
+      'cashInAmount': cashInAmount,
+      'amount': 0.0,
+      'destination': 'Investment Portfolio',
+      'label': 'Windfall kept outside investment',
+    });
+    await saveProfile();
+    notifyListeners();
+  }
+
   Future<void> depositWindfallToInvestment({
     required String transactionId,
     required double cashInAmount,
     required DateTime cashInDate,
     double percentage = 50,
   }) async {
-    if (cashInAmount <= 0 || hasInvestmentWindfallAllocation(transactionId)) {
+    if (cashInAmount <= 0 || hasInvestmentWindfallDecision(transactionId)) {
       return;
     }
     final amount = cashInAmount * percentage.clamp(0, 100) / 100;
@@ -7182,21 +7214,25 @@ class AppState extends ChangeNotifier {
   }
 
   /// A14: transfer X% of unspent monthly funds toward investments at month end.
-  Future<void> sweepUnspentFundsToInvestment({double percentage = 50}) async {
+  Future<void> sweepUnspentFundsToInvestment({
+    double percentage = 50,
+    double? amount,
+  }) async {
     if (hasInvestmentSweepForCurrentMonth) return;
     final unspent = math.max(0.0, monthlySurplus);
-    final amount = unspent * percentage.clamp(0, 100) / 100;
-    if (amount <= 0) return;
-    _requireWalletFunds(amount);
-    await _depositToInvestmentFund(amount);
-    investmentBalance += amount;
+    final target = unspent * percentage.clamp(0, 100) / 100;
+    final applied = (amount ?? target).clamp(0.0, target);
+    if (applied <= 0) return;
+    _requireWalletFunds(applied);
+    await _depositToInvestmentFund(applied);
+    investmentBalance += applied;
     d1Ledger.insert(0, {
       'type': 'investment_sweep',
       'date': AppClock.now().toIso8601String(),
       'monthKey': currentInvestmentSweepMonthKey,
       'unspentAmount': unspent,
       'percentage': percentage,
-      'amount': amount,
+      'amount': applied,
       'destination': 'Investment Portfolio',
     });
     await saveProfile();
@@ -9348,6 +9384,7 @@ class AppState extends ChangeNotifier {
     required String category,
     required String source,
     String? subcategory,
+    IncomeClassification? incomeClassification,
     String? tag,
     String? note,
     bool excludedFromInsights = false,
@@ -9370,6 +9407,7 @@ class AppState extends ChangeNotifier {
         category: category,
         source: source,
         subcategory: subcategory,
+        incomeClassification: incomeClassification,
         tag: keepsUnexpectedRecovery ? existing.tag : tag,
         note: note,
         excludedFromInsights: excludedFromInsights,
@@ -9400,6 +9438,7 @@ class AppState extends ChangeNotifier {
       category: category,
       source: source,
       subcategory: subcategory,
+      incomeClassification: incomeClassification,
       tag: tag,
       note: note,
       excludedFromInsights: excludedFromInsights,
@@ -9649,6 +9688,7 @@ class AppState extends ChangeNotifier {
     required String category,
     required String source,
     String? subcategory,
+    IncomeClassification? incomeClassification,
     String? tag,
     String? note,
     String account = 'Cash on Hand',
@@ -9690,6 +9730,7 @@ class AppState extends ChangeNotifier {
         source: source,
         account: account,
         subcategory: subcategory,
+        incomeClassification: incomeClassification,
         tag: isUnexpectedOutflow ? 'Unexpected expense' : tag,
         note: note,
         labeledAt: AppClock.now(),
