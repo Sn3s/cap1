@@ -8437,7 +8437,7 @@ class _ActionProgressSection extends StatelessWidget {
     this.eyebrow = 'MONTH · ACTION PROGRESS',
     this.title = 'Your actions, measured',
     this.subtitle =
-        'Each action shows an overall score — tap it to see the Consistency, Resiliency, and Adherence behind it.',
+        'Each action shows an overall score — tap it to see how often you were Active, your Progress, and how often you were On target.',
   });
 
   final List<_CashActionScore> actionScores;
