@@ -23,8 +23,23 @@ void main() {
       ),
     );
 
-    expect(find.text('AI insights are off'), findsOneWidget);
+    expect(find.text('Shellby chat is off'), findsOneWidget);
     expect(find.text('Review AI privacy settings'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  test('all action-stage reviews are blocked until AI consent is enabled',
+      () async {
+    final state = AppState();
+    const coach = ShellbyAiCoach();
+
+    for (final review in <Future<ActionStageResult> Function()>[
+      () => coach.recommendAvailableCashActionStage(state: state),
+      () => coach.recommendEmergencyFundActionStage(state: state),
+      () => coach.recommendInvestmentActionStage(state: state),
+      () => coach.recommendLifestyleActionStage(state: state),
+    ]) {
+      await expectLater(review(), throwsA(isA<AiConsentRequiredException>()));
+    }
   });
 }

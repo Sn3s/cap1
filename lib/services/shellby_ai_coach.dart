@@ -105,6 +105,7 @@ class ShellbyAiCoach {
   Future<ActionStageResult> recommendAvailableCashActionStage({
     required AppState state,
   }) async {
+    if (!state.consentAi) throw const AiConsentRequiredException();
     if (!isConfigured) {
       throw const AiSetupException();
     }
@@ -207,8 +208,8 @@ class ShellbyAiCoach {
       return a.priority.compareTo(b.priority);
     });
     final modelFirstChange = (parsed['first_change'] as String?)?.trim() ?? '';
-    final firstIsChange = suggestions.isNotEmpty &&
-        suggestions.first.option != 'retain_action';
+    final firstIsChange =
+        suggestions.isNotEmpty && suggestions.first.option != 'retain_action';
     final result = ActionStageResult(
       summary: (parsed['summary'] as String?)?.trim().isNotEmpty == true
           ? (parsed['summary'] as String).trim()
@@ -269,6 +270,7 @@ class ShellbyAiCoach {
   Future<ActionStageResult> recommendEmergencyFundActionStage({
     required AppState state,
   }) async {
+    if (!state.consentAi) throw const AiConsentRequiredException();
     if (!isConfigured) {
       throw const AiSetupException();
     }
@@ -283,7 +285,8 @@ class ShellbyAiCoach {
       instructions: _emergencyFundActionStageInstructions,
       input: '${_emergencyFundActionStageInput(state)}\n'
           '${_actionStageScoreLines(scores)}',
-      fallbackSummary: 'Shellby reviewed the latest 14 days and prepared action updates.',
+      fallbackSummary:
+          'Shellby reviewed the latest 14 days and prepared action updates.',
       actionScores: {
         for (final score in scores) score.id: _scorePercent(score.score),
       },
@@ -293,6 +296,7 @@ class ShellbyAiCoach {
   Future<ActionStageResult> recommendInvestmentActionStage({
     required AppState state,
   }) async {
+    if (!state.consentAi) throw const AiConsentRequiredException();
     if (!isConfigured) {
       throw const AiSetupException();
     }
@@ -304,7 +308,8 @@ class ShellbyAiCoach {
       instructions: _investmentActionStageInstructions,
       input: '${_investmentActionStageInput(state)}\n'
           '${_actionStageScoreLines(scores)}',
-      fallbackSummary: 'Shellby reviewed the latest portfolio activity and prepared action updates.',
+      fallbackSummary:
+          'Shellby reviewed the latest portfolio activity and prepared action updates.',
       actionScores: {
         for (final score in scores) score.id: _scorePercent(score.score),
       },
@@ -314,6 +319,7 @@ class ShellbyAiCoach {
   Future<ActionStageResult> recommendLifestyleActionStage({
     required AppState state,
   }) async {
+    if (!state.consentAi) throw const AiConsentRequiredException();
     if (!isConfigured) {
       throw const AiSetupException();
     }
@@ -326,7 +332,8 @@ class ShellbyAiCoach {
       instructions: _lifestyleActionStageInstructions,
       input: '${_lifestyleActionStageInput(state)}\n'
           '${_actionStageScoreLines(scores)}',
-      fallbackSummary: 'Shellby reviewed the latest lifestyle activity and prepared action updates.',
+      fallbackSummary:
+          'Shellby reviewed the latest lifestyle activity and prepared action updates.',
       actionScores: {
         for (final score in scores) score.id: _scorePercent(score.score),
       },
@@ -676,9 +683,9 @@ Return only JSON with keys reply, title, description, monthly_target.
     final openBills = state.openBasicNeedsBillObligations.map((bill) =>
         '- ${basicNeedsBillDisplayName(bill)}: ${money(_billRemaining(bill))} '
         'still to cover, due ${date(DateTime.tryParse('${bill['dueDate']}'))}');
-    final paidBills = state.paidBasicNeedsBillsThisMonth.map((bill) =>
-        '- ${basicNeedsBillDisplayName(bill)}: covered '
-        '${money(_doubleValue(bill['expectedAmount'], 0))}');
+    final paidBills = state.paidBasicNeedsBillsThisMonth
+        .map((bill) => '- ${basicNeedsBillDisplayName(bill)}: covered '
+            '${money(_doubleValue(bill['expectedAmount'], 0))}');
     final scheduledBills = state.onboardingExpenseLedger
         .where((expense) => expense['scheduled'] == true)
         .map((expense) {
@@ -718,9 +725,8 @@ Return only JSON with keys reply, title, description, monthly_target.
     final categoryTotals = (spendingByCategory.entries.toList()
           ..sort((a, b) => b.value.compareTo(a.value)))
         .map((entry) => '- ${entry.key}: ${money(entry.value)}');
-    final unlabeled = monthTransactions
-        .where((transaction) => !transaction.isLabeled)
-        .length;
+    final unlabeled =
+        monthTransactions.where((transaction) => !transaction.isLabeled).length;
 
     final recent = (state.allTransactions
             .where((transaction) => transaction.createdAt != null)
@@ -735,8 +741,7 @@ Return only JSON with keys reply, title, description, monthly_target.
 
     final incomes = state.onboardingIncomeLedger.take(10).map((income) {
       final scheduled = income['scheduled'] == true;
-      final anchor =
-          DateTime.tryParse('${income['scheduleAnchorDate'] ?? ''}');
+      final anchor = DateTime.tryParse('${income['scheduleAnchorDate'] ?? ''}');
       return '- ${income['name'] ?? 'Income'}: '
           '${money(_doubleValue(income['amount'], 0))} '
           '(${income['stable'] == true ? 'stable' : 'variable'}, '
@@ -746,8 +751,9 @@ Return only JSON with keys reply, title, description, monthly_target.
         '- ${basicNeedsBillDisplayName(expense)}: '
         '${money(_doubleValue(expense['amount'], 0))} per month '
         '(${expenseLayerForLedger(expense) == ExpenseLayer.basicNeeds ? 'essential' : 'non-essential'})');
-    final assets =
-        state.assets.take(8).map((item) => '- ${item.name}: ${money(item.value)}');
+    final assets = state.assets
+        .take(8)
+        .map((item) => '- ${item.name}: ${money(item.value)}');
     final liabilities = state.liabilities
         .take(8)
         .map((item) => '- ${item.name}: ${money(item.value)}');

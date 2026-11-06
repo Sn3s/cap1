@@ -960,7 +960,7 @@ class _AiConsentRequiredView extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 const Text(
-                  'The chat uses AI and sends your profile, goals, balances and transactions to it, so it stays off until you turn it on. Action stage suggestions are set separately in Privacy & security.',
+                  'The chat uses AI and sends your profile, goals, balances and transactions to it, so it stays off until you turn it on. Action-stage suggestions stay off as well.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: _body,
@@ -3091,7 +3091,7 @@ bool isLifestyleGoalOnTrack(AppState state) {
     'A28',
     math.max(100.0, _monthlyLifestyleBase(state) / 4.33),
   );
-  return state.lifestyleFundBalance > 0 &&
+  return state.lifestyleFundTotal >= _lifestyleFundReadinessTarget(state) &&
       _currentWeekLifestyleSpend(state) <= weeklyLimit;
 }
 
@@ -3138,10 +3138,19 @@ int maintainAvailableCashFeasibility(AppState state) {
       : (state.essentialExpensesBalance / essentialExpected).clamp(0.0, 1.0);
   final spendingScore = spent <= total ? 1.0 : (total / spent).clamp(0.0, 1.0);
   final incomeScore = (latestIncome / total).clamp(0.0, 1.0);
-  return ((coverageScore * .55 +
-              essentialScore * .20 +
+  final unpaidBillNeed = state.openBasicNeedsBillNeed;
+  final billCoverageScore = unpaidBillNeed <= 0
+      ? 1.0
+      : ((state.essentialExpensesBalance +
+                  state.billsObligationsBalance +
+                  wallet) /
+              unpaidBillNeed)
+          .clamp(0.0, 1.0);
+  return ((coverageScore * .45 +
+              essentialScore * .15 +
               spendingScore * .15 +
-              incomeScore * .10) *
+              incomeScore * .10 +
+              billCoverageScore * .15) *
           100)
       .round();
 }
@@ -3195,7 +3204,25 @@ double lifestyleGoalPercent(AppState state) {
   );
   if (weeklyLimit <= 0) return 0;
   final spent = _currentWeekLifestyleSpend(state);
-  return _clampPercent((1 - (spent / weeklyLimit)) * 100);
+  final spendingScore = (1 - (spent / weeklyLimit)).clamp(0.0, 1.0);
+  final fundTarget = _lifestyleFundReadinessTarget(state);
+  if (fundTarget <= 0) return 0;
+  final fundScore = (state.lifestyleFundTotal / fundTarget).clamp(0.0, 1.0);
+  if (fundScore <= 0) return 0;
+  // A Lifestyle Fund goal is both a reserve and a spending boundary. A week
+  // with no spending cannot be 100% complete when nothing has been set aside.
+  return _clampPercent((fundScore * .60 + spendingScore * .40) * 100);
+}
+
+/// A modest one-month reserve establishes the Lifestyle Fund. Named activity
+/// targets remain tracked separately in their own sub-buckets.
+double _lifestyleFundReadinessTarget(AppState state) {
+  final subscriptionReserve = _configuredActionAmount(
+    state,
+    'A26',
+    _monthlySubscriptionBase(state),
+  );
+  return math.max(_monthlyLifestyleBase(state), subscriptionReserve);
 }
 
 /// Investment Portfolio percent change over the latest 14 days, derived from
@@ -3219,15 +3246,6 @@ const _layerCanonicalGoalId = <String, String>{
   'Financial Safety': 'G3',
   'Accumulating Wealth': 'G5',
   'Financial Freedom': 'G8',
-};
-
-/// Add Goal unlock rule: which layer becomes addable given the layer chosen
-/// at onboarding. `null` means no layer unlocks (Coming Soon).
-const _addGoalUnlockMap = <String, String?>{
-  'Cash Flow & Basic Needs': 'Financial Safety',
-  'Financial Safety': 'Cash Flow & Basic Needs',
-  'Accumulating Wealth': null,
-  'Financial Freedom': null,
 };
 
 bool _isGoalOnTrack(String goalId, AppState state) {
@@ -4812,12 +4830,16 @@ class _InsightsAiSummaryCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Text(
-                      'Tap to ask Shellby about this',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800,
+                    const Expanded(
+                      child: Text(
+                        'Tap to ask Shellby about this',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -9365,6 +9387,10 @@ class _GoalSuggestionBannerState extends State<_GoalSuggestionBanner> {
 
   Future<void> _load() async {
     final state = AppScope.of(context);
+    if (!state.consentAi) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     try {
       final result = await widget.runStage(_coach, state);
       if (!mounted) return;
@@ -9548,12 +9574,19 @@ class _GoalActionStageSectionState extends State<_GoalActionStageSection> {
     super.didChangeDependencies();
     if (!_autoStarted) {
       _autoStarted = true;
-      _runStage();
+      if (AppScope.of(context).consentAi) _runStage();
     }
   }
 
   Future<void> _runStage() async {
     if (_loading) return;
+    if (!AppScope.of(context).consentAi) {
+      setState(() {
+        _error = 'AI insights are off. Enable them in Settings to receive '
+            'action-stage suggestions.';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -10980,21 +11013,30 @@ class _EmergencyMetricLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            color: _body,
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-        const Spacer(),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.black,
-            fontSize: 13,
-            fontWeight: FontWeight.w900,
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
           ),
         ),
       ],
@@ -18564,14 +18606,17 @@ class _D1GoalCard extends StatelessWidget {
                 // No progress bar on goal cards: progress lives in each
                 // goal page's Goal Progress box.
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
                   children: [
                     _GoalPillChip(
                       icon: Icons.bolt_rounded,
                       label: '$actionCount actions active',
                       color: accent,
                     ),
-                    const Spacer(),
                     Text(
                       'View details',
                       style: GoogleFonts.nunito(
@@ -21935,7 +21980,11 @@ _ProgressLine _rateLine(double rate, String text) => (
         double.tryParse(state.actionFieldValues['A22']?['months'] ?? '') ?? 3;
     final covered =
         essentials > 0 ? state.displayedEmergencyFundBalance / essentials : 0.0;
-    reached = targetMonths > 0 && covered >= targetMonths;
+    // A22 is the user's near-term coverage action (often three months),
+    // while completing the Financial Safety layer requires the published
+    // six-month goal. Keep those two milestones distinct.
+    reached = state.displayedEmergencyFundBalance >=
+        _financialSafetyGoalTarget(state);
     rates['A22'] =
         targetMonths <= 0 ? 1 : (covered / targetMonths).clamp(0.0, 1.0);
     lines.add(_rateLine(

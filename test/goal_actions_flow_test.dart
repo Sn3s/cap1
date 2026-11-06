@@ -40,9 +40,8 @@ void main() {
         find.textContaining('Strengthen your foundation', findRichText: true),
         findsNothing);
 
-    await tester.tap(
-        find.textContaining('Build a growing investment portfolio',
-            findRichText: true));
+    await tester.tap(find.textContaining('Build a growing investment portfolio',
+        findRichText: true));
     await tester.pumpAndSettle();
 
     // Surface B -> A12 internally, shown to users as A9.
@@ -72,9 +71,9 @@ void main() {
         find.textContaining('Specify: Which goal would you like',
             findRichText: true),
         findsOneWidget);
-    await tester.tap(
-        find.textContaining('Have and maintain enough available cash',
-            findRichText: true));
+    await tester.tap(find.textContaining(
+        'Have and maintain enough available cash',
+        findRichText: true));
     await tester.pumpAndSettle();
     expect(find.text('★ Suggested for you'), findsOneWidget);
   });
@@ -147,6 +146,52 @@ void main() {
     expect(state.addedGoalIds, contains('G3'));
     expect(state.selectedActionIds, contains('A22'));
     expect(state.actionFieldValues['A22'], isNotNull);
+  });
+
+  Future<void> expectLayerCanStartGoal(
+    WidgetTester tester,
+    String layer,
+    String goalTitle,
+  ) async {
+    phone(tester);
+    final state = AppState()
+      ..primaryConcern = 'Cash Flow & Basic Needs'
+      ..selectedGoalId = 'G1';
+    await tester.pumpWidget(AppScope(
+      state: state,
+      child: const MaterialApp(home: AddGoalScreen()),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Coming soon'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.text(layer),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text(layer));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(SelectableOption).first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Your goal: $goalTitle', findRichText: true),
+        findsOneWidget);
+  }
+
+  testWidgets('+ Add Goal makes Accumulating Wealth available', (tester) async {
+    await expectLayerCanStartGoal(
+      tester,
+      'Accumulating Wealth',
+      'Grow Investments',
+    );
+  });
+
+  testWidgets('+ Add Goal makes Financial Freedom available', (tester) async {
+    await expectLayerCanStartGoal(
+      tester,
+      'Financial Freedom',
+      'Lifestyle Fund',
+    );
   });
 
   testWidgets('M3 Surface no longer offers the debt choice', (tester) async {

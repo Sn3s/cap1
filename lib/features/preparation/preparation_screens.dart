@@ -1352,9 +1352,11 @@ const _actionMetricRegistry = <String, _ActionMetricDefinition>{
       _ActionMetricDefinition(goalId: 'G5', period: 'income', healthWeight: 15),
   // Windfalls are only measured after the user explicitly identifies a
   // cash-in as a windfall; no heuristic guesses from amount or merchant.
-  'A13': _ActionMetricDefinition(goalId: 'G5', period: 'windfall'),
+  'A13': _ActionMetricDefinition(
+      goalId: 'G5', period: 'windfall', healthWeight: 10),
   // A sweep is measured only for a completed month or a recorded sweep.
-  'A14': _ActionMetricDefinition(goalId: 'G5', period: 'month'),
+  'A14':
+      _ActionMetricDefinition(goalId: 'G5', period: 'month', healthWeight: 10),
   'A23':
       _ActionMetricDefinition(goalId: 'G5', period: 'month', healthWeight: 20),
   'A30':

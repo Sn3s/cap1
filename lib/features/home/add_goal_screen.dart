@@ -1,15 +1,9 @@
 part of '../../main.dart';
 
-/// Layers open for "+ Add Goal" right now — the app is only building out
-/// the two foundational pyramid layers, so Accumulating Wealth and
-/// Financial Freedom stay locked/unclickable for every account, including
-/// the Reflection Demo account.
-const _addGoalOpenLayers = {'Cash Flow & Basic Needs', 'Financial Safety'};
-
-/// Post-onboarding "+ Add Goal" flow. Onboarding itself always restricts the
-/// user to exactly 1 motivation/goal — this screen is the only place a
-/// second goal can be unlocked, and only for the layer paired with the
-/// user's onboarding pick (see `_addGoalUnlockMap` in home_screens.dart).
+/// Post-onboarding "+ Add Goal" flow. Onboarding starts the user with one
+/// motivation, but every other pyramid layer is available to add here. A
+/// layer is never withheld merely because it comes later in the pyramid;
+/// Shellby can recommend an order without locking a user's choices.
 class AddGoalScreen extends StatefulWidget {
   const AddGoalScreen({super.key});
 
@@ -32,13 +26,10 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    // The Reflection Demo account is a showcase account: it can freely pick
-    // between the two OPEN layers (Cash Flow / Financial Safety), on
-    // repeat, with no pairing restriction or "already added" block. It does
-    // NOT unlock Accumulating Wealth or Financial Freedom — those stay
-    // locked for everyone (see `_addGoalOpenLayers`).
+    // The Reflection Demo account may re-open any layer on repeat. Real
+    // accounts can add every layer they do not already have on their Goals
+    // page, including Accumulating Wealth and Financial Freedom.
     final isDemo = _insightsIsReflectionDemoAccount(state);
-    final unlockedLayer = _addGoalUnlockMap[state.primaryConcern];
 
     return Scaffold(
       backgroundColor: _bg,
@@ -53,8 +44,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
       ),
       body: SafeArea(
         child: _chosenLayer == null
-            ? _buildLayerPicker(state,
-                isDemo: isDemo, unlockedLayer: unlockedLayer)
+            ? _buildLayerPicker(state, isDemo: isDemo)
             : _surfaceAnswer == null
                 ? _buildSurface(_chosenLayer!)
                 : !_actionsConfirmed
@@ -64,13 +54,11 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     );
   }
 
-  /// Every layer with its status: the user's own goals (achieved or in
-  /// progress) are never dimmed, the one they can add next is tappable, and
-  /// layers the app doesn't offer yet say "Coming soon".
+  /// Every layer with its status. A user's existing goals stay visible but
+  /// cannot be added twice; every other layer is tappable.
   Widget _buildLayerPicker(
     AppState state, {
     required bool isDemo,
-    required String? unlockedLayer,
   }) {
     final yourGoalIds = isDemo ? const <String>{} : _visibleGoalIds(state);
     _AddGoalLayerStatus statusOf(String layer) {
@@ -80,11 +68,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
             ? _AddGoalLayerStatus.achieved
             : _AddGoalLayerStatus.yourGoal;
       }
-      final open = _addGoalOpenLayers.contains(layer) &&
-          (isDemo || layer == unlockedLayer);
-      return open
-          ? _AddGoalLayerStatus.available
-          : _AddGoalLayerStatus.comingSoon;
+      return _AddGoalLayerStatus.available;
     }
 
     final statuses = {
@@ -99,14 +83,11 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
       message = 'Reflection Demo account — pick any layer to explore its '
           'goal and actions.';
     } else if (addable.isNotEmpty) {
-      message = 'Which goal do you want to add next? You can add '
-          '**${addable.first}** now. Your current goal stays as it is.';
-    } else if (unlockedLayer == null) {
-      message = "Adding a second goal isn't available for "
-          '${state.primaryConcern} yet. Your current goal stays as it is.';
+      message = 'Which motivation do you want to add? Your current goals '
+          'stay as they are, and you can choose any available layer.';
     } else {
-      message = "You're working on both goals you can have right now. "
-          'Accumulating Wealth and Financial Freedom are coming soon.';
+      message = "You're already tracking all four motivations. You can "
+          'review or adjust them from your Goals page.';
     }
 
     return ListView(
@@ -376,7 +357,7 @@ class _AddGoalActionTile extends StatelessWidget {
   }
 }
 
-enum _AddGoalLayerStatus { achieved, yourGoal, available, comingSoon }
+enum _AddGoalLayerStatus { achieved, yourGoal, available }
 
 /// One pyramid layer on the Add goal screen, labeled by [status].
 class _AddGoalLayerTile extends StatelessWidget {
@@ -412,13 +393,7 @@ class _AddGoalLayerTile extends StatelessWidget {
           Icons.add_circle_outline_rounded,
           _brand,
         ),
-      _AddGoalLayerStatus.comingSoon => (
-          'Coming soon',
-          Icons.schedule_rounded,
-          _body,
-        ),
     };
-    final comingSoon = status == _AddGoalLayerStatus.comingSoon;
     final available = status == _AddGoalLayerStatus.available;
     final owned = status == _AddGoalLayerStatus.achieved ||
         status == _AddGoalLayerStatus.yourGoal;
@@ -426,7 +401,7 @@ class _AddGoalLayerTile extends StatelessWidget {
       onTap: available ? onTap : null,
       borderRadius: BorderRadius.circular(22),
       child: Opacity(
-        opacity: comingSoon ? .5 : 1,
+        opacity: 1,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(16),

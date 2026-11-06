@@ -196,6 +196,28 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
       case 'A27':
         return perIncome(id, 'lifestyle_payday', 'Lifestyle Fund');
 
+      case 'A13':
+        final score = _investmentActionScoreFor(
+          id: id,
+          state: state,
+          monthStart: DateTime(now.year, now.month),
+        );
+        return score == null || score.pattern.isEmpty
+            ? (completion: null, detail: 'No unexpected income to invest yet')
+            : (completion: score.score, detail: score.detail);
+
+      case 'A14':
+        // A sweep is only due after a month closes. Score the latest completed
+        // month so an in-progress month cannot lower the Health Score.
+        final score = _investmentActionScoreFor(
+          id: id,
+          state: state,
+          monthStart: DateTime(now.year, now.month - 1),
+        );
+        return score == null || score.pattern.isEmpty
+            ? (completion: null, detail: 'No completed month to sweep yet')
+            : (completion: score.score, detail: score.detail);
+
       case 'A3': // category budgets, with D1 per category
         final budgets = <String, double>{};
         if (state.categorySpendingBudgets.isNotEmpty) {
