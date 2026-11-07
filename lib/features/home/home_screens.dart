@@ -3435,6 +3435,119 @@ Set<String> _visibleGoalIds(AppState state) {
   return (onTrack, visible.length);
 }
 
+// ─── Pyramid path (lightweight, derived tier progression) ───────────────────
+//
+// This is deliberately presentation-only. It translates the existing goal,
+// transaction, and fund evidence into a small progression view without
+// changing a person's selected motivations, action settings, or money.
+// Keeping the labels and thresholds here makes them easy to revise after UAT.
+enum _PyramidLayerStage { notStarted, current, completed, nextRecommended }
+
+class _PyramidLayerStatus {
+  const _PyramidLayerStatus({
+    required this.layer,
+    required this.goalId,
+    required this.stage,
+    required this.health,
+    required this.hasEvidence,
+  });
+
+  final String layer;
+  final String goalId;
+  final _PyramidLayerStage stage;
+  final String health;
+  final bool hasEvidence;
+
+  bool get isRevisitable =>
+      stage == _PyramidLayerStage.current ||
+      stage == _PyramidLayerStage.completed;
+}
+
+bool _hasPyramidLayerEvidence(AppState state, String layer) {
+  final hasLayerTransaction = state.allTransactions.any((transaction) {
+    if (!transaction.isLabeled || transaction.excludedFromInsights) {
+      return false;
+    }
+    return _insightCategoryConfig(transaction.category ?? '').$1 ==
+        _pyramidLayerDisplayOrder.indexOf(layer) + 1;
+  });
+  return switch (layer) {
+    _pyramidCashFlowLayer =>
+      hasLayerTransaction || state.monthlyEssentialExpenseTotal > 0,
+    _pyramidEmergencyLayer =>
+      hasLayerTransaction || state.financialSafetyBalance > 0,
+    _pyramidWealthLayer =>
+      hasLayerTransaction || state.investmentPortfolioValue > 0,
+    _pyramidFreedomLayer =>
+      hasLayerTransaction || state.lifestyleFundBalance > 0,
+    _ => hasLayerTransaction,
+  };
+}
+
+List<_PyramidLayerStatus> _pyramidLayerStatuses(AppState state) {
+  final visibleGoalIds = _visibleGoalIds(state);
+  final draft = <({
+    String layer,
+    String goalId,
+    bool active,
+    bool completed,
+    bool hasEvidence,
+  })>[];
+
+  for (final layer in _pyramidLayerDisplayOrder) {
+    // The catalog intentionally shares some legacy goal IDs between layers.
+    // Resolve each visible goal through the saved primary motivation/bucket
+    // mapping instead of treating a catalog membership as an active layer.
+    final activeGoals = visibleGoalIds
+        .where((id) => _motivationForGoalId(state, id) == layer)
+        .toList();
+    final goalId = activeGoals.firstOrNull ?? _layerCanonicalGoalId[layer]!;
+    final completed = activeGoals.any(
+      (id) =>
+          state.achievedGoalIds.contains(id) || _isGoalAchievedNow(id, state),
+    );
+    draft.add((
+      layer: layer,
+      goalId: goalId,
+      active: activeGoals.isNotEmpty,
+      completed: completed,
+      hasEvidence: _hasPyramidLayerEvidence(state, layer),
+    ));
+  }
+
+  // The first unfinished layer is the only recommendation. A current layer
+  // stays current until it is completed; higher layers never become locked.
+  final firstUnfinished = draft.indexWhere((entry) => !entry.completed);
+  return [
+    for (var index = 0; index < draft.length; index++)
+      () {
+        final entry = draft[index];
+        final stage = entry.completed
+            ? _PyramidLayerStage.completed
+            : entry.active
+                ? _PyramidLayerStage.current
+                : index == firstUnfinished
+                    ? _PyramidLayerStage.nextRecommended
+                    : _PyramidLayerStage.notStarted;
+        final health = !entry.hasEvidence
+            ? 'Not enough data'
+            : entry.completed ||
+                    (entry.active && _isGoalOnTrack(entry.goalId, state))
+                ? 'Healthy'
+                : entry.active
+                    ? 'Needs attention'
+                    : 'Opportunity';
+        return _PyramidLayerStatus(
+          layer: entry.layer,
+          goalId: entry.goalId,
+          stage: stage,
+          health: health,
+          hasEvidence: entry.hasEvidence,
+        );
+      }(),
+  ];
+}
+
 class _CashFlowPyramidContent extends StatelessWidget {
   const _CashFlowPyramidContent({required this.state});
   final AppState state;
@@ -18133,6 +18246,14 @@ class _D1GoalsMenu extends StatelessWidget {
           child: _WeeklyProgressCard(onTrack: onTrack, total: total),
         ),
         const SizedBox(height: 14),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: _PyramidPathCard(
+            statuses: _pyramidLayerStatuses(state),
+            onOpenGoal: onGoal,
+          ),
+        ),
+        const SizedBox(height: 14),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Text(
@@ -18200,6 +18321,153 @@ class _WeeklyProgressCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PyramidPathCard extends StatelessWidget {
+  const _PyramidPathCard({
+    required this.statuses,
+    required this.onOpenGoal,
+  });
+
+  final List<_PyramidLayerStatus> statuses;
+  final ValueChanged<String> onOpenGoal;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.account_tree_rounded, color: _purple, size: 19),
+              SizedBox(width: 8),
+              Text(
+                'Pyramid path',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'A light guide based on your current goals and recorded evidence.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (var index = 0; index < statuses.length; index++) ...[
+            _PyramidPathRow(
+              status: statuses[index],
+              onTap: statuses[index].isRevisitable
+                  ? () => onOpenGoal(statuses[index].goalId)
+                  : null,
+            ),
+            if (index < statuses.length - 1)
+              const Padding(
+                padding: EdgeInsets.only(left: 15),
+                child: SizedBox(
+                  height: 8,
+                  child: VerticalDivider(color: _border, width: 1),
+                ),
+              ),
+          ],
+          const SizedBox(height: 6),
+          const Text(
+            'Completed and current layers stay available to revisit.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PyramidPathRow extends StatelessWidget {
+  const _PyramidPathRow({required this.status, this.onTap});
+
+  final _PyramidLayerStatus status;
+  final VoidCallback? onTap;
+
+  Color get _stageColor => switch (status.stage) {
+        _PyramidLayerStage.completed => _sage,
+        _PyramidLayerStage.current => _brand,
+        _PyramidLayerStage.nextRecommended => _purple,
+        _PyramidLayerStage.notStarted => _body,
+      };
+
+  String get _stageLabel => switch (status.stage) {
+        _PyramidLayerStage.completed => 'Completed',
+        _PyramidLayerStage.current => 'Current',
+        _PyramidLayerStage.nextRecommended => 'Next recommended',
+        _PyramidLayerStage.notStarted => 'Not started',
+      };
+
+  IconData get _stageIcon => switch (status.stage) {
+        _PyramidLayerStage.completed => Icons.check_circle_rounded,
+        _PyramidLayerStage.current => Icons.play_circle_fill_rounded,
+        _PyramidLayerStage.nextRecommended => Icons.lightbulb_rounded,
+        _PyramidLayerStage.notStarted => Icons.circle_outlined,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Icon(_stageIcon, color: _stageColor, size: 30),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status.layer,
+                  style: const TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  '${_stageLabel} · ${status.health}',
+                  style: TextStyle(
+                    color: _stageColor,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            const Icon(Icons.chevron_right_rounded, color: _body, size: 19),
+        ],
+      ),
+    );
+    if (onTap == null) return row;
+    return Semantics(
+      button: true,
+      label: 'Review $status.layer',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: row,
       ),
     );
   }
