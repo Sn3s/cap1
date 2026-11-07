@@ -51,6 +51,11 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
       return;
     }
 
+    _loadMoreTransactions();
+  }
+
+  void _loadMoreTransactions() {
+    if (_visibleTransactionCount >= _filteredTransactionCount) return;
     setState(() {
       _visibleTransactionCount = math.min(
         _visibleTransactionCount + _transactionsPerPage,
@@ -226,16 +231,30 @@ class _RecentActivityPageState extends State<RecentActivityPage> {
                         );
                       }),
                       if (hasOlderTransactions)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 4, bottom: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 12),
                           child: Center(
-                            child: Text(
-                              'Scroll down to load older transactions',
-                              style: TextStyle(
-                                color: _body,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  'Scroll down or load older transactions',
+                                  style: TextStyle(
+                                    color: _body,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: _loadMoreTransactions,
+                                  icon: const Icon(Icons.expand_more_rounded,
+                                      size: 18),
+                                  label: Text(
+                                    'Load ${math.min(_transactionsPerPage, _filteredTransactionCount - _visibleTransactionCount)} more',
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),

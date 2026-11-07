@@ -4385,6 +4385,95 @@ const _insightsMotivationTabs = <(String motivation, String label)>[
   ('Financial Freedom', 'Financial freedom'),
 ];
 
+/// A compact change key for the data used by [IntegrationService]. It lets a
+/// screen reuse its prepared history across harmless rebuilds, but rebuilds it
+/// after a label, amount, date, source, or Jar event changes.
+int _analyticsInputKey(AppState state) {
+  var key = Object.hash(
+    state.needsTarget,
+    state.needsPercent,
+    state.salaryWeekday,
+    state.allTransactions.length,
+    state.jarLedger.length,
+  );
+  for (final transaction in state.allTransactions) {
+    key = Object.hash(
+      key,
+      transaction.transactionId,
+      transaction.createdAt?.microsecondsSinceEpoch,
+      transaction.amount,
+      transaction.category,
+      transaction.source,
+      transaction.excludedFromInsights,
+    );
+  }
+  for (final event in state.jarLedger) {
+    key = Object.hash(
+      key,
+      event.timestamp.microsecondsSinceEpoch,
+      event.type,
+      event.needsIn,
+      event.needsOut,
+      event.bufferIn,
+      event.bufferOut,
+    );
+  }
+  return key;
+}
+
+class _LargeHistoryLoadingPage extends StatelessWidget {
+  const _LargeHistoryLoadingPage({
+    required this.eyebrow,
+    required this.title,
+    required this.message,
+  });
+
+  final String eyebrow;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+      children: [
+        PageHeader(eyebrow: eyebrow, title: title),
+        const SizedBox(height: 24),
+        AppCard(
+          child: Column(
+            children: [
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Preparing your history',
+                style: TextStyle(
+                  color: _title,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _body,
+                  height: 1.35,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 bool _insightsGoalAdopted(AppState state, String goalId) {
   final actionIds = _goalActionIds[goalId] ?? const <String>[];
   return actionIds.any(state.selectedActionIds.contains);
@@ -4440,15 +4529,53 @@ class _InsightsPageState extends State<InsightsPage> {
   int _goal = 0;
   DateTime? _selectedWeek;
   DateTime? _selectedMonth;
+  IntegrationService? _preparedService;
+  int? _preparedServiceKey;
+  bool _preparingAnalytics = false;
   final _actionStageKey = GlobalKey();
   final _emergencyActionStageKey = GlobalKey();
   final _investmentActionStageKey = GlobalKey();
   final _freedomActionStageKey = GlobalKey();
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _prepareLargeHistoryAnalytics(AppScope.of(context));
+  }
+
+  void _prepareLargeHistoryAnalytics(AppState state) {
+    final key = _analyticsInputKey(state);
+    if (_preparedServiceKey == key &&
+        (_preparedService != null || _preparingAnalytics)) {
+      return;
+    }
+    if (state.allTransactions.length < 1000) {
+      _preparedService = IntegrationService.fromState(state);
+      _preparedServiceKey = key;
+      _preparingAnalytics = false;
+      return;
+    }
+    _preparedService = null;
+    _preparedServiceKey = key;
+    _preparingAnalytics = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Let the loading card paint before the synchronous Dart aggregation
+      // begins. Flutter web has no separate isolate for this app's state, so
+      // this is the honest, visible buffer around large local calculations.
+      await Future<void>.delayed(Duration.zero);
+      final service = IntegrationService.fromState(state);
+      if (!mounted || _preparedServiceKey != key) return;
+      setState(() {
+        _preparedService = service;
+        _preparingAnalytics = false;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final service = IntegrationService.fromState(state);
+    final service = _preparedService;
     // The Reflection Demo account shows every motivation tab; real accounts
     // only show the motivation layer they picked or explicitly added.
     final adopted = _insightsVisibleMotivations(state);
@@ -4463,6 +4590,14 @@ class _InsightsPageState extends State<InsightsPage> {
     final hasAnyTransactions = _hasAnyInsightTransactionData(state);
     final hasUsableTransactions = _insightsIsReflectionDemoAccount(state) ||
         _hasUsableInsightTransactionData(state);
+
+    if (service == null || _preparingAnalytics) {
+      return const _LargeHistoryLoadingPage(
+        eyebrow: 'REFLECTION',
+        title: 'Goal Insights',
+        message: 'Preparing your transaction history and goal analytics…',
+      );
+    }
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 32),
@@ -18220,11 +18355,46 @@ class GoalsPage extends StatefulWidget {
 
 class _GoalsPageState extends State<GoalsPage> {
   String? _activeGoalId; // null = list view, 'G1' or 'G3' = detail
+  IntegrationService? _preparedService;
+  int? _preparedServiceKey;
+  bool _preparingAnalytics = false;
 
   @override
   void initState() {
     super.initState();
     _activeGoalId = widget.initialGoalId;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _prepareLargeHistoryAnalytics(AppScope.of(context));
+  }
+
+  void _prepareLargeHistoryAnalytics(AppState state) {
+    final key = _analyticsInputKey(state);
+    if (_preparedServiceKey == key &&
+        (_preparedService != null || _preparingAnalytics)) {
+      return;
+    }
+    if (state.allTransactions.length < 1000) {
+      _preparedService = IntegrationService.fromState(state);
+      _preparedServiceKey = key;
+      _preparingAnalytics = false;
+      return;
+    }
+    _preparedService = null;
+    _preparedServiceKey = key;
+    _preparingAnalytics = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(Duration.zero);
+      final service = IntegrationService.fromState(state);
+      if (!mounted || _preparedServiceKey != key) return;
+      setState(() {
+        _preparedService = service;
+        _preparingAnalytics = false;
+      });
+    });
   }
 
   void openGoal(String goalId) {
@@ -18241,15 +18411,26 @@ class _GoalsPageState extends State<GoalsPage> {
         onBack: () => setState(() => _activeGoalId = null),
       );
     }
-    return _D1GoalsMenu(onGoal: (id) => setState(() => _activeGoalId = id));
+    if (_preparedService == null || _preparingAnalytics) {
+      return const _LargeHistoryLoadingPage(
+        eyebrow: 'MY GOALS',
+        title: 'Goals',
+        message: 'Preparing progress, streaks, and goal health…',
+      );
+    }
+    return _D1GoalsMenu(
+      service: _preparedService!,
+      onGoal: (id) => setState(() => _activeGoalId = id),
+    );
   }
 }
 
 // ─── Goals menu ───────────────────────────────────────────────────────────────
 
 class _D1GoalsMenu extends StatelessWidget {
-  const _D1GoalsMenu({required this.onGoal});
+  const _D1GoalsMenu({required this.onGoal, required this.service});
   final ValueChanged<String> onGoal;
+  final IntegrationService service;
 
   @override
   Widget build(BuildContext context) {
@@ -18313,7 +18494,11 @@ class _D1GoalsMenu extends StatelessWidget {
             children: [
               for (final goal in _d1GoalMetas)
                 if (visibleGoalIds.contains(goal.id)) ...[
-                  _D1GoalCard(goal: goal, onTap: () => onGoal(goal.id)),
+                  _D1GoalCard(
+                    goal: goal,
+                    service: service,
+                    onTap: () => onGoal(goal.id),
+                  ),
                   const SizedBox(height: 14),
                 ],
             ],
@@ -18681,7 +18866,11 @@ const _streakIncomeGrace = Duration(days: 3);
 /// - no fixed schedule (A10, A22, A23, A29): every contribution is +1.
 /// - A19: +1 while the Essential Expenses Fund is at or above its floor.
 /// - A30: +1 for each weekly valuation at or above the target's weekly pace.
-int _motivationStreak(String goalId, AppState state) {
+int _motivationStreak(
+  String goalId,
+  AppState state, {
+  IntegrationService? service,
+}) {
   final actions = (_goalActionIds[goalId] ?? const <String>[])
       .where(state.selectedActionIds.contains)
       .toSet();
@@ -18720,14 +18909,14 @@ int _motivationStreak(String goalId, AppState state) {
   // Monthly, judged with the Insights action scores.
   const monthlyIds = {'A3', 'A9', 'A20', 'A26'};
   if (actions.any(monthlyIds.contains)) {
-    final service = IntegrationService.fromState(state);
+    final currentService = service ?? IntegrationService.fromState(state);
     final currentMonth = DateTime(now.year, now.month);
     for (var offset = 3; offset >= 0; offset--) {
       final month = DateTime(now.year, now.month - offset);
       final monthEnd = DateTime(month.year, month.month + 1)
           .subtract(const Duration(seconds: 1));
       final scores =
-          _monthlyActionScores(state, goalId, month, service: service);
+          _monthlyActionScores(state, goalId, month, service: currentService);
       for (final score in scores) {
         if (!monthlyIds.contains(score.id) || !actions.contains(score.id)) {
           continue;
@@ -18799,15 +18988,20 @@ int _motivationStreak(String goalId, AppState state) {
 }
 
 class _D1GoalCard extends StatelessWidget {
-  const _D1GoalCard({required this.goal, required this.onTap});
+  const _D1GoalCard({
+    required this.goal,
+    this.service,
+    required this.onTap,
+  });
   final _D1GoalMeta goal;
+  final IntegrationService? service;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final actionCount = _goalDetailActionsFor(context, goal).length;
-    final streak = _motivationStreak(goal.id, state);
+    final streak = _motivationStreak(goal.id, state, service: service);
     final percent = _goalPercent(goal.id, state);
     final accent = _goalProgressColor(goal.id, percent);
     final layer = goal.layerColor;

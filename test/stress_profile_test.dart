@@ -123,8 +123,11 @@ void main() {
         child: const MaterialApp(home: Scaffold(body: GoalsPage())),
       ),
     );
-    await tester.pump();
-    expect(find.text('Goals'), findsOneWidget);
+    expect(find.text('Preparing your history'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(
+        find.text('Track your progress and actions for each financial goal.'),
+        findsOneWidget);
 
     await tester.pumpWidget(
       AppScope(
@@ -132,7 +135,8 @@ void main() {
         child: const MaterialApp(home: Scaffold(body: InsightsPage())),
       ),
     );
-    await tester.pump();
+    expect(find.text('Preparing your history'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
     expect(find.text('Goal Insights'), findsOneWidget);
     await tester.tap(find.text('Available cash'));
     await tester.pump();
