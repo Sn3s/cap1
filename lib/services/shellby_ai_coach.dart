@@ -120,6 +120,68 @@ class ShellbyAiCoach {
     );
   }
 
+  /// Answers only a narrow class of factual history-count questions. These
+  /// figures must remain stable even when an LLM is unavailable or when the
+  /// ledger has a different number of analysis-eligible records than rows.
+  AiChatReply? _transactionCountReply(
+    _AiChatSnapshot snapshot,
+    List<ChatMessage> messages,
+  ) {
+    String? latestUserText;
+    for (final message in messages.reversed) {
+      if (message.fromUser) {
+        latestUserText = message.text.toLowerCase();
+        break;
+      }
+    }
+    if (latestUserText == null) return null;
+
+    final mentionsTransaction = RegExp(
+      r'\b(?:transactions?|transaction history|records?)\b',
+    ).hasMatch(latestUserText);
+    final asksForCount = RegExp(
+      r'\b(?:how many|number(?:\s+of)?|total|count|all)\b',
+    ).hasMatch(latestUserText);
+    final latestUserIndex = messages.lastIndexWhere(
+      (message) => message.fromUser,
+    );
+    final precedingAssistantText = latestUserIndex > 0
+        ? messages[latestUserIndex - 1].text.toLowerCase()
+        : '';
+    final correctsRecentCount = RegExp(
+          r'\b(?:not|is(?:\s+it)?|isn.?t|should(?:n.?t)?|rather)\b',
+        ).hasMatch(latestUserText) &&
+        RegExp(r'\d').hasMatch(latestUserText) &&
+        precedingAssistantText.contains('transaction') &&
+        RegExp(r'\b(?:recorded|total|history|labelled|unlabelled)\b')
+            .hasMatch(precedingAssistantText);
+    if (!(mentionsTransaction && asksForCount) && !correctsRecentCount) {
+      return null;
+    }
+
+    final total = snapshot.totalRecordCount;
+    final totalLabel = total == 1 ? 'transaction' : 'transactions';
+    final analysisLabel =
+        snapshot.analysisRecordCount == 1 ? 'record' : 'records';
+    final answer = <String>[
+      'You have recorded $total $totalLabel in the app through ${snapshot.latestDatedRecord}.',
+      if (snapshot.internalTransferCount > 0)
+        '${snapshot.internalTransferCount} ${snapshot.internalTransferCount == 1 ? 'is' : 'are'} internal transfers or fund allocations. ${snapshot.internalTransferCount == 1 ? 'It' : 'They'} ${snapshot.internalTransferCount == 1 ? 'is' : 'are'} included in the history total, but excluded from income and spending.',
+      'For financial analysis, Shellby uses ${snapshot.analysisRecordCount} external dated $analysisLabel: ${snapshot.labelledAnalysisRecordCount} labelled and ${snapshot.unlabelledAnalysisRecordCount} unlabelled.',
+      if (snapshot.unlabelledAnalysisRecordCount > 0)
+        'Income and spending totals are partial until those unlabelled records are classified.',
+    ].join(' ');
+
+    return AiChatReply(
+      answer: answer,
+      basis: '$total recorded $totalLabel; '
+          '${snapshot.labelledAnalysisRecordCount} labelled, non-transfer $analysisLabel through ${snapshot.latestDatedRecord}',
+      // The history count itself is complete. Any unlabelled rows affect
+      // income/spending analysis, which the answer explains separately.
+      dataStatus: AiChatDataStatus.enoughData,
+    );
+  }
+
   Future<ActionStageResult> recommendAvailableCashActionStage({
     required AppState state,
   }) async {
@@ -1100,6 +1162,14 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
         snapshot: _buildAiChatSnapshot(state, messages),
       );
 
+  /// Regression hook for exact history-count answers, which intentionally do
+  /// not call Gemini because they are a direct app calculation.
+  AiChatReply? transactionCountReplyForTesting(
+    AppState state,
+    List<ChatMessage> messages,
+  ) =>
+      _transactionCountReply(_buildAiChatSnapshot(state, messages), messages);
+
   AiChatDataStatus chatDataStatusForTesting(
     AppState state,
     List<ChatMessage> messages,
@@ -1534,11 +1604,27 @@ class _AiChatSnapshot {
     required this.text,
     required this.defaultBasis,
     required this.dataStatus,
+    required this.totalRecordCount,
+    required this.datedRecordCount,
+    required this.analysisRecordCount,
+    required this.labelledAnalysisRecordCount,
+    required this.unlabelledAnalysisRecordCount,
+    required this.internalTransferCount,
+    required this.excludedRecordCount,
+    required this.latestDatedRecord,
   });
 
   final String text;
   final String defaultBasis;
   final AiChatDataStatus dataStatus;
+  final int totalRecordCount;
+  final int datedRecordCount;
+  final int analysisRecordCount;
+  final int labelledAnalysisRecordCount;
+  final int unlabelledAnalysisRecordCount;
+  final int internalTransferCount;
+  final int excludedRecordCount;
+  final String latestDatedRecord;
 }
 
 /// FNV-1a hash of the data an Action stage review was based on, the same on
@@ -2107,6 +2193,7 @@ Rules:
 - Use PHP/peso amounts when discussing money.
 - Questions about the user's own balances, transactions, calculations, scores, goal health, motivation layers, budgets, bills, trends, and app screens are allowed. Answer them directly when the canonical snapshot contains the needed evidence; do not call these questions disallowed or financial advice.
 - The CANONICAL SHELLBY SNAPSHOT is the numerical source of truth. Never recompute or contradict a value supplied there. If supplementary screen wording differs from it, use the snapshot and briefly explain the accounting basis.
+- For a question asking how many transactions the user has had, use only “Total recorded transaction rows” from the snapshot. It includes internal transfers and is not interchangeable with the smaller financial-analysis count. Do not say the user is short of a round-number target unless the snapshot explicitly identifies that target as a goal.
 - When a MATCH SUMMARY is provided, use its total rather than adding the individual matching records yourself; the record list is evidence and may be truncated.
 - State the supplied timeframe or data basis when it materially affects the answer. Distinguish no activity, missing records, unlabelled records, and incomplete history from zero.
 - You may explain what a screen, goal, balance, transaction, score, formula, or pattern means; give data-grounded options and simple what-if arithmetic only from supplied numbers.
