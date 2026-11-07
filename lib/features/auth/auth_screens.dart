@@ -267,6 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   String? selectedPresetEmail;
+  int? selectedStressTransactionCount;
   bool busy = false;
 
   @override
@@ -299,6 +300,13 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) setState(() => busy = false);
     }
   }
+
+  Future<void> _openStressProfile(int transactionCount) => _runAuth(
+        (state) async {
+          state.seedStressTestDataForTesting(transactionCount);
+        },
+        validateForm: false,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -443,6 +451,51 @@ class _LoginScreenState extends State<LoginScreen> {
                           validateForm: false,
                         ),
                       ),
+                      // Like the Reflection demo, these are deliberately
+                      // available to UAT builds. Selecting one creates a
+                      // local-only profile and never authenticates or writes
+                      // the synthetic history to Firebase.
+                      ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int>(
+                          value: selectedStressTransactionCount,
+                          isExpanded: true,
+                          decoration:
+                              inputDecoration('Open local stress profile')
+                                  .copyWith(
+                            helperText:
+                                'Local synthetic data only. It is never saved to Firebase.',
+                            prefixIcon: const Icon(
+                              Icons.speed_rounded,
+                              color: _body,
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 100,
+                              child: Text('100 transactions · regular income'),
+                            ),
+                            DropdownMenuItem(
+                              value: 1000,
+                              child:
+                                  Text('1,000 transactions · irregular income'),
+                            ),
+                            DropdownMenuItem(
+                              value: 10000,
+                              child: Text('10,000 transactions · all goals'),
+                            ),
+                          ],
+                          onChanged: busy
+                              ? null
+                              : (count) {
+                                  if (count == null) return;
+                                  setState(() {
+                                    selectedStressTransactionCount = count;
+                                  });
+                                  _openStressProfile(count);
+                                },
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         value: selectedPresetEmail,

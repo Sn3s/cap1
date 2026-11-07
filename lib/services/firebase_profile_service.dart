@@ -8,7 +8,17 @@ class FirebaseProfileService {
   static const _webClientId =
       '837901302693-40aao89shd99d4obt9pph1uvgrkqnt13.apps.googleusercontent.com';
 
-  static User? get currentUser => _isWebQa ? null : _auth.currentUser;
+  /// Preview, widget-test, and offline/demo states may exist before Firebase
+  /// has been initialized. Treat that exactly like a signed-out session so a
+  /// non-persistent screen interaction cannot crash while trying to save.
+  static User? get currentUser {
+    if (_isWebQa) return null;
+    try {
+      return _auth.currentUser;
+    } on FirebaseException {
+      return null;
+    }
+  }
 
   static DocumentReference<Map<String, dynamic>> _profileRef(String uid) {
     return _firestore.collection('profiles').doc(uid);

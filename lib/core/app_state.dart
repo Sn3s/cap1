@@ -1950,6 +1950,474 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Loads a deterministic, local-only performance fixture. These profiles
+  /// deliberately never authenticate or save to Firebase: they let us inspect
+  /// the actual application screens with a large FakeMaya history without
+  /// risking a production profile/document.
+  void seedStressTestDataForTesting(int transactionCount) {
+    const supportedCounts = {100, 1000, 10000};
+    if (!supportedCounts.contains(transactionCount)) {
+      throw ArgumentError.value(
+        transactionCount,
+        'transactionCount',
+        'Stress profiles support 100, 1,000, or 10,000 transactions.',
+      );
+    }
+
+    // Keep the Reflection profile's onboarding, selected actions, and goal
+    // setup, but replace its financial history completely.  A stress profile
+    // must never be a large transaction list sitting beside an unrelated
+    // ledger: every generated cash-in and fund-backed expense below has a
+    // corresponding allocation or use record.
+    _applyReflectionDemoProfile(null);
+    _seedDemoEngagement();
+    jarLedger.clear();
+    d1Ledger.clear();
+    investmentValuationHistory.clear();
+    billObligations.clear();
+    processedIncomeTransactionIds.clear();
+    transactionLabelRules.clear();
+    merchantCategoryRules.clear();
+    // The stress plan allocates 35% / 10% / 10% / 10% across the four
+    // buckets. Keep its active-action targets aligned with that fact; this
+    // prevents a Reflection/action score from judging valid fixture data
+    // against the Reflection demo's former 55% cash-flow target.
+    actionFieldValues['A1'] = {'pct': '35'};
+    income = 52000;
+    variableIncomeBaseline = 52000;
+    irregularIncomeFloor = 40000;
+    onboardingIncomeLedger
+      ..clear()
+      ..add({
+        'name': 'Mixed client and payroll income',
+        'amount': 52000.0,
+        'stable': false,
+        'scheduled': false,
+        'payDay': null,
+      });
+    final now = AppClock.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final historyDays = switch (transactionCount) {
+      100 => 180,
+      1000 => 730,
+      // At 10,000 records this remains a plausible, multi-year personal
+      // history instead of inventing an implausible number of purchases in a
+      // few months. It also gives recurring and trend screens enough periods.
+      _ => 4380,
+    };
+    final start = today.subtract(Duration(days: historyDays));
+    final random = math.Random(2513 + transactionCount);
+    final transactions = <FakeMayaTransaction>[];
+
+    void add({
+      required String id,
+      required String title,
+      required String detail,
+      required double amount,
+      required DateTime date,
+      String? category,
+      String? source,
+      String? tag,
+      bool excludedFromInsights = false,
+      IncomeClassification? incomeClassification,
+    }) {
+      if (transactions.length >= transactionCount) return;
+      transactions.add(FakeMayaTransaction(
+        id: id,
+        title: title,
+        detail: detail,
+        age: 'Seeded stress fixture',
+        amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
+        createdAt: date,
+        category: category,
+        source: source,
+        tag: tag,
+        excludedFromInsights: excludedFromInsights,
+        incomeClassification: incomeClassification,
+        labeledAt: category == null ? null : date,
+      ));
+    }
+
+    // Scheduled events give every profile a coherent financial history:
+    // income, recurring bills, internal allocations, and occasional
+    // recoverable emergencies. The remaining rows below simulate ordinary
+    // day-to-day activity at the selected volume.
+    for (var monthOffset = 0;; monthOffset++) {
+      final month = DateTime(start.year, start.month + monthOffset);
+      if (month.isAfter(today) || transactions.length >= transactionCount) {
+        break;
+      }
+      final isCurrentMonth =
+          month.year == today.year && month.month == today.month;
+      final incomeDay = isCurrentMonth ? math.max(1, today.day - 1) : 15;
+      final incomeAt = DateTime(month.year, month.month, incomeDay, 9);
+      final income = 48000.0 + (random.nextInt(9) * 1000);
+      add(
+        id: 'stress-income-$transactionCount-$monthOffset',
+        title: 'Cash in',
+        detail:
+            'From: ${monthOffset.isEven ? 'Client payment' : 'Employer payroll'}',
+        amount: income,
+        date: incomeAt,
+        category: monthOffset.isEven ? 'Business income' : 'Salary',
+        source: 'E-wallet',
+        incomeClassification: monthOffset.isEven
+            ? IncomeClassification.irregular
+            : IncomeClassification.regular,
+      );
+      add(
+        id: 'stress-transfer-$transactionCount-$monthOffset',
+        title: 'Fund allocation',
+        detail: 'To: Shellby goal funds',
+        amount: -(income * .65),
+        date: incomeAt.add(const Duration(minutes: 5)),
+        category: 'Transfer',
+        source: 'E-wallet',
+      );
+
+      for (final bill in <(int, String, String, double, String)>[
+        (5, 'Rent payment', 'To: Rent share', 6500, 'Housing'),
+        (12, 'Bill payment', 'To: Meralco', 2400, 'Bills & utilities'),
+        (18, 'Subscription payment', 'To: Netflix', 549, 'Entertainment'),
+        (22, 'Subscription payment', 'To: Spotify', 149, 'Entertainment'),
+      ]) {
+        if (isCurrentMonth && bill.$1 > today.day) continue;
+        add(
+          id: 'stress-bill-$transactionCount-$monthOffset-${bill.$1}',
+          title: bill.$2,
+          detail: bill.$3,
+          amount: -bill.$4,
+          date: DateTime(month.year, month.month, bill.$1, 10),
+          category: bill.$5,
+          source: bill.$5 == 'Entertainment'
+              ? 'Personal Lifestyle Fund'
+              : 'Basic Needs Fund',
+        );
+      }
+
+      if (monthOffset > 0 && monthOffset % 3 == 0) {
+        final emergencyDay = isCurrentMonth ? math.max(1, today.day - 2) : 24;
+        add(
+          id: 'stress-emergency-$transactionCount-$monthOffset',
+          title: 'Emergency payment',
+          detail: 'To: Urgent care clinic',
+          amount: -(2200 + random.nextInt(3800)).toDouble(),
+          date: DateTime(month.year, month.month, emergencyDay, 14),
+          category: 'Health',
+          source: 'Emergency Fund',
+          tag: 'Unexpected expense',
+        );
+      }
+    }
+
+    const merchants = <(String, String, String)>[
+      ('Grocery purchase', 'To: Grocery and meals', 'Food & drink'),
+      ('Paid merchant', 'To: Grab transport', 'Transport'),
+      ('Paid merchant', 'To: Watsons', 'Healthcare'),
+      ('Paid merchant', 'To: Daily merchant', 'Shopping'),
+      ('Bill payment', 'To: Water utility', 'Bills & utilities'),
+    ];
+    while (transactions.length < transactionCount) {
+      final index = transactions.length;
+      final minutes =
+          (historyDays * 24 * 60 * index / transactionCount).floor();
+      final date = start.add(Duration(minutes: minutes));
+      final merchant = merchants[index % merchants.length];
+      final isInternalTransfer = index % 20 == 0;
+      final isUnlabelled = index % 13 == 0;
+      if (isInternalTransfer) {
+        add(
+          id: 'stress-internal-$transactionCount-$index',
+          title: 'Fund transfer',
+          detail: 'To: Personal goal',
+          amount: -(500 + random.nextInt(1500)).toDouble(),
+          date: date,
+          category: 'Transfer',
+          source: 'E-wallet',
+        );
+      } else {
+        add(
+          id: 'stress-spend-$transactionCount-$index',
+          title: merchant.$1,
+          detail: merchant.$2,
+          amount: -(120 + random.nextInt(380)).toDouble(),
+          date: date,
+          category: isUnlabelled ? null : merchant.$3,
+          source: isUnlabelled
+              ? null
+              : merchant.$3 == 'Shopping'
+                  ? 'Personal Lifestyle Fund'
+                  : 'Basic Needs Fund',
+        );
+      }
+    }
+    // Reconstruct the same fund flow the user would create in the app. The
+    // entries intentionally use normal production ledger types, so Cash
+    // Flow, goals, health, recovery, Insights and the canonical Chat snapshot
+    // all read the same history during a stress run.
+    var essentialBalance = 20000.0;
+    var emergencyBalance = 30000.0;
+    var investmentFundBalance = 50000.0;
+    var lifestyleBalance = 10000.0;
+    var needs = 9000.0;
+    var buffer = 5000.0;
+    DateTime? latestEmergency;
+    final chronological = List<FakeMayaTransaction>.from(transactions)
+      ..sort((a, b) => (a.createdAt ?? today).compareTo(b.createdAt ?? today));
+
+    void addLedger(String type, DateTime date, double amount, {
+      String? sourceTransactionId,
+      String? destination,
+      String? label,
+      Map<String, dynamic> extra = const {},
+    }) {
+      d1Ledger.add({
+        'type': type,
+        'date': date.toIso8601String(),
+        'amount': amount,
+        if (sourceTransactionId != null) 'sourceTransactionId': sourceTransactionId,
+        if (destination != null) 'destination': destination,
+        if (label != null) 'label': label,
+        ...extra,
+      });
+    }
+
+    for (final transaction in chronological) {
+      final date = transaction.createdAt ?? today;
+      final id = transaction.transactionId;
+      if (transaction.amount > 0 && _isEssentialIncomeCandidate(transaction)) {
+        final income = transaction.amount;
+        final essential = income * .35;
+        final emergency = income * .10;
+        final investment = income * .10;
+        final lifestyle = income * .10;
+        essentialBalance += essential;
+        emergencyBalance += emergency;
+        investmentFundBalance += investment;
+        lifestyleBalance += lifestyle;
+        final toNeeds = math
+            .min(essential, math.max(0, needsTarget - needs))
+            .toDouble();
+        final toBuffer = (essential - toNeeds).toDouble();
+        needs += toNeeds;
+        buffer += toBuffer;
+        jarLedger.add(JarEvent(
+          timestamp: date,
+          type: JarEventType.income,
+          needsIn: toNeeds,
+          needsOut: 0,
+          bufferIn: toBuffer,
+          bufferOut: 0,
+          sourceTransactionId: id,
+          sentence: '${money(income)} cash-in allocated to Needs and Buffer',
+        ));
+        addLedger('essential_deposit', date, essential,
+            sourceTransactionId: id,
+            destination: 'Essential Expenses Fund',
+            extra: {
+              'sourceDate': date.toIso8601String(),
+              'incomeAmount': income,
+              'percentage': 35.0,
+              'allocationMode': 'coordinated_payday',
+            });
+        addLedger('emergency_deposit', date, emergency,
+            sourceTransactionId: id,
+            destination: 'Emergency Fund',
+            extra: {
+              'sourceDate': date.toIso8601String(),
+              'incomeAmount': income,
+              'percentage': 10.0,
+              'allocationMode': 'coordinated_payday',
+            });
+        addLedger('investment_deposit', date, investment,
+            sourceTransactionId: id,
+            destination: 'Investment Portfolio',
+            extra: {
+              'sourceDate': date.toIso8601String(),
+              'incomeAmount': income,
+              'percentage': 10.0,
+              'allocationMode': 'coordinated_payday',
+            });
+        addLedger('lifestyle_payday', date, lifestyle,
+            sourceTransactionId: id,
+            destination: 'Personal Lifestyle Fund',
+            extra: {
+              'sourceDate': date.toIso8601String(),
+              'incomeAmount': income,
+              'percentage': 10.0,
+              'allocationMode': 'coordinated_payday',
+            });
+        addLedger('payday_allocation_plan', date, 0,
+            sourceTransactionId: id,
+            extra: {
+              'incomeAmount': income,
+              'essentialExpenses': essential,
+              'unpaidBills': 0.0,
+              'emergencyFund': emergency,
+              'investmentFund': investment,
+              'lifestyleFund': lifestyle,
+              'unassigned': income * .35,
+              'shortfall': 0.0,
+            });
+        processedIncomeTransactionIds.add(id);
+        continue;
+      }
+      if (transaction.amount >= 0 || transaction.isInternalFakeMayaTransfer) {
+        continue;
+      }
+      final spent = transaction.amount.abs();
+      if (transaction.source == 'Emergency Fund') {
+        emergencyBalance = math.max(0, emergencyBalance - spent);
+        latestEmergency = date;
+        addLedger('use_emergency', date, spent,
+            sourceTransactionId: id,
+            destination: 'Emergency Fund',
+            label: 'Unexpected expense recovery');
+        jarLedger.add(JarEvent(
+          timestamp: date,
+          type: JarEventType.unexpectedExpense,
+          needsIn: 0,
+          needsOut: 0,
+          bufferIn: 0,
+          bufferOut: 0,
+          emergencyOut: spent,
+          sourceTransactionId: id,
+          sentence: '${money(spent)} unexpected cost covered by Emergency Fund',
+        ));
+      } else if (transaction.source == 'Personal Lifestyle Fund') {
+        lifestyleBalance = math.max(0, lifestyleBalance - spent);
+        addLedger('lifestyle_spend', date, spent,
+            sourceTransactionId: id,
+            destination: 'Personal Lifestyle Fund', label: transaction.title);
+      } else if (transaction.source == 'Basic Needs Fund') {
+        essentialBalance = math.max(0, essentialBalance - spent);
+        final needsOut = math.min(needs, spent);
+        final bufferOut = spent - needsOut;
+        needs = math.max(0, needs - needsOut);
+        buffer = math.max(0, buffer - bufferOut);
+        addLedger('use_essential', date, spent,
+            sourceTransactionId: id,
+            destination: 'Essential Expenses Fund', label: transaction.title);
+        jarLedger.add(JarEvent(
+          timestamp: date,
+          type: JarEventType.billPaid,
+          needsIn: 0,
+          needsOut: needsOut,
+          bufferIn: 0,
+          bufferOut: bufferOut,
+          sourceTransactionId: id,
+          sentence: '${transaction.title} ${money(spent)} paid from Basic Needs',
+        ));
+      }
+    }
+
+    // Add a small, explainable market movement record to the otherwise
+    // transaction-backed investment history. Valuations are market values,
+    // not additional cash transfers, and make Wealth analytics meaningful.
+    final valuationBase = math.max(10000.0, investmentFundBalance * .94);
+    for (var week = 12; week >= 0; week--) {
+      final valuedAt = today.subtract(Duration(days: week * 7));
+      investmentValuationHistory.add({
+        'valuedAt': valuedAt.toIso8601String(),
+        'holdingsValue': valuationBase + (12 - week) * 450.0 +
+            ((12 - week).isEven ? 180.0 : -90.0),
+        'netFlow': week % 4 == 0 ? 2000.0 : 0.0,
+      });
+    }
+
+    final goals = [
+      FakeMayaPersonalGoal.defaultForId(
+        FakeMayaPersonalGoal.essentialExpenseFundId,
+      ).copyWith(
+        balance: essentialBalance,
+        target: math.max(18000, essentialBalance / .72),
+        daysLeft: 21,
+      ),
+      FakeMayaPersonalGoal.defaultForId(
+        FakeMayaPersonalGoal.emergencyFundId,
+      ).copyWith(
+        balance: emergencyBalance,
+        target: math.max(54000, emergencyBalance / .72),
+        daysLeft: 90,
+      ),
+      FakeMayaPersonalGoal.defaultForId(
+        FakeMayaPersonalGoal.investmentFundId,
+      ).copyWith(
+        balance: investmentFundBalance,
+        target: math.max(120000, investmentFundBalance / .72),
+        daysLeft: 180,
+      ),
+      FakeMayaPersonalGoal.defaultForId(
+        FakeMayaPersonalGoal.personalLifestyleFundId,
+      ).copyWith(
+        balance: lifestyleBalance,
+        target: math.max(18000, lifestyleBalance / .72),
+        daysLeft: 60,
+      ),
+    ];
+    final summary = FakeMayaAccountSummary(
+      wallet: 36000,
+      savings: 12000,
+      timeDeposit: 0,
+      goalName: goals.first.name,
+      goalEmoji: goals.first.emoji,
+      goalBalance: goals.fold<double>(0, (total, goal) => total + goal.balance),
+      goalTarget: goals.first.target,
+      selectedGoalId: goals.first.id,
+      personalGoals: goals,
+      creditLimit: 0,
+      creditUsed: 0,
+      transactions: transactions,
+      updatedAt: now,
+    );
+    name = 'Stress Test · ${_stressCountLabel(transactionCount)}';
+    email = 'stress-$transactionCount@local.shellby.test';
+    mockDataEnabled = true;
+    fakeMayaLink = FakeMayaLink(
+      userId: 'local-stress-$transactionCount',
+      email: email,
+      name: name,
+      phone: '+63 917 000 2513',
+      provider: 'mock',
+      accessToken: '',
+      refreshToken: '',
+      expiresAt: null,
+      summary: summary,
+    );
+    confirmedFakeMayaBucketMotivations
+      ..clear()
+      ..addAll(const {
+        'Cash Flow & Basic Needs',
+        'Financial Safety',
+        'Accumulating Wealth',
+        'Financial Freedom',
+      });
+    fakeMayaBucketCreationAllowed = true;
+    _essentialExpensesLocalBalance = essentialBalance;
+    emergencyFundBalance = emergencyBalance;
+    financialSafetyBalance = emergencyBalance;
+    shieldTrackedBalance = emergencyBalance;
+    _investmentLocalBalance = investmentFundBalance;
+    _lifestyleLocalBalance = lifestyleBalance;
+    needsBalance = needs;
+    bufferBalance = buffer;
+    emergencyMonths = emergencyBalance /
+        math.max(1, monthlyEssentialExpenseTotal);
+    _lastEfWithdrawalStr = latestEmergency?.toIso8601String();
+    d1Ledger.sort((a, b) => DateTime.parse(b['date'].toString())
+        .compareTo(DateTime.parse(a['date'].toString())));
+    jarLedger.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    seedMerchantCategoryRules(transactions);
+    _syncFakeMayaMoneyItems();
+    notifyListeners();
+  }
+
+  String _stressCountLabel(int count) => switch (count) {
+        1000 => '1,000 transactions',
+        10000 => '10,000 transactions',
+        _ => '$count transactions',
+      };
+
   bool get canOverwriteWithMockData {
     final normalizedEmail = email.trim().toLowerCase();
     return normalizedEmail == 'cashflow@gmail.com' ||
@@ -3555,9 +4023,14 @@ class AppState extends ChangeNotifier {
     final monthOffsets = [3, 2, 1, 0];
     for (final offset in monthOffsets) {
       final month = DateTime(now.year, now.month - offset);
-      final firstPayday = DateTime(month.year, month.month, 15, 9);
+      // Keep the current-month demo fully in the past. Fixed 15th/end-of-
+      // month paydays made the sample appear to receive money in the future
+      // when the app was demonstrated early in a month.
+      final firstPayday = offset == 0
+          ? DateTime(now.year, now.month, math.max(1, now.day - 1))
+          : DateTime(month.year, month.month, 15, 9);
       final secondPayday = offset == 0
-          ? DateTime(now.year, now.month, now.day, 9)
+          ? DateTime(now.year, now.month, now.day)
           : DateTime(month.year, month.month + 1, 0, 9);
       final paydays = [firstPayday, secondPayday];
       for (var i = 0; i < paydays.length; i++) {
@@ -3591,7 +4064,7 @@ class AppState extends ChangeNotifier {
         emergencyBalance += depositAmount;
         ledger.add({
           'type': 'emergency_deposit',
-          'date': payday.add(const Duration(hours: 2)).toIso8601String(),
+          'date': payday.toIso8601String(),
           'sourceDate': payday.toIso8601String(),
           'sourceTransactionId': transactionId,
           'incomeAmount': 21000.0,
@@ -3607,7 +4080,7 @@ class AppState extends ChangeNotifier {
           title: 'Fund transfer',
           detail: 'To: Emergency Fund',
           amount: -depositAmount,
-          date: payday.add(const Duration(hours: 2)),
+          date: payday,
           category: 'Transfer',
           source: 'E-wallet',
         ));
@@ -3616,19 +4089,19 @@ class AppState extends ChangeNotifier {
       if (offset == 0) {
         for (final extra in [
           (
-            DateTime(month.year, month.month, 3, 11),
+            DateTime(month.year, month.month, math.max(1, now.day - 3)),
             'Weekend clinic reimbursement',
             5000.0,
             500.0
           ),
           (
-            DateTime(month.year, month.month, 9, 16),
+            DateTime(month.year, month.month, math.max(1, now.day - 2)),
             'Health allowance reimbursement',
             8000.0,
             800.0
           ),
           (
-            DateTime(month.year, month.month, 22, 10),
+            DateTime(month.year, month.month, math.max(1, now.day - 1)),
             'Attendance bonus',
             6000.0,
             600.0
@@ -3658,7 +4131,9 @@ class AppState extends ChangeNotifier {
           emergencyBalance += depositAmount;
           ledger.add({
             'type': 'emergency_deposit',
-            'date': extraDate.add(const Duration(hours: 2)).toIso8601String(),
+            // The transfer is immediate in the demo. Giving it a later clock
+            // time can make the latest reimbursement appear in the future.
+            'date': extraDate.toIso8601String(),
             'sourceDate': extraDate.toIso8601String(),
             'sourceTransactionId': transactionId,
             'incomeAmount': extra.$3,
@@ -3674,7 +4149,7 @@ class AppState extends ChangeNotifier {
             title: 'Fund transfer',
             detail: 'To: Emergency Fund',
             amount: -depositAmount,
-            date: extraDate.add(const Duration(hours: 2)),
+            date: extraDate,
             category: 'Transfer',
             source: 'E-wallet',
           ));
@@ -3696,6 +4171,7 @@ class AppState extends ChangeNotifier {
         (insuranceDate, 'Insurance premium', 2400.0, 'Insurance', 'E-wallet'),
       ]) {
         final amount = item.$3.toDouble();
+        if (item.$1.isAfter(now)) continue;
         if (item.$5 == 'Basic Needs Fund') {
           final needsOut = math.min<double>(needs, amount);
           final bufferOut =
@@ -3728,6 +4204,7 @@ class AppState extends ChangeNotifier {
 
       for (var n = 0; n < 4; n++) {
         final date = DateTime(month.year, month.month, 7 + n * 5, 13);
+        if (date.isAfter(now)) continue;
         final amount = 520.0 + ((offset + n) * 45);
         needs = math.max(0, needs - math.min(needs, amount));
         transactions.add(_demoTransaction(
@@ -3742,37 +4219,34 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    final currentMonthLateUse = DateTime(now.year, now.month, 6, 15);
-    if (!currentMonthLateUse.isAfter(now)) {
-      emergencyBalance = math.max(0, emergencyBalance - 4800);
-      ledger.add({
-        'type': 'use_emergency',
-        'date': currentMonthLateUse.toIso8601String(),
-        'amount': 4800.0,
-        'label': 'Child fever urgent care',
-        'sourceTransactionId': 'ef-current-fever-emergency',
-      });
-      transactions.add(_demoTransaction(
-        id: 'ef-current-fever-emergency',
-        title: 'Emergency payment',
-        detail: 'To: Pediatric urgent care',
-        amount: -4800,
-        date: currentMonthLateUse,
-        category: 'Health',
-        source: 'Emergency Fund',
-      ));
-      final currentMonthLateReplenish =
-          currentMonthLateUse.add(const Duration(days: 10));
-      if (!currentMonthLateReplenish.isAfter(now)) {
-        emergencyBalance += 4800;
-        ledger.add({
-          'type': 'ef_replenish',
-          'date': currentMonthLateReplenish.toIso8601String(),
-          'amount': 4800.0,
-          'label': 'Urgent care replenished after next salary',
-        });
-      }
-    }
+    // One resolved and one outstanding emergency give the demo a visible
+    // recovery history without depending on whether today is before or after
+    // a fixed calendar date. Midnight today is always a completed timestamp.
+    final currentMonthResolvedUse = DateTime(now.year, now.month, now.day);
+    emergencyBalance = math.max(0, emergencyBalance - 4800);
+    ledger.add({
+      'type': 'use_emergency',
+      'date': currentMonthResolvedUse.toIso8601String(),
+      'amount': 4800.0,
+      'label': 'Child fever urgent care',
+      'sourceTransactionId': 'ef-current-fever-emergency',
+    });
+    transactions.add(_demoTransaction(
+      id: 'ef-current-fever-emergency',
+      title: 'Emergency payment',
+      detail: 'To: Pediatric urgent care',
+      amount: -4800,
+      date: currentMonthResolvedUse,
+      category: 'Health',
+      source: 'Emergency Fund',
+    ));
+    emergencyBalance += 4800;
+    ledger.add({
+      'type': 'ef_replenish',
+      'date': currentMonthResolvedUse.toIso8601String(),
+      'amount': 4800.0,
+      'label': 'Urgent care replenished after next salary',
+    });
 
     final lastMonth = DateTime(now.year, now.month - 1, 11, 14);
     emergencyBalance = math.max(0, emergencyBalance - 6800);
@@ -3801,7 +4275,7 @@ class AppState extends ChangeNotifier {
       'label': 'Dental emergency replenished after payday',
     });
 
-    final recentEmergency = now.subtract(const Duration(days: 8));
+    final recentEmergency = DateTime(now.year, now.month, now.day);
     emergencyBalance = math.max(0, emergencyBalance - 5600);
     ledger.add({
       'type': 'use_emergency',
@@ -10053,7 +10527,9 @@ class AppState extends ChangeNotifier {
   void _recordBucketFundedExpenseFromTransaction(
     FakeMayaTransaction transaction,
   ) {
-    if (transaction.amount >= 0 || transaction.excludedFromInsights) return;
+    if (transaction.amount >= 0 || !transaction.countsTowardFinancialInsights) {
+      return;
+    }
     final motivation = switch (transaction.source?.trim().toLowerCase()) {
       'basic needs fund' => 'Cash Flow & Basic Needs',
       'emergency fund' => 'Financial Safety',

@@ -69,6 +69,7 @@ void main() {
       () async {
     final state = AppState()..seedEmergencyFundMockDataForTesting();
     final transactions = state.fakeMayaLink!.summary.transactions;
+    final now = AppClock.now();
     final transactionMonths = {
       for (final transaction in transactions)
         if (transaction.createdAt case final createdAt?)
@@ -97,6 +98,15 @@ void main() {
     expect(state.safetyShieldTargetMonths, 6);
     expect(transactionMonths.length, 4);
     expect(transactions.length, greaterThanOrEqualTo(35));
+    expect(
+      transactions.every(
+        (transaction) =>
+            transaction.createdAt == null ||
+            !transaction.createdAt!.isAfter(now),
+      ),
+      isTrue,
+      reason: 'A demo profile must never show transactions from the future.',
+    );
     expect(state.pendingEmergencyReplenishment, 5600);
     expect(
       state.d1Ledger.where((entry) {

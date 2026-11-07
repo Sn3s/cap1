@@ -79,7 +79,8 @@ void main() {
     expect(state.fakeMayaLink!.summary.toMap(), beforeRefresh);
   });
 
-  test('Main mock buckets transfer locally and labels count for actions',
+  test(
+      'Main mock buckets transfer locally without double-counting seeded spending',
       () async {
     final state = AppState()..seedMainMockDataForTesting();
     final summary = state.fakeMayaLink!.summary;
@@ -105,12 +106,6 @@ void main() {
     final transaction = afterTransfer.transactions.firstWhere(
       (item) => item.amount < 0 && !item.isInternalFakeMayaTransfer,
     );
-    // Temporary regression-test diagnostic; removed after validating the
-    // transaction selection and linked ledger state.
-    // ignore: avoid_print
-    print('selected=${transaction.transactionId} source=${transaction.source} '
-        'amount=${transaction.amount} internal=${transaction.isInternalFakeMayaTransfer} '
-        'ledger=${state.d1Ledger.where((entry) => entry['sourceTransactionId'] == transaction.transactionId).toList()}');
     final localBalanceBeforeLabel = state.essentialExpensesBalance;
     await state.labelFakeMayaTransaction(
       transactionId: transaction.transactionId,
@@ -118,8 +113,10 @@ void main() {
       source: 'Basic Needs Fund',
     );
 
-    expect(state.essentialExpensesBalance,
-        localBalanceBeforeLabel - transaction.amount.abs());
+    // Demo expenses are already reflected in their FakeMaya bucket balance.
+    // Relabelling one must update its classification without deducting the
+    // same purchase a second time.
+    expect(state.essentialExpensesBalance, localBalanceBeforeLabel);
     expect(
       state.d1Ledger.where((entry) =>
           entry['type'] == 'use_essential' &&
