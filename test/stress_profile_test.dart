@@ -161,4 +161,15 @@ void main() {
 
     expect(state.consentAi, isTrue);
   });
+
+  test('local stress profile signs out without Firebase', () async {
+    final state = AppState()..seedStressTestDataForTesting(100);
+
+    await state.signOut();
+
+    expect(state.isLocalStressTestProfile, isFalse);
+    expect(state.fakeMayaLink, isNull);
+    expect(state.email, isEmpty);
+    expect(state.consentAi, isFalse);
+  });
 }

@@ -1084,7 +1084,7 @@ class AppState extends ChangeNotifier {
   /// testers must still be able to opt into Gemini and exercise Chat against
   /// the generated canonical transaction dataset.
   bool get isLocalStressTestProfile =>
-      mockDataEnabled &&
+      email.endsWith('@local.shellby.test') ||
       (fakeMayaLink?.userId.startsWith('local-stress-') ?? false);
   List<FakeMayaTransaction> get allTransactions => [
         ...manualTransactions,
@@ -1682,6 +1682,18 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    // A stress profile is an in-memory UAT fixture, not a Firebase account.
+    // Sending it through FirebaseAuth.signOut can fail when Firebase has not
+    // been initialized in a preview and leaves the tester trapped in the
+    // profile. Clear local state directly instead.
+    if (isLocalStressTestProfile) {
+      await community.disconnect();
+      _communityBackend = null;
+      _resetOnboardingDraftState();
+      _removeFakeMayaMoneyItems();
+      notifyListeners();
+      return;
+    }
     await FirebaseProfileService.signOut();
     await community.disconnect();
     _communityBackend = null;
