@@ -22585,10 +22585,14 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
   Widget build(BuildContext context) {
     final action = widget.action;
     final color = widget.goalColor;
+    final state = AppScope.of(context);
+    if (const {'A1', 'A8', 'A12', 'A27'}.contains(action.id) &&
+        state.usesCoordinatedPaydayAllocationPlan) {
+      return _PaydayAllocationPlanPanel(color: color);
+    }
     if (action.id == 'A1') {
       final pct = double.tryParse(
-            (AppScope.of(context).actionFieldValues['A1']?['pct'] ?? '')
-                .replaceAll(',', ''),
+            (state.actionFieldValues['A1']?['pct'] ?? '').replaceAll(',', ''),
           ) ??
           50;
       return _EssentialExpensesActionPanel(
@@ -22905,6 +22909,328 @@ double _lifestylePaydayAmountForIncome(AppState state, String transactionId) {
     total += (entry['amount'] as num?)?.toDouble() ?? 0;
   }
   return total;
+}
+
+/// Shared replacement for the four independent "percentage of income" cards.
+/// It deliberately appears from each participating goal tab, but always
+/// reads and applies the exact same source-income plan from [AppState].
+class _PaydayAllocationPlanPanel extends StatefulWidget {
+  const _PaydayAllocationPlanPanel({required this.color});
+
+  final Color color;
+
+  @override
+  State<_PaydayAllocationPlanPanel> createState() =>
+      _PaydayAllocationPlanPanelState();
+}
+
+class _PaydayAllocationPlanPanelState
+    extends State<_PaydayAllocationPlanPanel> {
+  bool _busy = false;
+
+  Future<void> _allocate(
+    AppState state,
+    FakeMayaTransaction income,
+    PaydayAllocationPlan plan,
+  ) async {
+    if (_busy) return;
+    final confirmed = await _confirmPlan(plan);
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final applied = await state.applyPaydayAllocationPlan(income);
+      if (!mounted) return;
+      final details = <String>[
+        if (applied.essentialExpenses > .005)
+          '${money(applied.essentialExpenses)} to Basic Needs',
+        if (applied.emergencyFund > .005)
+          '${money(applied.emergencyFund)} to Emergency',
+        if (applied.investmentFund > .005)
+          '${money(applied.investmentFund)} to Investments',
+        if (applied.lifestyleFund > .005)
+          '${money(applied.lifestyleFund)} to Lifestyle',
+      ];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            details.isEmpty
+                ? 'Payday plan saved. ${money(applied.unpaidBills)} is reserved for Basic Needs bills.'
+                : 'Payday allocated: ${details.join(' · ')}.',
+          ),
+        ),
+      );
+    } on FakeMayaException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Coordinated payday allocation failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not allocate this payday. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<bool?> _confirmPlan(PaydayAllocationPlan plan) => showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: _surface,
+          title: const Text(
+            'Review payday allocation',
+            style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _TransactionDetailLine(
+                label: 'Income received',
+                value: money(plan.incomeAmount),
+              ),
+              if (plan.unpaidBills > .005)
+                _TransactionDetailLine(
+                  label: 'Basic Needs bills reserved',
+                  value: money(plan.unpaidBills),
+                ),
+              if (plan.essentialExpenses > .005)
+                _TransactionDetailLine(
+                  label: 'Essential Expenses Fund',
+                  value: money(plan.essentialExpenses),
+                ),
+              if (plan.emergencyFund > .005)
+                _TransactionDetailLine(
+                  label: 'Emergency Fund',
+                  value: money(plan.emergencyFund),
+                ),
+              if (plan.investmentFund > .005)
+                _TransactionDetailLine(
+                  label: 'Investment Portfolio',
+                  value: money(plan.investmentFund),
+                ),
+              if (plan.lifestyleFund > .005)
+                _TransactionDetailLine(
+                  label: 'Lifestyle Fund',
+                  value: money(plan.lifestyleFund),
+                ),
+              _TransactionDetailLine(
+                label: 'Still unassigned',
+                value: money(plan.unassigned),
+              ),
+              if (plan.shortfall > .005) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '${money(plan.shortfall)} of lower-priority targets does not fit this income. It will not be taken from another fund.',
+                  style: const TextStyle(
+                    color: _amber,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Allocate'),
+            ),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final incomes = state.pendingPaydayAllocationTransactions;
+    final income = incomes.firstOrNull;
+    final plan = income == null ? null : state.paydayAllocationPlanFor(income);
+    final walletBlock = plan == null
+        ? null
+        : _walletBlockReason(state, plan.totalFundTransfers);
+    final canAllocate =
+        plan != null && plan.hasTransfers && walletBlock == null && !_busy;
+
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: widget.color.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'PAYDAY PLAN',
+                  style: TextStyle(
+                    color: _purple,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'One coordinated allocation for your active goals',
+                  style: TextStyle(
+                    color: _title,
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Shellby protects Basic Needs first, then allocates only what remains to Emergency, Investments, and Lifestyle.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 11.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (plan == null)
+            const Text(
+              'Label this month’s income as salary, income, or gift to build a single safe allocation plan.',
+              style: TextStyle(color: _body, fontWeight: FontWeight.w700),
+            )
+          else ...[
+            _PendingIncomeQueue(incomes: incomes, color: widget.color),
+            const SizedBox(height: 12),
+            _PaydayPlanLine(
+              label: 'Basic Needs bills',
+              amount: plan.unpaidBills,
+              color: _amber,
+            ),
+            _PaydayPlanLine(
+              label: 'Essential Expenses Fund',
+              amount: plan.essentialExpenses,
+              color: _brand,
+            ),
+            _PaydayPlanLine(
+              label: 'Emergency Fund',
+              amount: plan.emergencyFund,
+              color: _red,
+            ),
+            _PaydayPlanLine(
+              label: 'Investment Portfolio',
+              amount: plan.investmentFund,
+              color: _purple,
+            ),
+            _PaydayPlanLine(
+              label: 'Lifestyle Fund',
+              amount: plan.lifestyleFund,
+              color: widget.color,
+            ),
+            const Divider(height: 18, color: _border),
+            _PaydayPlanLine(
+              label: 'Still unassigned',
+              amount: plan.unassigned,
+              color: _sage,
+              emphasized: true,
+            ),
+            if (plan.shortfall > .005) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${money(plan.shortfall)} of configured lower-priority targets did not fit this income.',
+                style: const TextStyle(
+                  color: _amber,
+                  fontSize: 11,
+                  height: 1.35,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            PrimaryButton(
+              label: _busy ? 'Allocating...' : 'Review and allocate payday',
+              icon: Icons.account_tree_rounded,
+              enabled: canAllocate,
+              onPressed: () {
+                final selectedIncome = income;
+                final selectedPlan = plan;
+                if (!canAllocate ||
+                    selectedIncome == null ||
+                    selectedPlan == null) {
+                  return;
+                }
+                _allocate(state, selectedIncome, selectedPlan);
+              },
+            ),
+            if (walletBlock != null) _walletBlockText(walletBlock),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PaydayPlanLine extends StatelessWidget {
+  const _PaydayPlanLine({
+    required this.label,
+    required this.amount,
+    required this.color,
+    this.emphasized = false,
+  });
+
+  final String label;
+  final double amount;
+  final Color color;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 7),
+        child: Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
+                ),
+              ),
+            ),
+            Text(
+              money(amount),
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class _EssentialExpensesActionPanel extends StatefulWidget {

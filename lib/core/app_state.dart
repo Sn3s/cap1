@@ -6,6 +6,42 @@
 // - Added withdrawFromSavings to FakeMayaService (emergency shortfall path).
 part of '../main.dart';
 
+/// One reviewed, source-income-specific allocation across the active
+/// percentage-of-income actions. Keeping this as a value object makes the
+/// priority order visible to the UI and keeps the transfer logic independent
+/// of whichever goal tab the user opened it from.
+class PaydayAllocationPlan {
+  const PaydayAllocationPlan({
+    required this.transactionId,
+    required this.incomeAmount,
+    required this.essentialExpenses,
+    required this.unpaidBills,
+    required this.emergencyFund,
+    required this.investmentFund,
+    required this.lifestyleFund,
+    required this.unassigned,
+    required this.requestedTotal,
+  });
+
+  final String transactionId;
+  final double incomeAmount;
+  final double essentialExpenses;
+  final double unpaidBills;
+  final double emergencyFund;
+  final double investmentFund;
+  final double lifestyleFund;
+  final double unassigned;
+
+  /// What the active actions asked to set aside before priority clipping.
+  final double requestedTotal;
+
+  double get totalFundTransfers =>
+      essentialExpenses + emergencyFund + investmentFund + lifestyleFund;
+  double get committed => totalFundTransfers + unpaidBills;
+  double get shortfall => math.max(0, requestedTotal - committed);
+  bool get hasTransfers => totalFundTransfers > .005 || unpaidBills > .005;
+}
+
 class AppState extends ChangeNotifier {
   AppState() {
     // Re-derive date-dependent state when the developer clock is shifted.
@@ -6387,6 +6423,290 @@ class AppState extends ChangeNotifier {
         month: AppClock.now(),
       );
 
+  /// The four actions that can otherwise compete for the same cash-in. When
+  /// more than one is active, their action cards intentionally use one shared
+  /// plan rather than each offering to spend the full income on its own.
+  static const _paydayAllocationActionIds = <String>{
+    'A1', // Essential Expenses Fund
+    'A8', // Emergency Fund
+    'A12', // Investment Fund
+    'A27', // Personal Lifestyle Fund
+  };
+
+  List<String> get activePaydayAllocationActionIds => _paydayAllocationActionIds
+      .where(selectedActionIds.contains)
+      .toList(growable: false);
+
+  bool get usesCoordinatedPaydayAllocationPlan =>
+      activePaydayAllocationActionIds.length > 1;
+
+  bool hasCoordinatedPaydayAllocationForIncome(String transactionId) =>
+      d1Ledger.any((entry) =>
+          entry['type'] == 'payday_allocation_plan' &&
+          entry['sourceTransactionId'] == transactionId);
+
+  /// Income still needing a single reviewed allocation. An allocation plan is
+  /// final for that cash-in: a lower-priority action that could not fit is
+  /// recorded as deferred rather than silently trying to spend the income a
+  /// second time from another tab.
+  List<FakeMayaTransaction> get pendingPaydayAllocationTransactions {
+    if (!usesCoordinatedPaydayAllocationPlan) return const [];
+    final now = AppClock.now();
+    return allTransactions.where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return _isEssentialIncomeCandidate(transaction) &&
+          !hasCoordinatedPaydayAllocationForIncome(transaction.transactionId) &&
+          date != null &&
+          date.year == now.year &&
+          date.month == now.month;
+    }).toList()
+      ..sort((a, b) => (a.createdAt ?? a.labeledAt!).compareTo(
+            b.createdAt ?? b.labeledAt!,
+          ));
+  }
+
+  double _paydayActionPercent(String actionId, double fallback) {
+    final raw =
+        (actionFieldValues[actionId]?['pct'] ?? '').replaceAll(',', '').trim();
+    return (double.tryParse(raw) ?? fallback).clamp(0, 100).toDouble();
+  }
+
+  double _incomeAllocationAmount(String transactionId, Set<String> types) =>
+      d1Ledger
+          .where((entry) =>
+              types.contains(entry['type']) &&
+              entry['sourceTransactionId'] == transactionId)
+          .fold<double>(0, (total, entry) => total + _ledgerAmount(entry));
+
+  /// Builds a deterministic, never-over-100% plan for one actual income.
+  /// Existing direct allocations are respected so a user can safely migrate
+  /// into the coordinated flow mid-month. The priority is: unpaid basic-needs
+  /// bills, Essential Expenses Fund, Emergency Fund, Investments, Lifestyle.
+  PaydayAllocationPlan paydayAllocationPlanFor(FakeMayaTransaction income) {
+    final active = activePaydayAllocationActionIds.toSet();
+    final id = income.transactionId;
+    final incomeAmount = math.max(0.0, income.amount).toDouble();
+    final existingEssential =
+        _incomeAllocationAmount(id, {'essential_deposit'});
+    final existingEmergency =
+        _incomeAllocationAmount(id, {'emergency_deposit'});
+    final existingInvestment =
+        _incomeAllocationAmount(id, {'investment_deposit'});
+    final existingLifestyle = _incomeAllocationAmount(id, {'lifestyle_payday'});
+    final existingBillReserve =
+        _incomeAllocationAmount(id, {'bill_shortfall_reserved'});
+    var remaining = math
+        .max(
+          0,
+          incomeAmount -
+              existingEssential -
+              existingEmergency -
+              existingInvestment -
+              existingLifestyle -
+              existingBillReserve,
+        )
+        .toDouble();
+
+    final wantsEssential = active.contains('A1') && existingEssential <= .005;
+    final wantsEmergency = active.contains('A8') && existingEmergency <= .005;
+    final wantsInvestment =
+        active.contains('A12') && existingInvestment <= .005;
+    final wantsLifestyle = active.contains('A27') && existingLifestyle <= .005;
+
+    final requestedEssential = wantsEssential
+        ? incomeAmount * _paydayActionPercent('A1', 50) / 100
+        : 0.0;
+    final requestedEmergency = wantsEmergency
+        ? incomeAmount * _paydayActionPercent('A8', 10) / 100
+        : 0.0;
+    final requestedInvestment = wantsInvestment
+        ? incomeAmount * _paydayActionPercent('A12', 10) / 100
+        : 0.0;
+    final requestedLifestyle = wantsLifestyle
+        ? incomeAmount * _paydayActionPercent('A27', 10) / 100
+        : 0.0;
+    final requestedBills = wantsEssential
+        ? math.max(0, openBasicNeedsBillNeed - existingBillReserve)
+        : 0.0;
+
+    // Bills are held back before discretionary goals. They are recorded as a
+    // reservation, not moved to a bucket, because FakeMaya remains the source
+    // of truth for the actual bill payment.
+    final unpaidBills = math.min(remaining, requestedBills).toDouble();
+    remaining = (remaining - unpaidBills).toDouble();
+    final essentialExpenses =
+        math.min(remaining, requestedEssential).toDouble();
+    remaining = (remaining - essentialExpenses).toDouble();
+    final emergencyFund = math.min(remaining, requestedEmergency).toDouble();
+    remaining = (remaining - emergencyFund).toDouble();
+    final investmentFund = math.min(remaining, requestedInvestment).toDouble();
+    remaining = (remaining - investmentFund).toDouble();
+    final lifestyleFund = math.min(remaining, requestedLifestyle).toDouble();
+    remaining = (remaining - lifestyleFund).toDouble();
+
+    return PaydayAllocationPlan(
+      transactionId: id,
+      incomeAmount: incomeAmount,
+      essentialExpenses: essentialExpenses,
+      unpaidBills: unpaidBills,
+      emergencyFund: emergencyFund,
+      investmentFund: investmentFund,
+      lifestyleFund: lifestyleFund,
+      unassigned: remaining,
+      requestedTotal: requestedBills +
+          requestedEssential +
+          requestedEmergency +
+          requestedInvestment +
+          requestedLifestyle,
+    );
+  }
+
+  /// Applies every eligible portion of one reviewed payday plan. Each fund
+  /// keeps its existing ledger type and FakeMaya bucket, so goal progress and
+  /// action scoring continue to work without a parallel accounting model.
+  Future<PaydayAllocationPlan> applyPaydayAllocationPlan(
+    FakeMayaTransaction income,
+  ) async {
+    if (!usesCoordinatedPaydayAllocationPlan) {
+      throw const FakeMayaException(
+        'Choose at least two payday allocation actions to use this plan.',
+      );
+    }
+    if (hasCoordinatedPaydayAllocationForIncome(income.transactionId)) {
+      throw const FakeMayaException('This income has already been allocated.');
+    }
+    final date = income.createdAt ?? income.labeledAt;
+    if (date == null || !_isEssentialIncomeCandidate(income)) {
+      throw const FakeMayaException(
+        'Label a current income transaction before allocating it.',
+      );
+    }
+    final plan = paydayAllocationPlanFor(income);
+    if (!plan.hasTransfers) {
+      throw const FakeMayaException(
+          'There is no available amount to allocate.');
+    }
+    _requireWalletFunds(plan.totalFundTransfers);
+
+    var changed = false;
+    final now = AppClock.now();
+    try {
+      if (plan.essentialExpenses > .005) {
+        await _moveFakeMayaWalletTo(
+          plan.essentialExpenses,
+          FakeMayaGoalAccount.personalGoal,
+          personalGoalId: FakeMayaPersonalGoal.essentialExpenseFundId,
+        );
+        essentialExpensesBalance += plan.essentialExpenses;
+        d1Ledger.insert(0, {
+          'type': 'essential_deposit',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          'sourceTransactionId': income.transactionId,
+          'incomeAmount': income.amount,
+          'percentage': plan.essentialExpenses / income.amount * 100,
+          'amount': plan.essentialExpenses,
+          'destination': 'Essential Expenses Fund',
+          'allocationMode': 'coordinated_payday',
+        });
+        changed = true;
+      }
+      if (plan.unpaidBills > .005) {
+        _applyIncomeToOpenBasicNeedsBills(
+          plan.unpaidBills,
+          sourceTransactionId: income.transactionId,
+        );
+        changed = true;
+      }
+      if (plan.emergencyFund > .005) {
+        await _moveFakeMayaWalletTo(
+          plan.emergencyFund,
+          FakeMayaGoalAccount.personalGoal,
+          personalGoalId: FakeMayaPersonalGoal.emergencyFundId,
+        );
+        emergencyFundBalance += plan.emergencyFund;
+        d1Ledger.insert(0, {
+          'type': 'emergency_deposit',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          'sourceTransactionId': income.transactionId,
+          'incomeAmount': income.amount,
+          'percentage': plan.emergencyFund / income.amount * 100,
+          'amount': plan.emergencyFund,
+          'destination': 'Emergency Fund',
+          'allocationMode': 'coordinated_payday',
+        });
+        changed = true;
+      }
+      if (plan.investmentFund > .005) {
+        await _depositToInvestmentFund(plan.investmentFund);
+        investmentBalance += plan.investmentFund;
+        d1Ledger.insert(0, {
+          'type': 'investment_deposit',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          'sourceTransactionId': income.transactionId,
+          'incomeAmount': income.amount,
+          'percentage': plan.investmentFund / income.amount * 100,
+          'amount': plan.investmentFund,
+          'destination': 'Investment Portfolio',
+          'allocationMode': 'coordinated_payday',
+        });
+        changed = true;
+      }
+      if (plan.lifestyleFund > .005) {
+        await _moveFakeMayaWalletTo(
+          plan.lifestyleFund,
+          FakeMayaGoalAccount.personalGoal,
+          personalGoalId: FakeMayaPersonalGoal.personalLifestyleFundId,
+        );
+        lifestyleFundBalance += plan.lifestyleFund;
+        d1Ledger.insert(0, {
+          'type': 'lifestyle_payday',
+          'date': now.toIso8601String(),
+          'sourceDate': date.toIso8601String(),
+          'sourceTransactionId': income.transactionId,
+          'incomeAmount': income.amount,
+          'percentage': plan.lifestyleFund / income.amount * 100,
+          'amount': plan.lifestyleFund,
+          'destination': 'Personal Lifestyle Fund',
+          'allocationMode': 'coordinated_payday',
+        });
+        changed = true;
+      }
+      d1Ledger.insert(0, {
+        'type': 'payday_allocation_plan',
+        'date': now.toIso8601String(),
+        'sourceDate': date.toIso8601String(),
+        'sourceTransactionId': income.transactionId,
+        'incomeAmount': income.amount,
+        'essentialExpenses': plan.essentialExpenses,
+        'unpaidBills': plan.unpaidBills,
+        'emergencyFund': plan.emergencyFund,
+        'investmentFund': plan.investmentFund,
+        'lifestyleFund': plan.lifestyleFund,
+        'unassigned': plan.unassigned,
+        'shortfall': plan.shortfall,
+      });
+      changed = true;
+    } catch (error) {
+      if (changed) {
+        await _saveProfileAfterFakeMayaTransfer();
+        notifyListeners();
+        if (error is FakeMayaException) {
+          throw FakeMayaException(
+            'Some allocations were completed. Review the updated plan before trying again: ${error.message}',
+            sessionExpired: error.sessionExpired,
+          );
+        }
+      }
+      rethrow;
+    }
+    await _saveProfileAfterFakeMayaTransfer();
+    notifyListeners();
+    return plan;
+  }
+
   /// A9 is about new savings contributions. A10 replenishments restore a
   /// previous withdrawal and must never satisfy this separate monthly target.
   double emergencyFundContributionsForMonth(DateTime month) {
@@ -6725,7 +7045,10 @@ class AppState extends ChangeNotifier {
     return totalAllocation;
   }
 
-  void _applyIncomeToOpenBasicNeedsBills(double amount) {
+  void _applyIncomeToOpenBasicNeedsBills(
+    double amount, {
+    String? sourceTransactionId,
+  }) {
     var remaining = amount;
     for (var i = 0; i < billObligations.length && remaining > 0; i++) {
       final bill = billObligations[i];
@@ -6747,6 +7070,8 @@ class AppState extends ChangeNotifier {
         'billId': bill['id'],
         'billName': bill['name'],
         'amount': applied,
+        if (sourceTransactionId != null)
+          'sourceTransactionId': sourceTransactionId,
       });
       remaining -= applied;
     }
