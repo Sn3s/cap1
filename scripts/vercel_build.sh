@@ -28,4 +28,15 @@ fi
 "$flutter_bin" --disable-analytics
 "$flutter_bin" config --enable-web
 "$flutter_bin" pub get
-"$flutter_bin" build web --release
+
+# Web bundles are public: pass only the public proxy URL and model name to
+# Flutter. GEMINI_API_KEY is read exclusively by api/gemini.mjs at runtime.
+build_defines=()
+if [[ -n "${GEMINI_PROXY_URL:-}" ]]; then
+  build_defines+=("--dart-define=GEMINI_PROXY_URL=${GEMINI_PROXY_URL}")
+fi
+if [[ -n "${GEMINI_MODEL:-}" ]]; then
+  build_defines+=("--dart-define=GEMINI_MODEL=${GEMINI_MODEL}")
+fi
+
+"$flutter_bin" build web --release "${build_defines[@]}"
