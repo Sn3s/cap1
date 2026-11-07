@@ -27,6 +27,12 @@ fi
 
 "$flutter_bin" --disable-analytics
 "$flutter_bin" config --enable-web
+# `.env` is deliberately gitignored for personal iPhone builds but declared
+# as a Flutter asset. Vercel receives no local secret file, so provide an
+# empty build-only asset; web ignores it and uses GEMINI_PROXY_URL instead.
+if [[ ! -f .env ]]; then
+  touch .env
+fi
 "$flutter_bin" pub get
 
 # Web bundles are public: pass only the public proxy URL and model name to
