@@ -107,14 +107,11 @@ class ShellbyAiCoach {
       answer: answer.isEmpty
           ? "Shellby couldn't form a reliable answer from the current data."
           : answer,
-      basis: parsed['basis']?.toString().trim().isNotEmpty == true
-          ? parsed['basis'].toString().trim()
-          : snapshot.defaultBasis,
-      dataStatus: switch (parsed['data_status']?.toString()) {
-        'partial_data' => AiChatDataStatus.partialData,
-        'missing_data' => AiChatDataStatus.missingData,
-        _ => AiChatDataStatus.enoughData,
-      },
+      // Gemini may phrase an explanation, but the app owns the evidence
+      // label. This prevents a model response from calling a sparse ledger
+      // "enough data" or inventing a different accounting basis.
+      basis: snapshot.defaultBasis,
+      dataStatus: snapshot.dataStatus,
     );
   }
 
@@ -637,10 +634,12 @@ Return only JSON with keys reply, title, description, monthly_target.
             !transaction.excludedFromInsights &&
             !transaction.isInternalFakeMayaTransfer)
         .toList();
-    final counted =
-        visibleRecords.where((transaction) => transaction.isLabeled).toList();
-    final unlabeled =
-        visibleRecords.where((transaction) => !transaction.isLabeled).toList();
+    final counted = visibleRecords
+        .where((transaction) => transaction.countsTowardFinancialInsights)
+        .toList();
+    final unlabeled = visibleRecords
+        .where((transaction) => transaction.needsFinancialLabel)
+        .toList();
     final latest = visibleRecords.isEmpty ? null : dateOf(visibleRecords.first);
 
     String monthlyLine(DateTime start) {
@@ -771,6 +770,11 @@ Return only JSON with keys reply, title, description, monthly_target.
     final latestText = latest == null ? 'no dated records' : shortDate(latest);
     final basis =
         '${counted.length} labelled, non-transfer record${counted.length == 1 ? '' : 's'} through $latestText';
+    final dataStatus = counted.isEmpty
+        ? AiChatDataStatus.missingData
+        : unlabeled.isNotEmpty
+            ? AiChatDataStatus.partialData
+            : AiChatDataStatus.enoughData;
 
     final textLines = visibleRecords.take(30).map((transaction) =>
         '- ${shortDate(dateOf(transaction)!)} | ${text(transaction.title)} | '
@@ -788,6 +792,7 @@ Return only JSON with keys reply, title, description, monthly_target.
 
     return _AiChatSnapshot(
       defaultBasis: basis,
+      dataStatus: dataStatus,
       text: '''
 CANONICAL SHELLBY SNAPSHOT — numerical source of truth
 As of: ${shortDate(now)}. Latest dated record: $latestText.
@@ -839,8 +844,12 @@ $matchSummary
     required _AiChatSnapshot snapshot,
     String? screenContext,
   }) {
-    final transcript = messages
+    // Preserve the latest exchange when a conversation is long; keeping the
+    // first messages can omit the question that just triggered this request.
+    final transcript = messages.reversed
         .take(16)
+        .toList()
+        .reversed
         .map((message) =>
             '${message.fromUser ? 'User' : 'Shellby'}: ${message.text}')
         .join('\n');
@@ -1060,6 +1069,12 @@ zero, avoid claiming causation, and use neutral non-judgmental language.
         messages,
         snapshot: _buildAiChatSnapshot(state, messages),
       );
+
+  AiChatDataStatus chatDataStatusForTesting(
+    AppState state,
+    List<ChatMessage> messages,
+  ) =>
+      _buildAiChatSnapshot(state, messages).dataStatus;
 
   String availableCashActionStageInputForTesting(AppState state) =>
       _availableCashActionStageInput(state);
@@ -1485,10 +1500,15 @@ class AiChatReply {
 }
 
 class _AiChatSnapshot {
-  const _AiChatSnapshot({required this.text, required this.defaultBasis});
+  const _AiChatSnapshot({
+    required this.text,
+    required this.defaultBasis,
+    required this.dataStatus,
+  });
 
   final String text;
   final String defaultBasis;
+  final AiChatDataStatus dataStatus;
 }
 
 /// FNV-1a hash of the data an Action stage review was based on, the same on

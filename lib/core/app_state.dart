@@ -1099,8 +1099,7 @@ class AppState extends ChangeNotifier {
     ].where((transaction) {
       final date = transaction.createdAt ?? transaction.labeledAt;
       return transaction.amount < 0 &&
-          transaction.isLabeled &&
-          !transaction.excludedFromInsights &&
+          transaction.countsTowardFinancialInsights &&
           date != null &&
           date.year == period.year &&
           date.month == period.month &&
@@ -8463,6 +8462,21 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  bool hasBucketFundedExpenseForTransaction(String transactionId) {
+    final id = transactionId.trim();
+    if (id.isEmpty) return false;
+    return d1Ledger.any(
+      (entry) =>
+          entry['sourceTransactionId']?.toString() == id &&
+          const {
+            'use_essential',
+            'use_emergency',
+            'investment_withdrawal',
+            'lifestyle_spend',
+          }.contains(entry['type']),
+    );
+  }
+
   void _recordBucketFundedExpense({
     required String motivation,
     required double amount,
@@ -9814,6 +9828,48 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Removes a simple manual entry and reverses its local account/fund effect.
+  /// Entries that already triggered a two-jar income allocation or an
+  /// unexpected-expense recovery remain editable/excludable, but are not
+  /// removable because deleting them would otherwise leave linked recovery
+  /// ledger history inconsistent.
+  bool canDeleteManualTransaction(String transactionId) {
+    final transaction = manualTransactions
+        .where((entry) => entry.transactionId == transactionId)
+        .firstOrNull;
+    if (transaction == null) return false;
+    if (transaction.tag?.trim().toLowerCase() == 'unexpected expense') {
+      return false;
+    }
+    return !_isQualifyingManualIncome(
+      title: transaction.title,
+      detail: transaction.detail,
+      category: transaction.category ?? '',
+      amount: transaction.amount,
+    );
+  }
+
+  Future<bool> deleteManualTransaction(String transactionId) async {
+    final index = manualTransactions.indexWhere(
+      (transaction) => transaction.transactionId == transactionId,
+    );
+    if (index < 0 || !canDeleteManualTransaction(transactionId)) return false;
+
+    final transaction = manualTransactions[index];
+    _undoBucketFundedExpenseForTransaction(transaction.transactionId);
+    manualTransactions.removeAt(index);
+    final account = transaction.account ?? 'Cash on Hand';
+    if (account == 'Cash on Hand') {
+      cashOnHandBalance -= transaction.amount;
+    } else {
+      manualAccountBalances[account] =
+          (manualAccountBalances[account] ?? 0) - transaction.amount;
+    }
+    if (isSignedIn) await saveProfile();
+    notifyListeners();
+    return true;
+  }
+
   /// Chooses a category without changing the transaction. The label sheet
   /// presents this result as an editable default; only a later save teaches a
   /// merchant rule.
@@ -9931,7 +9987,7 @@ class AppState extends ChangeNotifier {
   /// rules take priority, so migration never overwrites a later correction.
   void seedMerchantCategoryRules(Iterable<FakeMayaTransaction> transactions) {
     for (final transaction in transactions) {
-      if (transaction.isLabeled && !transaction.excludedFromInsights) {
+      if (transaction.countsTowardFinancialInsights) {
         _learnMerchantCategoryRule(transaction, overwrite: false);
       }
     }
@@ -9959,7 +10015,9 @@ class AppState extends ChangeNotifier {
   void _recordBucketFundedExpenseFromTransaction(
     FakeMayaTransaction transaction,
   ) {
-    if (transaction.amount >= 0 || transaction.excludedFromInsights) return;
+    if (transaction.amount >= 0 || !transaction.countsTowardFinancialInsights) {
+      return;
+    }
     final motivation = switch (transaction.source?.trim().toLowerCase()) {
       'basic needs fund' => 'Cash Flow & Basic Needs',
       'emergency fund' => 'Financial Safety',

@@ -2323,6 +2323,7 @@ class FakeMayaTransaction {
   bool get isInternalFakeMayaTransfer {
     final normalizedTitle = title.trim().toLowerCase();
     final normalizedDetail = detail.trim().toLowerCase();
+    final categorizedTransfer = category?.trim().toLowerCase() == 'transfer';
     final cashInFromOwnedAccount = normalizedTitle.contains('cash in') &&
         const {
           'from: wallet',
@@ -2341,6 +2342,8 @@ class FakeMayaTransaction {
     final boughtFromInvestmentFund = normalizedTitle.startsWith('bought ') &&
         normalizedDetail.contains('from investment fund');
     return boughtFromInvestmentFund ||
+        categorizedTransfer ||
+        normalizedTitle == 'fund transfer' ||
         normalizedTitle == 'deposited to goal' ||
         normalizedTitle == 'express deposit' ||
         normalizedTitle == 'transferred from' ||
@@ -2353,6 +2356,22 @@ class FakeMayaTransaction {
                 normalizedDetail.contains('maya black'))) ||
         cashInFromOwnedAccount;
   }
+
+  /// The shared inclusion rule for money totals, budgets, Insights, goal
+  /// evidence, Health Score, and AI Chat. A record must be labelled by the
+  /// user, not explicitly excluded, and not merely move money between the
+  /// user's own Shellby/FakeMaya accounts.
+  bool get countsTowardFinancialInsights =>
+      isLabeled && !excludedFromInsights && !isInternalFakeMayaTransfer;
+
+  /// Records which are meaningful to keep asking the user to classify.
+  /// Internal transfers and entries deliberately excluded from analysis do
+  /// not make a data set incomplete.
+  bool get needsFinancialLabel =>
+      amount != 0 &&
+      !isLabeled &&
+      !excludedFromInsights &&
+      !isInternalFakeMayaTransfer;
 
   String? get automaticDestination => isFakeMayaCashIn ? 'E-wallet' : null;
 

@@ -237,7 +237,10 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
       case 'A3': // category budgets, with D1 per category
         final budgets = <String, double>{};
         if (state.categorySpendingBudgets.isNotEmpty) {
-          budgets.addAll(state.categorySpendingBudgets);
+          for (final entry in state.categorySpendingBudgets.entries) {
+            final category = canonicalExpenseCategory(entry.key);
+            budgets[category] = (budgets[category] ?? 0) + entry.value;
+          }
         } else {
           final values = state.actionFieldValues['A3'] ?? const {};
           final cap = double.tryParse(
@@ -255,8 +258,7 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
         final spent = <String, double>{};
         for (final tx in state.allTransactions) {
           if (tx.amount >= 0 ||
-              !tx.isLabeled ||
-              tx.excludedFromInsights ||
+              !tx.countsTowardFinancialInsights ||
               !inWindow(tx.createdAt)) {
             continue;
           }
@@ -582,8 +584,12 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
   }
 
   // D7: transactions left unlabelled for more than 7 days.
-  final reviewable = state.allTransactions
-      .where((tx) => inWindow(tx.createdAt) && !tx.isInternalFakeMayaTransfer);
+  final reviewable = state.allTransactions.where(
+    (tx) =>
+        inWindow(tx.createdAt) &&
+        !tx.isInternalFakeMayaTransfer &&
+        !tx.excludedFromInsights,
+  );
   final staleUnlabelled = reviewable
       .where((tx) =>
           !tx.isLabeled &&

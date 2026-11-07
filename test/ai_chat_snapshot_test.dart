@@ -69,4 +69,55 @@ void main() {
     expect(reply.displayText, contains('Based on:'));
     expect(reply.displayText, contains('Limited data'));
   });
+
+  test('chat data status is deterministic when records need labels', () {
+    final now = AppClock.now();
+    final state = AppState()
+      ..manualTransactions.add(
+        FakeMayaTransaction(
+          id: 'unlabelled-grocery',
+          title: 'Market purchase',
+          detail: 'Receipt pending',
+          age: 'Just now',
+          amountText: '-₱250',
+          createdAt: now,
+        ),
+      );
+    const coach = ShellbyAiCoach();
+    const conversation = [ChatMessage(true, 'How is my spending?')];
+
+    expect(
+      coach.chatDataStatusForTesting(state, conversation),
+      AiChatDataStatus.missingData,
+    );
+
+    state.manualTransactions.add(
+      FakeMayaTransaction(
+        id: 'labelled-grocery',
+        title: 'Market purchase',
+        detail: 'Groceries',
+        age: 'Just now',
+        amountText: '-₱500',
+        createdAt: now,
+        category: 'Food',
+        source: 'Cash on Hand',
+      ),
+    );
+    expect(
+      coach.chatDataStatusForTesting(state, conversation),
+      AiChatDataStatus.partialData,
+    );
+  });
+
+  test('chat context retains the newest messages in a long conversation', () {
+    final messages = [
+      for (var index = 0; index < 20; index++)
+        ChatMessage(true, 'Question $index'),
+    ];
+    const coach = ShellbyAiCoach();
+    final input = coach.chatInputForTesting(AppState(), messages);
+
+    expect(input, contains('User: Question 19'));
+    expect(input, isNot(contains('User: Question 0')));
+  });
 }

@@ -200,8 +200,7 @@ List<DayRecord> _buildDayRecords(AppState state) {
             _isSameDay(transaction.createdAt!, current))
         .toList();
     final labeled = sameDayTransactions
-        .where((transaction) =>
-            transaction.isLabeled && !transaction.excludedFromInsights)
+        .where((transaction) => transaction.countsTowardFinancialInsights)
         .toList();
     final expenses = labeled
         .where((transaction) =>

@@ -733,6 +733,15 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
     if (error is AiSetupException) {
       return "Shellby's chat isn't available on this device right now.";
     }
+    if (error is FormatException) {
+      return "Shellby received an incomplete reply. Your financial data was not changed—please try again.";
+    }
+    if (error is _GeminiRequestException && error.statusCode == 429) {
+      return "Shellby is receiving a lot of requests right now. Your financial data was not changed—please try again shortly.";
+    }
+    if (error is TimeoutException || error is SocketException) {
+      return "Shellby couldn't reach the AI service. Check your connection and try again; your financial data was not changed.";
+    }
     return "Shellby can't reply right now. Check your connection and try again.";
   }
 
@@ -3057,8 +3066,7 @@ double _cashFlowMonthlySpent(AppState state) {
   return state.allTransactions
       .where((t) =>
           t.amount < 0 &&
-          t.isLabeled &&
-          !t.excludedFromInsights &&
+          t.countsTowardFinancialInsights &&
           ((t.createdAt ?? t.labeledAt)?.year == now.year &&
               (t.createdAt ?? t.labeledAt)?.month == now.month) &&
           _insightCategoryConfig(t.category ?? '').$1 == 1)
@@ -3123,8 +3131,7 @@ int maintainAvailableCashFeasibility(AppState state) {
   final spent = state.allTransactions
       .where((transaction) =>
           transaction.amount < 0 &&
-          transaction.isLabeled &&
-          !transaction.excludedFromInsights &&
+          transaction.countsTowardFinancialInsights &&
           (transaction.createdAt ?? transaction.labeledAt)?.year == now.year &&
           (transaction.createdAt ?? transaction.labeledAt)?.month ==
               now.month &&
@@ -4415,15 +4422,16 @@ bool _insightsIsReflectionDemoAccount(AppState state) =>
 bool _hasAnyInsightTransactionData(AppState state) {
   return state.allTransactions.any(
     (transaction) =>
-        !transaction.excludedFromInsights && transaction.createdAt != null,
+        !transaction.excludedFromInsights &&
+        !transaction.isInternalFakeMayaTransfer &&
+        transaction.createdAt != null,
   );
 }
 
 bool _hasUsableInsightTransactionData(AppState state) {
   return state.allTransactions.any(
     (transaction) =>
-        transaction.isLabeled &&
-        !transaction.excludedFromInsights &&
+        transaction.countsTowardFinancialInsights &&
         transaction.createdAt != null,
   );
 }
@@ -4978,8 +4986,7 @@ List<FakeMayaTransaction> _last14DaysTransactions(AppState state) {
   final cutoff = _insightsCutoff();
   return state.allTransactions
       .where((transaction) =>
-          transaction.isLabeled &&
-          !transaction.excludedFromInsights &&
+          transaction.countsTowardFinancialInsights &&
           transaction.createdAt != null &&
           !transaction.createdAt!.isBefore(cutoff))
       .toList()
@@ -6179,8 +6186,7 @@ List<_CashMonthInsight> _cashMonthsFor(
 ) {
   final transactions = state.allTransactions
       .where((transaction) =>
-          transaction.isLabeled &&
-          !transaction.excludedFromInsights &&
+          transaction.countsTowardFinancialInsights &&
           transaction.createdAt != null)
       .toList();
   final starts = <DateTime>{
@@ -6411,7 +6417,7 @@ _CashActionScore? _cashActionScoreFor({
         .where((item) => item.isNotEmpty)
         .toSet();
     final selectedCategories = <String>{
-      ...state.categorySpendingBudgets.keys,
+      ...state.categorySpendingBudgets.keys.map(canonicalExpenseCategory),
       ...configuredCategories.map(canonicalExpenseCategory),
     };
     String budgetCategoryOf(FakeMayaTransaction transaction) =>
@@ -6428,7 +6434,9 @@ _CashActionScore? _cashActionScoreFor({
         ? state.categorySpendingBudgets.entries
             .where((entry) =>
                 selectedCategories.isEmpty ||
-                selectedCategories.contains(entry.key))
+                selectedCategories.contains(
+                  canonicalExpenseCategory(entry.key),
+                ))
             .fold(0.0, (sum, entry) => sum + entry.value)
         : cap * math.max(1, selectedCategories.length);
     // Weekly: spending so far this month vs the caps prorated to the end of
@@ -7353,8 +7361,7 @@ double _unspentFundsForMonth(AppState state, DateTime month) {
     final date = transaction.createdAt ?? transaction.labeledAt;
     if (date == null ||
         !_sameMonth(date, month) ||
-        transaction.isInternalFakeMayaTransfer ||
-        transaction.excludedFromInsights) {
+        !transaction.countsTowardFinancialInsights) {
       continue;
     }
     if (transaction.amount > 0) {
@@ -18495,7 +18502,7 @@ double _currentWeekLifestyleSpend(AppState state) {
   return state.allTransactions.where((transaction) {
     final date = transaction.createdAt ?? transaction.labeledAt;
     if (transaction.amount >= 0 ||
-        transaction.excludedFromInsights ||
+        !transaction.countsTowardFinancialInsights ||
         date == null ||
         date.isBefore(start) ||
         date.isAfter(now)) {
@@ -23113,7 +23120,9 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
 }
 
 bool _isIncomeTransaction(FakeMayaTransaction transaction) {
-  if (transaction.amount <= 0 || transaction.isInternalFakeMayaTransfer) {
+  if (transaction.amount <= 0 ||
+      transaction.isInternalFakeMayaTransfer ||
+      transaction.excludedFromInsights) {
     return false;
   }
   // Labelled by the user as income (e.g. a FakeMaya holdings sale labelled
@@ -30190,10 +30199,7 @@ class _TxData {
   /// A real money movement the user still has to label (category + source).
   bool get needsLabel {
     final tx = transaction;
-    return tx != null &&
-        !tx.isInternalFakeMayaTransfer &&
-        !tx.isLabeled &&
-        tx.amount != 0;
+    return tx?.needsFinancialLabel == true;
   }
 
   bool matchesFilter(String filter) {
@@ -31870,6 +31876,11 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final transaction = widget.transaction;
     final isIncome = transaction.amount >= 0;
     final state = AppScope.of(context);
+    final isManualEntry = state.manualTransactions.any(
+      (entry) => entry.transactionId == transaction.transactionId,
+    );
+    final canDeleteManualEntry =
+        state.canDeleteManualTransaction(transaction.transactionId);
     final categoryOptions = _categoryOptionsForLayer(state, isIncome);
     final enabledCategories = [
       for (final option in categoryOptions)
@@ -32171,7 +32182,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               style: TextStyle(color: _title, fontWeight: FontWeight.w800),
             ),
             subtitle: const Text(
-              "Shellby won't use this transaction when learning patterns.",
+              "It stays in your history, but Cash Flow, Insights, Health Score, goals, and Chat will not use it.",
               style: TextStyle(color: _body, fontSize: 12),
             ),
             onChanged: (value) => setState(() => _excluded = value),
@@ -32189,6 +32200,21 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
                 !_saving,
             onPressed: _save,
           ),
+          if (canDeleteManualEntry) ...[
+            const SizedBox(height: 6),
+            TextButton.icon(
+              onPressed: _deleteManualEntry,
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Remove manual entry'),
+              style: TextButton.styleFrom(foregroundColor: _red),
+            ),
+          ] else if (isManualEntry) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'This entry has already triggered an income allocation or emergency recovery plan. You can correct its label or exclude it from analysis, but it cannot be removed here.',
+              style: TextStyle(color: _body, fontSize: 11.5, height: 1.3),
+            ),
+          ],
         ],
       ),
     );
@@ -32321,7 +32347,9 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       return;
     }
     setState(() => _saving = true);
-    if (_pullFromBucket == true) {
+    final alreadyFunded = state
+        .hasBucketFundedExpenseForTransaction(widget.transaction.transactionId);
+    if (_pullFromBucket == true && !alreadyFunded) {
       if (financialLayer == null) return;
       try {
         await state.fundTransactionFromBucket(
@@ -32348,9 +32376,73 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       excludedFromInsights: _excluded,
     );
     if (!mounted) return;
+    final savedCounts = state.allTransactions
+            .where((entry) =>
+                entry.transactionId == widget.transaction.transactionId)
+            .firstOrNull
+            ?.countsTowardFinancialInsights ==
+        true;
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Transaction label saved.')),
+      SnackBar(
+        content: Text(
+          _excluded
+              ? 'Saved. This entry remains in history but is excluded from Cash Flow, Insights, Health Score, goals, and Chat.'
+              : !savedCounts
+                  ? 'Saved. This is treated as an internal transfer, so it remains in history but is not counted as income or spending.'
+                  : 'Saved. Cash Flow, Insights, Health Score, goals, and Chat now use this label.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteManualEntry() async {
+    if (_saving) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surface,
+        title: const Text(
+          'Remove manual entry?',
+          style: TextStyle(color: _title, fontWeight: FontWeight.w900),
+        ),
+        content: const Text(
+          'This removes the entry and reverses its local account and fund effect. This cannot be undone.',
+          style: TextStyle(color: _body, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep entry'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _saving = true);
+    final deleted = await AppScope.of(context)
+        .deleteManualTransaction(widget.transaction.transactionId);
+    if (!mounted) return;
+    if (!deleted) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This manual entry can no longer be removed safely.'),
+        ),
+      );
+      return;
+    }
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content:
+            Text('Manual entry removed. Totals and progress were updated.'),
+      ),
     );
   }
 
