@@ -5378,6 +5378,7 @@ class CommunityPrivacyScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final canConfigureAi = state.isSignedIn || state.isLocalStressTestProfile;
     return Scaffold(
       backgroundColor: _bg,
       body: SafeArea(
@@ -5399,7 +5400,7 @@ class CommunityPrivacyScreen extends StatelessWidget {
               child: SwitchListTile.adaptive(
                 value: state.consentAi,
                 activeTrackColor: _brand,
-                onChanged: state.isSignedIn
+                onChanged: canConfigureAi
                     ? (value) => state.setConsentAi(value)
                     : null,
                 secondary: Container(
@@ -5417,9 +5418,11 @@ class CommunityPrivacyScreen extends StatelessWidget {
                   style: TextStyle(color: _title, fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
-                  state.isSignedIn
-                      ? 'Off by default. When on, the chat sends your profile, goals, balances and transactions to AI so it can answer questions about your money. It never moves money or makes decisions for you.'
-                      : 'Sign in to choose whether Shellby chat may use AI to explain your app data.',
+                  state.isLocalStressTestProfile
+                      ? 'This local stress profile is never saved to Firebase. Turn this on to let Gemini explain its generated profile, goals, balances, and transactions.'
+                      : state.isSignedIn
+                          ? 'Off by default. When on, the chat sends your profile, goals, balances and transactions to AI so it can answer questions about your money. It never moves money or makes decisions for you.'
+                          : 'Sign in to choose whether Shellby chat may use AI to explain your app data.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 12,

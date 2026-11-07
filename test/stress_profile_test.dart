@@ -142,4 +142,23 @@ void main() {
     await tester.pump();
     expect(find.text('Available Cash'), findsOneWidget);
   });
+
+  testWidgets('local stress profile can explicitly enable Shellby chat',
+      (tester) async {
+    final state = AppState()..seedStressTestDataForTesting(100);
+    expect(state.isSignedIn, isFalse);
+    expect(state.isLocalStressTestProfile, isTrue);
+    expect(state.consentAi, isFalse);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: CommunityPrivacyScreen()),
+      ),
+    );
+    await tester.tap(find.byType(Switch).first);
+    await tester.pump();
+
+    expect(state.consentAi, isTrue);
+  });
 }

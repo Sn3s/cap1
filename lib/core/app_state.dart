@@ -1079,6 +1079,13 @@ class AppState extends ChangeNotifier {
       (_pendingAccountPassword ?? '').isNotEmpty;
   bool get hasPendingGoogleAccount => _pendingGoogleAccount;
   bool get hasFakeMayaLink => fakeMayaLink != null;
+
+  /// Local stress profiles are intentionally not Firebase-authenticated, but
+  /// testers must still be able to opt into Gemini and exercise Chat against
+  /// the generated canonical transaction dataset.
+  bool get isLocalStressTestProfile =>
+      mockDataEnabled &&
+      (fakeMayaLink?.userId.startsWith('local-stress-') ?? false);
   List<FakeMayaTransaction> get allTransactions => [
         ...manualTransactions,
         if (fakeMayaSyncedAccounts.contains('Wallet'))
