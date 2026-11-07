@@ -105,6 +105,12 @@ void main() {
     final transaction = afterTransfer.transactions.firstWhere(
       (item) => item.amount < 0 && !item.isInternalFakeMayaTransfer,
     );
+    // Temporary regression-test diagnostic; removed after validating the
+    // transaction selection and linked ledger state.
+    // ignore: avoid_print
+    print('selected=${transaction.transactionId} source=${transaction.source} '
+        'amount=${transaction.amount} internal=${transaction.isInternalFakeMayaTransfer} '
+        'ledger=${state.d1Ledger.where((entry) => entry['sourceTransactionId'] == transaction.transactionId).toList()}');
     final localBalanceBeforeLabel = state.essentialExpensesBalance;
     await state.labelFakeMayaTransaction(
       transactionId: transaction.transactionId,

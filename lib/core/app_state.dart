@@ -2987,10 +2987,34 @@ class AppState extends ChangeNotifier {
 
     for (final offset in monthOffsets) {
       final month = DateTime(now.year, now.month - offset);
+      // The current-month demo needs enough completed income events on every
+      // calendar day for its action panels and tests to stay meaningful. Use
+      // midnight on today/previous days, avoiding future mock transactions
+      // when a presentation happens early in the month.
+      final currentMonthIncomeDays = [
+        math.max(1, now.day - 2),
+        math.max(1, now.day - 1),
+        math.max(1, now.day),
+      ];
       final incomeDates = [
-        DateTime(month.year, month.month, 2, 9),
-        DateTime(month.year, month.month, 14, 10),
-        DateTime(month.year, month.month, 24, 11),
+        DateTime(
+          month.year,
+          month.month,
+          offset == 0 ? currentMonthIncomeDays[0] : 2,
+          offset == 0 ? 0 : 9,
+        ),
+        DateTime(
+          month.year,
+          month.month,
+          offset == 0 ? currentMonthIncomeDays[1] : 14,
+          offset == 0 ? 0 : 10,
+        ),
+        DateTime(
+          month.year,
+          month.month,
+          offset == 0 ? currentMonthIncomeDays[2] : 24,
+          offset == 0 ? 0 : 11,
+        ),
       ];
       final incomes = monthlyIncome[offset]!;
       final deposits = monthlyNeedsDeposits[offset]!;
@@ -4083,8 +4107,15 @@ class AppState extends ChangeNotifier {
     for (final offset in monthOffsets) {
       final month = DateTime(now.year, now.month - offset);
       final paydays = [
-        DateTime(month.year, month.month, 15, 9),
-        DateTime(month.year, month.month + 1, 0, 9),
+        DateTime(
+          month.year,
+          month.month,
+          offset == 0 ? math.max(1, now.day - 1) : 15,
+          offset == 0 ? 0 : 9,
+        ),
+        offset == 0
+            ? DateTime(month.year, month.month, now.day, 0)
+            : DateTime(month.year, month.month + 1, 0, 9),
       ];
       final deposits = monthlyInvestmentDeposits[offset]!;
       for (var i = 0; i < paydays.length; i++) {
@@ -4610,8 +4641,15 @@ class AppState extends ChangeNotifier {
     for (final offset in monthOffsets) {
       final month = DateTime(now.year, now.month - offset);
       final paydays = [
-        DateTime(month.year, month.month, 15, 9),
-        DateTime(month.year, month.month + 1, 0, 9),
+        DateTime(
+          month.year,
+          month.month,
+          offset == 0 ? math.max(1, now.day - 1) : 15,
+          offset == 0 ? 0 : 9,
+        ),
+        offset == 0
+            ? DateTime(month.year, month.month, now.day, 0)
+            : DateTime(month.year, month.month + 1, 0, 9),
       ];
       final paydayAmounts = paydayContributions[offset]!;
       for (var i = 0; i < paydays.length; i++) {
@@ -10015,9 +10053,7 @@ class AppState extends ChangeNotifier {
   void _recordBucketFundedExpenseFromTransaction(
     FakeMayaTransaction transaction,
   ) {
-    if (transaction.amount >= 0 || !transaction.countsTowardFinancialInsights) {
-      return;
-    }
+    if (transaction.amount >= 0 || transaction.excludedFromInsights) return;
     final motivation = switch (transaction.source?.trim().toLowerCase()) {
       'basic needs fund' => 'Cash Flow & Basic Needs',
       'emergency fund' => 'Financial Safety',
