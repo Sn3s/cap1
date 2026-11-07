@@ -6182,16 +6182,31 @@ double _scheduledBasicNeedsBillNeedForMonth(
 
 List<_CashMonthInsight> _cashMonthsFor(
   AppState state,
-  IntegrationService service,
-) {
+  IntegrationService service, {
+  Set<DateTime>? onlyMonths,
+  Set<DateTime>? actionScoreMonths,
+}) {
   final transactions = state.allTransactions
       .where((transaction) =>
           transaction.countsTowardFinancialInsights &&
           transaction.createdAt != null)
       .toList();
+  // Index the two large collections once. The old version filtered the full
+  // transaction and week histories again for every displayed month; a 10k
+  // record stress profile could therefore stall while opening Goals/Insights.
+  final transactionsByMonth = <DateTime, List<FakeMayaTransaction>>{};
+  for (final transaction in transactions) {
+    final month = _monthStart(transaction.createdAt!);
+    transactionsByMonth.putIfAbsent(month, () => []).add(transaction);
+  }
+  final weeksByMonth = <DateTime, List<WeekRecord>>{};
+  for (final week in service.weekRecords) {
+    final month = _monthStart(week.start);
+    weeksByMonth.putIfAbsent(month, () => []).add(week);
+  }
   final starts = <DateTime>{
-    ...service.weekRecords.map((week) => _monthStart(week.start)),
-    ...transactions.map((transaction) => _monthStart(transaction.createdAt!)),
+    ...weeksByMonth.keys,
+    ...transactionsByMonth.keys,
     ...state.openBasicNeedsBillObligations
         .map((bill) => DateTime.tryParse(bill['dueDate']?.toString() ?? ''))
         .whereType<DateTime>()
@@ -6207,15 +6222,15 @@ List<_CashMonthInsight> _cashMonthsFor(
       .where((month) => !month.isAfter(_monthStart(AppClock.now())))
       .toList()
     ..sort();
-  return starts.map((month) {
-    final monthWeeks = service.weekRecords
-        .where((week) => _sameMonth(week.start, month))
-        .toList();
-    final monthTransactions = transactions
-        .where((transaction) => _sameMonth(transaction.createdAt!, month))
-        .toList()
-      ..sort((a, b) => (b.createdAt ?? DateTime(1970))
-          .compareTo(a.createdAt ?? DateTime(1970)));
+  final monthsToBuild = onlyMonths == null
+      ? starts
+      : starts.where(onlyMonths.contains).toList(growable: false);
+  return monthsToBuild.map((month) {
+    final monthWeeks = weeksByMonth[month] ?? const <WeekRecord>[];
+    final monthTransactions = List<FakeMayaTransaction>.of(
+      transactionsByMonth[month] ?? const <FakeMayaTransaction>[],
+    )..sort((a, b) => (b.createdAt ?? DateTime(1970))
+        .compareTo(a.createdAt ?? DateTime(1970)));
     final income = monthTransactions
         .where((transaction) =>
             transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
@@ -6265,13 +6280,16 @@ List<_CashMonthInsight> _cashMonthsFor(
       openObligations: monthObligations,
       incomeSources: incomeSources,
       spendingCategories: spendingCategories,
-      actionScores: _availableCashActionScores(
-        state: state,
-        monthStart: month,
-        weeks: monthWeeks,
-        transactions: monthTransactions,
-        income: income,
-      ),
+      actionScores:
+          actionScoreMonths != null && !actionScoreMonths.contains(month)
+              ? const <_CashActionScore>[]
+              : _availableCashActionScores(
+                  state: state,
+                  monthStart: month,
+                  weeks: monthWeeks,
+                  transactions: monthTransactions,
+                  income: income,
+                ),
     );
   }).toList();
 }
@@ -10921,7 +10939,25 @@ class _CashReflectionExplorer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final months = _cashMonthsFor(state, service);
+    // Only the selected month is displayed below. Keeping historical month
+    // summaries cheap prevents a long account history from calculating a
+    // complete action-score breakdown for every past month on first paint.
+    final latestTransactionMonth = state.allTransactions
+        .where((transaction) =>
+            transaction.countsTowardFinancialInsights &&
+            transaction.createdAt != null)
+        .map((transaction) => _monthStart(transaction.createdAt!))
+        .fold<DateTime?>(
+          null,
+          (latest, month) =>
+              latest == null || month.isAfter(latest) ? month : latest,
+        );
+    final scoreMonth = selectedMonth ?? latestTransactionMonth;
+    final months = _cashMonthsFor(
+      state,
+      service,
+      actionScoreMonths: scoreMonth == null ? const {} : {scoreMonth},
+    );
     final activeMonth =
         months.where((month) => month.start == selectedMonth).firstOrNull ??
             (months.isEmpty ? null : months.last);
@@ -22016,7 +22052,9 @@ List<_CashActionScore> _monthlyActionScores(
       .where((tx) => tx.createdAt != null && _sameMonth(tx.createdAt!, month))
       .toList();
   return switch (goalId) {
-    'G1' => _cashMonthsFor(state, svc)
+    // Goal streaks only need one selected calendar month. Avoid rebuilding
+    // action scores for every month of a long history just to retrieve it.
+    'G1' => _cashMonthsFor(state, svc, onlyMonths: {month})
             .where((m) => m.start == month)
             .firstOrNull
             ?.actionScores ??

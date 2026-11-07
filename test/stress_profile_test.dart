@@ -1,4 +1,5 @@
 import 'package:cap1/main.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -67,7 +68,8 @@ void main() {
         expect(sourcedTransactions, isNotEmpty);
         expect(
           sourcedTransactions.every(
-            (transaction) => ledgerTransactions.contains(transaction.transactionId),
+            (transaction) =>
+                ledgerTransactions.contains(transaction.transactionId),
           ),
           isTrue,
         );
@@ -76,6 +78,25 @@ void main() {
       expect(state.investmentValuationHistory, hasLength(13));
       expect(state.pendingEmergencyReplenishment, greaterThan(0));
       expect(state.actionFieldValues['A1']?['pct'], '35');
+      final integration = IntegrationService.fromState(state);
+      final expectedBasicNeedsSpend = summary.transactions
+          .where((transaction) =>
+              transaction.amount < 0 &&
+              transaction.countsTowardFinancialInsights &&
+              transaction.source == 'Basic Needs Fund')
+          .fold<double>(
+            0,
+            (total, transaction) => total + transaction.amount.abs(),
+          );
+      expect(integration.dayRecords, isNotEmpty);
+      expect(integration.weekRecords, isNotEmpty);
+      expect(
+        integration.weekRecords.fold<double>(
+          0,
+          (total, week) => total + week.weekExpense,
+        ),
+        closeTo(expectedBasicNeedsSpend, .001),
+      );
       expect(
         state.essentialExpensesBalance,
         closeTo(summary.essentialExpenseFund!.balance, .001),
@@ -90,4 +111,31 @@ void main() {
       );
     });
   }
+
+  testWidgets('10,000 transaction profile mounts Goals and Insights',
+      (tester) async {
+    final state = AppState()..seedStressTestDataForTesting(10000);
+    expect(state.consentAi, isFalse);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: GoalsPage())),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Goals'), findsOneWidget);
+
+    await tester.pumpWidget(
+      AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: InsightsPage())),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Goal Insights'), findsOneWidget);
+    await tester.tap(find.text('Available cash'));
+    await tester.pump();
+    expect(find.text('Available Cash'), findsOneWidget);
+  });
 }

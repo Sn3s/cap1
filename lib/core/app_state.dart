@@ -1971,6 +1971,11 @@ class AppState extends ChangeNotifier {
     // corresponding allocation or use record.
     _applyReflectionDemoProfile(null);
     _seedDemoEngagement();
+    // Stress data is meant to benchmark local calculation and rendering.
+    // Do not silently start a large Gemini action-stage request when a tester
+    // opens Insights; they can explicitly enable AI in Settings when they
+    // want to exercise Chat with this same canonical dataset.
+    consentAi = false;
     jarLedger.clear();
     d1Ledger.clear();
     investmentValuationHistory.clear();
@@ -2165,7 +2170,10 @@ class AppState extends ChangeNotifier {
     final chronological = List<FakeMayaTransaction>.from(transactions)
       ..sort((a, b) => (a.createdAt ?? today).compareTo(b.createdAt ?? today));
 
-    void addLedger(String type, DateTime date, double amount, {
+    void addLedger(
+      String type,
+      DateTime date,
+      double amount, {
       String? sourceTransactionId,
       String? destination,
       String? label,
@@ -2175,7 +2183,8 @@ class AppState extends ChangeNotifier {
         'type': type,
         'date': date.toIso8601String(),
         'amount': amount,
-        if (sourceTransactionId != null) 'sourceTransactionId': sourceTransactionId,
+        if (sourceTransactionId != null)
+          'sourceTransactionId': sourceTransactionId,
         if (destination != null) 'destination': destination,
         if (label != null) 'label': label,
         ...extra,
@@ -2195,9 +2204,8 @@ class AppState extends ChangeNotifier {
         emergencyBalance += emergency;
         investmentFundBalance += investment;
         lifestyleBalance += lifestyle;
-        final toNeeds = math
-            .min(essential, math.max(0, needsTarget - needs))
-            .toDouble();
+        final toNeeds =
+            math.min(essential, math.max(0, needsTarget - needs)).toDouble();
         final toBuffer = (essential - toNeeds).toDouble();
         needs += toNeeds;
         buffer += toBuffer;
@@ -2288,7 +2296,8 @@ class AppState extends ChangeNotifier {
         lifestyleBalance = math.max(0, lifestyleBalance - spent);
         addLedger('lifestyle_spend', date, spent,
             sourceTransactionId: id,
-            destination: 'Personal Lifestyle Fund', label: transaction.title);
+            destination: 'Personal Lifestyle Fund',
+            label: transaction.title);
       } else if (transaction.source == 'Basic Needs Fund') {
         essentialBalance = math.max(0, essentialBalance - spent);
         final needsOut = math.min(needs, spent);
@@ -2297,7 +2306,8 @@ class AppState extends ChangeNotifier {
         buffer = math.max(0, buffer - bufferOut);
         addLedger('use_essential', date, spent,
             sourceTransactionId: id,
-            destination: 'Essential Expenses Fund', label: transaction.title);
+            destination: 'Essential Expenses Fund',
+            label: transaction.title);
         jarLedger.add(JarEvent(
           timestamp: date,
           type: JarEventType.billPaid,
@@ -2306,7 +2316,8 @@ class AppState extends ChangeNotifier {
           bufferIn: 0,
           bufferOut: bufferOut,
           sourceTransactionId: id,
-          sentence: '${transaction.title} ${money(spent)} paid from Basic Needs',
+          sentence:
+              '${transaction.title} ${money(spent)} paid from Basic Needs',
         ));
       }
     }
@@ -2319,7 +2330,8 @@ class AppState extends ChangeNotifier {
       final valuedAt = today.subtract(Duration(days: week * 7));
       investmentValuationHistory.add({
         'valuedAt': valuedAt.toIso8601String(),
-        'holdingsValue': valuationBase + (12 - week) * 450.0 +
+        'holdingsValue': valuationBase +
+            (12 - week) * 450.0 +
             ((12 - week).isEven ? 180.0 : -90.0),
         'netFlow': week % 4 == 0 ? 2000.0 : 0.0,
       });
@@ -2401,8 +2413,8 @@ class AppState extends ChangeNotifier {
     _lifestyleLocalBalance = lifestyleBalance;
     needsBalance = needs;
     bufferBalance = buffer;
-    emergencyMonths = emergencyBalance /
-        math.max(1, monthlyEssentialExpenseTotal);
+    emergencyMonths =
+        emergencyBalance / math.max(1, monthlyEssentialExpenseTotal);
     _lastEfWithdrawalStr = latestEmergency?.toIso8601String();
     d1Ledger.sort((a, b) => DateTime.parse(b['date'].toString())
         .compareTo(DateTime.parse(a['date'].toString())));

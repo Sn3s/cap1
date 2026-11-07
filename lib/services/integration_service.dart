@@ -74,18 +74,29 @@ class WeekRecord {
 }
 
 class IntegrationService {
-  IntegrationService.fromState(AppState state)
-      : bufferTarget = _bufferTargetFor(state),
-        needsTarget = state.needsTarget,
-        dayRecords = _buildDayRecords(state),
-        weekRecords = _buildWeekRecords(
-          _buildDayRecords(state),
-          _cycleWeekdayFor(state),
-        ) {
-    jarIntegritySeries =
-        jarIntegrity(weekRecords, state.needsTarget, bufferTarget);
+  /// Builds the chronological record once.  This is intentionally a factory
+  /// instead of two initializer expressions: Insights and Goals can contain
+  /// several years of activity, and rebuilding the same daily history twice
+  /// made large, valid histories block the UI thread.
+  factory IntegrationService.fromState(AppState state) {
+    final days = _buildDayRecords(state);
+    return IntegrationService._(
+      bufferTarget: _bufferTargetFor(state),
+      needsTarget: state.needsTarget,
+      dayRecords: days,
+      weekRecords: _buildWeekRecords(days, _cycleWeekdayFor(state)),
+    );
+  }
+
+  IntegrationService._({
+    required this.bufferTarget,
+    required this.needsTarget,
+    required this.dayRecords,
+    required this.weekRecords,
+  }) {
+    jarIntegritySeries = jarIntegrity(weekRecords, needsTarget, bufferTarget);
     bufferResilienceSeries =
-        bufferResilience(weekRecords, state.needsTarget, bufferTarget);
+        bufferResilience(weekRecords, needsTarget, bufferTarget);
     refillConsistencySeries = refillConsistency(weekRecords);
   }
 
@@ -167,18 +178,33 @@ List<double> refillConsistency(List<WeekRecord> records) {
 }
 
 List<DayRecord> _buildDayRecords(AppState state) {
-  final events = List<JarEvent>.of(state.jarLedger)
-    ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-  final transactions = List<FakeMayaTransaction>.of(state.allTransactions)
-    ..sort((a, b) => (a.createdAt ?? DateTime(1970))
-        .compareTo(b.createdAt ?? DateTime(1970)));
+  // Index once by calendar day. The previous implementation filtered every
+  // event and every transaction again for each day in the date range. A
+  // 10,000-record history spanning years therefore did tens of millions of
+  // comparisons on the browser's main thread.
+  final eventsByDay = <DateTime, List<JarEvent>>{};
+  final transactionsByDay = <DateTime, List<FakeMayaTransaction>>{};
   final dates = <DateTime>{};
-  for (final event in events) {
-    dates.add(_day(event.timestamp));
+  for (final event in state.jarLedger) {
+    final day = _day(event.timestamp);
+    dates.add(day);
+    eventsByDay.putIfAbsent(day, () => []).add(event);
   }
-  for (final transaction in transactions) {
+  for (final transaction in state.allTransactions) {
     final timestamp = transaction.createdAt;
-    if (timestamp != null) dates.add(_day(timestamp));
+    if (timestamp == null) continue;
+    final day = _day(timestamp);
+    dates.add(day);
+    transactionsByDay.putIfAbsent(day, () => []).add(transaction);
+  }
+  // Preserve the chronological order callers previously received from the
+  // globally sorted lists, while keeping lookup cost constant per day.
+  for (final events in eventsByDay.values) {
+    events.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+  }
+  for (final transactions in transactionsByDay.values) {
+    transactions.sort((a, b) => (a.createdAt ?? DateTime(1970))
+        .compareTo(b.createdAt ?? DateTime(1970)));
   }
   if (dates.isEmpty) return const [];
   final sortedDates = dates.toList()..sort();
@@ -188,40 +214,43 @@ List<DayRecord> _buildDayRecords(AppState state) {
   double buffer = 0;
   final out = <DayRecord>[];
   while (!current.isAfter(last)) {
-    final sameDayEvents =
-        events.where((event) => _isSameDay(event.timestamp, current)).toList();
+    final sameDayEvents = eventsByDay[current] ?? const <JarEvent>[];
+    final sameDayTransactions =
+        transactionsByDay[current] ?? const <FakeMayaTransaction>[];
+    var withdrawalAmount = 0.0;
+    var refillAmount = 0.0;
+    var isBillDay = false;
+    var isSalaryDay = false;
+    var emergency = false;
     for (final event in sameDayEvents) {
       needs += event.needsIn - event.needsOut;
       buffer += event.bufferIn - event.bufferOut;
+      withdrawalAmount += event.bufferOut;
+      refillAmount += event.bufferIn;
+      isBillDay |= event.type == JarEventType.billPaid;
+      isSalaryDay |= event.type == JarEventType.income;
+      emergency |= _looksEmergency(event);
     }
-    final sameDayTransactions = transactions
-        .where((transaction) =>
-            transaction.createdAt != null &&
-            _isSameDay(transaction.createdAt!, current))
-        .toList();
-    final labeled = sameDayTransactions
-        .where((transaction) => transaction.countsTowardFinancialInsights)
-        .toList();
-    final expenses = labeled
-        .where((transaction) =>
-            transaction.amount < 0 &&
-            transaction.source?.toLowerCase() == 'basic needs fund')
-        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-    final income = labeled
-        .where((transaction) =>
-            transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
-        .fold(0.0, (sum, transaction) => sum + transaction.amount);
-    final feeTotal = labeled
-        .where((transaction) =>
-            (transaction.category ?? '').toLowerCase().contains('fee') ||
-            transaction.title.toLowerCase().contains('fee'))
-        .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
+    var expenses = 0.0;
+    var income = 0.0;
+    var feeTotal = 0.0;
+    var numUnclassified = 0;
+    for (final transaction in sameDayTransactions) {
+      if (!transaction.isLabeled) numUnclassified++;
+      if (!transaction.countsTowardFinancialInsights) continue;
+      if (transaction.amount < 0 &&
+          transaction.source?.toLowerCase() == 'basic needs fund') {
+        expenses += transaction.amount.abs();
+      }
+      if (transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer) {
+        income += transaction.amount;
+      }
+      if ((transaction.category ?? '').toLowerCase().contains('fee') ||
+          transaction.title.toLowerCase().contains('fee')) {
+        feeTotal += transaction.amount.abs();
+      }
+    }
     final hasData = sameDayEvents.isNotEmpty || sameDayTransactions.isNotEmpty;
-    final isBillDay =
-        sameDayEvents.any((event) => event.type == JarEventType.billPaid);
-    final isSalaryDay =
-        sameDayEvents.any((event) => event.type == JarEventType.income);
-    final emergency = sameDayEvents.any(_looksEmergency);
     out.add(DayRecord(
       date: current,
       incomeTotal: income,
@@ -229,17 +258,13 @@ List<DayRecord> _buildDayRecords(AppState state) {
       feeTotal: feeTotal,
       needsBalanceEnd: needs,
       bufferBalanceEnd: buffer,
-      withdrawalAmount:
-          sameDayEvents.fold(0.0, (sum, event) => sum + event.bufferOut),
-      refillAmount:
-          sameDayEvents.fold(0.0, (sum, event) => sum + event.bufferIn),
+      withdrawalAmount: withdrawalAmount,
+      refillAmount: refillAmount,
       isSalaryWeek: isSalaryDay,
       isBillWeek: isBillDay,
       hadEmergency: emergency,
       syncedWithMaya: sameDayTransactions.isNotEmpty,
-      numUnclassified: sameDayTransactions
-          .where((transaction) => !transaction.isLabeled)
-          .length,
+      numUnclassified: numUnclassified,
       wasInferred: hasData && sameDayTransactions.isEmpty,
       transactions: sameDayTransactions,
       events: sameDayEvents,
@@ -303,9 +328,6 @@ DateTime _weekStart(DateTime value, int startWeekday) {
 }
 
 DateTime _day(DateTime value) => DateTime(value.year, value.month, value.day);
-
-bool _isSameDay(DateTime a, DateTime b) =>
-    a.year == b.year && a.month == b.month && a.day == b.day;
 
 bool _looksEmergency(JarEvent event) {
   final text = event.sentence.toLowerCase();
