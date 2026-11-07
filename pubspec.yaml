@@ -67,6 +67,9 @@ flutter:
   uses-material-design: true
 
   assets:
+    # Personal iPhone builds load Gemini configuration from this ignored file.
+    # It must be a Flutter asset for rootBundle.loadString('.env') to find it.
+    - .env
     - assets/images/shellby_wave.webp
     - assets/images/shellby_arms_out.webp
     - assets/images/healthy_shelby.png
