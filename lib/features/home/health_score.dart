@@ -124,9 +124,14 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
     return value != null && value > 0 ? value : 10;
   }
 
-  final incomes = (state.fakeMayaLink?.summary.transactions ??
-          const <FakeMayaTransaction>[])
-      .where((tx) => _isIncomeTransaction(tx) && inWindow(tx.createdAt))
+  // Use the same normalized ledger as Insights and goal progress. A manually
+  // entered cash-in is real financial evidence; it must not disappear from
+  // Health Score merely because it did not originate in FakeMaya.
+  final incomes = state.allTransactions
+      .where(
+        (tx) =>
+            _isIncomeTransaction(tx) && inWindow(tx.createdAt ?? tx.labeledAt),
+      )
       .toList();
 
   final actionIds = <String>{
@@ -147,6 +152,15 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
     String ledgerType,
     String fundName,
   ) {
+    // A cash entry is enough evidence for cash-in, spending and Cash Flow
+    // progress. It cannot prove a transfer to one of the protected funds,
+    // though, so do not turn an unavailable FakeMaya transfer into a D3 miss.
+    if (!state.hasFakeMayaLink) {
+      return (
+        completion: null,
+        detail: 'Link FakeMaya to verify $fundName transfers',
+      );
+    }
     final pct = configuredPct(actionId);
     var total = 0.0;
     var counted = 0;
@@ -162,8 +176,10 @@ HealthScoreBreakdown computeHealthScore(AppState state) {
               (acc, entry) =>
                   acc + ((entry['amount'] as num?)?.toDouble() ?? 0));
       final expected = income.amount * pct / 100;
+      final incomeDate = income.createdAt ?? income.labeledAt;
       final pending = allocated <= 0 &&
-          now.difference(income.createdAt!) <= _healthIncomeGrace;
+          incomeDate != null &&
+          now.difference(incomeDate) <= _healthIncomeGrace;
       if (pending || expected <= 0) continue;
       final ratio = (allocated / expected).clamp(0.0, 1.0);
       total += ratio;

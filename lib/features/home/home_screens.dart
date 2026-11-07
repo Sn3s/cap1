@@ -3049,15 +3049,18 @@ String _pyramidLayerForTransaction(FakeMayaTransaction transaction) {
   };
 }
 
-// Compute this-month layer-1 (essentials) spending from FakeMaya if available.
+// Compute this-month layer-1 spending from the same combined ledger that
+// powers Insights. Manual/cash entries are therefore reflected in the Cash
+// Flow goal instead of being visible only in the transaction list.
 double _cashFlowMonthlySpent(AppState state) {
   final now = AppClock.now();
-  return (state.fakeMayaLink?.summary.transactions ?? [])
+  return state.allTransactions
       .where((t) =>
           t.amount < 0 &&
           t.isLabeled &&
           !t.excludedFromInsights &&
-          (t.createdAt?.year == now.year && t.createdAt?.month == now.month) &&
+          ((t.createdAt ?? t.labeledAt)?.year == now.year &&
+              (t.createdAt ?? t.labeledAt)?.month == now.month) &&
           _insightCategoryConfig(t.category ?? '').$1 == 1)
       .fold(0.0, (s, t) => s + t.amount.abs());
 }
@@ -3117,22 +3120,22 @@ int maintainAvailableCashFeasibility(AppState state) {
   final total = _maintainAvailableCashExpectedSpend(state);
   if (total <= 0) return 0;
   final now = AppClock.now();
-  final spent = (state.fakeMayaLink?.summary.transactions ??
-          const <FakeMayaTransaction>[])
+  final spent = state.allTransactions
       .where((transaction) =>
           transaction.amount < 0 &&
           transaction.isLabeled &&
           !transaction.excludedFromInsights &&
-          transaction.createdAt?.year == now.year &&
-          transaction.createdAt?.month == now.month &&
+          (transaction.createdAt ?? transaction.labeledAt)?.year == now.year &&
+          (transaction.createdAt ?? transaction.labeledAt)?.month ==
+              now.month &&
           _insightCategoryConfig(transaction.category ?? '').$1 == 1)
       .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
-  final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+  final availableCash = state.availableCashForGoals;
   final remaining = math.max(0.0, total - spent);
   final essentialExpected = total;
   final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
   final coverageScore =
-      (wallet / math.max(remaining, total * .1)).clamp(0.0, 1.0);
+      (availableCash / math.max(remaining, total * .1)).clamp(0.0, 1.0);
   final essentialScore = essentialExpected <= 0
       ? coverageScore
       : (state.essentialExpensesBalance / essentialExpected).clamp(0.0, 1.0);
@@ -3143,7 +3146,7 @@ int maintainAvailableCashFeasibility(AppState state) {
       ? 1.0
       : ((state.essentialExpensesBalance +
                   state.billsObligationsBalance +
-                  wallet) /
+                  availableCash) /
               unpaidBillNeed)
           .clamp(0.0, 1.0);
   return ((coverageScore * .45 +
@@ -14888,8 +14891,7 @@ class _EmergencyActivityReflection extends StatelessWidget {
         add: type != 'use_emergency',
       ));
     }
-    for (final transaction in state.fakeMayaLink?.summary.transactions ??
-        const <FakeMayaTransaction>[]) {
+    for (final transaction in state.allTransactions) {
       if (!transaction.isLabeled ||
           transaction.excludedFromInsights ||
           transaction.source?.toLowerCase() != 'emergency fund') {
@@ -17074,10 +17076,7 @@ class _SpendingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final layers = _insightLayersFor(
-      state.fakeMayaLink?.summary.transactions ?? const [],
-      period,
-    );
+    final layers = _insightLayersFor(state.allTransactions, period);
     final categories = layers.expand((l) => l.categories).toList();
     final total = categories.fold(0.0, (s, c) => s + c.amount);
     final periodLabel =
@@ -18391,8 +18390,7 @@ int _motivationStreak(String goalId, AppState state) {
     'A12': state.hasInvestmentAllocationForIncome,
     'A27': state.hasLifestylePaydayAllocation,
   };
-  final incomes = (state.fakeMayaLink?.summary.transactions ??
-          const <FakeMayaTransaction>[])
+  final incomes = state.allTransactions
       .where((tx) => tx.createdAt != null && _isIncomeTransaction(tx))
       .toList();
   for (final entry in incomeChecks.entries) {
@@ -20137,17 +20135,18 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final now = AppClock.now();
-    final spent = (state.fakeMayaLink?.summary.transactions ??
-            const <FakeMayaTransaction>[])
+    final spent = state.allTransactions
         .where((transaction) =>
             transaction.amount < 0 &&
             transaction.isLabeled &&
             !transaction.excludedFromInsights &&
-            transaction.createdAt?.year == now.year &&
-            transaction.createdAt?.month == now.month &&
+            (transaction.createdAt ?? transaction.labeledAt)?.year ==
+                now.year &&
+            (transaction.createdAt ?? transaction.labeledAt)?.month ==
+                now.month &&
             _insightCategoryConfig(transaction.category ?? '').$1 == 1)
         .fold(0.0, (total, transaction) => total + transaction.amount.abs());
-    final wallet = state.fakeMayaLink?.summary.wallet ?? 0;
+    final wallet = state.availableCashForGoals;
     final expected = _maintainAvailableCashExpectedSpend(state);
     final progress = _cashFlowGoalProgress(state);
 
@@ -21174,8 +21173,7 @@ class _CashFlowTransactionsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final transactions = (state.fakeMayaLink?.summary.transactions ??
-            const <FakeMayaTransaction>[])
+    final transactions = state.allTransactions
         .where((transaction) =>
             transaction.isLabeled &&
             !transaction.excludedFromInsights &&
@@ -21312,8 +21310,7 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
   // A12: share of recent incomes that got their investment transfer.
   double? incomeRate;
   if (actions.contains('A12')) {
-    final incomes = (state.fakeMayaLink?.summary.transactions ??
-            const <FakeMayaTransaction>[])
+    final incomes = state.allTransactions
         .where((tx) =>
             _isIncomeTransaction(tx) &&
             tx.createdAt != null &&
@@ -21633,8 +21630,7 @@ class _GoalProgressBox extends StatelessWidget {
   // A27: share of recent incomes that got their Lifestyle Fund transfer.
   if (actions.contains('A27')) {
     final since = now.subtract(const Duration(days: 90));
-    final incomes = (state.fakeMayaLink?.summary.transactions ??
-            const <FakeMayaTransaction>[])
+    final incomes = state.allTransactions
         .where((tx) =>
             _isIncomeTransaction(tx) &&
             tx.createdAt != null &&
@@ -21797,8 +21793,7 @@ List<_CashActionScore> _monthlyActionScores(
   bool Function(String transactionId) allocated,
 ) {
   final since = AppClock.now().subtract(const Duration(days: 90));
-  final incomes = (state.fakeMayaLink?.summary.transactions ??
-          const <FakeMayaTransaction>[])
+  final incomes = state.allTransactions
       .where((tx) =>
           _isIncomeTransaction(tx) &&
           tx.createdAt != null &&
@@ -22155,8 +22150,7 @@ class _EmergencyFundTransactionsList extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     final activity = <_EmergencyActivityItem>[];
-    for (final transaction in state.fakeMayaLink?.summary.transactions ??
-        const <FakeMayaTransaction>[]) {
+    for (final transaction in state.allTransactions) {
       if (!transaction.isLabeled ||
           transaction.excludedFromInsights ||
           _insightCategoryConfig(transaction.category ?? '').$1 != 2) {
@@ -22867,11 +22861,12 @@ bool _isIncomeTransaction(FakeMayaTransaction transaction) {
 }
 
 FakeMayaTransaction? _latestIncomeTransaction(AppState state) {
-  final transactions =
-      state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
-  final incoming = transactions.where(_isIncomeTransaction).toList()
-    ..sort((a, b) => (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-        .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+  final incoming = state.allTransactions.where(_isIncomeTransaction).toList()
+    ..sort((a, b) =>
+        (b.createdAt ?? b.labeledAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.createdAt ??
+                a.labeledAt ??
+                DateTime.fromMillisecondsSinceEpoch(0)));
   return incoming.isEmpty ? null : incoming.first;
 }
 
@@ -22879,16 +22874,17 @@ List<FakeMayaTransaction> _incomeTransactionsForInvestmentMonth(
   AppState state,
   DateTime monthStart,
 ) {
-  final transactions =
-      state.fakeMayaLink?.summary.transactions ?? const <FakeMayaTransaction>[];
-  return transactions
-      .where((transaction) =>
-          _isIncomeTransaction(transaction) &&
-          transaction.createdAt != null &&
-          _sameMonth(transaction.createdAt!, monthStart))
-      .toList()
-    ..sort((a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-        .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+  return state.allTransactions.where((transaction) {
+    final date = transaction.createdAt ?? transaction.labeledAt;
+    return _isIncomeTransaction(transaction) &&
+        date != null &&
+        _sameMonth(date, monthStart);
+  }).toList()
+    ..sort((a, b) =>
+        (a.createdAt ?? a.labeledAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.createdAt ??
+                b.labeledAt ??
+                DateTime.fromMillisecondsSinceEpoch(0)));
 }
 
 double _investmentDepositsForIncome(AppState state, String transactionId) {

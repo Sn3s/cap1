@@ -1238,6 +1238,13 @@ class AppState extends ChangeNotifier {
       ? monthlyExpenseLedgerTotal
       : cashFlowBudgetForLayer(ExpenseLayer.basicNeeds);
   double get linkedFakeMayaBalance => fakeMayaLink?.summary.totalBalance ?? 0;
+
+  /// Spendable cash used by cash-flow goals. A manually tracked cash balance
+  /// is just as real as the linked FakeMaya Wallet, so progress must include
+  /// both while transfer actions themselves still require FakeMaya.
+  double get availableCashForGoals =>
+      accountBalance('Wallet') + accountBalance('Cash on Hand');
+
   // When the Essential Expenses Fund lives in FakeMaya bucket B1, transfers
   // already moved that money out of the wallet, so it must not be subtracted
   // again. Only a local (unbacked) Essential balance is earmarked wallet cash.
@@ -10021,14 +10028,28 @@ class AppState extends ChangeNotifier {
     bool unexpectedExpense = false,
   }) async {
     if (amount == 0) return;
-    final id = transactionId?.trim().isNotEmpty == true
-        ? transactionId!.trim()
+    final requestedId = transactionId?.trim();
+    final hasExplicitId = requestedId?.isNotEmpty == true;
+    final baseId = hasExplicitId
+        ? requestedId!
         : 'manual-${occurredAt.microsecondsSinceEpoch}';
-    // A retried manual submission must not change either the account balance
-    // or the Two-Jar allocation a second time.
-    if (manualTransactions
-        .any((transaction) => transaction.transactionId == id)) {
+    var id = baseId;
+    // An explicit ID is an idempotency key supplied by a retried submission,
+    // so preserve the existing no-op behavior. Date pickers, however, often
+    // give separate manual entries the exact same timestamp; make those local
+    // IDs unique instead of silently losing the later entry.
+    if (hasExplicitId &&
+        manualTransactions
+            .any((transaction) => transaction.transactionId == id)) {
       return;
+    }
+    if (!hasExplicitId) {
+      var suffix = 2;
+      while (manualTransactions
+          .any((transaction) => transaction.transactionId == id)) {
+        id = '$baseId-$suffix';
+        suffix++;
+      }
     }
     final isUnexpectedOutflow = unexpectedExpense && amount < 0;
     final balance = accountBalance(account);
