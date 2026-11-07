@@ -92,6 +92,11 @@ class ShellbyAiCoach {
     if (!state.consentAi) throw const AiConsentRequiredException();
 
     final snapshot = _buildAiChatSnapshot(state, messages);
+    // A total transaction count is an exact app fact, not an interpretation.
+    // Answer it locally so a model can never confuse the smaller analytics
+    // subset (which excludes transfers) with the user's complete history.
+    final exactReply = _transactionCountReply(snapshot, messages);
+    if (exactReply != null) return exactReply;
     final parsed = await _sendJson(
       instructions: _shellbyChatInstructions,
       input: _canonicalShellbyChatInput(
@@ -625,10 +630,19 @@ Return only JSON with keys reply, title, description, monthly_target.
           : '${compact.substring(0, limit - 1)}…';
     }
 
-    final allDated = state.allTransactions
+    final allRecords = state.allTransactions.toList();
+    final allDated = allRecords
         .where((transaction) => dateOf(transaction) != null)
         .toList()
       ..sort((a, b) => dateOf(b)!.compareTo(dateOf(a)!));
+    final internalTransfers = allRecords
+        .where((transaction) => transaction.isInternalFakeMayaTransfer)
+        .length;
+    final excludedRecords = allRecords
+        .where((transaction) =>
+            transaction.excludedFromInsights &&
+            !transaction.isInternalFakeMayaTransfer)
+        .length;
     final visibleRecords = allDated
         .where((transaction) =>
             !transaction.excludedFromInsights &&
@@ -793,11 +807,27 @@ Return only JSON with keys reply, title, description, monthly_target.
     return _AiChatSnapshot(
       defaultBasis: basis,
       dataStatus: dataStatus,
+      totalRecordCount: allRecords.length,
+      datedRecordCount: allDated.length,
+      analysisRecordCount: visibleRecords.length,
+      labelledAnalysisRecordCount: counted.length,
+      unlabelledAnalysisRecordCount: unlabeled.length,
+      internalTransferCount: internalTransfers,
+      excludedRecordCount: excludedRecords,
+      latestDatedRecord: latestText,
       text: '''
 CANONICAL SHELLBY SNAPSHOT — numerical source of truth
 As of: ${shortDate(now)}. Latest dated record: $latestText.
 Counting rule for income, spending and category totals: labelled records only; excluded records and transfers between the user's own accounts/funds are never counted as income or spending.
 Data coverage: $basis. Unlabelled records excluded from totals: ${unlabeled.length}.
+
+TRANSACTION COUNT DEFINITIONS — use these exact values for count questions:
+- Total recorded transaction rows: ${allRecords.length}. This is the answer to “How many transactions have I had?” and includes transfers and records not used in analysis.
+- Dated transaction rows: ${allDated.length}; undated transaction rows: ${allRecords.length - allDated.length}.
+- Internal transfers/fund allocations: $internalTransfers. They remain part of the total history, but are excluded from income and spending.
+- Explicitly excluded non-transfer records: $excludedRecords.
+- External dated records available for financial analysis: ${visibleRecords.length}, made up of ${counted.length} labelled and ${unlabeled.length} unlabelled records.
+- Never describe the analysis-record count as the user's total transaction count. Never infer that the user is short of a numerical target unless a goal explicitly provides that target.
 
 DISPLAYED BALANCES (use these exact values):
 - Wallet: ${money(state.accountBalance('Wallet'))}
