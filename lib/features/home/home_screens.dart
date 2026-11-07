@@ -709,11 +709,11 @@ class _ShellbyChatPageState extends State<ShellbyChatPage> {
       );
       if (!mounted) return;
       setState(() {
-        if (reply.isEmpty) {
+        if (reply.answer.isEmpty) {
           _error =
               "Shellby couldn't come up with a reply. Try asking another way.";
         } else {
-          _messages.add(ChatMessage(false, reply));
+          _messages.add(ChatMessage(false, reply.displayText));
         }
       });
     } catch (error) {
@@ -5549,7 +5549,8 @@ String _overviewAnalysisContext(
           transaction.amount > 0 && !transaction.isInternalFakeMayaTransfer)
       .fold(0.0, (sum, transaction) => sum + transaction.amount);
   final outflow = labeled
-      .where((transaction) => transaction.amount < 0)
+      .where((transaction) =>
+          transaction.amount < 0 && !transaction.isInternalFakeMayaTransfer)
       .fold(0.0, (sum, transaction) => sum + transaction.amount.abs());
   final categories = _transactionTotals(
     labeled.where((transaction) => transaction.amount < 0),
