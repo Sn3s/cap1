@@ -4972,11 +4972,11 @@ class _ReflectionQuestion extends StatelessWidget {
 
 class _InsightsAiSummaryCard extends StatelessWidget {
   const _InsightsAiSummaryCard({
-    required this.suggestionCount,
+    required this.buildingGoalCount,
     required this.summaryExcerpt,
     required this.onTap,
   });
-  final int suggestionCount;
+  final int buildingGoalCount;
   final String summaryExcerpt;
   final VoidCallback onTap;
 
@@ -5048,7 +5048,7 @@ class _InsightsAiSummaryCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (suggestionCount > 0) ...[
+                if (buildingGoalCount > 0) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding:
@@ -5058,7 +5058,7 @@ class _InsightsAiSummaryCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
-                      '$suggestionCount new suggestion${suggestionCount == 1 ? '' : 's'}!',
+                      '$buildingGoalCount active goal${buildingGoalCount == 1 ? '' : 's'} still building',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -5176,13 +5176,13 @@ class _InsightsOverview extends StatelessWidget {
     );
 
     final goalScores = _overviewGoalScores(state);
-    final suggestionCount =
-        goalScores.where((goal) => !_isGoalOnTrack(goal.goalId, state)).length;
+    final buildingGoalCount =
+        goalScores.where((goal) => goal.value < 100).length;
 
     return Column(
       children: [
         _InsightsAiSummaryCard(
-          suggestionCount: suggestionCount,
+          buildingGoalCount: buildingGoalCount,
           summaryExcerpt: _moneyFlowInsight(inflow, outflow),
           onTap: () {
             Navigator.of(context).push(
@@ -5198,6 +5198,7 @@ class _InsightsOverview extends StatelessWidget {
         if (goalScores.isNotEmpty) _TotalGoalsScoreCard(scores: goalScores),
         _OverviewCard(
           title: 'Money Summary',
+          timeframe: 'Last 14 days',
           child: Row(
             children: [
               Expanded(
@@ -5237,6 +5238,7 @@ class _InsightsOverview extends StatelessWidget {
         ),
         _OverviewCard(
           title: 'Where Your Money Went',
+          timeframe: 'Last 14 days',
           child: categories.isEmpty
               ? const _ReflectionEmpty(
                   message: 'No spending in the last 14 days yet.')
@@ -5248,6 +5250,7 @@ class _InsightsOverview extends StatelessWidget {
         ),
         _OverviewCard(
           title: 'Which Funds You Used',
+          timeframe: 'Last 14 days',
           child: sources.isEmpty
               ? const _ReflectionEmpty(
                   message: 'No fund activity in the last 14 days yet.')
@@ -5335,6 +5338,12 @@ class _TotalGoalsScoreCard extends StatelessWidget {
       (current, candidate) =>
           candidate.value < current.value ? candidate : current,
     );
+    final weight = 100 / scores.length;
+    final weightLabel = weight == weight.roundToDouble()
+        ? '${weight.round()}%'
+        : '${weight.toStringAsFixed(1)}%';
+    final equation =
+        '(${scores.map((goal) => '${goal.label} ${goal.value}%').join(' + ')}) ÷ ${scores.length} = $total%';
     final guidance = total >= 80
         ? 'Your active goals are moving together. Keep the habits that are working.'
         : total >= 50
@@ -5379,8 +5388,8 @@ class _TotalGoalsScoreCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         scores.length == 1
-                            ? 'Based on 1 active goal.'
-                            : 'Equal-weight average across ${scores.length} active goals.',
+                            ? 'Current overall score from your 1 active goal.'
+                            : 'Current overall score · equal-weight average across ${scores.length} active goals.',
                         style: const TextStyle(
                           color: _body,
                           fontSize: 11.5,
@@ -5414,6 +5423,38 @@ class _TotalGoalsScoreCard extends StatelessWidget {
                   ],
                 );
               },
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'HOW YOUR TOTAL IS CALCULATED',
+              style: TextStyle(
+                color: _body,
+                fontSize: 10,
+                letterSpacing: .8,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              equation,
+              style: const TextStyle(
+                color: _title,
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              scores.length == 1
+                  ? 'This is your only active goal, so it is your total.'
+                  : 'Each active goal contributes $weightLabel to this total.',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 10.5,
+                height: 1.3,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 12),
             _InsightNote(
@@ -5531,10 +5572,12 @@ class _OverviewCard extends StatelessWidget {
     required this.title,
     required this.child,
     required this.insight,
+    this.timeframe,
   });
   final String title;
   final Widget child;
   final Widget insight;
+  final String? timeframe;
 
   @override
   Widget build(BuildContext context) {
@@ -5559,6 +5602,17 @@ class _OverviewCard extends StatelessWidget {
                 fontWeight: FontWeight.w900,
               ),
             ),
+            if (timeframe != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                timeframe!,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             child,
             const SizedBox(height: 12),
@@ -8706,7 +8760,7 @@ class _CircularScoreGauge extends StatelessWidget {
                 ),
               ),
               Text(
-                percent == null ? 'N/A' : centerText ?? '$percent',
+                percent == null ? 'N/A' : centerText ?? '$percent%',
                 style: TextStyle(
                   color: color,
                   fontSize: valueFontSize,
@@ -8742,7 +8796,7 @@ class _CircularScoreGauge extends StatelessWidget {
 class _ActionProgressSection extends StatelessWidget {
   const _ActionProgressSection({
     required this.actionScores,
-    this.eyebrow = 'MONTH · ACTION PROGRESS',
+    this.eyebrow = 'SELECTED MONTH · ACTION PROGRESS',
     this.title = 'Your actions, measured',
     this.subtitle =
         'Each action shows an overall score — tap it to see how often you were Active, your Progress, and how often you were On target.',
@@ -11067,6 +11121,128 @@ class _GoalInsightHeader extends StatelessWidget {
   }
 }
 
+class _ScoreExplanationLine {
+  const _ScoreExplanationLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+}
+
+class _GoalScoreExplanation {
+  const _GoalScoreExplanation({
+    required this.formula,
+    required this.lines,
+  });
+
+  final String formula;
+  final List<_ScoreExplanationLine> lines;
+}
+
+void _showGoalScoreExplanation(
+  BuildContext context, {
+  required String title,
+  required int score,
+  required _GoalScoreExplanation explanation,
+}) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => SafeArea(
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _border,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'How $title is calculated',
+                style: const TextStyle(
+                  color: _title,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                'Current overall score: $score%',
+                style: const TextStyle(
+                  color: _purple,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                explanation.formula,
+                style: const TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  height: 1.4,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              for (final line in explanation.lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.check_circle_outline_rounded,
+                          color: _brand, size: 17),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          line.label,
+                          style: const TextStyle(
+                            color: _title,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          line.value,
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(
+                            color: _body,
+                            fontSize: 11,
+                            height: 1.25,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// The stable, all-time goal score shown in an individual insight tab. It is
 /// deliberately the same canonical value used by Overview's Total Goals
 /// Score; month/action cards below explain recent performance but do not
@@ -11077,12 +11253,16 @@ class _IndividualGoalScoreCard extends StatelessWidget {
     required this.score,
     required this.color,
     required this.detail,
+    required this.timeframe,
+    required this.explanation,
   });
 
   final String title;
   final int score;
   final Color color;
   final String detail;
+  final String timeframe;
+  final _GoalScoreExplanation explanation;
 
   @override
   Widget build(BuildContext context) {
@@ -11119,9 +11299,9 @@ class _IndividualGoalScoreCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'This overall score is used in Total Goals Score.',
-                    style: TextStyle(
+                  Text(
+                    '$timeframe · used in Total Goals Score.',
+                    style: const TextStyle(
                       color: _body,
                       fontSize: 11.5,
                       height: 1.35,
@@ -11138,6 +11318,23 @@ class _IndividualGoalScoreCard extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: () => _showGoalScoreExplanation(
+                      context,
+                      title: title,
+                      score: score,
+                      explanation: explanation,
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 30),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      alignment: Alignment.centerLeft,
+                    ),
+                    icon: const Icon(Icons.help_outline_rounded, size: 15),
+                    label: const Text('How this score is calculated'),
+                  ),
                 ],
               ),
             ),
@@ -11146,6 +11343,105 @@ class _IndividualGoalScoreCard extends StatelessWidget {
       ),
     );
   }
+}
+
+_GoalScoreExplanation _cashFlowScoreExplanation(AppState state) {
+  final expected = _maintainAvailableCashExpectedSpend(state);
+  final spent = _cashFlowMonthlySpent(state);
+  final remaining = math.max(0.0, expected - spent);
+  final latestIncome = _latestIncomeTransaction(state)?.amount ?? 0;
+  final unpaidBills = state.openBasicNeedsBillNeed;
+  return _GoalScoreExplanation(
+    formula:
+        '45% available-cash coverage + 15% Essential Fund coverage + 15% spending within your essentials budget + 10% latest-income coverage + 15% unpaid-bill coverage.',
+    lines: [
+      _ScoreExplanationLine(
+        label: 'Available cash coverage · 45%',
+        value:
+            '${money(state.availableCashForGoals)} for ${money(remaining)} remaining essentials',
+      ),
+      _ScoreExplanationLine(
+        label: 'Essential Fund coverage · 15%',
+        value: '${money(state.essentialExpensesBalance)} of ${money(expected)}',
+      ),
+      _ScoreExplanationLine(
+        label: 'Essentials spending this month · 15%',
+        value: '${money(spent)} of ${money(expected)}',
+      ),
+      _ScoreExplanationLine(
+        label: 'Latest income coverage · 10%',
+        value: latestIncome > 0
+            ? '${money(latestIncome)} against ${money(expected)} essentials'
+            : 'No recorded income yet',
+      ),
+      _ScoreExplanationLine(
+        label: 'Unpaid-bill coverage · 15%',
+        value: unpaidBills <= 0
+            ? 'No unpaid basic-needs bills'
+            : '${money(unpaidBills)} still unpaid',
+      ),
+    ],
+  );
+}
+
+_GoalScoreExplanation _financialSafetyScoreExplanation(AppState state) {
+  final target = _financialSafetyGoalTarget(state);
+  return _GoalScoreExplanation(
+    formula:
+        'Emergency Fund balance ÷ your six-month essentials target, capped at 100%.',
+    lines: [
+      _ScoreExplanationLine(
+        label: 'Emergency Fund balance',
+        value: money(state.displayedEmergencyFundBalance),
+      ),
+      _ScoreExplanationLine(
+        label: 'Six-month essentials target',
+        value: money(target),
+      ),
+    ],
+  );
+}
+
+_GoalScoreExplanation _wealthScoreExplanation(AppState state) {
+  final target = _configuredInvestmentGoalTarget(state);
+  return _GoalScoreExplanation(
+    formula:
+        'Current investment portfolio value ÷ your investment target, capped at 100%.',
+    lines: [
+      _ScoreExplanationLine(
+        label: 'Current portfolio value',
+        value: money(state.investmentPortfolioValue),
+      ),
+      _ScoreExplanationLine(
+        label: 'Investment target',
+        value: money(target),
+      ),
+    ],
+  );
+}
+
+_GoalScoreExplanation _financialFreedomScoreExplanation(AppState state) {
+  final weeklyLimit = _configuredActionAmount(
+    state,
+    'A28',
+    math.max(100.0, _monthlyLifestyleBase(state) / 4.33),
+  );
+  final fundTarget = _lifestyleFundReadinessTarget(state);
+  return _GoalScoreExplanation(
+    formula:
+        '60% Lifestyle Fund readiness + 40% staying within this week\'s non-essential spending limit.',
+    lines: [
+      _ScoreExplanationLine(
+        label: 'Lifestyle Fund readiness · 60%',
+        value: '${money(state.lifestyleFundTotal)} of ${money(fundTarget)}',
+      ),
+      _ScoreExplanationLine(
+        label: 'This week\'s non-essential spending · 40%',
+        value:
+            '${money(_currentWeekLifestyleSpend(state))} of ${money(weeklyLimit)} limit',
+      ),
+    ],
+  );
 }
 
 class _CashReflectionExplorer extends StatelessWidget {
@@ -11200,6 +11496,8 @@ class _CashReflectionExplorer extends StatelessWidget {
           color: _brand,
           detail:
               '${money(state.essentialExpensesBalance)} in your Essential Expenses Fund',
+          timeframe: 'Current month and live balances',
+          explanation: _cashFlowScoreExplanation(state),
         ),
         _GoalSuggestionBanner(
           goalLabel: 'available cash',
@@ -11355,11 +11653,21 @@ class _EmergencyFundOverviewCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Current Fund',
+                    'Financial Safety Goal Score',
                     style: TextStyle(
                       color: _body,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  const Text(
+                    'Current Emergency Fund balance · used in Total Goals Score.',
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 10.5,
+                      height: 1.3,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -11385,6 +11693,26 @@ class _EmergencyFundOverviewCard extends StatelessWidget {
                   _EmergencyMetricLine(
                     label: 'Mo. Covered',
                     value: '${monthsCovered.toStringAsFixed(1)} mo',
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: () => _showGoalScoreExplanation(
+                      context,
+                      title: 'Financial Safety Goal Score',
+                      score: emergencyFundGoalPercent(state)
+                          .round()
+                          .clamp(0, 100)
+                          .toInt(),
+                      explanation: _financialSafetyScoreExplanation(state),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 30),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      alignment: Alignment.centerLeft,
+                    ),
+                    icon: const Icon(Icons.help_outline_rounded, size: 15),
+                    label: const Text('How this score is calculated'),
                   ),
                 ],
               ),
@@ -11584,13 +11912,14 @@ class _InvestmentScoreSummaryCard extends StatelessWidget {
               percent: scoreValue.toDouble(),
               color: scoreColor,
               empty: score == null,
+              caption: 'Action progress',
             );
             final details = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'This month\'s investing action progress',
-                  style: TextStyle(
+                Text(
+                  '${_monthLabel(monthStart)} action progress',
+                  style: const TextStyle(
                     color: _body,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
@@ -11661,11 +11990,13 @@ class _CircularInvestmentScoreRing extends StatelessWidget {
     required this.percent,
     required this.color,
     required this.empty,
+    required this.caption,
   });
 
   final double percent;
   final Color color;
   final bool empty;
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
@@ -11688,7 +12019,7 @@ class _CircularInvestmentScoreRing extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                empty ? 'N/A' : '${clamped.round()}',
+                empty ? 'N/A' : '${clamped.round()}%',
                 style: TextStyle(
                   color: empty ? _body : Colors.black,
                   fontSize: 24,
@@ -11696,9 +12027,10 @@ class _CircularInvestmentScoreRing extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              const Text(
-                'total score',
-                style: TextStyle(
+              Text(
+                caption,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
                   color: _body,
                   fontSize: 10.5,
                   fontWeight: FontWeight.w700,
@@ -11958,6 +12290,8 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
           color: _purple,
           detail:
               '${money(state.investmentPortfolioValue)} of ${money(_configuredInvestmentGoalTarget(state))} investment target',
+          timeframe: 'Current portfolio value',
+          explanation: _wealthScoreExplanation(state),
         ),
         _GoalSuggestionBanner(
           goalLabel: 'accumulating wealth',
@@ -13061,6 +13395,8 @@ class _FinancialFreedomExplorer extends StatelessWidget {
           score: lifestyleGoalPercent(state).round().clamp(0, 100).toInt(),
           color: _freedomColor,
           detail: '${money(state.lifestyleFundTotal)} in your Lifestyle Fund',
+          timeframe: 'Current fund and this week\'s spending',
+          explanation: _financialFreedomScoreExplanation(state),
         ),
         _GoalSuggestionBanner(
           goalLabel: 'financial freedom',
@@ -13171,13 +13507,14 @@ class _FinancialFreedomScoreSummaryCard extends StatelessWidget {
               percent: scoreValue.toDouble(),
               color: scoreColor,
               empty: score == null,
+              caption: 'Action progress',
             );
             final details = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'This month\'s lifestyle action progress',
-                  style: TextStyle(
+                Text(
+                  '${_monthLabel(monthStart)} action progress',
+                  style: const TextStyle(
                     color: _body,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
@@ -13790,13 +14127,6 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
           share: state.emergencyMonthsCovered >= .5
               ? emergencyShareable(state.emergencyMonthsCovered)
               : null,
-        ),
-        _IndividualGoalScoreCard(
-          title: 'Financial Safety Goal Score',
-          score: emergencyFundGoalPercent(state).round().clamp(0, 100).toInt(),
-          color: _red,
-          detail:
-              '${money(state.displayedEmergencyFundBalance)} of ${money(target)} safety target',
         ),
         _GoalSuggestionBanner(
           goalLabel: 'emergency fund',
@@ -22183,7 +22513,7 @@ typedef _ProgressLine = ({IconData icon, Color color, String text});
   return (label: label, color: color, lines: lines, nudge: nudge);
 }
 
-/// Shared "Goal Progress" box: a status label, one line per selected action,
+/// Shared action-consistency box: a status label, one line per selected action,
 /// and an encouraging message (Grow Investments and Lifestyle Fund).
 class _GoalProgressBox extends StatelessWidget {
   const _GoalProgressBox({required this.progress});
@@ -22212,7 +22542,7 @@ class _GoalProgressBox extends StatelessWidget {
             children: [
               const Expanded(
                 child: Text(
-                  'Goal Progress',
+                  'Action consistency',
                   style: TextStyle(
                     color: _title,
                     fontSize: 12,

@@ -106,13 +106,21 @@ void main() {
     expect(find.text('Accumulating wealth'), findsNothing);
     expect(find.text('Financial freedom'), findsNothing);
     expect(find.text('Total Goals Score'), findsOneWidget);
-    expect(find.text('Based on 1 active goal.'), findsOneWidget);
+    expect(find.text('Current overall score from your 1 active goal.'),
+        findsOneWidget);
     await tester.tap(find.text('Available cash'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cash Flow Goal Score'), findsOneWidget);
+    await tester.tap(find.text('How this score is calculated'));
+    await tester.pumpAndSettle();
+    expect(find.text('How Cash Flow Goal Score is calculated'), findsOneWidget);
+    expect(find.textContaining('45% available-cash coverage'), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
     expect(find.text('Can this month’s available cash cover bills?'),
         findsOneWidget);
     expect(find.text('Bill readiness'), findsOneWidget);
-    expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
+    expect(find.text('SELECTED MONTH · ACTION PROGRESS'), findsOneWidget);
     expect(find.textContaining('Set aside X% of each income received'),
         findsOneWidget);
     expect(find.textContaining('Limit spending in selected categories'),
@@ -155,7 +163,9 @@ void main() {
     expect(find.text('Available cash'), findsOneWidget);
     expect(find.text('Emergency fund'), findsOneWidget);
     expect(find.text('Total Goals Score'), findsOneWidget);
-    expect(find.text('Equal-weight average across 2 active goals.'),
+    expect(
+        find.text(
+            'Current overall score · equal-weight average across 2 active goals.'),
         findsOneWidget);
     expect(find.text('Cash Flow & Safety balance'), findsNothing);
     expect(find.text('Cash Flow'), findsOneWidget);
@@ -217,7 +227,7 @@ void main() {
     expect(find.text('Emergency Fund'), findsOneWidget);
     expect(find.text('Build a safety net'), findsOneWidget);
     expect(find.textContaining('mo. covered'), findsOneWidget);
-    expect(find.text('Current Fund'), findsOneWidget);
+    expect(find.text('Financial Safety Goal Score'), findsOneWidget);
     expect(find.text('COVERAGE MILESTONES'), findsOneWidget);
     expect(find.text('3-Month Fund'), findsOneWidget);
     expect(find.text('6-Month Fund'), findsOneWidget);
@@ -231,11 +241,11 @@ void main() {
     expect(find.text('Contributions and Use'), findsNothing);
     expect(find.text('DETAIL · SELECTED WEEK'), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('MONTH · ACTION PROGRESS'),
+      find.text('SELECTED MONTH · ACTION PROGRESS'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
+    expect(find.text('SELECTED MONTH · ACTION PROGRESS'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('ACTION STAGE'),
       400,

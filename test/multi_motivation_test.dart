@@ -101,9 +101,13 @@ void main() {
     expect(find.text('Financial freedom'), findsOneWidget);
     expect(find.text('Total Goals Score'), findsOneWidget);
     expect(
-      find.text('Equal-weight average across 4 active goals.'),
+      find.text(
+          'Current overall score · equal-weight average across 4 active goals.'),
       findsOneWidget,
     );
+    expect(find.text('HOW YOUR TOTAL IS CALCULATED'), findsOneWidget);
+    expect(find.text('Each active goal contributes 25% to this total.'),
+        findsOneWidget);
     expect(find.text('Cash Flow & Safety balance'), findsNothing);
 
     for (final (tab, scoreTitle) in const [
@@ -116,6 +120,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Goal Insights'), findsOneWidget);
       expect(find.text(scoreTitle), findsOneWidget);
+      expect(find.text('How this score is calculated'), findsOneWidget);
     }
   });
 }
