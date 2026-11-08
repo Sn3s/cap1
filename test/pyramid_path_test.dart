@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Goals shows a cautious, revisitable pyramid path',
+  testWidgets('Add another motivation shows the pyramid status context',
       (tester) async {
     final state = AppState()
       ..primaryConcern = 'Cash Flow & Basic Needs'
@@ -18,17 +18,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Pyramid path'), findsOneWidget);
-    expect(find.text('Completed · Not enough data'), findsOneWidget);
-    expect(find.text('Next recommended · Not enough data'), findsOneWidget);
-    expect(
-      find.text('Completed and current layers stay available to revisit.'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Cash Flow & Basic Needs'));
+    expect(find.text('Pyramid path'), findsNothing);
+    await tester.tap(find.text('Add another motivation'));
     await tester.pumpAndSettle();
-    expect(find.text('Maintain Available Cash'), findsWidgets);
+
+    expect(find.text('Stable · Not enough data'), findsOneWidget);
+    expect(find.text('Next recommended · Not enough data'), findsOneWidget);
+    expect(find.text('Not started · Not enough data'), findsNWidgets(2));
   });
 
   testWidgets(

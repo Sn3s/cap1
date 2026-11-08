@@ -54,29 +54,20 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
     );
   }
 
-  /// Every layer with its status. A user's existing goals stay visible but
-  /// cannot be added twice; every other layer is tappable.
+  /// Every layer is shown here with the same light-touch progression status
+  /// formerly shown on Goals. This keeps the goal list focused on the user's
+  /// active plan while putting the "what could I add next?" context beside
+  /// the action that can actually add it.
   Widget _buildLayerPicker(
     AppState state, {
     required bool isDemo,
   }) {
-    final yourGoalIds = isDemo ? const <String>{} : _visibleGoalIds(state);
-    _AddGoalLayerStatus statusOf(String layer) {
-      final goalId = _layerCanonicalGoalId[layer];
-      if (goalId != null && yourGoalIds.contains(goalId)) {
-        return _goalAchieved(goalId, state)
-            ? _AddGoalLayerStatus.achieved
-            : _AddGoalLayerStatus.yourGoal;
-      }
-      return _AddGoalLayerStatus.available;
-    }
-
     final statuses = {
-      for (final branch in _goalBranches) branch.layer: statusOf(branch.layer),
+      for (final status in _pyramidLayerStatuses(state)) status.layer: status,
     };
-    final addable = statuses.entries
-        .where((entry) => entry.value == _AddGoalLayerStatus.available)
-        .map((entry) => entry.key)
+    final addable = statuses.values
+        .where((status) => !status.isRevisitable)
+        .map((status) => status.layer)
         .toList();
     final String message;
     if (isDemo) {
@@ -103,6 +94,7 @@ class _AddGoalScreenState extends State<AddGoalScreen> {
               title: branch.layer,
               body: branch.layerDescription,
               status: statuses[branch.layer]!,
+              canAdd: isDemo || !statuses[branch.layer]!.isRevisitable,
               onTap: () => setState(() => _chosenLayer = branch.layer),
             ),
           ),
@@ -357,8 +349,6 @@ class _AddGoalActionTile extends StatelessWidget {
   }
 }
 
-enum _AddGoalLayerStatus { achieved, yourGoal, available }
-
 /// One pyramid layer on the Add goal screen, labeled by [status].
 class _AddGoalLayerTile extends StatelessWidget {
   const _AddGoalLayerTile({
@@ -366,39 +356,44 @@ class _AddGoalLayerTile extends StatelessWidget {
     required this.title,
     required this.body,
     required this.status,
+    required this.canAdd,
     required this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String body;
-  final _AddGoalLayerStatus status;
+  final _PyramidLayerStatus status;
+  final bool canAdd;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final (label, labelIcon, color) = switch (status) {
-      _AddGoalLayerStatus.achieved => (
-          'Achieved · still on your Goals page',
+      _PyramidLayerStatus(stage: _PyramidLayerStage.completed) => (
+          'Stable · ${status.health}',
           Icons.check_circle_rounded,
           _sage,
         ),
-      _AddGoalLayerStatus.yourGoal => (
-          'Your goal · in progress',
+      _PyramidLayerStatus(stage: _PyramidLayerStage.current) => (
+          'Current · ${status.health}',
           Icons.flag_rounded,
           _brand,
         ),
-      _AddGoalLayerStatus.available => (
-          'Available to add',
+      _PyramidLayerStatus(stage: _PyramidLayerStage.nextRecommended) => (
+          'Next recommended · ${status.health}',
+          Icons.lightbulb_rounded,
+          _purple,
+        ),
+      _PyramidLayerStatus(stage: _PyramidLayerStage.notStarted) => (
+          'Not started · ${status.health}',
           Icons.add_circle_outline_rounded,
-          _brand,
+          _body,
         ),
     };
-    final available = status == _AddGoalLayerStatus.available;
-    final owned = status == _AddGoalLayerStatus.achieved ||
-        status == _AddGoalLayerStatus.yourGoal;
+    final owned = status.isRevisitable;
     return InkWell(
-      onTap: available ? onTap : null,
+      onTap: canAdd ? onTap : null,
       borderRadius: BorderRadius.circular(22),
       child: Opacity(
         opacity: 1,
@@ -409,7 +404,7 @@ class _AddGoalLayerTile extends StatelessWidget {
             color: owned ? color.withValues(alpha: .07) : _surface,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: owned || available ? color : _border,
+              color: owned || canAdd ? color : _border,
               width: 2,
             ),
           ),
@@ -459,7 +454,7 @@ class _AddGoalLayerTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (available)
+              if (canAdd)
                 const Icon(Icons.chevron_right_rounded, color: _brand),
             ],
           ),
