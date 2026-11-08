@@ -217,6 +217,18 @@ service cloud.firestore {
                .union(resource.data.likedBy.toSet()
                  .difference(request.resource.data.likedBy.toSet()))
                .hasOnly([me()]))
+        // A decision post keeps its vote map on the post document.  An
+        // audience member may add or replace only their own short option;
+        // they cannot alter anyone else's vote or any other post field.
+        || (request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['decisionVotes'])
+          && request.resource.data.decisionVotes
+               .diff(resource.data.decisionVotes).affectedKeys().hasOnly([me()])
+          && request.resource.data.decisionVotes[me()] is string
+          && request.resource.data.decisionVotes[me()].size() <= 60
+          && (!resource.data.keys().hasAll(['decisionOptions'])
+            || request.resource.data.decisionVotes[me()]
+                 in resource.data.decisionOptions))
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount'])
           && (request.resource.data.commentCount == resource.data.commentCount + 1
               || (request.resource.data.commentCount == resource.data.commentCount - 1
