@@ -11,6 +11,50 @@ enum WeeklyChallengeKind {
 
 enum WeeklyChallengeStatus { active, completed, skipped, expired }
 
+/// Challenge wording is intentionally universal. A user's records decide
+/// which template is most useful this week, while the card remains safe and
+/// meaningful to share without exposing merchant names, balances, or scores.
+class _WeeklyChallengeTemplate {
+  const _WeeklyChallengeTemplate({
+    required this.title,
+    required this.reason,
+    required this.progressLabel,
+    required this.target,
+  });
+
+  final String title;
+  final String reason;
+  final String progressLabel;
+  final int target;
+}
+
+_WeeklyChallengeTemplate _templateFor(WeeklyChallengeKind kind) =>
+    switch (kind) {
+      WeeklyChallengeKind.labelRecentTransactions =>
+        const _WeeklyChallengeTemplate(
+          title: 'Tidy your records',
+          reason:
+              'Label 3 recent transactions this week so your plan and Insights can reflect your activity.',
+          progressLabel: 'records labelled',
+          target: 3,
+        ),
+      WeeklyChallengeKind.reviewRecurringPayment =>
+        const _WeeklyChallengeTemplate(
+          title: 'Review a recurring payment',
+          reason:
+              'Review one recurring payment and confirm, edit, or dismiss it so your plan stays current.',
+          progressLabel: 'payment reviewed',
+          target: 1,
+        ),
+      WeeklyChallengeKind.improveActionScore => const _WeeklyChallengeTemplate(
+          title: 'Strengthen one plan action',
+          reason:
+              'Choose one action that needs attention and make one practical step this week.',
+          progressLabel: 'action score',
+          target: 70,
+        ),
+    };
+
 class WeeklyChallenge {
   const WeeklyChallenge({
     required this.id,
@@ -104,13 +148,17 @@ class WeeklyChallenge {
         target <= 0) {
       return null;
     }
+    // Migrate older saved challenges in memory. This removes former
+    // merchant-specific titles such as “Review Internet” as soon as a
+    // profile loads; the next profile save persists the universal template.
+    final template = _templateFor(kind);
     return WeeklyChallenge(
       id: data['id']?.toString() ?? '',
       kind: kind,
-      title: data['title']?.toString() ?? '',
-      reason: data['reason']?.toString() ?? '',
-      progressLabel: data['progressLabel']?.toString() ?? 'progress',
-      target: target,
+      title: template.title,
+      reason: template.reason,
+      progressLabel: template.progressLabel,
+      target: template.target,
       startedAt: startedAt,
       endsAt: endsAt,
       goalId: data['goalId']?.toString(),
@@ -172,15 +220,22 @@ extension WeeklyChallengeState on AppState {
             (transaction.createdAt ?? transaction.labeledAt) != null)
         .length;
     if (unlabelled >= 3) {
-      final target = math.min(5, unlabelled);
+      const template = _WeeklyChallengeTemplate(
+        title: 'Tidy your records',
+        reason:
+            'Label 3 recent transactions this week so your plan and Insights can reflect your activity.',
+        progressLabel: 'records labelled',
+        target: 3,
+      );
       return WeeklyChallenge(
         id: 'label-${start.toIso8601String()}',
         kind: WeeklyChallengeKind.labelRecentTransactions,
-        title: 'Label $target recent transactions',
-        reason:
-            'You have $unlabelled records that cannot yet reliably support your goal progress or Insights.',
-        progressLabel: 'labelled records',
-        target: target,
+        // The template is deliberately shareable. Data only decides whether
+        // it is the right challenge this week, never exposes a user's count.
+        title: template.title,
+        reason: template.reason,
+        progressLabel: template.progressLabel,
+        target: template.target,
         startedAt: start,
         endsAt: end,
         goalId: activeGoal,
@@ -192,14 +247,16 @@ extension WeeklyChallengeState on AppState {
             !handledRecurringTransactionSuggestionKeys.contains(suggestion.key))
         .firstOrNull;
     if (recurring != null) {
+      final template = _templateFor(WeeklyChallengeKind.reviewRecurringPayment);
       return WeeklyChallenge(
         id: 'recurring-${recurring.key}-$start',
         kind: WeeklyChallengeKind.reviewRecurringPayment,
-        title: 'Review ${recurring.merchantName}',
-        reason:
-            'Shelby detected a ${recurring.frequency.toLowerCase()} payment. Confirm it, edit it, or dismiss it so your plan stays current.',
-        progressLabel: 'payment reviewed',
-        target: 1,
+        // Keep the merchant in [referenceKey] for completion only. The
+        // challenge itself is a reusable community-friendly template.
+        title: template.title,
+        reason: template.reason,
+        progressLabel: template.progressLabel,
+        target: template.target,
         startedAt: start,
         endsAt: end,
         goalId: activeGoal,
@@ -219,6 +276,7 @@ extension WeeklyChallengeState on AppState {
       ..sort((a, b) => a.value.compareTo(b.value));
     final candidate = candidates.firstOrNull;
     if (candidate != null) {
+      final template = _templateFor(WeeklyChallengeKind.improveActionScore);
       final goalId = _d1GoalMetas
           .where((goal) =>
               goal.actions.any((action) => action.id == candidate.key))
@@ -227,11 +285,10 @@ extension WeeklyChallengeState on AppState {
       return WeeklyChallenge(
         id: 'action-${candidate.key}-$start',
         kind: WeeklyChallengeKind.improveActionScore,
-        title: 'Bring one action back on track',
-        reason:
-            'This action is currently ${candidate.value}% this month. A small focused step this week can support your goal.',
-        progressLabel: 'action score',
-        target: 70,
+        title: template.title,
+        reason: template.reason,
+        progressLabel: template.progressLabel,
+        target: template.target,
         startedAt: start,
         endsAt: end,
         goalId: goalId,

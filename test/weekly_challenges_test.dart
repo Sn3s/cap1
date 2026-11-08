@@ -37,8 +37,10 @@ void main() {
 
     expect(challenge, isNotNull);
     expect(challenge!.kind, WeeklyChallengeKind.labelRecentTransactions);
-    expect(challenge.target, 4);
-    expect(challenge.reason, contains('cannot yet reliably'));
+    expect(challenge.target, 3);
+    expect(challenge.title, 'Tidy your records');
+    expect(challenge.reason, contains('Label 3 recent transactions'));
+    expect(challenge.reason, isNot(contains('4 records')));
   });
 
   test('label challenge progress is based on records labelled during its week',
@@ -97,6 +99,26 @@ void main() {
 
     await state.skipWeeklyChallenge(challenge.id);
     expect(state.weeklyChallenges.single.status, WeeklyChallengeStatus.skipped);
+  });
+
+  test('saved legacy challenges load with the universal shareable template',
+      () {
+    final restored = WeeklyChallenge.fromMap({
+      'id': 'legacy-internet',
+      'kind': 'reviewRecurringPayment',
+      'title': 'Review Internet',
+      'reason': 'A monthly Internet bill needs review.',
+      'progressLabel': 'payment reviewed',
+      'target': 1,
+      'startedAt': '2026-11-02T00:00:00.000',
+      'endsAt': '2026-11-09T00:00:00.000',
+      'referenceKey': 'out|internet|Monthly',
+      'status': 'active',
+    });
+
+    expect(restored?.title, 'Review a recurring payment');
+    expect(restored?.reason, isNot(contains('Internet')));
+    expect(restored?.referenceKey, 'out|internet|Monthly');
   });
 
   test('completed challenges require current qualifying evidence', () async {
