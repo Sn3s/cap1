@@ -21,6 +21,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "audience", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "authorCommunityEnabled", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }

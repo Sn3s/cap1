@@ -482,6 +482,10 @@ abstract class CommunityBackend {
   Stream<List<CommunityPost>> feed(String uid);
   Stream<List<PostComment>> comments(String postId);
 
+  /// Makes an author's existing posts visible or hidden without deleting
+  /// their history. Used when Community consent is revoked or restored.
+  Future<void> setOwnPostsVisible({required String uid, required bool visible});
+
   Future<void> sendFriendRequest({
     required SocialProfile from,
     required SocialProfile to,
@@ -617,12 +621,27 @@ class FirestoreCommunityBackend implements CommunityBackend {
   @override
   Stream<List<CommunityPost>> feed(String uid) => _posts
       .where('audience', arrayContains: uid)
+      .where('authorCommunityEnabled', isEqualTo: true)
       .orderBy('createdAt', descending: true)
       .limit(communityFeedLimit)
       .snapshots()
       .map((snapshot) => snapshot.docs
           .map((doc) => CommunityPost.fromMap(doc.id, doc.data()))
           .toList());
+
+  @override
+  Future<void> setOwnPostsVisible({
+    required String uid,
+    required bool visible,
+  }) async {
+    final posts = await _posts.where('authorUid', isEqualTo: uid).get();
+    if (posts.docs.isEmpty) return;
+    final batch = _db.batch();
+    for (final post in posts.docs) {
+      batch.update(post.reference, {'authorCommunityEnabled': visible});
+    }
+    await batch.commit();
+  }
 
   @override
   Stream<List<PostComment>> comments(String postId) => _posts
@@ -737,6 +756,7 @@ class FirestoreCommunityBackend implements CommunityBackend {
       'kind': kind.wire,
       if (snapshot != null) 'snapshot': snapshot.toMap(),
       if (decisionOptions.isNotEmpty) 'decisionOptions': decisionOptions,
+      'authorCommunityEnabled': true,
       'decisionVotes': <String, String>{},
       'likedBy': <String>[],
       'commentCount': 0,
@@ -951,6 +971,15 @@ class InMemoryCommunityBackend implements CommunityBackend {
       if (item != null) inbox[id] = item.copyWith(read: true);
     }
     _changed();
+  }
+
+  @override
+  Future<void> setOwnPostsVisible({
+    required String uid,
+    required bool visible,
+  }) async {
+    // In-memory sessions are local previews; disconnecting already removes
+    // their entire session, so there is no remote audience to hide from.
   }
 
   @override

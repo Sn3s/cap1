@@ -183,8 +183,9 @@ service cloud.firestore {
     // for "Only Me").
     match /posts/{postId} {
       allow read: if signedIn() && communityEnabled(me())
-        && communityEnabled(resource.data.authorUid)
-        && me() in resource.data.audience;
+        && (resource.data.authorUid == me()
+          || (resource.data.authorCommunityEnabled == true
+            && me() in resource.data.audience));
 
       allow create: if signedIn() && communityEnabled(me())
         && request.resource.data.authorUid == me()
@@ -200,6 +201,7 @@ service cloud.firestore {
             || request.resource.data.audience.size() == 1)
         && request.resource.data.likedBy.size() == 0
         && request.resource.data.commentCount == 0
+        && request.resource.data.authorCommunityEnabled == true
         && request.resource.data.decisionVotes is map
         && request.resource.data.decisionVotes.size() == 0
         && request.resource.data.createdAt == request.time;
@@ -209,41 +211,54 @@ service cloud.firestore {
       // Audience members may only add/remove *their own* like, or move the
       // reply count by exactly one (alongside adding/deleting a reply).
       allow update: if signedIn() && communityEnabled(me())
-        && communityEnabled(resource.data.authorUid)
-        && me() in resource.data.audience && (
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
-          && request.resource.data.likedBy.toSet()
-               .difference(resource.data.likedBy.toSet())
-               .union(resource.data.likedBy.toSet()
-                 .difference(request.resource.data.likedBy.toSet()))
-               .hasOnly([me()]))
-        // A decision post keeps its vote map on the post document.  An
-        // audience member may add or replace only their own short option;
-        // they cannot alter anyone else's vote or any other post field.
-        || (request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['decisionVotes'])
-          && request.resource.data.decisionVotes
-               .diff(resource.data.decisionVotes).affectedKeys().hasOnly([me()])
-          && request.resource.data.decisionVotes[me()] is string
-          && request.resource.data.decisionVotes[me()].size() <= 60
-          && (!resource.data.keys().hasAll(['decisionOptions'])
-            || request.resource.data.decisionVotes[me()]
-                 in resource.data.decisionOptions))
-        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount'])
-          && (request.resource.data.commentCount == resource.data.commentCount + 1
-              || (request.resource.data.commentCount == resource.data.commentCount - 1
-                  && request.resource.data.commentCount >= 0)))
-      );
+        && (
+          // The author alone can hide/restore their own existing posts as
+          // part of Community consent changes. No content can change.
+          (resource.data.authorUid == me()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['authorCommunityEnabled'])
+            && request.resource.data.authorCommunityEnabled is bool)
+          || (resource.data.authorCommunityEnabled == true
+            && me() in resource.data.audience
+            && (
+              (request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['likedBy'])
+                && request.resource.data.likedBy.toSet()
+                     .difference(resource.data.likedBy.toSet())
+                     .union(resource.data.likedBy.toSet()
+                       .difference(request.resource.data.likedBy.toSet()))
+                     .hasOnly([me()]))
+              // A decision post keeps its vote map on the post document. An
+              // audience member may add or replace only their own option.
+              || (request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['decisionVotes'])
+                && request.resource.data.decisionVotes
+                     .diff(resource.data.decisionVotes).affectedKeys()
+                     .hasOnly([me()])
+                && request.resource.data.decisionVotes[me()] is string
+                && request.resource.data.decisionVotes[me()].size() <= 60
+                && (!resource.data.keys().hasAll(['decisionOptions'])
+                  || request.resource.data.decisionVotes[me()]
+                       in resource.data.decisionOptions))
+              || (request.resource.data.diff(resource.data).affectedKeys()
+                    .hasOnly(['commentCount'])
+                && (request.resource.data.commentCount
+                      == resource.data.commentCount + 1
+                  || (request.resource.data.commentCount
+                        == resource.data.commentCount - 1
+                    && request.resource.data.commentCount >= 0)))
+            ))
+        );
 
       match /comments/{commentId} {
         function parentPost() {
           return get(/databases/$(database)/documents/posts/$(postId)).data;
         }
         allow read: if signedIn() && communityEnabled(me())
-          && communityEnabled(parentPost().authorUid)
+          && parentPost().authorCommunityEnabled == true
           && me() in parentPost().audience;
         allow create: if signedIn() && communityEnabled(me())
-          && communityEnabled(parentPost().authorUid)
+          && parentPost().authorCommunityEnabled == true
           && me() in parentPost().audience
           && parentPost().visibility == 'friends'
           && request.resource.data.authorUid == me()

@@ -982,6 +982,10 @@ class AppState extends ChangeNotifier {
       // user's discoverability preference in the private profile so it is
       // restored only if they explicitly opt back into Community later.
       if (community.isConnected) {
+        // Hide every existing post while the profile still has Community
+        // consent. This makes revocation query-safe without deleting a
+        // member's history.
+        await community.setOwnPostsVisible(false);
         await community.setDiscoverable(false);
       }
       await saveProfile();

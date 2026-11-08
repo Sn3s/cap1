@@ -82,6 +82,10 @@ class CommunityController extends ChangeNotifier {
     feedLoading = true;
     notifyListeners();
     await _syncDirectory();
+    await _guard(() => backend.setOwnPostsVisible(
+          uid: profile.uid,
+          visible: true,
+        ));
     _subscriptions.addAll([
       backend.incomingRequests(profile.uid).listen((value) {
         incomingRequests = value;
@@ -157,6 +161,15 @@ class CommunityController extends ChangeNotifier {
     discoverable = value;
     notifyListeners();
     await _syncDirectory();
+  }
+
+  Future<void> setOwnPostsVisible(bool visible) async {
+    final profile = me;
+    if (profile == null) return;
+    await _guard(() => _requireBackend.setOwnPostsVisible(
+          uid: profile.uid,
+          visible: visible,
+        ));
   }
 
   /// Notifications are a courtesy: a failure (e.g. the two users are no
