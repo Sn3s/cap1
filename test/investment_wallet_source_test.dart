@@ -33,6 +33,11 @@ void main() {
       ),
     );
     state.actionFieldValues['A23'] = {'amt': '100000'};
+    // This scenario explicitly models a fully spendable Wallet. In real
+    // profiles bill reservations remain protected by the transfer safeguard.
+    state.billsObligationsBalance = 0;
+    state.essentialExpensesBalance = 0;
+    state.fakeMayaSyncedAccounts.add('Wallet');
     return state;
   }
 
@@ -99,8 +104,8 @@ void main() {
     final state = scenario(wallet: 10000, fund: 5000);
     await openAddInvestment(tester, state);
 
-    expect(find.textContaining('taken from your FakeMaya Wallet'),
-        findsOneWidget);
+    expect(
+        find.textContaining('taken from your FakeMaya Wallet'), findsOneWidget);
     await tester.enterText(find.byType(TextField), '6000');
     await tester.pumpAndSettle();
     await tester.tap(find.text('Confirm transfer'));

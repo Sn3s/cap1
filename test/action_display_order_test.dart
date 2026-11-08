@@ -41,7 +41,8 @@ void main() {
       child: const MaterialApp(home: Scaffold(body: GoalsPage())),
     ));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Lifestyle Fund'));
+    await tester.scrollUntilVisible(find.text('Lifestyle Fund'), 300,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('Lifestyle Fund'));
     await tester.pumpAndSettle();
     // Dismiss the FakeMaya sub-bucket prompt if one opened.

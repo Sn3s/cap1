@@ -42,7 +42,13 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Grow Investments'), findsOneWidget);
+    final workingGoal = find.text('Grow Investments');
+    await tester.scrollUntilVisible(
+      workingGoal,
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(workingGoal, findsOneWidget);
     for (final title in [
       'Reduce Debt',
       'Stable Cash Flow',

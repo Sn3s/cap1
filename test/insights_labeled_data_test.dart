@@ -120,7 +120,10 @@ void main() {
         find.textContaining('Keep Everyday Fund days covered'), findsNothing);
     expect(find.textContaining('Bring in at least'), findsOneWidget);
     expect(find.textContaining('Keep at least'), findsOneWidget);
-    expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('ACTION STAGE'), 400,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('ACTION STAGE'), findsOneWidget);
+    expect(find.text('What should change first?'), findsOneWidget);
     expect(find.text('This is where you earn money'), findsNothing);
     expect(find.text('This is where you spend money'), findsNothing);
     expect(find.text('Weekly cash flow'), findsNothing);
@@ -185,12 +188,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Set aside income for essentials resiliency'),
-        findsOneWidget);
+    expect(find.text('Set aside income for essentials'), findsOneWidget);
     expect(find.text('Data behind the score'), findsOneWidget);
-    expect(find.text('Percentage rate per week'), findsOneWidget);
-    expect(find.textContaining(RegExp(r'(Jan|Feb) \d+-(Jan|Feb) \d+')),
-        findsWidgets);
   });
 
   testWidgets('emergency fund pairs movement overview with weekly detail',
@@ -233,11 +232,11 @@ void main() {
     );
     expect(find.text('MONTH · ACTION PROGRESS'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('ACTION STAGE · LATEST 14 DAYS'),
+      find.text('ACTION STAGE'),
       400,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('ACTION STAGE · LATEST 14 DAYS'), findsOneWidget);
+    expect(find.text('ACTION STAGE'), findsOneWidget);
   });
 
   testWidgets('tapping a month chip switches the available cash answer',

@@ -50,8 +50,7 @@ void main() {
   for (final item in cases) {
     testWidgets(
         'backlog goal ${item.goalId} ${item.title} is hidden; the working '
-        'goal for the motivation shows instead',
-        (tester) async {
+        'goal for the motivation shows instead', (tester) async {
       final state = AppState()
         ..primaryConcern = item.layer
         ..selectedGoalId = item.goalId
@@ -60,7 +59,7 @@ void main() {
       await tester.pumpWidget(
         AppScope(
           state: state,
-          child: const MaterialApp(home: GoalsPage()),
+          child: const MaterialApp(home: Scaffold(body: GoalsPage())),
         ),
       );
       await tester.pump();
@@ -68,6 +67,11 @@ void main() {
       // G2, G4, G6 and G7 are backlog (no working features yet): profiles
       // that picked one before they were hidden land on the working goal.
       expect(find.text(item.title), findsNothing);
+      await tester.scrollUntilVisible(
+        find.text(item.replacedTitle),
+        260,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text(item.replacedTitle), findsOneWidget);
       expect(find.text(item.actionText), findsNothing);
     });

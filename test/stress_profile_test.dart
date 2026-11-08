@@ -125,9 +125,8 @@ void main() {
     );
     expect(find.text('Preparing your history'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1));
-    expect(
-        find.text('Track your progress and actions for each financial goal.'),
-        findsOneWidget);
+    expect(find.text('Preparing your history'), findsNothing);
+    expect(find.byType(GoalsPage), findsOneWidget);
 
     await tester.pumpWidget(
       AppScope(

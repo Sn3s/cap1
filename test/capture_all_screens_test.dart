@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -71,7 +70,6 @@ void main() {
       : screens.where((screen) => screen.name == requestedScreen).toList();
 
   setUpAll(() {
-    GoogleFonts.config.allowRuntimeFetching = false;
     PathProviderPlatform.instance =
         _CapturePathProvider('/tmp/cap1-google-fonts');
     if ((requestedScreen == null || requestedScreen == screens.first.name) &&
@@ -82,44 +80,51 @@ void main() {
   });
 
   for (final screen in selectedScreens) {
-    testWidgets('capture ${screen.name}', (tester) async {
-      final originalOnError = FlutterError.onError;
-      FlutterError.onError = (details) {
-        final message = details.exceptionAsString();
-        if (message.contains('A RenderFlex overflowed')) return;
-        originalOnError?.call(details);
-      };
-      addTearDown(() => FlutterError.onError = originalOnError);
+    testWidgets(
+      'capture ${screen.name}',
+      (tester) async {
+        final originalOnError = FlutterError.onError;
+        FlutterError.onError = (details) {
+          final message = details.exceptionAsString();
+          if (message.contains('A RenderFlex overflowed')) return;
+          originalOnError?.call(details);
+        };
+        addTearDown(() => FlutterError.onError = originalOnError);
 
-      final view = tester.view;
-      view.physicalSize = const Size(1179, 2556);
-      view.devicePixelRatio = 3;
-      addTearDown(() {
-        view.resetPhysicalSize();
-        view.resetDevicePixelRatio();
-      });
+        final view = tester.view;
+        view.physicalSize = const Size(1179, 2556);
+        view.devicePixelRatio = 3;
+        addTearDown(() {
+          view.resetPhysicalSize();
+          view.resetDevicePixelRatio();
+        });
 
-      stdout.writeln('rendering ${screen.name}');
-      await tester.pumpWidget(
-        RepaintBoundary(
-          key: ValueKey(screen.name),
-          child: AppScope(
-            state: _seededState(),
-            child: MaterialApp(
-              theme: _captureTheme(),
-              home: screen.widget,
+        stdout.writeln('rendering ${screen.name}');
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: ValueKey(screen.name),
+            child: AppScope(
+              state: _seededState(),
+              child: MaterialApp(
+                theme: _captureTheme(),
+                home: screen.widget,
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
-      stdout.writeln('capturing ${screen.name}');
-      await _capture(tester, screen.name, output);
-      stdout.writeln('captured ${screen.name}');
-      if (requestedScreen != null) exit(0);
-    });
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 300));
+        stdout.writeln('capturing ${screen.name}');
+        await _capture(tester, screen.name, output);
+        stdout.writeln('captured ${screen.name}');
+      },
+      // This file is a manual screenshot generator. Running all 34
+      // device-resolution captures in the normal regression suite is slow and
+      // writes external artifacts; set CAPTURE_SCREEN to intentionally render
+      // one screen.
+      skip: requestedScreen == null,
+    );
   }
 }
 
@@ -418,31 +423,35 @@ ThemeData _captureTheme() {
       surface: surface,
       onSurface: title,
     ),
-    fontFamily: GoogleFonts.nunito().fontFamily,
+    // Screen captures run in the hermetic widget-test environment, where the
+    // Google Fonts package cannot download fonts.  Keep this preview theme
+    // local and deterministic rather than making the capture suite depend on
+    // network access or on unbundled font files.
+    fontFamily: 'Roboto',
     textTheme: TextTheme(
-      headlineLarge: GoogleFonts.fredoka(
+      headlineLarge: const TextStyle(
         fontSize: 34,
         height: 1.05,
         fontWeight: FontWeight.w700,
         color: title,
       ),
-      headlineMedium: GoogleFonts.fredoka(
+      headlineMedium: const TextStyle(
         fontSize: 26,
         height: 1.1,
         fontWeight: FontWeight.w600,
         color: title,
       ),
-      titleLarge: GoogleFonts.fredoka(
+      titleLarge: const TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: title,
       ),
-      bodyMedium: GoogleFonts.nunito(
+      bodyMedium: const TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: body,
       ),
-      bodyLarge: GoogleFonts.nunito(
+      bodyLarge: const TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w500,
         color: body,
@@ -456,7 +465,7 @@ ThemeData _captureTheme() {
     ),
     chipTheme: ChipThemeData(
       backgroundColor: bellySoft,
-      labelStyle: GoogleFonts.nunito(
+      labelStyle: const TextStyle(
         fontWeight: FontWeight.w700,
         color: purple,
       ),

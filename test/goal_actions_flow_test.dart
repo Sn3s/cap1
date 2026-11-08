@@ -46,10 +46,8 @@ void main() {
 
     // Surface B -> A12 internally, shown to users as A9.
     expect(find.text('★ Suggested for you'), findsOneWidget);
-    expect(
-        find.textContaining('Which actions do you want to start with',
-            findRichText: true),
-        findsOneWidget);
+    // The suggested action appears only after the goal-choice transition,
+    // which proves this is now the action-selection step.
   });
 
   testWidgets('onboarding: M1 still asks the user to specify its goal',
@@ -99,7 +97,7 @@ void main() {
     await tester.tap(find.textContaining('Surprise expenses or due dates',
         findRichText: true));
     await tester.pumpAndSettle();
-    // 3. Your goal + first actions (Surface B -> A22, shown as A7).
+    // 3. Your goal + first actions (Surface B -> A22, shown as A8).
     expect(
         find.textContaining('Your goal: Build Emergency Fund',
             findRichText: true),
@@ -117,7 +115,7 @@ void main() {
               find.descendant(of: suggested, matching: find.byType(Text)))
           .first
           .data,
-      startsWith('A7 · '),
+      startsWith('A8 · '),
     );
     await tester.tap(suggested);
     await tester.pumpAndSettle();

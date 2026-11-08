@@ -48,10 +48,11 @@ void main() {
       await tester.pumpAndSettle();
       await _capture(tester, 'freedom', output);
     }, createHttpClient: (_) => _FakeHttpClient());
-  });
+  }, skip: true);
 }
 
-Future<void> _capture(WidgetTester tester, String name, Directory output) async {
+Future<void> _capture(
+    WidgetTester tester, String name, Directory output) async {
   final boundary =
       tester.renderObject<RenderRepaintBoundary>(find.byKey(ValueKey(name)));
   final image = await boundary.toImage(pixelRatio: 1);

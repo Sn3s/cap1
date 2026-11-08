@@ -76,6 +76,9 @@ flutter:
     - assets/images/patterns_shelby.png
     - assets/images/share_shelby.png
     - assets/images/control_shelby.png
+    # Bundled typography keeps the app and offline visual tests independent
+    # of runtime Google Fonts network requests.
+    - assets/google_fonts/
   #  - assets/models/
 
   # To add assets to your application, add an assets section, like this:

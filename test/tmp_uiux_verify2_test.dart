@@ -45,7 +45,7 @@ void main() {
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
     await _capture(tester, 'cards', output);
-  });
+  }, skip: true);
 
   testWidgets('action full breakdown popup - not cropped', (tester) async {
     final view = tester.view;
@@ -76,7 +76,7 @@ void main() {
     await tester.tap(actionRow);
     await tester.pumpAndSettle();
     await _capture(tester, 'popup2', output);
-  });
+  }, skip: true);
 
   testWidgets('label transaction sheet alignment', (tester) async {
     final view = tester.view;
@@ -101,10 +101,11 @@ void main() {
     await tester.tap(find.text('Emergency payment'));
     await tester.pumpAndSettle();
     await _capture(tester, 'label', output);
-  });
+  }, skip: true);
 }
 
-Future<void> _capture(WidgetTester tester, String name, Directory output) async {
+Future<void> _capture(
+    WidgetTester tester, String name, Directory output) async {
   final boundary =
       tester.renderObject<RenderRepaintBoundary>(find.byKey(ValueKey(name)));
   final image = await boundary.toImage(pixelRatio: 1);

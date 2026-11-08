@@ -75,10 +75,20 @@ void main() {
       child: const MaterialApp(home: Scaffold(body: GoalsPage())),
     ));
     await tester.pumpAndSettle();
-    expect(find.text('Maintain Available Cash'), findsOneWidget);
-    expect(find.text('Build Emergency Fund'), findsOneWidget);
-    expect(find.text('Grow Investments'), findsOneWidget);
-    expect(find.text('Lifestyle Fund'), findsOneWidget);
+    for (final goal in const [
+      'Maintain Available Cash',
+      'Build Emergency Fund',
+      'Grow Investments',
+      'Lifestyle Fund',
+    ]) {
+      final goalFinder = find.text(goal);
+      await tester.scrollUntilVisible(
+        goalFinder,
+        260,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(goalFinder, findsOneWidget);
+    }
 
     await tester.pumpWidget(AppScope(
       state: state,

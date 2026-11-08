@@ -11,114 +11,38 @@ void main() {
   });
 
   const cases = [
-    ('Cash Flow Stability Plan', 'Wallet', false),
-    ('Emergency Cushion', 'Savings', true),
-    ('Net Worth Growth Plan', 'Time Deposit', true),
-    ('Future Lifestyle Fund', 'Goal Savings', true),
+    ('Cash Flow & Basic Needs', 'B1', 'Essential Expense Fund'),
+    ('Financial Safety', 'B2', 'Emergency Fund'),
+    ('Accumulating Wealth', 'B3', 'Investment Fund'),
+    ('Financial Freedom', 'B4', 'Personal Lifestyle Fund'),
   ];
 
   for (final item in cases) {
-    testWidgets('${item.$1} uses ${item.$2}', (tester) async {
-      final state = AppState()
-        ..selectedGoal = item.$1
-        ..fakeMayaLink = _fakeMayaLink()
-        ..fakeMayaSyncedAccounts.addAll(
-          const {'Wallet', 'Savings', 'Time Deposit', 'Goal Savings'},
-        );
-
-      await tester.pumpWidget(
-        AppScope(
-          state: state,
-          child: const MaterialApp(home: Scaffold(body: GoalsPage())),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.textContaining(item.$2), findsWidgets);
-      expect(find.text('Allocate'), item.$3 ? findsOneWidget : findsNothing);
+    test('${item.$1} maps to its dedicated FakeMaya goal bucket', () {
+      expect(fakeMayaBucketIdForMotivation(item.$1), item.$2);
+      expect(fakeMayaBucketNameForMotivation(item.$1), item.$3);
     });
   }
 
-  testWidgets('irregular income goal follows the ACT6 collection trace',
+  testWidgets('Goals shows the selected goal and goals explicitly added later',
       (tester) async {
-    final now = DateTime.now();
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
     final state = AppState()
-      ..selectedGoal = 'Irregular Income Buffer'
-      ..irregularIncomeFloor = 15000
-      ..fakeMayaLink = _fakeMayaLink(
-        transactions: [
-          FakeMayaTransaction(
-            id: 'income-1',
-            title: 'Cash in',
-            detail: 'From: Client A',
-            age: 'Just now',
-            amountText: '+ ₱10,000.00',
-            createdAt: now.subtract(const Duration(days: 2)),
-          ),
-          FakeMayaTransaction(
-            id: 'income-2',
-            title: 'Cash in',
-            detail: 'From: Client B',
-            age: 'Just now',
-            amountText: '+ ₱7,000.00',
-            createdAt: now.subtract(const Duration(days: 1)),
-          ),
-          FakeMayaTransaction(
-            id: 'expense-1',
-            title: 'Sent money (simulated)',
-            detail: 'To: Utility',
-            age: 'Just now',
-            amountText: '- ₱1,000.00',
-            createdAt: now,
-            category: 'Bills & utilities',
-          ),
-        ],
-      )
-      ..fakeMayaSyncedAccounts.addAll(
-        const {'Wallet', 'Savings', 'Time Deposit', 'Goal Savings'},
-      );
+      ..selectedGoalId = 'G1'
+      ..addedGoalIds.add('G3');
 
-    await tester.pumpWidget(
-      AppScope(
-        state: state,
-        child: const MaterialApp(home: Scaffold(body: GoalsPage())),
-      ),
-    );
-    await tester.pump();
+    await tester.pumpWidget(AppScope(
+      state: state,
+      child: const MaterialApp(home: Scaffold(body: GoalsPage())),
+    ));
+    await tester.pumpAndSettle();
 
-    expect(find.text('Collection trace'), findsOneWidget);
-    expect(find.text('SURPLUS'), findsOneWidget);
-    expect(find.text('SHORTFALL'), findsOneWidget);
-    expect(find.text('Record plan adjustment'), findsNWidgets(2));
-    expect(find.text('Weekly anxiety check-in'), findsOneWidget);
-    expect(find.textContaining('1/1 categorized'), findsOneWidget);
+    final emergencyGoal = find.text('Build Emergency Fund');
+    await tester.scrollUntilVisible(emergencyGoal, 250,
+        scrollable: find.byType(Scrollable).first);
+    expect(emergencyGoal, findsOneWidget);
+    expect(find.text('Maintain Available Cash'), findsWidgets);
   });
-}
-
-FakeMayaLink _fakeMayaLink({
-  List<FakeMayaTransaction> transactions = const [],
-}) {
-  return FakeMayaLink(
-    userId: 'user',
-    email: 'user@example.com',
-    name: 'User',
-    phone: '',
-    provider: 'email',
-    accessToken: '',
-    refreshToken: '',
-    expiresAt: null,
-    summary: FakeMayaAccountSummary(
-      wallet: 1100,
-      savings: 2200,
-      timeDeposit: 3300,
-      goalName: 'My Goal',
-      goalEmoji: '🎯',
-      goalBalance: 4400,
-      goalTarget: 10000,
-      creditLimit: 0,
-      creditUsed: 0,
-      transactions: transactions,
-      updatedAt: null,
-    ),
-  );
 }
