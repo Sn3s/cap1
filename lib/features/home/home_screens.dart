@@ -1516,9 +1516,17 @@ class _PyramidLedgerEntryCard extends StatelessWidget {
 }
 
 class _PyramidBaselineLedgerPage extends StatefulWidget {
-  const _PyramidBaselineLedgerPage({required this.initialLayer});
+  const _PyramidBaselineLedgerPage({
+    required this.initialLayer,
+    required this.visibleLayers,
+  }) : assert(visibleLayers.length > 0);
 
   final String initialLayer;
+
+  /// The Pyramid card is a view of the user's active plan, never a shortcut
+  /// to configure layers they have not selected. Keep this list at the route
+  /// boundary so its tabs cannot accidentally expose the whole catalog.
+  final List<String> visibleLayers;
 
   @override
   State<_PyramidBaselineLedgerPage> createState() =>
@@ -1527,13 +1535,6 @@ class _PyramidBaselineLedgerPage extends StatefulWidget {
 
 class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     with SingleTickerProviderStateMixin {
-  static const layers = [
-    _pyramidCashFlowLayer,
-    _pyramidEmergencyLayer,
-    _pyramidWealthLayer,
-    _pyramidFreedomLayer,
-  ];
-
   late final TabController _layerController;
   int mode = 1;
   bool _refreshingAssets = false;
@@ -1542,9 +1543,9 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
   @override
   void initState() {
     super.initState();
-    final initial = layers.indexOf(widget.initialLayer);
+    final initial = widget.visibleLayers.indexOf(widget.initialLayer);
     _layerController = TabController(
-      length: layers.length,
+      length: widget.visibleLayers.length,
       vsync: this,
       initialIndex: initial < 0 ? 0 : initial,
     )..addListener(() {
@@ -1562,7 +1563,7 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
     super.dispose();
   }
 
-  String get currentLayer => layers[_layerController.index];
+  String get currentLayer => widget.visibleLayers[_layerController.index];
 
   Future<void> _refreshFakeMayaAssets() async {
     if (_refreshingAssets) return;
@@ -1634,11 +1635,8 @@ class _PyramidBaselineLedgerPageState extends State<_PyramidBaselineLedgerPage>
           labelColor: _brand,
           unselectedLabelColor: _body,
           indicatorColor: _brand,
-          tabs: const [
-            Tab(text: _pyramidCashFlowLayer),
-            Tab(text: _pyramidEmergencyLayer),
-            Tab(text: _pyramidWealthLayer),
-            Tab(text: _pyramidFreedomLayer),
+          tabs: [
+            for (final layer in widget.visibleLayers) Tab(text: layer),
           ],
         ),
       ),
@@ -2176,10 +2174,18 @@ void _openBaselineLedgerPage(
   String layer,
   Color color,
 ) {
+  // Dashboard cards are created only for active layers. Resolve this again
+  // immediately before navigating so a stale card can never reveal an
+  // unselected layer after a plan change.
+  final activeLayers = _activePyramidLayers(state);
+  if (!activeLayers.contains(layer)) return;
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => _PyramidBaselineLedgerPage(initialLayer: layer),
+      builder: (_) => _PyramidBaselineLedgerPage(
+        initialLayer: layer,
+        visibleLayers: activeLayers,
+      ),
     ),
   );
 }
