@@ -114,16 +114,19 @@ class PageHeader extends StatelessWidget {
     required this.eyebrow,
     required this.title,
     this.onAccountTap,
-    this.onTimeTap,
+    this.helpTopic,
+    this.onHelpTap,
   });
 
   final String eyebrow;
   final String title;
   final VoidCallback? onAccountTap;
-  final VoidCallback? onTimeTap;
+  final HelpTopic? helpTopic;
+  final VoidCallback? onHelpTap;
 
   @override
   Widget build(BuildContext context) {
+    final topic = helpTopic ?? _helpTopicForEyebrow(eyebrow);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
       child: Row(
@@ -151,10 +154,11 @@ class PageHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // Left → right: Notifications · Community · Profile.
-          _TimeButton(
-            onTap: onTimeTap ??
-                () => _push(context, const NotificationSettingsScreen()),
+          // Left → right: Help · Community · Profile.
+          _HelpButton(
+            topic: topic,
+            onTap: onHelpTap ??
+                () => showContextualHelpSheet(context, topic: topic),
           ),
           const SizedBox(width: 8),
           const _CommunityIconButton(),
@@ -170,21 +174,251 @@ class PageHeader extends StatelessWidget {
   }
 }
 
-class _TimeButton extends StatelessWidget {
-  const _TimeButton({required this.onTap});
+enum HelpTopic { home, wallet, goals, insights, general }
+
+HelpTopic _helpTopicForEyebrow(String eyebrow) => switch (eyebrow) {
+      'GOOD MORNING' => HelpTopic.home,
+      'WALLET' => HelpTopic.wallet,
+      'MY GOALS' => HelpTopic.goals,
+      'REFLECTION' => HelpTopic.insights,
+      _ => HelpTopic.general,
+    };
+
+class _HelpButton extends StatelessWidget {
+  const _HelpButton({required this.topic, required this.onTap});
+
+  final HelpTopic topic;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Shelby reminder times',
+      message: 'Help for ${_helpContentFor(topic).pageName}',
       child: IconButton(
         onPressed: onTap,
         style: IconButton.styleFrom(
           backgroundColor: _bellySoft,
           foregroundColor: _purple,
         ),
-        icon: const Icon(Icons.schedule_rounded),
+        icon: const Icon(Icons.help_outline_rounded),
+      ),
+    );
+  }
+}
+
+/// A concise, page-specific guide. These are intentionally deterministic UI
+/// instructions—not AI advice—and can be opened again at any time.
+Future<void> showContextualHelpSheet(
+  BuildContext context, {
+  required HelpTopic topic,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ContextualHelpSheet(content: _helpContentFor(topic)),
+  );
+}
+
+class _HelpContent {
+  const _HelpContent({
+    required this.pageName,
+    required this.intro,
+    required this.steps,
+  });
+
+  final String pageName;
+  final String intro;
+  final List<_HelpStep> steps;
+}
+
+class _HelpStep {
+  const _HelpStep(this.icon, this.title, this.detail);
+
+  final IconData icon;
+  final String title;
+  final String detail;
+}
+
+_HelpContent _helpContentFor(HelpTopic topic) => switch (topic) {
+      HelpTopic.home => const _HelpContent(
+          pageName: 'Home',
+          intro:
+              'Use Home for a quick check-in before deciding what to do next.',
+          steps: [
+            _HelpStep(Icons.account_balance_wallet_outlined, 'Your money',
+                'See the total across your tracked accounts, then compare what is spendable and saved.'),
+            _HelpStep(Icons.flag_outlined, 'Weekly challenge',
+                'Accept an optional small step. Its progress comes from your existing records; it never moves money for you.'),
+            _HelpStep(Icons.layers_outlined, 'Pyramid',
+                'Tap a layer you already track to review its balances and entries. Unselected layers are not shown here.'),
+          ],
+        ),
+      HelpTopic.wallet => const _HelpContent(
+          pageName: 'Wallet',
+          intro:
+              'Use Wallet to collect, correct, and understand your financial records.',
+          steps: [
+            _HelpStep(Icons.add_circle_outline_rounded, 'Add a record',
+                'Use the + button for cash or activity that did not come from a linked account.'),
+            _HelpStep(Icons.sell_outlined, 'Label transactions',
+                'Add a category, source, and optional notes so Insights and goal progress can use the record.'),
+            _HelpStep(Icons.sync_rounded, 'Refresh linked data',
+                'Refresh FakeMaya after activity there. Your edits and labels remain attached after a sync.'),
+          ],
+        ),
+      HelpTopic.goals => const _HelpContent(
+          pageName: 'Goals',
+          intro:
+              'Use Goals to review the plan you chose and make manageable adjustments.',
+          steps: [
+            _HelpStep(Icons.track_changes_outlined, 'Goal cards',
+                'Open a goal to see its actions, progress evidence, and the next realistic step.'),
+            _HelpStep(
+                Icons.add_circle_outline_rounded,
+                'Add another motivation',
+                'Add a new layer only when it fits your situation. The cards explain whether it is Current, Stable, Next recommended, or Not started.'),
+            _HelpStep(Icons.tune_rounded, 'Adjust actions',
+                'Change targets or amounts when your income, bills, or priorities change. Shelby does not apply changes automatically.'),
+          ],
+        ),
+      HelpTopic.insights => const _HelpContent(
+          pageName: 'Goal Insights',
+          intro:
+              'Use Insights to reflect on labelled records before changing your plan.',
+          steps: [
+            _HelpStep(Icons.insights_outlined, 'Overview',
+                'Review money in, money out, categories, funds, and your Total Goals Score for the goals you actively track.'),
+            _HelpStep(Icons.calendar_month_outlined, 'Goal tabs',
+                'Open a goal tab to inspect its supporting records and action progress for the selected period.'),
+            _HelpStep(Icons.auto_awesome_outlined, 'Ask Shelby',
+                'Ask for an explanation using your app data. Answers state when records are incomplete and never make changes for you.'),
+          ],
+        ),
+      HelpTopic.general => const _HelpContent(
+          pageName: 'this page',
+          intro:
+              'Use Shelby to record financial activity, review patterns, and choose your own next step.',
+          steps: [
+            _HelpStep(Icons.account_balance_wallet_outlined, 'Collect',
+                'Keep records and labels current so summaries remain reliable.'),
+            _HelpStep(Icons.insights_outlined, 'Reflect',
+                'Use Insights and Goals to understand what the data means for your plan.'),
+            _HelpStep(Icons.person_outline_rounded, 'Manage settings',
+                'Open Profile to manage reminders, privacy, linked accounts, and your saved choices.'),
+          ],
+        ),
+    };
+
+class _ContextualHelpSheet extends StatelessWidget {
+  const _ContextualHelpSheet({required this.content});
+
+  final _HelpContent content;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 620),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        decoration: const BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _border,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                const IconBubble(Icons.help_outline_rounded),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Help with ${content.pageName}',
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              content.intro,
+              style: const TextStyle(
+                color: _body,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: content.steps.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (_, index) {
+                  final step = content.steps[index];
+                  return Container(
+                    padding: const EdgeInsets.all(13),
+                    decoration: BoxDecoration(
+                      color: _bellySoft,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(step.icon, color: _purple, size: 20),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(step.title,
+                                  style: const TextStyle(
+                                      color: _title,
+                                      fontWeight: FontWeight.w900)),
+                              const SizedBox(height: 3),
+                              Text(step.detail,
+                                  style: const TextStyle(
+                                      color: _body,
+                                      fontSize: 12,
+                                      height: 1.3,
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Got it'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -362,16 +362,15 @@ void main() {
       return state;
     }
 
-    testWidgets('header order is Notifications · Community · Profile',
-        (tester) async {
+    testWidgets('header order is Help · Community · Profile', (tester) async {
       await pumpWith(
         tester,
         const Scaffold(body: PageHeader(eyebrow: 'HOME', title: 'Hi')),
       );
-      final schedule = tester.getCenter(find.byIcon(Icons.schedule_rounded));
+      final help = tester.getCenter(find.byIcon(Icons.help_outline_rounded));
       final community = tester.getCenter(find.byIcon(Icons.forum_rounded));
       final profile = tester.getCenter(find.byIcon(Icons.person_rounded));
-      expect(schedule.dx, lessThan(community.dx));
+      expect(help.dx, lessThan(community.dx));
       expect(community.dx, lessThan(profile.dx));
     });
 

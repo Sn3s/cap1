@@ -11,26 +11,29 @@ void main() {
     expect(state.notificationReminderMinutes, [510, 1200]);
   });
 
-  testWidgets('header time button opens notification settings', (tester) async {
+  testWidgets('header Help opens a contextual tutorial', (tester) async {
     final state = AppState();
     await tester.pumpWidget(
       AppScope(
         state: state,
         child: const MaterialApp(
           home: Scaffold(
-            body: PageHeader(eyebrow: 'HOME', title: 'Today'),
+            body: PageHeader(eyebrow: 'GOOD MORNING', title: 'Today'),
           ),
         ),
       ),
     );
 
-    expect(find.byIcon(Icons.schedule_rounded), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.schedule_rounded));
+    expect(find.byIcon(Icons.help_outline_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.schedule_rounded), findsNothing);
+    await tester.tap(find.byIcon(Icons.help_outline_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('Notifications'), findsOneWidget);
-    expect(find.text('Transaction reminders'), findsOneWidget);
-    expect(find.text('8:00 PM'), findsOneWidget);
-    expect(find.text('Send test notification'), findsOneWidget);
+    expect(find.text('Help with Home'), findsOneWidget);
+    expect(find.text('Weekly challenge'), findsOneWidget);
+    expect(find.text('Pyramid'), findsOneWidget);
+    await tester.tap(find.text('Got it'));
+    await tester.pumpAndSettle();
+    expect(find.text('Help with Home'), findsNothing);
   });
 }
