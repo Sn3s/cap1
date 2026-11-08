@@ -961,10 +961,17 @@ class AppState extends ChangeNotifier {
     if (consentCommunity == value) return;
     consentCommunity = value;
     notifyListeners();
-    await saveProfile();
     if (value) {
+      await saveProfile();
       await connectCommunity();
     } else {
+      // The directory must not keep exposing an opted-out member. Keep the
+      // user's discoverability preference in the private profile so it is
+      // restored only if they explicitly opt back into Community later.
+      if (community.isConnected) {
+        await community.setDiscoverable(false);
+      }
+      await saveProfile();
       await community.disconnect();
     }
   }

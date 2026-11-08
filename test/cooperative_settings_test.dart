@@ -69,21 +69,28 @@ void main() {
 
   testWidgets('privacy settings expose all cooperative controls',
       (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final state = AppState()..uid = 'signed-in-user';
     await tester.pumpWidget(AppScope(
       state: state,
       child: const MaterialApp(home: CommunityPrivacyScreen()),
     ));
 
-    expect(find.text('Anonymous peer benchmarks'), findsOneWidget);
-    expect(find.text('Community feedback'), findsOneWidget);
-    expect(find.text('Trusted circle sharing'), findsOneWidget);
+    final benchmarks =
+        find.text('Anonymous peer benchmarks', skipOffstage: false);
+    final community = find.text('Community feedback', skipOffstage: false);
+    final circle = find.text('Trusted circle sharing', skipOffstage: false);
+    expect(benchmarks, findsOneWidget);
+    expect(community, findsOneWidget);
+    expect(circle, findsOneWidget);
 
-    await tester.tap(find.text('Anonymous peer benchmarks'));
+    await tester.tap(benchmarks);
     await tester.pump();
     expect(state.consentBenchmarking, isTrue);
 
-    await tester.tap(find.text('Trusted circle sharing'));
+    await tester.tap(circle);
     await tester.pump();
     expect(state.consentTrustedCircle, isTrue);
   });

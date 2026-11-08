@@ -2,9 +2,9 @@
 
 ## Purpose and scope
 
-This architecture replaces a proposal-level system diagram with a source-based view of the Shelby prototype as implemented in this repository. It describes the current Flutter client, its managed Firebase services, the optional FakeMaya provider connection, the AI routes, and device-level services. "Shelby" is used in this document as the product name; several repository identifiers and the application label use the spelling `Shellby`.
+This architecture replaces a proposal-level system diagram with a source-based view of the Shelby prototype as implemented in this repository. It describes the current Flutter client, its managed Firebase services, the optional FakeMaya provider connection, the AI routes, cooperative features, and device-level services. "Shelby" is used in this document as the product name; several repository identifiers and the application label use the spelling `Shellby`.
 
-The application is **not** a microservice system. Its feature logic, state management, calculations, integrations, and presentation are delivered in one Flutter mobile application. The cloud components are limited to Firebase Authentication, Cloud Firestore, and one Firebase HTTPS Function used to proxy Gemini requests.
+The application is **not** a microservice system. Its feature logic, state management, calculations, integrations, and presentation are delivered in one Flutter mobile application. Firebase Authentication and Cloud Firestore provide its managed identity and persistence services. Gemini uses the configured direct client route; the deployed system has no Cloud Functions.
 
 ## 1. System context and deployment architecture
 
@@ -20,9 +20,7 @@ flowchart LR
 
   subgraph firebase[Firebase project: shelby-1b1d8]
     auth[Firebase Authentication\nemail/password and Google Sign-In]
-    firestore[Cloud Firestore\nprofiles/{uid}]
-    function[HTTPS Cloud Function\ngeminiGenerateContent]
-    secret[Firebase Secret Manager\nGEMINI_API_KEY]
+    firestore[Cloud Firestore\nprivate profiles and consented cooperative collections]
   end
 
   subgraph external[External systems]
@@ -35,9 +33,7 @@ flowchart LR
   app <--> os
   app <--> auth
   app <--> firestore
-  app --> function
-  function --> secret
-  function --> gemini
+  app -. configured Gemini route .-> gemini
   app -. optional account link, refresh and allocation .-> fakemaya
   app -. on-demand investment price refresh .-> coingecko
   app -. configured or fallback AI inference .-> qwen
@@ -46,7 +42,7 @@ flowchart LR
 ### Reading the diagram
 
 - Solid arrows identify the normal product path. A signed-in user authenticates with Firebase, and Shelby reads and writes that user's profile document in Cloud Firestore.
-- The normal cloud AI route is `Shelby app → Firebase HTTPS Function → Gemini`. The function holds the Gemini key through Firebase Secret Manager, so the key does not need to be sent to the mobile UI.
+- Gemini uses the explicitly configured direct route from the client. The deployed system has no Firebase Cloud Functions or Secret Manager dependency, so the paper must not describe either as part of the implementation.
 - Dotted arrows identify optional or conditional paths. A user can use Shelby with manually entered transactions and never link FakeMaya. CoinGecko is consulted only when investment prices are refreshed. The Qwen route is a local fallback/alternative, not a remote service.
 - Device notifications are scheduled locally on the phone. There is no notification server, background job queue, or server-side push-notification component in this repository.
 
@@ -57,13 +53,14 @@ flowchart TB
   subgraph flutter[Single Flutter application library]
     boot[main.dart bootstrap\nload runtime config, initialize Firebase and notifications]
     authgate[AuthGate\nrestore completed signed-in profile or show authentication/onboarding]
-    ui[Presentation layer\nOnboarding, Home, Wallet, Goals, Insights, transaction sheets and AI chat]
+    ui[Presentation layer\nOnboarding, Home, Wallet, Goals, Insights, Community, transaction sheets and AI chat]
     scope[AppScope\nInheritedNotifier]
     state[AppState\ncentral domain state and mutation coordinator]
     profile[FirebaseProfileService\nidentity and profile persistence]
     maya[FakeMayaService\nprovider authentication, account refresh, transfers and market prices]
     integration[IntegrationService\ncomputed day/week records, scores and reflection metrics]
     coach[ShellbyAiCoach\nbounded prompts, structured suggestions and chat]
+    community[CommunityController and CooperativeService\nfriends, private sharing, decisions and anonymous benchmarks]
     reminders[ShellbyNotificationService\npermission and up to eight daily reminders]
   end
 
@@ -76,6 +73,8 @@ flowchart TB
   state --> integration
   ui --> coach
   coach --> state
+  ui <--> community
+  community <--> firestore
   ui --> reminders
 ```
 
@@ -83,7 +82,7 @@ This is a logical component diagram, not a claim that each box is separately dep
 
 ### Presentation layer
 
-After onboarding, `MainShell` exposes four primary destinations: **Home**, **Wallet**, **Goals**, and **Insights**. It also provides a global manual-transaction entry point and access to Shelby chat. Authentication and the preparation/onboarding screens sit before this shell.
+After onboarding, `MainShell` exposes four primary destinations: **Home**, **Wallet**, **Goals**, and **Insights**. It also provides a global manual-transaction entry point, access to Shelby chat, and a Community surface. Authentication and the preparation/onboarding screens sit before this shell.
 
 The presentation layer does not independently calculate or persist financial data. It asks `AppState` to perform the relevant operation, reacts to state notifications, and displays the resulting balance, action progress, transaction labels, goal status, or reflection result.
 
@@ -127,25 +126,29 @@ Only appropriately labelled and non-excluded transactions contribute to the appl
 
 ### D. AI request routing
 
-The application loads runtime configuration from Dart defines and the bundled `.env` asset. With the normal configuration, it sends the prompt body to the Firebase HTTPS function. That function validates the request method and model name, retrieves `GEMINI_API_KEY` from Secret Manager, and forwards the request to Gemini's `generateContent` endpoint.
+The application loads runtime configuration from Dart defines and the bundled `.env` asset. When AI consent is enabled and a Gemini key is configured, `ShellbyAiCoach` sends a bounded request directly to Gemini from the client. The coach receives an app-calculated canonical snapshot and does not decide balances, alter records, or move money. It reports unavailable or partial data rather than presenting unsupported certainty.
 
-The implementation also contains two conditional alternatives that must be represented accurately:
-
-- If a `GEMINI_API_KEY` is supplied to the Flutter runtime without a proxy URL, the application can call Gemini directly from the device. This is an implemented development/configuration route, but it puts a provider key in the client configuration and is not the intended production trust boundary.
-- If Gemini is unavailable or not configured, the code can initialize a local Qwen GGUF model with `llamadart` in a Dart isolate. It copies the bundled model asset into the app-support directory before inference. However, the current `pubspec.yaml` comments out `assets/models/`; therefore the local path becomes usable only after that asset directory is declared and the model is included in the build.
+If Gemini is unavailable or not configured, the code can initialize a local Qwen GGUF model with `llamadart` in a Dart isolate. It copies the bundled model asset into the app-support directory before inference. However, the current `pubspec.yaml` comments out `assets/models/`; therefore the local path becomes usable only after that asset directory is declared and the model is included in the build.
 
 ### E. Reminders and device services
 
 The user grants notification permission through the application. `ShellbyNotificationService` obtains the device timezone (falling back to `Asia/Manila`), schedules up to eight daily local reminders, and cancels/replaces the existing reminders when settings change. Android declares notification and boot-complete support so scheduled reminders can be restored by the plugin. This functionality occurs on the device; it is neither Firebase Cloud Messaging nor a server-scheduled notification system.
+
+### F. Cooperative and community flow
+
+1. A signed-in member explicitly enables Community before they can be discovered, send or read friend requests, interact with posts, or view social notifications. Disabling Community removes their exact-match email-directory entry and Firestore rules immediately deny further social reads and writes.
+2. Friends are established through an email-exact invitation and an accepted mutual friendship document. A post is created with a fixed audience containing only the author and the friends selected at creation; a non-friend cannot read it or its replies.
+3. Trusted-circle sharing is a separate opt-in. It shares only coarse standing bands such as `under_one`, `some`, or `balanced`—not balances, income, transaction history, account identifiers, or target amounts. Either party's trusted-circle opt-out removes access.
+4. A decision request is sent only to current trusted-circle friends. Invited friends may select an option and add a short comment. Shelby's resulting reflection is deterministic and on-device: it summarizes vote totals and only comments whose author allowed review. It does not send private financial records or community comments to Gemini, and the user retains the final decision.
+5. Anonymous peer benchmarks are a third, separate opt-in. Each contribution has a random pseudonymous identifier and categorical bands only. A benchmark becomes eligible only when at least three opted-in contributions exist in the same cohort and month.
 
 ## 4. Data stores, ownership, and trust boundaries
 
 | Boundary or store | Current implementation | Data and responsibility |
 | --- | --- | --- |
 | On-device runtime memory | `AppState` | Active user profile, balances, transactions, labels, goals, derived display values, and UI state while the application is running. |
-| Cloud Firestore | One document at `profiles/{uid}` | The persisted Shelby profile map, including onboarding/consent data, ledgers, manual transactions, label rules, goal configuration, linked-account metadata, and the serialized FakeMaya link. It is the application's main Shelby cloud store. |
+| Cloud Firestore | Private `profiles/{uid}` plus consented cooperative collections | The profile document holds the persisted Shelby profile map, including onboarding/consent data, ledgers, manual transactions, label rules, goal configuration, linked-account metadata, and the serialized FakeMaya link. Separate social collections hold only explicitly shared display snapshots, fixed audiences, friend relationships, decision responses, and anonymous categorical benchmark bands. |
 | Firebase Authentication | Firebase Auth plus Google Sign-In | Email/password account identity and Google identity federation. It supplies the UID used by the Firestore profile. |
-| Firebase Cloud Function and Secret Manager | `geminiGenerateContent` | The production-oriented Gemini proxy. The function has access to the Gemini key through a Firebase secret and forwards the bounded request upstream. |
 | FakeMaya Supabase service | External demonstration provider | Provider authentication/session refresh, wallet state, transaction summaries, linked savings/time-deposit/personal-goal buckets, and linked-account transfers. It is not part of Firebase or Cloud Firestore. |
 | CoinGecko | External public market-data API | PHP-denominated BTC and NVDA price/price-change lookups used when the app refreshes investment prices. |
 | Device file storage | Application-support directory | A copied local GGUF model only when the Qwen fallback is bundled and invoked. It is not used as a general local profile database. |
@@ -159,17 +162,22 @@ The following wording keeps the paper aligned with the repository:
 - Identify **FakeMaya** as the optional demonstration e-wallet/provider integration. Do not describe a live commercial e-wallet, bank connection, or universal financial-data aggregator.
 - Include **manual transaction recording** as a complete first-class collection route. Linking FakeMaya is not a precondition for using the application.
 - Include **transaction labelling** between data collection and insight generation, because the insight logic relies on labelled, non-excluded transactions.
-- Identify the **Firebase HTTPS Gemini proxy** as the intended secure AI route; qualify direct client-side Gemini access as a configuration fallback rather than the production design.
+- Identify the configured **direct Gemini route** as the implemented AI connection. Do not claim a Firebase HTTPS proxy, Secret Manager, Cloud Function, or paid server-side AI component.
 - Identify **local Qwen** as implemented fallback code that requires the model asset to be enabled in `pubspec.yaml` to operate in a shipped build.
 - Include **CoinGecko** when describing investment price refreshes.
 - Describe reminders as **local device notifications**. Do not claim server-side push notifications, a messaging service, or an event queue.
-- Exclude peer-to-peer dashboards, community validation, voting, cooperative benchmarking, or a separate social-data backend from the implemented architecture. They are not present in this repository.
+- Include the implemented cooperative features: exact-match friend invitations, audience-limited posts and replies, explicit trusted-circle standing bands, decision requests with invited responses, and anonymous three-member cohort benchmarks. State that they are protected by independent Community, trusted-circle, and benchmark consent controls in both the client and Firestore rules.
+- Describe "Shelby's reflection" on a community decision as an **on-device deterministic summary of votes and explicitly permitted comments**. Do not claim that Gemini receives community content or private financial context for this feature.
 
 ## 6. Paper-ready architecture description
 
 Shelby is implemented as a Flutter mobile application for Android and iOS. The application presents onboarding, transaction collection, wallet, goals, insights, and conversational guidance through a single client application. Its central `AppState` object coordinates user financial information, selected goal actions, manual and linked transactions, labels, funds, and balances, and publishes updates to the interface through `AppScope`. The reflection layer derives insight and progress measures in the client from the current labelled transaction and fund data.
 
-Firebase provides the managed identity and persistence layer. Users authenticate through Firebase Authentication using email/password or Google Sign-In, and Shelby stores each user's persisted prototype state in a Firestore document at `profiles/{uid}`, protected by UID-based security rules. Gemini guidance normally follows a server-mediated path: the mobile application sends a bounded request to a Firebase HTTPS Function, which retrieves the Gemini key from Firebase Secret Manager and forwards the request to Google's Gemini API.
+Firebase provides the managed identity and persistence layer. Users authenticate through Firebase Authentication using email/password or Google Sign-In, and Shelby stores each user's private persisted prototype state in Firestore at `profiles/{uid}`, protected by UID-based security rules. The same Firestore project contains a separate, consent-gated cooperative data boundary for friend invitations, audience-limited posts and replies, trusted-circle standing bands, decision requests, and anonymous benchmark contributions. It never exposes private balances, income, transactions, or account identifiers through those cooperative records.
+
+Cooperative participation is optional and independently controlled. Community opt-out removes email discoverability and blocks social access at the rules boundary; trusted-circle sharing permits only coarse categorical standing bands; and anonymous benchmarks require a separate opt-in and become meaningful at three or more participants in the same cohort. Decision feedback lets trusted friends vote and comment, after which Shelby gives an on-device deterministic reflection of the vote totals and only comments that were permitted for review. The user, rather than Shelby or the community, makes the final financial action.
+
+Gemini guidance uses a bounded, configured direct route in the current deployment. No Firebase HTTPS Function, Secret Manager integration, or other paid server-side AI component is part of the implemented system.
 
 Financial data can be collected manually or, with explicit user consent, from the optional FakeMaya demonstration provider. Shelby refreshes selected provider accounts and transactions, lets users label and classify the records, and uses the resulting data to update goal progress and insights. User-triggered allocations can update a linked FakeMaya goal bucket when available; otherwise Shelby maintains the corresponding local goal balance. Local reminders are scheduled directly on the device, and investment-price refreshes call CoinGecko. The code also contains a local Qwen inference fallback, which requires the GGUF asset to be included in the application build.
 
@@ -177,12 +185,13 @@ Financial data can be collected manually or, with explicit user consent, from th
 
 | Evidence | What it establishes |
 | --- | --- |
-| `lib/main.dart` | Bootstrap order, runtime configuration, single-library `part` structure, Firebase initialization, default Gemini proxy, and Qwen asset path. |
+| `lib/main.dart` | Bootstrap order, runtime configuration, single-library `part` structure, Firebase initialization, direct Gemini configuration, and Qwen asset path. |
 | `lib/core/app_state.dart` and `lib/core/app_scope.dart` | Central state ownership, profile restoration/persistence, manual transactions, transaction labels, FakeMaya linking/refresh, allocation logic, and UI notification mechanism. |
 | `lib/features/auth/auth_screens.dart`, `lib/features/preparation/`, and `lib/features/home/` | Authentication/onboarding entry flow and the implemented UI areas. |
-| `lib/services/firebase_profile_service.dart` and `firestore.rules` | Firebase Auth/Firestore profile access and user-owned document authorization. |
+| `lib/services/firebase_profile_service.dart` and `firestore.rules` | Firebase Auth/Firestore profile access, consent enforcement, social audience restrictions, trusted-circle privacy, and anonymous-benchmark authorization. |
+| `lib/core/community_state.dart`, `lib/services/community_service.dart`, `lib/services/cooperative_service.dart`, and `lib/features/community/` | Friend invitations, social feed and replies, notifications, explicit sharing, decision feedback, deterministic reflection, and benchmark aggregation. |
 | `lib/services/fakemaya_service.dart` | Supabase-based FakeMaya connection, account operations, and CoinGecko price requests. |
 | `lib/services/integration_service.dart` | Client-side records, metrics, and the dependence of insights on labelled data. |
-| `lib/services/shellby_ai_coach.dart` and `functions/index.js` | Bounded AI orchestration, Gemini proxy/direct/local routes, and Secret Manager-backed function proxy. |
+| `lib/services/shellby_ai_coach.dart` | Bounded Gemini orchestration, direct client configuration, canonical calculation context, consent gating, and error handling. |
 | `lib/services/notification_service.dart` and `android/app/src/main/AndroidManifest.xml` | On-device reminder scheduling, permissions, timezone handling, and Android receivers. |
 | `pubspec.yaml` | Declared packages/assets and the currently disabled `assets/models/` declaration. |

@@ -276,6 +276,28 @@ void main() {
       expect(state.community.discoverable, isFalse);
       expect(await backend.findByEmail(state.socialProfile.email), isNull);
     });
+
+    test('community opt-out removes the user from email discovery', () async {
+      final state = AppState()
+        ..uid = 'opt-out-user'
+        ..name = 'Opt Out User'
+        ..email = 'opt.out@email.com'
+        ..consentCommunity = true;
+      final backend = InMemoryCommunityBackend();
+      state.communityBackendForTesting = backend;
+      await state.connectCommunity();
+
+      expect(await backend.findByEmail(state.email), isNotNull);
+      await state.setConsentCommunity(false);
+
+      expect(state.community.isConnected, isFalse);
+      expect(state.discoverableByEmail, isTrue,
+          reason: 'the preference is restored only after a fresh opt-in');
+      expect(await backend.findByEmail(state.email), isNull);
+
+      await state.setConsentCommunity(true);
+      expect(await backend.findByEmail(state.email), isNotNull);
+    });
   });
 
   group('badges', () {
@@ -377,13 +399,15 @@ void main() {
       final backend = InMemoryCommunityBackend();
       for (final name in ['Ana', 'Ben', 'Cy', 'Dee']) {
         await backend.sendFriendRequest(
-          from: SocialProfile(uid: name, displayName: name, email: '$name@x.com'),
+          from:
+              SocialProfile(uid: name, displayName: name, email: '$name@x.com'),
           to: me,
         );
       }
       final state = await pumpWith(
         tester,
-        const Scaffold(body: SingleChildScrollView(child: FriendRequestsCard())),
+        const Scaffold(
+            body: SingleChildScrollView(child: FriendRequestsCard())),
         custom: backend,
       );
       await tester.pumpAndSettle();
@@ -404,7 +428,8 @@ void main() {
         (tester) async {
       final state = await pumpWith(
         tester,
-        const Scaffold(body: SingleChildScrollView(child: FriendRequestsCard())),
+        const Scaffold(
+            body: SingleChildScrollView(child: FriendRequestsCard())),
       );
       await tester.pumpAndSettle();
 
@@ -442,7 +467,8 @@ void main() {
       await tester.tap(find.byTooltip('Community notifications'));
       await tester.pumpAndSettle();
       expect(find.text('2 new from your circle'), findsOneWidget);
-      expect(find.textContaining('Yco replied to your post', findRichText: true),
+      expect(
+          find.textContaining('Yco replied to your post', findRichText: true),
           findsOneWidget);
       expect(find.textContaining('Ken liked your post', findRichText: true),
           findsOneWidget);
@@ -451,9 +477,13 @@ void main() {
 
     testWidgets('Find friends searches by email and sends a request',
         (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       final state = await pumpWith(
         tester,
-        const Scaffold(body: SingleChildScrollView(child: FriendRequestsCard())),
+        const Scaffold(
+            body: SingleChildScrollView(child: FriendRequestsCard())),
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Find friends'));
@@ -464,10 +494,13 @@ void main() {
 
       // Kole already asked us, so "Add" becomes "Accept".
       expect(find.text('kole@shelby.app'), findsWidgets);
-      await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+      final accept =
+          find.byKey(const ValueKey('friend-search-action-demo-kole'));
+      expect(accept, findsOneWidget);
+      await tester.tap(accept);
       await tester.pumpAndSettle();
-      expect(find.widgetWithText(FilledButton, 'Friends'), findsOneWidget);
       expect(state.community.statusFor('demo-kole'), FriendStatus.friend);
+      expect(tester.widget<FilledButton>(accept).onPressed, isNull);
     });
 
     testWidgets('Share it! posts an achievement into the community feed',
@@ -477,7 +510,8 @@ void main() {
       addTearDown(tester.view.reset);
       final state = await pumpWith(
         tester,
-        Scaffold(body: Center(child: ShareItChip(achievement: streakShareable(9)))),
+        Scaffold(
+            body: Center(child: ShareItChip(achievement: streakShareable(9)))),
       );
       await tester.tap(find.text('Share it!'));
       await tester.pumpAndSettle();
@@ -546,7 +580,8 @@ void main() {
       final state = await pumpWith(tester, const CommunityPage());
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).first, 'Private reflection');
+      await tester.enterText(
+          find.byType(TextField).first, 'Private reflection');
       await tester.tap(find.byTooltip('Who sees your post?'));
       await tester.pumpAndSettle();
       expect(find.text('Who sees your post?'), findsWidgets);

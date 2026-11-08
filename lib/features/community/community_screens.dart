@@ -5528,9 +5528,11 @@ class CommunityPrivacyScreen extends StatelessWidget {
                   style: TextStyle(color: _title, fontWeight: FontWeight.w900),
                 ),
                 subtitle: Text(
-                  state.isSignedIn
-                      ? 'Use the friends feed for posts, comments, and selected updates. You choose every item you share.'
-                      : 'Sign in to use the friends feed.',
+                  !state.isSignedIn
+                      ? 'Sign in to use the friends feed.'
+                      : state.consentCommunity
+                          ? 'Use the friends feed for posts, comments, and selected updates. You choose every item you share.'
+                          : 'Off. You are hidden from friend discovery and community content stays unavailable until you turn this back on.',
                   style: const TextStyle(
                     color: _body,
                     fontSize: 12,
@@ -5920,6 +5922,7 @@ class _SearchResultRowState extends State<_SearchResultRow> {
             ),
           ),
           FilledButton.icon(
+            key: ValueKey('friend-search-action-${widget.profile.uid}'),
             onPressed: enabled && !_busy ? _add : null,
             style: FilledButton.styleFrom(
               backgroundColor: _brand,

@@ -19,6 +19,14 @@ service cloud.firestore {
         || exists(/databases/$(database)/documents/friendships/$(otherUid + '_' + me()));
     }
 
+    // UI switches are not security boundaries. Enforce the user's Community
+    // choice here as well, so a modified client cannot enter social flows.
+    // Trusted-circle and anonymous-benchmark consent stay separate choices.
+    function communityEnabled(userId) {
+      return exists(/databases/$(database)/documents/profiles/$(userId))
+        && get(/databases/$(database)/documents/profiles/$(userId)).data.consentCommunity == true;
+    }
+
     // Private financial profile: owner only (unchanged).
     match /profiles/{userId} {
       // The anonymous benchmark pseudonym may be chosen once, then remains
@@ -57,9 +65,10 @@ service cloud.firestore {
     // enumerate users. You may only claim the entry for your own verified
     // auth email.
     match /userDirectory/{emailLower} {
-      allow get: if signedIn();
+      allow get: if signedIn() && communityEnabled(me());
       allow list: if false;
       allow create, update: if signedIn()
+        && communityEnabled(me())
         && request.auth.token.email != null
         && request.auth.token.email.lower() == emailLower
         && request.resource.data.uid == me();
@@ -68,9 +77,9 @@ service cloud.firestore {
 
     // Pending friend requests; id is `{fromUid}_{toUid}`.
     match /friendRequests/{requestId} {
-      allow read: if signedIn()
+      allow read: if signedIn() && communityEnabled(me())
         && (resource.data.fromUid == me() || resource.data.toUid == me());
-      allow create: if signedIn()
+      allow create: if signedIn() && communityEnabled(me())
         && request.resource.data.fromUid == me()
         && request.resource.data.toUid != me()
         && requestId == me() + '_' + request.resource.data.toUid
@@ -88,8 +97,10 @@ service cloud.firestore {
     // request exists (accept is one batch: create friendship + delete
     // request, and `exists` sees the pre-batch state).
     match /friendships/{friendshipId} {
-      allow read: if signedIn() && me() in resource.data.members;
-      allow create: if signedIn()
+      allow read: if signedIn() && communityEnabled(me())
+        && me() in resource.data.members;
+      allow create: if signedIn() && communityEnabled(me())
+        && communityEnabled(request.resource.data.requesterUid)
         && request.resource.data.accepterUid == me()
         && request.resource.data.members.size() == 2
         && request.resource.data.members.hasAll(
@@ -126,7 +137,8 @@ service cloud.firestore {
           && request.resource.data.updatedAt == request.time;
       }
       allow read: if signedIn() && (me() == userId
-        || (currentFriend(userId) && ownerSharingEnabled()));
+        || (currentFriend(userId) && ownerSharingEnabled()
+          && get(/databases/$(database)/documents/profiles/$(me())).data.consentTrustedCircle == true));
       allow create, update: if signedIn() && me() == userId
         && ownerSharingEnabled() && validCircleSnapshot();
       allow delete: if signedIn() && me() == userId;
@@ -154,12 +166,15 @@ service cloud.firestore {
           && isFriendOf(userId);
       }
 
-      allow read, delete: if signedIn() && me() == userId;
-      allow create: if signedIn() && validFromActor();
+      allow read: if signedIn() && communityEnabled(me()) && me() == userId;
+      allow delete: if signedIn() && me() == userId;
+      allow create: if signedIn() && communityEnabled(me())
+        && communityEnabled(userId) && validFromActor();
       allow update: if signedIn() && (
-        (me() == userId
+        (communityEnabled(me()) && me() == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
-        || (resource.data.actorUid == me() && validFromActor())
+        || (communityEnabled(me()) && communityEnabled(userId)
+          && resource.data.actorUid == me() && validFromActor())
       );
     }
 
@@ -167,9 +182,11 @@ service cloud.firestore {
     // to read the post (author + friends at post time, or just the author
     // for "Only Me").
     match /posts/{postId} {
-      allow read: if signedIn() && me() in resource.data.audience;
+      allow read: if signedIn() && communityEnabled(me())
+        && communityEnabled(resource.data.authorUid)
+        && me() in resource.data.audience;
 
-      allow create: if signedIn()
+      allow create: if signedIn() && communityEnabled(me())
         && request.resource.data.authorUid == me()
         && request.resource.data.author.uid == me()
         && validMessage(request.resource.data.message)
@@ -191,7 +208,9 @@ service cloud.firestore {
 
       // Audience members may only add/remove *their own* like, or move the
       // reply count by exactly one (alongside adding/deleting a reply).
-      allow update: if signedIn() && me() in resource.data.audience && (
+      allow update: if signedIn() && communityEnabled(me())
+        && communityEnabled(resource.data.authorUid)
+        && me() in resource.data.audience && (
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
           && request.resource.data.likedBy.toSet()
                .difference(resource.data.likedBy.toSet())
@@ -208,8 +227,11 @@ service cloud.firestore {
         function parentPost() {
           return get(/databases/$(database)/documents/posts/$(postId)).data;
         }
-        allow read: if signedIn() && me() in parentPost().audience;
-        allow create: if signedIn()
+        allow read: if signedIn() && communityEnabled(me())
+          && communityEnabled(parentPost().authorUid)
+          && me() in parentPost().audience;
+        allow create: if signedIn() && communityEnabled(me())
+          && communityEnabled(parentPost().authorUid)
           && me() in parentPost().audience
           && parentPost().visibility == 'friends'
           && request.resource.data.authorUid == me()
@@ -226,13 +248,16 @@ service cloud.firestore {
     // friendship with the author, so unfriending revokes access immediately.
     match /decisionRequests/{requestId} {
       function decisionMember() {
-        return signedIn() && me() in resource.data.audience && (
+        return signedIn() && communityEnabled(me())
+          && communityEnabled(resource.data.authorUid)
+          && me() in resource.data.audience && (
           me() == resource.data.authorUid ||
             (exists(/databases/$(database)/documents/friendships/$(me() + '_' + resource.data.authorUid)) ||
             exists(/databases/$(database)/documents/friendships/$(resource.data.authorUid + '_' + me()))));
       }
       allow read: if decisionMember();
-      allow create: if signedIn()
+      allow create: if signedIn() && communityEnabled(me())
+        && get(/databases/$(database)/documents/profiles/$(me())).data.consentTrustedCircle == true
         && request.resource.data.authorUid == me()
         && request.resource.data.author.uid == me()
         && validMessage(request.resource.data.message)
@@ -246,7 +271,7 @@ service cloud.firestore {
         && request.resource.data.status == 'open'
         && request.resource.data.closeAt > request.time
         && request.resource.data.createdAt == request.time;
-      allow update: if signedIn()
+      allow update: if signedIn() && communityEnabled(me())
         && resource.data.authorUid == me()
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['status', 'closedAt'])
@@ -256,7 +281,8 @@ service cloud.firestore {
 
       match /responses/{responseId} {
         function responseViewer() {
-          return signedIn()
+          return signedIn() && communityEnabled(me())
+            && communityEnabled(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid)
             && me() in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.audience
             && (me() == get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid
               || (exists(/databases/$(database)/documents/friendships/$(me() + '_' + get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid))
@@ -272,7 +298,8 @@ service cloud.firestore {
             && request.resource.data.updatedAt == request.time;
         }
         function eligibleResponder() {
-          return signedIn()
+          return signedIn() && communityEnabled(me())
+            && communityEnabled(get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid)
             && me() != get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.authorUid
             && me() in get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.audience
             && get(/databases/$(database)/documents/decisionRequests/$(requestId)).data.status == 'open'
