@@ -155,7 +155,7 @@ void main() {
         WeeklyChallengeStatus.expired);
   });
 
-  testWidgets('Goals presents and accepts a deterministic weekly challenge',
+  testWidgets('Home presents and accepts a deterministic weekly challenge',
       (tester) async {
     final state = AppState();
     final now = DateTime(2026, 11, 4);
@@ -166,7 +166,7 @@ void main() {
     ]);
     await tester.pumpWidget(AppScope(
       state: state,
-      child: const MaterialApp(home: GoalsPage()),
+      child: const MaterialApp(home: DashboardPage()),
     ));
     await tester.pumpAndSettle();
 

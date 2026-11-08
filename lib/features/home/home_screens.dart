@@ -64,6 +64,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
 
   void openHome() => setState(() => index = 0);
 
+  void openWallet() => setState(() => index = 1);
+
   Future<void> _showManualTransactionSheet(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -510,6 +512,8 @@ class _DashboardPageState extends State<DashboardPage> {
                   ],
                 ),
               ),
+              const SizedBox(height: 14),
+              const _WeeklyChallengeCard(),
               const SizedBox(height: 14),
               // Spendable + Saved mini cards
               Row(
@@ -18481,11 +18485,6 @@ class _D1GoalsMenu extends StatelessWidget {
         const SizedBox(height: 14),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
-          child: _WeeklyChallengeCard(),
-        ),
-        const SizedBox(height: 14),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20),
           child: Text(
             'Track your progress and actions for each financial goal.',
             style: TextStyle(
@@ -18700,9 +18699,11 @@ class _WeeklyChallengeCard extends StatelessWidget {
                       ? TextButton.icon(
                           onPressed: () => context
                               .findAncestorStateOfType<_MainShellState>()
-                              ?.openHome(),
-                          icon: const Icon(Icons.home_outlined, size: 17),
-                          label: const Text('Review in Home'),
+                              ?.openWallet(),
+                          icon: const Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 17),
+                          label: const Text('Review in Wallet'),
                         )
                       : const Text(
                           'Progress updates from your existing records and actions.',
