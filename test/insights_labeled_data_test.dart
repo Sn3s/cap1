@@ -106,11 +106,7 @@ void main() {
     expect(find.text('Accumulating wealth'), findsNothing);
     expect(find.text('Financial freedom'), findsNothing);
     expect(find.text('Total Goals Score'), findsOneWidget);
-    expect(
-      find.text(
-          'You have one active goal, so this total reflects its current progress.'),
-      findsOneWidget,
-    );
+    expect(find.text('Based on 1 active goal.'), findsOneWidget);
     await tester.tap(find.text('Available cash'));
     await tester.pumpAndSettle();
     expect(find.text('Can this month’s available cash cover bills?'),
@@ -159,8 +155,11 @@ void main() {
     expect(find.text('Available cash'), findsOneWidget);
     expect(find.text('Emergency fund'), findsOneWidget);
     expect(find.text('Total Goals Score'), findsOneWidget);
-    expect(find.text('Cash Flow'), findsOneWidget);
-    expect(find.text('Financial Safety'), findsOneWidget);
+    expect(find.text('Equal-weight average across 2 active goals.'),
+        findsOneWidget);
+    expect(find.text('Cash Flow & Safety balance'), findsOneWidget);
+    expect(find.text('Cash Flow'), findsNWidgets(2));
+    expect(find.text('Financial Safety'), findsNWidgets(2));
 
     await tester.tap(find.text('Emergency fund'));
     await tester.pumpAndSettle();

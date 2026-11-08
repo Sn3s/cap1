@@ -5175,8 +5175,9 @@ class _InsightsOverview extends StatelessWidget {
       (transaction) => transaction.source ?? 'Unclassified',
     );
 
-    final suggestionCount = (isCashFlowGoalOnTrack(state) ? 0 : 1) +
-        (isEmergencyFundGoalOnTrack(state) ? 0 : 1);
+    final goalScores = _overviewGoalScores(state);
+    final suggestionCount =
+        goalScores.where((goal) => !_isGoalOnTrack(goal.goalId, state)).length;
 
     return Column(
       children: [
@@ -5194,10 +5195,9 @@ class _InsightsOverview extends StatelessWidget {
             );
           },
         ),
+        if (goalScores.isNotEmpty) _TotalGoalsScoreCard(scores: goalScores),
         if (_hasCashFlowAndSafetyInsights(state))
-          _CashSafetyInterplayCard(state: state)
-        else if (_insightsVisibleMotivations(state).length == 1)
-          _SingleGoalOverviewScoreCard(state: state),
+          _CashSafetyInterplayCard(state: state),
         _OverviewCard(
           title: 'Money Summary',
           child: Row(
@@ -5270,6 +5270,175 @@ bool _hasCashFlowAndSafetyInsights(AppState state) {
       visible.contains('Financial Safety');
 }
 
+/// The Overview score deliberately uses the same set of active pyramid layers
+/// as the Insights tabs. This prevents a multi-goal account from seeing a
+/// card called "Total Goals Score" that silently leaves active goals out.
+class _OverviewGoalScore {
+  const _OverviewGoalScore({
+    required this.goalId,
+    required this.label,
+    required this.value,
+    required this.detail,
+  });
+
+  final String goalId;
+  final String label;
+  final int value;
+  final String detail;
+}
+
+List<_OverviewGoalScore> _overviewGoalScores(AppState state) {
+  final activeLayers = _insightsVisibleMotivations(state);
+  final scores = <_OverviewGoalScore>[];
+
+  for (final layer in _pyramidLayerDisplayOrder) {
+    if (!activeLayers.contains(layer)) continue;
+    final goalId = _layerCanonicalGoalId[layer];
+    if (goalId == null) continue;
+
+    final value = _goalPercent(goalId, state).round().clamp(0, 100).toInt();
+    final (label, detail) = switch (goalId) {
+      'G3' => (
+          'Financial Safety',
+          '${money(state.displayedEmergencyFundBalance)} of ${money(_financialSafetyGoalTarget(state))} safety target',
+        ),
+      'G5' => (
+          'Accumulating Wealth',
+          '${money(state.investmentPortfolioValue)} of ${money(_configuredInvestmentGoalTarget(state))} investment target',
+        ),
+      'G8' => (
+          'Financial Freedom',
+          '${money(state.lifestyleFundTotal)} in your Lifestyle Fund',
+        ),
+      _ => (
+          'Cash Flow',
+          '${money(state.essentialExpensesBalance)} in your Essential Expenses Fund',
+        ),
+    };
+    scores.add(
+      _OverviewGoalScore(
+        goalId: goalId,
+        label: label,
+        value: value,
+        detail: detail,
+      ),
+    );
+  }
+  return scores;
+}
+
+class _TotalGoalsScoreCard extends StatelessWidget {
+  const _TotalGoalsScoreCard({required this.scores});
+
+  final List<_OverviewGoalScore> scores;
+
+  @override
+  Widget build(BuildContext context) {
+    final total =
+        (scores.fold<int>(0, (sum, goal) => sum + goal.value) / scores.length)
+            .round()
+            .clamp(0, 100)
+            .toInt();
+    final lowest = scores.reduce(
+      (current, candidate) =>
+          candidate.value < current.value ? candidate : current,
+    );
+    final guidance = total >= 80
+        ? 'Your active goals are moving together. Keep the habits that are working.'
+        : total >= 50
+            ? '${lowest.label} is the next place to focus (${lowest.value}%). A small realistic action can lift your total.'
+            : 'Start with ${lowest.label} (${lowest.value}%). Review its action and update incomplete records before changing targets.';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _CircularScoreGauge(
+                  label: 'Goals',
+                  percent: total,
+                  size: 72,
+                  strokeWidth: 7,
+                  valueFontSize: 17,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Total Goals Score',
+                        style: TextStyle(
+                          color: _title,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        scores.length == 1
+                            ? 'Based on 1 active goal.'
+                            : 'Equal-weight average across ${scores.length} active goals.',
+                        style: const TextStyle(
+                          color: _body,
+                          fontSize: 11.5,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cardWidth = (constraints.maxWidth - 10) / 2;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final goal in scores)
+                      SizedBox(
+                        width: cardWidth,
+                        child: _InterplayMiniScore(
+                          label: goal.label,
+                          value: goal.value,
+                          color: _resiliencyScoreColor(goal.value),
+                          detail: goal.detail,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            _InsightNote(
+              trend: total >= 80
+                  ? _InsightTrend.up
+                  : total >= 50
+                      ? _InsightTrend.neutral
+                      : _InsightTrend.down,
+              text: guidance,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CashSafetyInterplayScore {
   const _CashSafetyInterplayScore({
     required this.cash,
@@ -5335,7 +5504,7 @@ class _CashSafetyInterplayCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 _CircularScoreGauge(
-                  label: 'Goals',
+                  label: 'Balance',
                   percent: score.total,
                   size: 72,
                   strokeWidth: 7,
@@ -5347,7 +5516,7 @@ class _CashSafetyInterplayCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Total Goals Score',
+                        'Cash Flow & Safety balance',
                         style: TextStyle(
                           color: _title,
                           fontSize: 15,
@@ -5411,117 +5580,6 @@ class _CashSafetyInterplayCard extends StatelessWidget {
                 height: 1.35,
                 fontWeight: FontWeight.w800,
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A one-goal account still needs a clear total in Overview. Its Total Goals
-/// Score is the selected goal's canonical progress measure, rather than a
-/// fabricated average of unselected pyramid layers.
-class _SingleGoalOverviewScoreCard extends StatelessWidget {
-  const _SingleGoalOverviewScoreCard({required this.state});
-
-  final AppState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final motivation = _insightsVisibleMotivations(state).single;
-    final goalId = _layerCanonicalGoalId[motivation] ?? 'G1';
-    final score = _goalPercent(goalId, state).round().clamp(0, 100).toInt();
-    final color = _resiliencyScoreColor(score);
-    final (label, detail) = switch (goalId) {
-      'G3' => (
-          'Financial Safety',
-          '${money(state.displayedEmergencyFundBalance)} of ${money(_financialSafetyGoalTarget(state))} safety target',
-        ),
-      'G5' => (
-          'Accumulating Wealth',
-          '${money(state.investmentPortfolioValue)} of ${money(_configuredInvestmentGoalTarget(state))} investment target',
-        ),
-      'G8' => (
-          'Financial Freedom',
-          '${money(state.lifestyleFundTotal)} in your Lifestyle Fund',
-        ),
-      _ => (
-          'Cash Flow',
-          '${money(state.essentialExpensesBalance)} in your Essential Expenses Fund',
-        ),
-    };
-    final guidance = score >= 80
-        ? '$label is in a strong position. Keep your current plan consistent.'
-        : score >= 50
-            ? '$label is building. One focused action this week can improve your progress.'
-            : '$label needs attention. Review the related action and make the next step realistic.';
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _CircularScoreGauge(
-                  label: 'Goals',
-                  percent: score,
-                  size: 72,
-                  strokeWidth: 7,
-                  valueFontSize: 17,
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total Goals Score',
-                        style: TextStyle(
-                          color: _title,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'You have one active goal, so this total reflects its current progress.',
-                        style: TextStyle(
-                          color: _body,
-                          fontSize: 11.5,
-                          height: 1.35,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _InterplayMiniScore(
-              label: label,
-              value: score,
-              color: color,
-              detail: detail,
-            ),
-            const SizedBox(height: 12),
-            _InsightNote(
-              trend: score >= 80
-                  ? _InsightTrend.up
-                  : score >= 50
-                      ? _InsightTrend.neutral
-                      : _InsightTrend.down,
-              text: guidance,
             ),
           ],
         ),

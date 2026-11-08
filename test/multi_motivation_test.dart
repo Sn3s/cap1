@@ -99,6 +99,14 @@ void main() {
     expect(find.text('Emergency fund'), findsOneWidget);
     expect(find.text('Accumulating wealth'), findsOneWidget);
     expect(find.text('Financial freedom'), findsOneWidget);
+    expect(find.text('Total Goals Score'), findsOneWidget);
+    expect(
+      find.text('Equal-weight average across 4 active goals.'),
+      findsOneWidget,
+    );
+    // Cash Flow and Financial Safety still get a separate stability check,
+    // but it is no longer presented as the total for all four goals.
+    expect(find.text('Cash Flow & Safety balance'), findsOneWidget);
 
     for (final tab in const [
       'Available cash',
