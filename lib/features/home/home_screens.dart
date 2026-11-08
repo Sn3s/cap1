@@ -5196,8 +5196,6 @@ class _InsightsOverview extends StatelessWidget {
           },
         ),
         if (goalScores.isNotEmpty) _TotalGoalsScoreCard(scores: goalScores),
-        if (_hasCashFlowAndSafetyInsights(state))
-          _CashSafetyInterplayCard(state: state),
         _OverviewCard(
           title: 'Money Summary',
           child: Row(
@@ -5262,12 +5260,6 @@ class _InsightsOverview extends StatelessWidget {
       ],
     );
   }
-}
-
-bool _hasCashFlowAndSafetyInsights(AppState state) {
-  final visible = _insightsVisibleMotivations(state);
-  return visible.contains('Cash Flow & Basic Needs') &&
-      visible.contains('Financial Safety');
 }
 
 /// The Overview score deliberately uses the same set of active pyramid layers
@@ -5439,155 +5431,6 @@ class _TotalGoalsScoreCard extends StatelessWidget {
   }
 }
 
-class _CashSafetyInterplayScore {
-  const _CashSafetyInterplayScore({
-    required this.cash,
-    required this.safety,
-    required this.total,
-  });
-
-  final int cash;
-  final int safety;
-  final int total;
-
-  int get gap => (cash - safety).abs();
-  String get leadingGoal => cash >= safety ? 'Cash Flow' : 'Financial Safety';
-  String get laggingGoal => cash < safety ? 'Cash Flow' : 'Financial Safety';
-}
-
-_CashSafetyInterplayScore _cashSafetyInterplayScore(AppState state) {
-  final cash = cashFlowGoalPercent(state).round().clamp(0, 100).toInt();
-  final safety = emergencyFundGoalPercent(state).round().clamp(0, 100).toInt();
-  final gap = (cash - safety).abs();
-  final balancePenalty = math.min(15, gap * .2).round();
-  final total =
-      (((cash + safety) / 2).round() - balancePenalty).clamp(0, 100).toInt();
-  return _CashSafetyInterplayScore(
-    cash: cash,
-    safety: safety,
-    total: total,
-  );
-}
-
-class _CashSafetyInterplayCard extends StatelessWidget {
-  const _CashSafetyInterplayCard({required this.state});
-
-  final AppState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final score = _cashSafetyInterplayScore(state);
-    final target = _financialSafetyGoalTarget(state);
-    final emergencyProgress = target <= 0
-        ? 0
-        : (state.displayedEmergencyFundBalance / target * 100)
-            .clamp(0, 100)
-            .round();
-    final cashColor = _resiliencyScoreColor(score.cash);
-    final safetyColor = _resiliencyScoreColor(score.safety);
-    final totalColor = _resiliencyScoreColor(score.total);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: _border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _CircularScoreGauge(
-                  label: 'Balance',
-                  percent: score.total,
-                  size: 72,
-                  strokeWidth: 7,
-                  valueFontSize: 17,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Cash Flow & Safety balance',
-                        style: TextStyle(
-                          color: _title,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _cashSafetyInterplayInsight(score),
-                        style: const TextStyle(
-                          color: _body,
-                          fontSize: 11.5,
-                          height: 1.35,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: _InterplayMiniScore(
-                    label: 'Cash Flow',
-                    value: score.cash,
-                    color: cashColor,
-                    detail:
-                        '${money(state.essentialExpensesBalance)} Essential Fund',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _InterplayMiniScore(
-                    label: 'Financial Safety',
-                    value: score.safety,
-                    color: safetyColor,
-                    detail:
-                        '$emergencyProgress% of ${money(target)} safety target',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _InsightNote(
-              trend: score.gap <= 15
-                  ? _InsightTrend.up
-                  : score.total >= 60
-                      ? _InsightTrend.neutral
-                      : _InsightTrend.down,
-              text: _cashSafetyActionGuidance(score),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Cash Flow keeps your bills paid and your wallet steady. Financial Safety protects that from surprises. The combined score goes up when both improve, and drops a little when one is far ahead of the other.',
-              style: TextStyle(
-                color: totalColor,
-                fontSize: 10.5,
-                height: 1.35,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _InterplayMiniScore extends StatelessWidget {
   const _InterplayMiniScore({
     required this.label,
@@ -5625,7 +5468,7 @@ class _InterplayMiniScore extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '$value',
+            '$value%',
             style: TextStyle(
               color: color,
               fontSize: 20,
@@ -5648,23 +5491,6 @@ class _InterplayMiniScore extends StatelessWidget {
       ),
     );
   }
-}
-
-String _cashSafetyInterplayInsight(_CashSafetyInterplayScore score) {
-  if (score.gap <= 15) {
-    return 'Both goals are about even. Keep adding to your safety fund, but not so much that day-to-day money runs short.';
-  }
-  return '${score.leadingGoal} is ${score.gap} points ahead of ${score.laggingGoal}. Put your next effort into ${score.laggingGoal}.';
-}
-
-String _cashSafetyActionGuidance(_CashSafetyInterplayScore score) {
-  if (score.gap <= 15) {
-    return 'Both goals are moving at a similar pace. Keep doing what you are doing.';
-  }
-  if (score.cash < score.safety) {
-    return 'Cash Flow is behind. Keep emergency fund deposits small until your bills and weekly spending are covered again.';
-  }
-  return 'Financial Safety is behind. You have room to put a regular amount into your emergency fund.';
 }
 
 String _moneyFlowInsight(double inflow, double outflow) {
@@ -8578,7 +8404,7 @@ class _AvailableCashAnswerCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: _OverviewMetric(
-                          label: 'Goal progress',
+                          label: 'This month',
                           value: '$resiliencyScore%',
                           onExplain: () =>
                               _showGoalResiliencyExplanation(context, month),
@@ -8685,7 +8511,7 @@ class _CashMonthStatusSection extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _OverviewMetric(
-                  label: 'Goal progress',
+                  label: 'This month',
                   value: '$resiliencyScore%',
                   onExplain: () =>
                       _showGoalResiliencyExplanation(context, month),
@@ -11241,6 +11067,87 @@ class _GoalInsightHeader extends StatelessWidget {
   }
 }
 
+/// The stable, all-time goal score shown in an individual insight tab. It is
+/// deliberately the same canonical value used by Overview's Total Goals
+/// Score; month/action cards below explain recent performance but do not
+/// replace this overall score.
+class _IndividualGoalScoreCard extends StatelessWidget {
+  const _IndividualGoalScoreCard({
+    required this.title,
+    required this.score,
+    required this.color,
+    required this.detail,
+  });
+
+  final String title;
+  final int score;
+  final Color color;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _border),
+        ),
+        child: Row(
+          children: [
+            _CircularScoreGauge(
+              label: 'Score',
+              percent: score,
+              size: 72,
+              strokeWidth: 7,
+              valueFontSize: 17,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: _title,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'This overall score is used in Total Goals Score.',
+                    style: TextStyle(
+                      color: _body,
+                      fontSize: 11.5,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    detail,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 10.5,
+                      height: 1.3,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CashReflectionExplorer extends StatelessWidget {
   const _CashReflectionExplorer({
     required this.state,
@@ -11286,6 +11193,13 @@ class _CashReflectionExplorer extends StatelessWidget {
           icon: Icons.account_balance_wallet_rounded,
           title: 'Available Cash',
           color: _brand,
+        ),
+        _IndividualGoalScoreCard(
+          title: 'Cash Flow Goal Score',
+          score: cashFlowGoalPercent(state).round().clamp(0, 100).toInt(),
+          color: _brand,
+          detail:
+              '${money(state.essentialExpensesBalance)} in your Essential Expenses Fund',
         ),
         _GoalSuggestionBanner(
           goalLabel: 'available cash',
@@ -11675,7 +11589,7 @@ class _InvestmentScoreSummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Accumulating Wealth Score',
+                  'This month\'s investing action progress',
                   style: TextStyle(
                     color: _body,
                     fontSize: 11,
@@ -12037,6 +11951,13 @@ class _AccumulatingWealthExplorer extends StatelessWidget {
           color: _purple,
           subtitle: 'Grow your investments',
           statText: '${money(totalValue)} total',
+        ),
+        _IndividualGoalScoreCard(
+          title: 'Accumulating Wealth Goal Score',
+          score: investmentGoalPercent(state).round().clamp(0, 100).toInt(),
+          color: _purple,
+          detail:
+              '${money(state.investmentPortfolioValue)} of ${money(_configuredInvestmentGoalTarget(state))} investment target',
         ),
         _GoalSuggestionBanner(
           goalLabel: 'accumulating wealth',
@@ -13135,6 +13056,12 @@ class _FinancialFreedomExplorer extends StatelessWidget {
           subtitle: 'Enjoy life, on your terms',
           statText: '${money(totalValue)} total',
         ),
+        _IndividualGoalScoreCard(
+          title: 'Financial Freedom Goal Score',
+          score: lifestyleGoalPercent(state).round().clamp(0, 100).toInt(),
+          color: _freedomColor,
+          detail: '${money(state.lifestyleFundTotal)} in your Lifestyle Fund',
+        ),
         _GoalSuggestionBanner(
           goalLabel: 'financial freedom',
           allowedActionIds: _lifestyleActionStageActionIds,
@@ -13249,7 +13176,7 @@ class _FinancialFreedomScoreSummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Financial Freedom Score',
+                  'This month\'s lifestyle action progress',
                   style: TextStyle(
                     color: _body,
                     fontSize: 11,
@@ -13863,6 +13790,13 @@ class _EmergencyReflectionExplorer extends StatelessWidget {
           share: state.emergencyMonthsCovered >= .5
               ? emergencyShareable(state.emergencyMonthsCovered)
               : null,
+        ),
+        _IndividualGoalScoreCard(
+          title: 'Financial Safety Goal Score',
+          score: emergencyFundGoalPercent(state).round().clamp(0, 100).toInt(),
+          color: _red,
+          detail:
+              '${money(state.displayedEmergencyFundBalance)} of ${money(target)} safety target',
         ),
         _GoalSuggestionBanner(
           goalLabel: 'emergency fund',

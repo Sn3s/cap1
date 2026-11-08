@@ -104,19 +104,18 @@ void main() {
       find.text('Equal-weight average across 4 active goals.'),
       findsOneWidget,
     );
-    // Cash Flow and Financial Safety still get a separate stability check,
-    // but it is no longer presented as the total for all four goals.
-    expect(find.text('Cash Flow & Safety balance'), findsOneWidget);
+    expect(find.text('Cash Flow & Safety balance'), findsNothing);
 
-    for (final tab in const [
-      'Available cash',
-      'Emergency fund',
-      'Accumulating wealth',
-      'Financial freedom',
+    for (final (tab, scoreTitle) in const [
+      ('Available cash', 'Cash Flow Goal Score'),
+      ('Emergency fund', 'Financial Safety Goal Score'),
+      ('Accumulating wealth', 'Accumulating Wealth Goal Score'),
+      ('Financial freedom', 'Financial Freedom Goal Score'),
     ]) {
       await tester.tap(find.text(tab).first);
       await tester.pumpAndSettle();
       expect(find.text('Goal Insights'), findsOneWidget);
+      expect(find.text(scoreTitle), findsOneWidget);
     }
   });
 }

@@ -157,9 +157,9 @@ void main() {
     expect(find.text('Total Goals Score'), findsOneWidget);
     expect(find.text('Equal-weight average across 2 active goals.'),
         findsOneWidget);
-    expect(find.text('Cash Flow & Safety balance'), findsOneWidget);
-    expect(find.text('Cash Flow'), findsNWidgets(2));
-    expect(find.text('Financial Safety'), findsNWidgets(2));
+    expect(find.text('Cash Flow & Safety balance'), findsNothing);
+    expect(find.text('Cash Flow'), findsOneWidget);
+    expect(find.text('Financial Safety'), findsOneWidget);
 
     await tester.tap(find.text('Emergency fund'));
     await tester.pumpAndSettle();
