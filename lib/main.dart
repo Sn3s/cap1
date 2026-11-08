@@ -30,6 +30,7 @@ part 'core/app_clock.dart';
 part 'core/app_scope.dart';
 part 'core/app_state.dart';
 part 'core/community_state.dart';
+part 'core/weekly_challenges.dart';
 part 'features/auth/auth_screens.dart';
 part 'features/community/achievements.dart';
 part 'features/community/community_screens.dart';

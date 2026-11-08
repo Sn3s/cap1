@@ -62,6 +62,8 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     });
   }
 
+  void openHome() => setState(() => index = 0);
+
   Future<void> _showManualTransactionSheet(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -18471,6 +18473,11 @@ class _D1GoalsMenu extends StatelessWidget {
           child: _WeeklyProgressCard(onTrack: onTrack, total: total),
         ),
         const SizedBox(height: 14),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 20),
+          child: _WeeklyChallengeCard(),
+        ),
+        const SizedBox(height: 14),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: _PyramidPathCard(
@@ -18505,6 +18512,218 @@ class _D1GoalsMenu extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A weekly challenge is a deliberately small commitment generated from the
+/// same canonical records/actions that power goals and Insights. It is never
+/// an automatic transfer or an AI decision about the user's finances.
+class _WeeklyChallengeCard extends StatelessWidget {
+  const _WeeklyChallengeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final active = state.activeWeeklyChallenge;
+    final latest = state.weeklyChallenges.lastOrNull;
+    final sameWeekOutcome = active == null &&
+        latest != null &&
+        latest.startedAt == _challengeWeekStart(AppClock.now()) &&
+        latest.effectiveStatus(AppClock.now()) != WeeklyChallengeStatus.active;
+    if (sameWeekOutcome) {
+      final status = latest.effectiveStatus(AppClock.now());
+      final completed = status == WeeklyChallengeStatus.completed;
+      final skipped = status == WeeklyChallengeStatus.skipped;
+      final progress = state.weeklyChallengeProgress(latest);
+      return AppCard(
+        child: Row(
+          children: [
+            IconBubble(
+              completed ? Icons.emoji_events_rounded : Icons.flag_outlined,
+              color: completed ? _sage : _body,
+              background:
+                  completed ? _brand.withValues(alpha: .12) : _bellySoft,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    completed
+                        ? 'Weekly challenge complete'
+                        : skipped
+                            ? 'Weekly challenge skipped'
+                            : 'Weekly challenge ended',
+                    style: TextStyle(
+                        color: completed ? _sage : _title,
+                        fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    completed
+                        ? '${latest.title} · $progress of ${latest.target} ${latest.progressLabel}. This supports your plan without changing your Health Score.'
+                        : skipped
+                            ? 'No penalty. You can choose a fresh, realistic step next week.'
+                            : '${latest.title} was not completed this week. Review your plan and try a smaller step next time.',
+                    style: const TextStyle(
+                        color: _body,
+                        fontSize: 12,
+                        height: 1.3,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final suggestion = active == null ? state.recommendWeeklyChallenge() : null;
+    final challenge = active ?? suggestion;
+    if (challenge == null) {
+      return AppCard(
+        child: Row(
+          children: [
+            IconBubble(Icons.emoji_events_outlined,
+                color: _purple, background: _bellySoft),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Weekly challenge',
+                      style: TextStyle(
+                          color: _title, fontWeight: FontWeight.w900)),
+                  SizedBox(height: 3),
+                  Text(
+                      'Keep using your plan this week. Shelby will suggest a small next step when your data shows one.',
+                      style: TextStyle(
+                          color: _body,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final progress = state.weeklyChallengeProgress(challenge);
+    final complete = state.weeklyChallengeIsComplete(challenge);
+    final isActive = active != null;
+    final capped = math.min(progress, challenge.target);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconBubble(Icons.flag_rounded,
+                  color: _purple, background: _bellySoft),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                    isActive
+                        ? 'This week’s challenge'
+                        : 'Recommended this week',
+                    style: const TextStyle(
+                        color: _purple,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900)),
+              ),
+              Text('7 days',
+                  style: const TextStyle(
+                      color: _body, fontSize: 11, fontWeight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(challenge.title,
+              style: const TextStyle(
+                  color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 5),
+          Text(challenge.reason,
+              style: const TextStyle(
+                  color: _body,
+                  fontSize: 12,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600)),
+          if (isActive) ...[
+            const SizedBox(height: 13),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: (capped / challenge.target).clamp(0, 1).toDouble(),
+                minHeight: 8,
+                color: complete ? _sage : _purple,
+                backgroundColor: _bellySoft,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+                '$capped of ${challenge.target} ${challenge.progressLabel}${complete ? ' · Ready to complete' : ''}',
+                style: TextStyle(
+                    color: complete ? _sage : _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800)),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              if (!isActive)
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => state.acceptWeeklyChallenge(challenge),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: _brand, foregroundColor: Colors.white),
+                    child: const Text('Accept challenge',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                )
+              else if (complete)
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () =>
+                        state.completeWeeklyChallenge(challenge.id),
+                    style: FilledButton.styleFrom(
+                        backgroundColor: _sage, foregroundColor: Colors.white),
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Complete challenge',
+                        style: TextStyle(fontWeight: FontWeight.w800)),
+                  ),
+                )
+              else
+                Expanded(
+                  child: challenge.kind ==
+                          WeeklyChallengeKind.reviewRecurringPayment
+                      ? TextButton.icon(
+                          onPressed: () => context
+                              .findAncestorStateOfType<_MainShellState>()
+                              ?.openHome(),
+                          icon: const Icon(Icons.home_outlined, size: 17),
+                          label: const Text('Review in Home'),
+                        )
+                      : const Text(
+                          'Progress updates from your existing records and actions.',
+                          style: TextStyle(
+                              color: _body,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
+                ),
+              if (isActive) ...[
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => state.skipWeeklyChallenge(challenge.id),
+                  child: const Text('Skip'),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

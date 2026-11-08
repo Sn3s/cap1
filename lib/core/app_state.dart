@@ -183,6 +183,19 @@ class AppState extends ChangeNotifier {
   final Set<String> handledRecurringTransactionSuggestionKeys = {};
   final Map<String, String> planAdjustmentActions = {};
   final Map<String, double> anxietyCheckIns = {};
+
+  /// Accepted weekly challenges. Recommendations themselves are transient;
+  /// only a user-accepted challenge is persisted.
+  final List<WeeklyChallenge> weeklyChallenges = [];
+
+  /// Persists a user-accepted weekly challenge change. Kept on [AppState]
+  /// (rather than its extension) so notification follows the same protected
+  /// ChangeNotifier path as every other state mutation.
+  Future<void> saveWeeklyChallengeChange() async {
+    await saveProfile();
+    notifyListeners();
+  }
+
   double allocatedThisCycle = 0;
   final Map<String, CollectionBucketOverride> goalBucketOverrides = {};
 
@@ -1743,6 +1756,7 @@ class AppState extends ChangeNotifier {
     merchantCategoryRules.clear();
     planAdjustmentActions.clear();
     anxietyCheckIns.clear();
+    weeklyChallenges.clear();
     allocatedThisCycle = 0;
     goalBucketOverrides.clear();
     processedIncomeTransactionIds.clear();
@@ -5500,6 +5514,8 @@ class AppState extends ChangeNotifier {
           handledRecurringTransactionSuggestionKeys.toList()..sort(),
       'planAdjustmentActions': planAdjustmentActions,
       'anxietyCheckIns': anxietyCheckIns,
+      'weeklyChallenges':
+          weeklyChallenges.map((challenge) => challenge.toMap()).toList(),
       'allocatedThisCycle': allocatedThisCycle,
       'goalBucketOverrides':
           goalBucketOverrides.map((key, value) => MapEntry(key, value.toMap())),
@@ -6048,6 +6064,14 @@ class AppState extends ChangeNotifier {
             ) ??
             const {},
       );
+    final savedWeeklyChallenges = data['weeklyChallenges'];
+    weeklyChallenges
+      ..clear()
+      ..addAll([
+        if (savedWeeklyChallenges is Iterable)
+          for (final item in savedWeeklyChallenges)
+            if (WeeklyChallenge.fromMap(item) case final challenge?) challenge,
+      ]);
     for (final transaction in allTransactions) {
       if (transaction.isLabeled && !transaction.excludedFromInsights) {
         transactionLabelRules.putIfAbsent(
