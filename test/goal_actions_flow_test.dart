@@ -76,6 +76,40 @@ void main() {
     expect(find.text('★ Suggested for you'), findsOneWidget);
   });
 
+  testWidgets(
+      'onboarding: M1 offers Stable Cash Flow with the working action bank',
+      (tester) async {
+    phone(tester);
+    final state = AppState()..primaryConcern = 'Cash Flow & Basic Needs';
+    await tester.pumpWidget(AppScope(
+      state: state,
+      child: const MaterialApp(home: MotivationSurfaceScreen()),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester
+        .tap(find.textContaining('I feel thrown off', findRichText: true));
+    await tester.pumpAndSettle();
+
+    final stableGoal = find.textContaining(
+      'Maintain a stable cash flow even during months with irregular',
+      findRichText: true,
+    );
+    expect(stableGoal, findsOneWidget);
+    await tester.tap(stableGoal);
+    await tester.pumpAndSettle();
+
+    // Stable Cash Flow uses proven Cash Flow actions plus its own planning
+    // check-in, not the unfinished legacy bill/distribution actions.
+    expect(
+        find.textContaining('Set aside X% of each income', findRichText: true),
+        findsOneWidget);
+    expect(
+        find.textContaining('Plan your next expected cash-in',
+            findRichText: true),
+        findsOneWidget);
+  });
+
   testWidgets('+ Add Goal walks the same 4 steps and saves the habits',
       (tester) async {
     phone(tester);

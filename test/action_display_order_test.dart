@@ -84,6 +84,9 @@ void main() {
 
   const goals = {
     'G1': (['A1', 'A3', 'A20', 'A19', 'A21'], ['A1', 'A2', 'A3', 'A4', 'A5']),
+    // Stable Cash Flow reuses the Cash Flow action bank and adds a named
+    // planning check-in, without renumbering established actions.
+    'G2': (['A1', 'A3', 'A19', 'A21', 'A31'], ['A1', 'A2', 'A4', 'A5']),
     'G3': (['A9', 'A8', 'A22', 'A10'], ['A6', 'A7', 'A8', 'A9']),
     'G5': (
       ['A12', 'A13', 'A14', 'A23', 'A30'],

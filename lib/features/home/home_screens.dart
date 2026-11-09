@@ -3099,6 +3099,14 @@ bool isCashFlowGoalOnTrack(AppState state) {
   return _cashFlowMonthlySpent(state) <= total;
 }
 
+/// Stable Cash Flow uses the same live essentials and labelled-income evidence
+/// as the Cash Flow layer. Its distinct value is its action plan: users can
+/// choose it when their income timing or amount changes between months.
+/// Keeping the on-track check identical avoids inventing a second balance or
+/// counting the same Cash Flow layer twice in the Total Goals Score.
+bool isStableCashFlowGoalOnTrack(AppState state) =>
+    isCashFlowGoalOnTrack(state);
+
 /// "Build Emergency Fund" is complete once the Emergency Fund reaches the
 /// six-month Financial Safety target. A22 can still track a smaller configured
 /// coverage action, but the goal itself is six months.
@@ -3135,6 +3143,11 @@ double _clampPercent(double value) => value.isFinite ? value.clamp(0, 100) : 0;
 double cashFlowGoalPercent(AppState state) {
   return maintainAvailableCashFeasibility(state).toDouble();
 }
+
+/// The Stable Cash Flow score is the Cash Flow layer score interpreted through
+/// its irregular-income action plan. See [isStableCashFlowGoalOnTrack] for why
+/// this intentionally remains one canonical layer score.
+double stableCashFlowGoalPercent(AppState state) => cashFlowGoalPercent(state);
 
 int maintainAvailableCashFeasibility(AppState state) {
   final total = _maintainAvailableCashExpectedSpend(state);
@@ -3261,8 +3274,10 @@ double investmentChangeLast14Days(AppState state) {
   return (growth - 1) * 100;
 }
 
-/// Layer -> canonical goal id shown on the Goals page (only these 4 goals
-/// have full `_D1GoalMeta` card content authored).
+/// Layer -> canonical goal id used by layer-level Insights and the Total
+/// Goals Score. Stable Cash Flow (G2) is an alternative Cash Flow goal: it
+/// shares the same measured cash-flow inputs, so it must not create a second
+/// Cash Flow layer or double-count that layer in the total.
 const _layerCanonicalGoalId = <String, String>{
   'Cash Flow & Basic Needs': 'G1',
   'Financial Safety': 'G3',
@@ -3274,6 +3289,8 @@ bool _isGoalOnTrack(String goalId, AppState state) {
   switch (goalId) {
     case 'G1':
       return isCashFlowGoalOnTrack(state);
+    case 'G2':
+      return isStableCashFlowGoalOnTrack(state);
     case 'G3':
       return isEmergencyFundGoalOnTrack(state);
     case 'G5':
@@ -3298,6 +3315,7 @@ bool goalCountsAsAchieved({
 bool _isGoalAchievedNow(String goalId, AppState state) {
   final progress = switch (goalId) {
     'G1' => _cashFlowGoalProgress(state),
+    'G2' => _stableCashFlowGoalProgress(state),
     'G3' => _emergencyGoalProgress(state),
     'G5' => _investmentGoalProgress(state),
     'G8' => _lifestyleGoalProgress(state),
@@ -3338,6 +3356,8 @@ double _goalPercent(String goalId, AppState state) {
   switch (goalId) {
     case 'G1':
       return cashFlowGoalPercent(state);
+    case 'G2':
+      return stableCashFlowGoalPercent(state);
     case 'G3':
       return emergencyFundGoalPercent(state);
     case 'G5':
@@ -3366,6 +3386,33 @@ String? _motivationForGoalId(AppState state, String goalId) {
   }
   return state._fakeMayaBucketMotivationForGoalId(goalId) ??
       _layerForGoalId(goalId);
+}
+
+/// A catalog goal can be selected from more than one motivation during
+/// onboarding. The saved primary concern is therefore the user-facing source
+/// of truth, while the goal ID continues to select the calculation/action set.
+/// For example, G1 can be the foundation that protects a Financial Freedom
+/// plan; it must not be presented as a separate Cash Flow motivation.
+String _displayMotivationForGoal(AppState state, _D1GoalMeta goal) =>
+    _motivationForGoalId(state, goal.id) ?? goal.layerLabel;
+
+String _catalogMotivationForGoal(_D1GoalMeta goal) => switch (goal.layerLabel) {
+      'Cash Flow' => _pyramidCashFlowLayer,
+      _ => goal.layerLabel,
+    };
+
+bool _isCrossMotivationFoundationGoal(AppState state, _D1GoalMeta goal) =>
+    _displayMotivationForGoal(state, goal) != _catalogMotivationForGoal(goal);
+
+String _goalMotivationSupportLine(AppState state, _D1GoalMeta goal) {
+  final motivation = _displayMotivationForGoal(state, goal);
+  if (!_isCrossMotivationFoundationGoal(state, goal)) {
+    return 'Your $motivation goal';
+  }
+  if (motivation == _pyramidFreedomLayer && goal.id == 'G1') {
+    return 'Foundation goal for your Financial Freedom plan';
+  }
+  return 'Foundation goal for your $motivation plan';
 }
 
 Future<void> _confirmAndEnsureFakeMayaBucketForGoal(
@@ -11460,6 +11507,18 @@ class _CashReflectionExplorer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Stable Cash Flow is an alternative goal within the same Cash Flow
+    // layer. Keep the calculations canonical, but name the insight after the
+    // goal the person actually selected so its purpose is evident.
+    final stableCashFlow = state.selectedGoalId == 'G2';
+    final goalId = stableCashFlow ? 'G2' : 'G1';
+    final goalTitle =
+        stableCashFlow ? 'Stable Cash Flow' : 'Maintain Available Cash';
+    final scoreTitle =
+        stableCashFlow ? 'Stable Cash Flow Goal Score' : 'Cash Flow Goal Score';
+    final goalScore = stableCashFlow
+        ? stableCashFlowGoalPercent(state)
+        : cashFlowGoalPercent(state);
     // Only the selected month is displayed below. Keeping historical month
     // summaries cheap prevents a long account history from calculating a
     // complete action-score breakdown for every past month on first paint.
@@ -11485,14 +11544,14 @@ class _CashReflectionExplorer extends StatelessWidget {
 
     return Column(
       children: [
-        const _GoalInsightHeader(
+        _GoalInsightHeader(
           icon: Icons.account_balance_wallet_rounded,
-          title: 'Available Cash',
+          title: stableCashFlow ? 'Stable Cash Flow' : 'Available Cash',
           color: _brand,
         ),
         _IndividualGoalScoreCard(
-          title: 'Cash Flow Goal Score',
-          score: cashFlowGoalPercent(state).round().clamp(0, 100).toInt(),
+          title: scoreTitle,
+          score: goalScore.round().clamp(0, 100).toInt(),
           color: _brand,
           detail:
               '${money(state.essentialExpensesBalance)} in your Essential Expenses Fund',
@@ -11500,7 +11559,7 @@ class _CashReflectionExplorer extends StatelessWidget {
           explanation: _cashFlowScoreExplanation(state),
         ),
         _GoalSuggestionBanner(
-          goalLabel: 'available cash',
+          goalLabel: stableCashFlow ? 'stable cash flow' : 'available cash',
           allowedActionIds: _availableCashGoalActionIds,
           color: _brand,
           runStage: (coach, state) =>
@@ -11526,13 +11585,13 @@ class _CashReflectionExplorer extends StatelessWidget {
           _ActionProgressSection(actionScores: activeMonth.actionScores),
           _GoalActionStageSection(
             key: actionStageKey,
-            goalId: 'G1',
-            goalLabel: 'Maintain Available Cash',
+            goalId: goalId,
+            goalLabel: goalTitle,
             allowedActionIds: _availableCashGoalActionIds,
             subtitle:
-                "Shellby's AI reviews the 14 days up to your latest transaction against the Maintain Available Cash action set.",
+                "Shellby's AI reviews the 14 days up to your latest transaction against the $goalTitle action set.",
             emptyMessage:
-                'The stage will compare current actions with the Maintain Available Cash action set, then rank what to review first.',
+                'The stage will compare current actions with the $goalTitle action set, then rank what to review first.',
             runStage: (coach, state) =>
                 coach.recommendAvailableCashActionStage(state: state),
           ),
@@ -19510,7 +19569,9 @@ class _D1GoalCard extends StatelessWidget {
     final streak = _motivationStreak(goal.id, state, service: service);
     final percent = _goalPercent(goal.id, state);
     final accent = _goalProgressColor(goal.id, percent);
-    final layer = goal.layerColor;
+    final motivation = _displayMotivationForGoal(state, goal);
+    final isFoundationGoal = _isCrossMotivationFoundationGoal(state, goal);
+    final layer = _pyramidLayerColor(motivation);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -19562,9 +19623,10 @@ class _D1GoalCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Codes stay internal; users see the motivation.
+                          // Codes and catalog placement stay internal; users
+                          // see the motivation they actually selected.
                           Text(
-                            goal.layerLabel.toUpperCase(),
+                            motivation.toUpperCase(),
                             style: TextStyle(
                               color: Color.lerp(layer, _title, .25),
                               fontSize: 10.5,
@@ -19607,6 +19669,18 @@ class _D1GoalCard extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
+                if (isFoundationGoal) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _goalMotivationSupportLine(state, goal),
+                    style: TextStyle(
+                      color: layer,
+                      fontSize: 12,
+                      height: 1.3,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _GoalStreakPanel(
                   goalId: goal.id,
@@ -19901,6 +19975,10 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final goal = widget.goal;
+    final state = AppScope.of(context);
+    final motivation = _displayMotivationForGoal(state, goal);
+    final isFoundationGoal = _isCrossMotivationFoundationGoal(state, goal);
+    final motivationColor = _pyramidLayerColor(motivation);
     final actions = _goalDetailActionsFor(context, goal);
     return ListView(
       padding: const EdgeInsets.only(bottom: 40),
@@ -19920,9 +19998,9 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      goal.layerLabel.toUpperCase(),
+                      motivation.toUpperCase(),
                       style: TextStyle(
-                        color: goal.layerColor,
+                        color: motivationColor,
                         fontSize: 11,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 1.2,
@@ -19943,13 +20021,13 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: goal.layerColor.withValues(alpha: .1),
+                  color: motivationColor.withValues(alpha: .1),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  goal.layerLabel,
+                  motivation,
                   style: TextStyle(
-                      color: goal.layerColor,
+                      color: motivationColor,
                       fontSize: 11,
                       fontWeight: FontWeight.w800),
                 ),
@@ -19963,9 +20041,11 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: ShelbyHeroHeader(
-            color: goal.layerColor,
+            color: motivationColor,
             bubbleColor: Colors.white,
-            eyebrow: goal.layerLabel,
+            eyebrow: isFoundationGoal
+                ? _goalMotivationSupportLine(state, goal)
+                : motivation,
             title: goal.title,
             subtitle: goal.description,
             leading: Text(goal.emoji, style: const TextStyle(fontSize: 24)),
@@ -19976,6 +20056,13 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             child: _MaintainAvailableCashSummary(),
+          ),
+        ],
+        if (goal.id == 'G2') ...[
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: _StableCashFlowSummary(),
           ),
         ],
         if (goal.id == 'G3') ...[
@@ -20030,7 +20117,7 @@ class _D1GoalDetailScreenState extends State<_D1GoalDetailScreen> {
             ],
           ),
         ),
-        if (goal.id == 'G1') ...[
+        if (goal.id == 'G1' || goal.id == 'G2') ...[
           const SizedBox(height: 24),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20),
@@ -20078,6 +20165,7 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   final ids = selected.isEmpty ? allowed : selected;
   _D1ActionMeta? specialised(String id) => switch (goal.id) {
         'G1' => _availableCashD1ActionMeta(id, state),
+        'G2' => _stableCashFlowD1ActionMeta(id, state),
         'G3' => _emergencyFundD1ActionMeta(id, state),
         'G5' => _investmentD1ActionMeta(id, state),
         'G8' => _lifestyleD1ActionMeta(id, state),
@@ -20093,7 +20181,7 @@ List<_D1ActionMeta> _goalDetailActionsFor(
   ];
 }
 
-/// G2, G4, G6, and G7 do not yet have specialised financial panels. Until
+/// G4, G6, and G7 do not yet have specialised financial panels. Until
 /// they do, keep the action selected during onboarding visible with its saved
 /// configuration instead of substituting an unrelated canonical goal/action
 /// set.
@@ -20929,6 +21017,46 @@ _D1ActionMeta? _lifestyleD1ActionMeta(String id, AppState state) {
   return null;
 }
 
+_D1ActionMeta? _stableCashFlowD1ActionMeta(String id, AppState state) {
+  if (id != 'A31') return _availableCashD1ActionMeta(id, state);
+  final expected = state.stableCashFlowExpectedIncomeOn;
+  final days = state.stableCashFlowPlanningDays;
+  final status = expected == null
+      ? 'Set a window'
+      : state.stableCashFlowPlanNeedsReview
+          ? 'Needs update'
+          : 'Current';
+  return _D1ActionMeta(
+    id: id,
+    text:
+        'Plan your next expected cash-in within $days days, then update it when plans change.',
+    configLabel: 'Cash-in window',
+    configValue: 'Within $days days',
+    destBucket: 'Cash-in plan',
+    metrics: [
+      (
+        label: 'Plan status',
+        value: status,
+        icon: Icons.event_available_rounded,
+      ),
+      (
+        label: 'Expected by',
+        value: expected == null ? 'Not set' : _shortDate(expected),
+        icon: Icons.calendar_today_rounded,
+      ),
+    ],
+    dataPoints: [
+      (label: 'Planning window', type: 'I', value: 'Within $days days'),
+      (
+        label: 'Expected cash-in date',
+        type: 'I',
+        value: expected == null ? 'Not set' : expected.toIso8601String(),
+      ),
+    ],
+    activityLog: const [],
+  );
+}
+
 _D1ActionMeta? _availableCashD1ActionMeta(String id, AppState state) {
   final existing = _d1GoalMetas
       .firstWhere((goal) => goal.id == 'G1')
@@ -21203,6 +21331,99 @@ class _MaintainAvailableCashSummary extends StatelessWidget {
                   label: 'Cash flow spent',
                   value: money(spent),
                   color: _amber,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _GoalProgressBox(progress: progress),
+        ],
+      ),
+    );
+  }
+}
+
+/// Stable Cash Flow is deliberately a normal Cash Flow goal, not a second
+/// account or synthetic balance. This summary makes its irregular-income
+/// intent visible while using the same real cash-in, Essential Fund and
+/// spending records as the rest of the Cash Flow experience.
+class _StableCashFlowSummary extends StatelessWidget {
+  const _StableCashFlowSummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final now = AppClock.now();
+    final cashIn = state.allTransactions.where((transaction) {
+      final date = transaction.createdAt ?? transaction.labeledAt;
+      return transaction.amount > 0 &&
+          transaction.countsTowardFinancialInsights &&
+          date?.year == now.year &&
+          date?.month == now.month;
+    }).fold<double>(0, (total, transaction) => total + transaction.amount);
+    final expectedCashIn = state.stableCashFlowExpectedIncomeOn;
+    final cashInWindow = state.stableCashFlowPlanningDays;
+    final essentialFloor = _configuredActionAmount(
+      state,
+      'A19',
+      _recommendedEssentialFundFloor(state),
+    );
+    final progress = _stableCashFlowGoalProgress(state);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'STABLE CASH FLOW POSITION',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Plan from actual cash-ins, then keep essentials covered between them.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 11,
+              height: 1.3,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.south_west_rounded,
+                  label: 'Cash-in this month',
+                  value: money(cashIn),
+                  color: _sage,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.event_rounded,
+                  label: 'Expected cash-in',
+                  value: expectedCashIn == null
+                      ? 'Set plan'
+                      : state.stableCashFlowPlanNeedsReview
+                          ? 'Review plan'
+                          : 'Within $cashInWindow days',
+                  color: _purple,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: _CashPositionMetric(
+                  icon: Icons.savings_rounded,
+                  label: 'Essentials floor',
+                  value: money(essentialFloor),
+                  color: _brand,
                 ),
               ),
             ],
@@ -22754,7 +22975,7 @@ List<_CashActionScore> _monthlyActionScores(
   return switch (goalId) {
     // Goal streaks only need one selected calendar month. Avoid rebuilding
     // action scores for every month of a long history just to retrieve it.
-    'G1' => _cashMonthsFor(state, svc, onlyMonths: {month})
+    'G1' || 'G2' => _cashMonthsFor(state, svc, onlyMonths: {month})
             .where((m) => m.start == month)
             .firstOrNull
             ?.actionScores ??
@@ -22872,9 +23093,16 @@ _ProgressLine _rateLine(double rate, String text) => (
   );
 }
 
-/// Goal Progress for Maintain Available Cash (G1).
+/// Goal Progress for Maintain Available Cash (G1) and Stable Cash Flow (G2).
+/// Both goals intentionally use the working Cash Flow action bank. The goal
+/// label changes the explanation, while the evidence remains the same
+/// canonical income, spending and Essential Fund records.
 ({String label, Color color, List<_ProgressLine> lines, String nudge})
-    _cashFlowGoalProgress(AppState state) {
+    _cashFlowGoalProgress(
+  AppState state, {
+  String goalId = 'G1',
+  bool stableCashFlow = false,
+}) {
   final actions = state.selectedActionIds;
   final lines = <_ProgressLine>[];
   final rates = <String, double>{};
@@ -22902,7 +23130,7 @@ _ProgressLine _rateLine(double rate, String text) => (
     ('A20', 'Hit the monthly cash-in target'),
   ]) {
     if (!actions.contains(id)) continue;
-    final hits = _monthlyActionHits(state, 'G1', id);
+    final hits = _monthlyActionHits(state, goalId, id);
     if (hits.months == 0) continue;
     rates[id] = hits.hit / hits.months;
     lines.add(_rateLine(
@@ -22923,29 +23151,81 @@ _ProgressLine _rateLine(double rate, String text) => (
             : '${_actionNumber('A19')} · Essential Expenses Fund is '
                 '${money(floor - balance)} below its ${money(floor)} floor.'));
   }
+  if (stableCashFlow && actions.contains('A31')) {
+    final expected = state.stableCashFlowExpectedIncomeOn;
+    if (expected == null) {
+      lines.add((
+        icon: Icons.event_busy_rounded,
+        color: _body,
+        text:
+            'Cash-in plan · Set an expected cash-in window when you have a reasonable estimate.',
+      ));
+    } else if (state.stableCashFlowPlanNeedsReview) {
+      // An estimate can change for legitimate reasons. It prompts a review,
+      // but remains partial progress instead of recording a punitive miss.
+      rates['A31'] = .5;
+      lines.add((
+        icon: Icons.edit_calendar_rounded,
+        color: _amber,
+        text:
+            'Cash-in plan · The expected window has passed; review your plan if income timing changed.',
+      ));
+    } else {
+      rates['A31'] = 1;
+      lines.add((
+        icon: Icons.event_available_rounded,
+        color: _sage,
+        text: 'Cash-in plan · Current expected-income window is saved.',
+      ));
+    }
+  }
 
   return _goalProgressFromRates(
     rates: rates,
     lines: lines,
     nudges: {
-      'A1': 'Some incomes went by without a transfer to the Essential '
-          'Expenses Fund. Setting aside your % as soon as income lands '
-          '(${_actionNumber('A1')}) keeps essentials covered.',
+      'A1': stableCashFlow
+          ? 'Some incomes went by without a transfer to the Essential '
+              'Expenses Fund. Setting aside your % as soon as income lands '
+              '(${_actionNumber('A1')}) makes gaps between cash-ins safer.'
+          : 'Some incomes went by without a transfer to the Essential '
+              'Expenses Fund. Setting aside your % as soon as income lands '
+              '(${_actionNumber('A1')}) keeps essentials covered.',
       'A3': 'Some categories ran over budget. Check them mid-month so a '
           'single week doesn\'t use up the whole budget '
           '(${_actionNumber('A3')}).',
-      'A20': 'Cash-in fell short of your monthly target. Plan side income '
-          'or adjust the target so it stays realistic '
-          '(${_actionNumber('A20')}).',
+      'A20': stableCashFlow
+          ? 'Cash-in fell short of your monthly target. Record the income '
+              'you receive and adjust the target if your current rhythm has '
+              'changed (${_actionNumber('A20')}).'
+          : 'Cash-in fell short of your monthly target. Plan side income '
+              'or adjust the target so it stays realistic '
+              '(${_actionNumber('A20')}).',
       'A19': 'Top up the Essential Expenses Fund so essentials are covered '
           'until your next income (${_actionNumber('A19')}).',
+      'A31':
+          'Update your expected cash-in window so the coverage check stays useful. A changed payment date is not a failure.',
     },
-    startNudge: 'Once income arrives and you start setting money aside, '
-        'this shows how consistently you are covering your essentials.',
-    steadyNudge: "You're covering your essentials steadily. Keep it up with "
-        'each income.',
+    startNudge: stableCashFlow
+        ? 'Once income arrives and you start setting money aside, this shows '
+            'how reliably essentials are covered between cash-ins.'
+        : 'Once income arrives and you start setting money aside, this shows '
+            'how consistently you are covering your essentials.',
+    steadyNudge: stableCashFlow
+        ? "You're keeping essentials covered through your income rhythm. "
+            'Keep the plan going with each cash-in.'
+        : "You're covering your essentials steadily. Keep it up with each "
+            'income.',
   );
 }
+
+({
+  String label,
+  Color color,
+  List<_ProgressLine> lines,
+  String nudge
+}) _stableCashFlowGoalProgress(AppState state) =>
+    _cashFlowGoalProgress(state, goalId: 'G2', stableCashFlow: true);
 
 /// Goal Progress for Build Emergency Fund (G3).
 ({String label, Color color, List<_ProgressLine> lines, String nudge})
@@ -23619,6 +23899,9 @@ class _D1ActionPanelState extends State<_D1ActionPanel> {
     }
     if (action.id == 'A21') {
       return _EverydayFundCoverageActionPanel(color: color);
+    }
+    if (action.id == 'A31') {
+      return _StableCashInPlanActionPanel(color: color);
     }
     if (action.id == 'A8') {
       final pct = double.tryParse(
@@ -27662,6 +27945,142 @@ class _MonthlyCashInActionPanelState extends State<_MonthlyCashInActionPanel> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A planning-only Stable Cash Flow action. It records the user's chosen
+/// income window and compares it with already-calculated essential coverage;
+/// it never creates a transfer, balance, or failed payment.
+class _StableCashInPlanActionPanel extends StatefulWidget {
+  const _StableCashInPlanActionPanel({required this.color});
+
+  final Color color;
+
+  @override
+  State<_StableCashInPlanActionPanel> createState() =>
+      _StableCashInPlanActionPanelState();
+}
+
+class _StableCashInPlanActionPanelState
+    extends State<_StableCashInPlanActionPanel> {
+  Future<void> _updatePlan(AppState state) async {
+    final updated = await _showDaysTargetDialog(
+      context: context,
+      title: 'Plan next expected cash-in',
+      label: 'Expected cash-in window',
+      initialDays: state.stableCashFlowPlanningDays.toDouble(),
+      color: widget.color,
+    );
+    if (updated == null) return;
+    state.setStableCashFlowExpectedIncomeWindow(updated.round());
+    await state.saveProfile();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final expected = state.stableCashFlowExpectedIncomeOn;
+    final today = AppClock.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+    final daysUntil = expected == null
+        ? null
+        : math.max(0, expected.difference(startOfToday).inDays);
+    final essentials = state.monthlyEssentialExpenseTotal;
+    final dailyEssentials = essentials <= 0 ? 0.0 : essentials / 30;
+    final available = _everydayFundAvailable(state);
+    final daysCovered =
+        dailyEssentials <= 0 ? 0.0 : available / dailyEssentials;
+    final planCurrent =
+        expected != null && !state.stableCashFlowPlanNeedsReview;
+    final coversGap =
+        planCurrent && daysUntil != null && daysCovered >= daysUntil;
+    final shortfall = planCurrent && daysUntil != null
+        ? math.max(0.0, daysUntil * dailyEssentials - available)
+        : 0.0;
+    final localizations = MaterialLocalizations.of(context);
+
+    final statusText = expected == null
+        ? 'Set an expected window when you have a reasonable estimate.'
+        : !planCurrent
+            ? 'Your expected window has passed. Update the plan if your income timing changed.'
+            : essentials <= 0
+                ? 'Add monthly essential expenses before Shelby can compare coverage with this plan.'
+                : coversGap
+                    ? 'Your everyday money appears to cover essentials until this expected window.'
+                    : '${money(shortfall)} more would cover essentials through this expected window.';
+    final statusColor = expected == null || !planCurrent || essentials <= 0
+        ? _amber
+        : coversGap
+            ? _sage
+            : _amber;
+
+    return _ActionCardShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ActionPanelHeader(
+            id: 'A31',
+            color: widget.color,
+            text:
+                'Plan your next expected cash-in, then check whether essentials are covered until then.',
+          ),
+          const SizedBox(height: 14),
+          _ActionMetricTile(
+            icon: Icons.event_rounded,
+            label: 'Expected cash-in',
+            value: expected == null
+                ? 'Not set'
+                : localizations.formatShortDate(expected),
+            color: expected == null || !planCurrent ? _amber : widget.color,
+          ),
+          const SizedBox(height: 10),
+          _ActionMetricTile(
+            icon: Icons.timelapse_rounded,
+            label: 'Essential coverage now',
+            value: essentials <= 0
+                ? 'Add essentials'
+                : '${daysCovered.toStringAsFixed(1)} days',
+            color: essentials <= 0 ? _amber : widget.color,
+          ),
+          if (planCurrent && daysUntil != null) ...[
+            const SizedBox(height: 10),
+            _ActionMetricTile(
+              icon: Icons.hourglass_bottom_rounded,
+              label: 'Time until expected window',
+              value: '$daysUntil days',
+              color: widget.color,
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            statusText,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: 11,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => _updatePlan(state),
+            icon: const Icon(Icons.edit_calendar_rounded, size: 17),
+            label: Text(expected == null ? 'Set cash-in plan' : 'Update plan'),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'This is a planning check-in. A changed or late payment is never treated as a failed transaction.',
+            style: TextStyle(
+              color: _body,
+              fontSize: 10.5,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),

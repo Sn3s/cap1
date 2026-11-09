@@ -10,15 +10,6 @@ void main() {
 
   const cases = [
     (
-      goalId: 'G2',
-      layer: 'Cash Flow & Basic Needs',
-      title: 'Stable Cash Flow',
-      actionId: 'A6',
-      actionText:
-          'Distribute X% of incoming income across separate spending and savings accounts immediately upon receipt.',
-      replacedTitle: 'Maintain Available Cash',
-    ),
-    (
       goalId: 'G4',
       layer: 'Financial Safety',
       title: 'Pay Bills on Time',
@@ -64,7 +55,7 @@ void main() {
       );
       await tester.pump();
 
-      // G2, G4, G6 and G7 are backlog (no working features yet): profiles
+      // G4, G6 and G7 are backlog (no working features yet): profiles
       // that picked one before they were hidden land on the working goal.
       expect(find.text(item.title), findsNothing);
       await tester.scrollUntilVisible(

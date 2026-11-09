@@ -768,6 +768,7 @@ List<String> _recommendationsForActionField(
                   : 5,
       'A10' => irregularIncome ? 14 : 7,
       'A21' => irregularIncome ? 14 : 7,
+      'A31' => irregularIncome ? 14 : 7,
       _ => 3,
     };
     return _dayOptions(recommended);
@@ -931,6 +932,8 @@ String _recommendationFormulaForActionField(
         '$value: based on bill predictability, income stability, and anxiety level.',
       'A10' =>
         '$value: 7 days for regular income, 14 days when income is irregular.',
+      'A31' =>
+        '$value: a planning window based on your income rhythm; you can update it whenever plans change.',
       _ => '$value: default reminder window for this action.',
     };
   }
@@ -1308,7 +1311,10 @@ const _d1Goals = <D1Goal>[
 // the catalog for future work, but users can never see or pick them: every
 // user-facing list below filters them out, and saved profiles drop them on
 // load (see AppState._dropBacklogSelections).
-const _backlogGoalIds = {'G2', 'G4', 'G6', 'G7'};
+// G2 is a supported alternative Cash Flow goal. It deliberately reuses the
+// measured Cash Flow action bank below; G4/G6/G7 remain hidden until their
+// specialised action metrics and financial panels exist.
+const _backlogGoalIds = {'G4', 'G6', 'G7'};
 const _backlogActionIds = {
   'A2', 'A4', 'A5', 'A6', 'A7', 'A11', //
   'A15', 'A16', 'A17', 'A18',
@@ -1375,21 +1381,26 @@ bool _hasCalculatedMetric(String actionId) =>
     _actionMetricRegistry.containsKey(actionId);
 
 // DISPLAY NUMBERING (display-only): the single source of truth for the
-// action numbers users see. Users see A1-A18 in this exact order; saved
-// profiles keep the original internal IDs. Every label, list and sort in the
-// app goes through [_actionNumber] / [_compareActionIds], so one number
-// always means one action.
-// Goals are shown by name/motivation, never by code. Their display order
-// is G1 = G1, G3 = G2, G5 = G3, G8 = G4.
+// action numbers users see. Users see A1-A18 in this exact order; Stable Cash
+// Flow additionally has a named "Plan" check-in. Saved profiles keep the
+// original internal IDs. Every label, list and sort in the app goes through
+// [_actionNumber] / [_compareActionIds], so one number always means one action.
+// Goals are shown by name/motivation, never by code. Stable Cash Flow shares
+// the Cash Flow action-bank numbers with Maintain Available Cash, so actions
+// continue to have one consistent displayed number wherever they appear.
 const _actionDisplayOrder = [
   ..._availableCashGoalActionIds, // M1 Cash Flow & Basic Needs: A1-A5
   ..._emergencyFundGoalActionIds, // M2 Financial Safety: A6-A9
   ..._investmentGoalActionIds, // M3 Accumulating Wealth: A10-A14
   ..._lifestyleGoalActionIds, // M4 Financial Freedom: A15-A18
+  'A31', // Stable Cash Flow planning check-in (shown as "Plan")
 ];
 
 /// Internal ID -> the number users see ("A20" -> "A3").
 String _actionNumber(String id) {
+  // This is a planning check-in, not a numbered money-moving habit. Keeping
+  // it named avoids renumbering every established action across the app.
+  if (id == 'A31') return 'Plan';
   final index = _actionDisplayOrder.indexOf(id);
   return index < 0 ? id : 'A${index + 1}';
 }
@@ -1418,6 +1429,8 @@ String _goalForMotivation(String layer) => _layerCanonicalGoalId[layer] ?? 'G1';
 
 /// What Shelby tracks for each goal, shown under "Your goal".
 String _goalTrackingLine(String goalId) => switch (goalId) {
+      'G2' => 'Shelby will track actual cash-ins, Essential Expenses Fund '
+          'coverage, and spending between income dates.',
       'G3' => 'Shelby will track your Emergency Fund toward months of '
           'essential expenses.',
       'G5' => 'Shelby will track your Investment Fund and holdings toward a '
@@ -1456,7 +1469,8 @@ const _allMotivationGoalIds = <String, List<String>>{
 D1Goal _d1GoalById(String id) =>
     _d1Goals.firstWhere((g) => g.id == id, orElse: () => _d1Goals.first);
 
-// D2: actions A1-A18
+// D2: actions. A31 is a Stable Cash Flow planning check-in; it deliberately
+// has no money movement and therefore cannot alter other goal allocations.
 const _d2Actions = <String, D2Action>{
   'A1': D2Action(
       id: 'A1',
@@ -1701,6 +1715,16 @@ const _d2Actions = <String, D2Action>{
       fields: [
         ActionField(key: 'months', label: 'Months of expenses', hint: 'e.g. 3')
       ]),
+  'A31': D2Action(
+      id: 'A31',
+      text:
+          'Plan your next expected cash-in within X days, then update it when plans change.',
+      fields: [
+        ActionField(
+            key: 'days',
+            label: 'Expected cash-in window (days)',
+            hint: 'e.g. 14')
+      ]),
 };
 
 const _availableCashGoalActionIds = ['A1', 'A3', 'A20', 'A19', 'A21'];
@@ -1728,7 +1752,9 @@ final _goalActionIds = <String, List<String>>{
 /// Backend catalog, including backlog goals and actions.
 const _allGoalActionIds = <String, List<String>>{
   'G1': _availableCashGoalActionIds,
-  'G2': ['A1', 'A3', 'A5', 'A6', 'A7'],
+  // Stable Cash Flow reuses the reliable Cash Flow action bank, but replaces
+  // the generic monthly cash-in target with a next-cash-in planning check.
+  'G2': ['A1', 'A3', 'A19', 'A21', 'A31'],
   'G3': _emergencyFundGoalActionIds,
   'G4': ['A1', 'A2', 'A4', 'A5', 'A10'],
   'G5': _investmentGoalActionIds,
@@ -3181,6 +3207,12 @@ class _MotivationSurfaceScreenState extends State<MotivationSurfaceScreen> {
       state.actionFieldValues.putIfAbsent(
         actionId,
         () => _initialActionFieldValues(state, action),
+      );
+    }
+    if (selectedActionIds.contains('A31')) {
+      state.setStableCashFlowExpectedIncomeWindow(
+        int.tryParse(state.actionFieldValues['A31']?['days'] ?? '') ??
+            (state.usesEventBasedIncomeHandling ? 14 : 7),
       );
     }
     state.setMotivation('${goal.title}. ${goal.description}');

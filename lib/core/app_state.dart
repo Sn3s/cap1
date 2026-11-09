@@ -210,6 +210,44 @@ class AppState extends ChangeNotifier {
   /// between different goals' catalogs.
   final Set<String> addedGoalIds = {};
   final Map<String, Map<String, String>> actionFieldValues = {};
+
+  /// Stable Cash Flow's next-cash-in plan lives beside its action setting so
+  /// it persists with the rest of the goal configuration. It is planning
+  /// context only: it never moves money or treats a late/changed client
+  /// payment as a failed transaction.
+  int get stableCashFlowPlanningDays {
+    final raw = actionFieldValues['A31']?['days'] ?? '';
+    final configured = int.tryParse(raw.replaceAll(',', '').trim());
+    if (configured != null && configured > 0) return configured;
+    return usesEventBasedIncomeHandling ? 14 : 7;
+  }
+
+  DateTime? get stableCashFlowExpectedIncomeOn => DateTime.tryParse(
+        actionFieldValues['A31']?['nextExpectedOn'] ?? '',
+      );
+
+  bool get stableCashFlowPlanNeedsReview {
+    final expected = stableCashFlowExpectedIncomeOn;
+    if (expected == null) return true;
+    final today = AppClock.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+    return expected.isBefore(startOfToday);
+  }
+
+  void setStableCashFlowExpectedIncomeWindow(int days) {
+    final safeDays = days.clamp(1, 90).toInt();
+    final now = AppClock.now();
+    final startOfToday = DateTime(now.year, now.month, now.day);
+    actionFieldValues['A31'] = {
+      ...?actionFieldValues['A31'],
+      'days': '$safeDays',
+      'nextExpectedOn':
+          startOfToday.add(Duration(days: safeDays)).toIso8601String(),
+      'plannedAt': now.toIso8601String(),
+    };
+    notifyListeners();
+  }
+
   final Map<String, double> categorySpendingBudgets = {};
 
   /// Financial layer chosen for custom budget categories (standard
@@ -2506,23 +2544,22 @@ class AppState extends ChangeNotifier {
     final normalizedEmail = (user?.email ?? email).trim().toLowerCase();
     if (normalizedEmail == 'main@gmail.com') {
       _applyMainMockProfile(user);
-      _seedDemoEngagement();
     } else if (normalizedEmail == 'cashflow@gmail.com' ||
-        selectedGoalId == 'G1') {
+        primaryConcern == 'Cash Flow & Basic Needs' ||
+        (primaryConcern.trim().isEmpty && selectedGoalId == 'G1')) {
       _applyCashFlowMockProfile(user);
-      _seedDemoEngagement();
     } else if (normalizedEmail == 'accumulating@gmail.com' ||
-        selectedGoalId == 'G5') {
+        primaryConcern == 'Accumulating Wealth' ||
+        (primaryConcern.trim().isEmpty && selectedGoalId == 'G5')) {
       _applyAccumulatingWealthMockProfile(user);
-      _seedDemoEngagement();
     } else if (normalizedEmail == 'freedom@gmail.com' ||
-        selectedGoalId == 'G8') {
+        primaryConcern == 'Financial Freedom' ||
+        (primaryConcern.trim().isEmpty && selectedGoalId == 'G8')) {
       _applyFinancialFreedomMockProfile(user);
-      _seedDemoEngagement();
     } else {
       _applyEmergencyFundMockProfile(user);
-      _seedDemoEngagement();
     }
+    _seedDemoEngagement();
     mockDataEnabled = true;
     await saveProfile(markOnboardingComplete: true);
     notifyListeners();

@@ -2,7 +2,7 @@ import 'package:cap1/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// Backlog goals (G2, G4, G6, G7) and actions (A2, A4-A7, A11, A15-A18)
+// Backlog goals (G4, G6, G7) and actions (A2, A4-A7, A11, A15-A18)
 // stay in the code for future work but must never reach a user.
 void main() {
   const backlogActions = [
@@ -19,7 +19,7 @@ void main() {
     expect(state.selectedActionIds, {'A1', 'A3', 'A12', 'A13', 'A14'});
   });
 
-  testWidgets('a profile that picked a backlog goal sees the working goal',
+  testWidgets('a profile that picked a backlog goal keeps supported goals',
       (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
@@ -51,12 +51,12 @@ void main() {
     expect(workingGoal, findsOneWidget);
     for (final title in [
       'Reduce Debt',
-      'Stable Cash Flow',
       'Pay Bills on Time',
       'Milestone Savings',
     ]) {
       expect(find.text(title), findsNothing, reason: title);
     }
+    expect(find.text('Stable Cash Flow'), findsOneWidget);
   });
 
   test('cashflow demo drops the accidentally added Emergency Fund goal', () {
