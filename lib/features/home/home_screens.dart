@@ -8650,18 +8650,22 @@ String _plainMeasureNames(String text) => text
 String _measureMeaning(_CashActionScore action, String label) {
   switch (label) {
     case 'Consistency':
-      return 'how often you did this action at all.';
+      return 'how often you did this action at all. In the paper, this is '
+          'also called Consistency.';
     case 'Adherence':
-      return 'how often you fully hit the target.';
+      return 'how often you fully hit the target. In the paper, this is '
+          'also called Adherence.';
   }
   if (action.id == 'A10') {
-    return 'how quickly you refilled the fund, compared with your day limit.';
+    return 'how quickly you refilled the fund, compared with your day limit. '
+        'In the paper, this is also called Resiliency.';
   }
   if (!action.showPeriodBreakdown) {
-    return 'how much of the target is done so far.';
+    return 'how much of the target is done so far. In the paper, this is '
+        'also called Resiliency.';
   }
   return 'how close you got to the target on average, counting partial '
-      'progress.';
+      'progress. In the paper, this is also called Resiliency.';
 }
 
 class _ActionMeasure {
@@ -8846,7 +8850,7 @@ class _ActionProgressSection extends StatelessWidget {
     this.eyebrow = 'SELECTED MONTH · ACTION PROGRESS',
     this.title = 'Your actions, measured',
     this.subtitle =
-        'Each action shows an overall score — tap it to see how often you were Active, your Progress, and how often you were On target.',
+        'Each action shows an overall score — tap it to see how often you were Active (Consistency), your Progress (Resiliency), and how often you were On target (Adherence).',
   });
 
   final List<_CashActionScore> actionScores;
