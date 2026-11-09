@@ -17,6 +17,14 @@ Finder _field(String label) => find.byWidgetPredicate(
           widget.decoration.labelText == label,
     );
 
+// The label belongs to the internal TextField's InputDecoration rather than
+// TextFormField's public widget API. Subcategory is the first free-text field
+// in this sheet; the note field follows it.
+Finder _textField(String label) {
+  assert(label == 'Subcategory (optional)');
+  return find.byType(TextFormField).first;
+}
+
 List<String> _categories(WidgetTester tester) => tester
     .widget<DropdownButton<String>>(find.descendant(
       of: _field('Category'),
@@ -39,6 +47,8 @@ PrimaryButton _saveButton(WidgetTester tester) => tester.widget<PrimaryButton>(
 Future<AppState> _openLabelSheet(
   WidgetTester tester, {
   List<Map<String, dynamic>>? expenses,
+  List<FakeMayaTransaction>? previousTransactions,
+  TransactionLabelRule? matchingRule,
   String? category,
   String? source,
 }) async {
@@ -52,7 +62,8 @@ Future<AppState> _openLabelSheet(
         _expense('Rent / Housing', scheduled: true),
         _expense('Utilities'),
       ]);
-  state.manualTransactions.add(FakeMayaTransaction(
+  state.manualTransactions.addAll(previousTransactions ?? const []);
+  final current = FakeMayaTransaction(
     id: 'grab-payment',
     title: 'Paid merchant',
     detail: 'To: Grab',
@@ -60,13 +71,21 @@ Future<AppState> _openLabelSheet(
     amountText: '- ₱350.00',
     category: category,
     source: source,
-  ));
+  );
+  state.manualTransactions.add(current);
+  if (matchingRule != null) {
+    state.transactionLabelRules[current.patternKey] = matchingRule;
+  }
   await tester.pumpWidget(AppScope(
     state: state,
     child: const MaterialApp(home: RecentActivityPage()),
   ));
   await tester.tap(find.text('Paid merchant'));
   await tester.pumpAndSettle();
+  if (find.text("No, I'll edit").evaluate().isNotEmpty) {
+    await tester.tap(find.text("No, I'll edit"));
+    await tester.pumpAndSettle();
+  }
   expect(find.text('Label transaction'), findsOneWidget);
   return state;
 }
@@ -108,6 +127,104 @@ void main() {
     await tester.pumpAndSettle();
     expect(state.manualTransactions.single.category, 'Transport');
     expect(state.manualTransactions.single.source, 'E-wallet');
+  });
+
+  testWidgets('subcategory can reuse a saved label or accept new text',
+      (tester) async {
+    await _openLabelSheet(
+      tester,
+      previousTransactions: [
+        const FakeMayaTransaction(
+          id: 'prior-grab',
+          title: 'Earlier Grab expense',
+          detail: 'To: Grab',
+          age: 'Yesterday',
+          amountText: '- ₱180.00',
+          category: 'Transport',
+          source: 'E-wallet',
+          subcategory: 'Ride hailing',
+        ),
+      ],
+    );
+
+    expect(find.byTooltip('Choose a previous subcategory'), findsOneWidget);
+    await tester.tap(find.byTooltip('Choose a previous subcategory'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ride hailing').last);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextFormField>(_textField('Subcategory (optional)'))
+          .controller!
+          .text,
+      'Ride hailing',
+    );
+
+    await tester.enterText(
+        _textField('Subcategory (optional)'), 'Airport ride');
+    expect(
+      tester
+          .widget<TextFormField>(_textField('Subcategory (optional)'))
+          .controller!
+          .text,
+      'Airport ride',
+    );
+  });
+
+  testWidgets('a matching prior label prefills editable transaction fields',
+      (tester) async {
+    await _openLabelSheet(
+      tester,
+      matchingRule: const TransactionLabelRule(
+        category: 'Transport',
+        source: 'E-wallet',
+        subcategory: 'Ride hailing',
+        tag: 'Work',
+      ),
+    );
+
+    expect(_selection(tester, 'Financial layer'), 'Cash Flow & Basic Needs');
+    expect(_selection(tester, 'Category'), 'Transport');
+    expect(_selection(tester, 'Source'), 'E-wallet');
+    expect(_selection(tester, 'Tag (optional)'), 'Work');
+    expect(
+      tester
+          .widget<TextFormField>(_textField('Subcategory (optional)'))
+          .controller!
+          .text,
+      'Ride hailing',
+    );
+    expect(
+      find.text(
+        'A similar previous transaction filled in its category, source, '
+        'subcategory, and tag. Review or change any field before saving.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a matching fund source still requires a fresh confirmation',
+      (tester) async {
+    await _openLabelSheet(
+      tester,
+      matchingRule: const TransactionLabelRule(
+        category: 'Groceries / Food',
+        source: 'Basic Needs Fund',
+        subcategory: 'Weekly groceries',
+      ),
+    );
+
+    // Reusing a source that spends a goal fund would otherwise turn a label
+    // correction into an unconfirmed withdrawal.
+    expect(_selection(tester, 'Source'), 'E-wallet');
+    expect(
+      find.text(
+        'A similar previous transaction filled in its category, subcategory, '
+        'and tag. Its fund source still needs your confirmation before it '
+        'can be used.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('category values are unique even across both due-date groups',

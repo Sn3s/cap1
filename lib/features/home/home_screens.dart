@@ -32822,6 +32822,8 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
   );
   late bool _excluded = widget.transaction.excludedFromInsights;
   MerchantCategorySuggestion? _merchantSuggestion;
+  TransactionLabelRule? _matchingLabelRule;
+  bool _matchingRuleNeedsFundConfirmation = false;
   bool _appliedMerchantSuggestion = false;
   bool _saving = false;
   // null = not answered yet for the current layer+category pair.
@@ -32842,6 +32844,35 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
         _financialLayer == null &&
         savedCategory != null) {
       _financialLayer = _financialLayerForSavedCategory(state, savedCategory);
+    }
+
+    // An exact prior label (same direction, merchant, and amount) is strong
+    // enough to offer the complete editable label, not just a category. This
+    // naturally covers stable recurring payments. Notes remain private to the
+    // original transaction and are intentionally not copied.
+    final matchingRule =
+        state.transactionLabelRules[widget.transaction.patternKey];
+    if (_category == null && matchingRule != null) {
+      _matchingLabelRule = matchingRule;
+      _category = matchingRule.category;
+      // Reusing a fund source would deduct from that fund when the label is
+      // saved. Keep this as the ordinary e-wallet source until the user
+      // explicitly selects the fund and confirms its balance.
+      _matchingRuleNeedsFundConfirmation =
+          _financialLayerSources.values.contains(matchingRule.source);
+      _source = widget.transaction.automaticDestination ??
+          (_matchingRuleNeedsFundConfirmation
+              ? _eWalletSource
+              : matchingRule.source);
+      if (_subcategory.text.trim().isEmpty) {
+        _subcategory.text = matchingRule.subcategory ?? '';
+      }
+      _tag ??= matchingRule.tag;
+      if (widget.transaction.amount < 0 && _financialLayer == null) {
+        _financialLayer =
+            _financialLayerForSavedCategory(state, matchingRule.category);
+      }
+      return;
     }
 
     final suggestion = state.merchantCategorySuggestionFor(widget.transaction);
@@ -33022,6 +33053,28 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     ];
   }
 
+  /// Previously saved subcategories are reusable labels, not a closed preset
+  /// list. Keep them within the selected category when possible so a long
+  /// transaction history does not offer unrelated choices (for example,
+  /// transport labels while recording a grocery purchase).
+  List<String> _savedSubcategoryOptions(AppState state) {
+    final category = _category?.trim();
+    final unique = LinkedHashMap<String, String>();
+    for (final transaction in state.allTransactions) {
+      if (category != null &&
+          category.isNotEmpty &&
+          transaction.category?.trim() != category) {
+        continue;
+      }
+      final value = transaction.subcategory?.trim() ?? '';
+      if (value.isEmpty) continue;
+      unique.putIfAbsent(value.toLowerCase(), () => value);
+      // A short picker stays usable even for stress-test-sized histories.
+      if (unique.length == 16) break;
+    }
+    return unique.values.toList(growable: false);
+  }
+
   bool _fundSourceIsAvailable(AppState state, String layer) {
     final motivation = _financialLayerMotivations[layer];
     final bucketId =
@@ -33064,6 +33117,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
     final selectedSourceIsEnabled =
         isIncome || enabledSourceValues.contains(_source);
     final automaticDestination = transaction.automaticDestination;
+    final savedSubcategories = _savedSubcategoryOptions(state);
     final bucketId = isIncome || _financialLayer == null
         ? null
         : fakeMayaBucketIdForMotivation(
@@ -33233,7 +33287,24 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               ],
             ),
           ],
-          if (_merchantSuggestion != null &&
+          if (_matchingLabelRule != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _matchingRuleNeedsFundConfirmation
+                  ? 'A similar previous transaction filled in its category, '
+                      'subcategory, and tag. Its fund source still needs '
+                      'your confirmation before it can be used.'
+                  : 'A similar previous transaction filled in its category, '
+                      'source, subcategory, and tag. Review or change any '
+                      'field before saving.',
+              style: const TextStyle(
+                color: _body,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
+          ] else if (_merchantSuggestion != null &&
               _merchantSuggestion!.source !=
                   MerchantCategorySuggestionSource.savedTransaction) ...[
             const SizedBox(height: 6),
@@ -33307,6 +33378,31 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
             textCapitalization: TextCapitalization.words,
             decoration: inputDecoration('e.g. Ride hailing').copyWith(
               labelText: 'Subcategory (optional)',
+              helperText: savedSubcategories.isEmpty
+                  ? 'Type a new label to reuse later.'
+                  : 'Type a new label or choose one you used before.',
+              suffixIcon: savedSubcategories.isEmpty
+                  ? null
+                  : PopupMenuButton<String>(
+                      tooltip: 'Choose a previous subcategory',
+                      icon: const Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: _purple,
+                      ),
+                      onSelected: (value) => setState(
+                        () => _subcategory.text = value,
+                      ),
+                      itemBuilder: (context) => [
+                        for (final value in savedSubcategories)
+                          PopupMenuItem<String>(
+                            value: value,
+                            child: Text(
+                              value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
             ),
           ),
           if (!isIncome) ...[
