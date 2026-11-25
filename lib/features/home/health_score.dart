@@ -735,6 +735,16 @@ String _formatPoints(double points) {
   return '$sign${value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toStringAsFixed(1)}';
 }
 
+const _shelbyScoreTitle = 'Shelby Score';
+const _shelbyScoreSubtitle =
+    'A financial health indicator based on your activity in Shelby';
+const _shelbyScoreDefinition =
+    'The Shelby Score is a proposed financial health indicator based on your '
+    'recorded financial activities, goal progress, financial habits, and '
+    'engagement within Shelby.';
+const _shelbyScoreDisclaimer =
+    'The Shelby Score is not a credit score or a standardized financial health assessment.';
+
 // ---------------------------------------------------------------- page --
 
 class FinancialHealthScoreScreen extends StatelessWidget {
@@ -753,7 +763,7 @@ class FinancialHealthScoreScreen extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: _title),
         title: const Text(
-          'Shelby Score',
+          _shelbyScoreTitle,
           style: TextStyle(color: _title, fontWeight: FontWeight.w800),
         ),
       ),
@@ -851,8 +861,13 @@ class FinancialHealthScoreScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
+            const _HealthSectionTitle(title: 'What is the Shelby Score?'),
+            const SizedBox(height: 10),
             const _HealthEmptyCard(
-              text: 'What is the Shelby Score?\n\nThe Shelby Score is a proposed financial health indicator based on your recorded financial activities, goal progress, financial habits, and engagement within Shelby. It helps you understand your financial progress, reflect on your habits, and identify areas for improvement.\n\nThe Shelby Score is not a credit score or a standardized financial health assessment. It reflects the information and activities recorded within Shelby and does not guarantee financial stability.',
+              text: '$_shelbyScoreDefinition\n\n'
+                  'It helps you understand your financial progress, reflect '
+                  'on your habits, and identify areas for improvement.\n\n'
+                  '$_shelbyScoreDisclaimer',
             ),
           ],
         ),
@@ -862,8 +877,9 @@ class FinancialHealthScoreScreen extends StatelessWidget {
 }
 
 class _HealthScoreHeader extends StatelessWidget {
-  const _HealthScoreHeader({required this.breakdown});
+  const _HealthScoreHeader({required this.breakdown, this.onDetails});
   final HealthScoreBreakdown breakdown;
+  final VoidCallback? onDetails;
 
   @override
   Widget build(BuildContext context) {
@@ -871,19 +887,27 @@ class _HealthScoreHeader extends StatelessWidget {
     return ShelbyHeroHeader(
       color: _purple,
       icon: Icons.speed_rounded,
-      title: 'Shelby Score',
-      subtitle: 'A financial health indicator based on your activity in Shelby',
-      trailing: _HealthScoreRing(score: score),
-      footer: Row(
+      title: _shelbyScoreTitle,
+      subtitle: _shelbyScoreSubtitle,
+      trailing:
+          _HealthScoreRing(score: score, size: onDetails == null ? 96 : 72),
+      footer: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           HeroStatPill(breakdown.band),
-          if (score != null) ...[
-            const SizedBox(width: 8),
+          if (onDetails != null)
+            TextButton(
+              onPressed: onDetails,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('View Shelby Score breakdown'),
+            )
+          else if (score != null)
             ShareItChip(
               achievement: healthScoreShareable(score, breakdown.band),
               compact: true,
             ),
-          ],
         ],
       ),
     );
@@ -891,22 +915,27 @@ class _HealthScoreHeader extends StatelessWidget {
 }
 
 class _HealthScoreRing extends StatelessWidget {
-  const _HealthScoreRing({required this.score});
+  const _HealthScoreRing({required this.score, required this.size});
   final double? score;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 96,
-      height: 96,
+      width: size,
+      height: size,
       child: Stack(
         alignment: Alignment.center,
         children: [
           SizedBox.expand(
             child: CircularProgressIndicator(
               value: (score ?? 0) / 100,
-              strokeWidth: 8,
+              strokeWidth: size == 96 ? 8 : 6,
               strokeCap: StrokeCap.round,
+              semanticsLabel: _shelbyScoreTitle,
+              semanticsValue: score == null
+                  ? 'Not enough activity yet'
+                  : '${score!.round()} out of 100',
               color: Colors.white,
               backgroundColor: Colors.white.withValues(alpha: .22),
             ),
@@ -918,7 +947,7 @@ class _HealthScoreRing extends StatelessWidget {
                 score == null ? '—' : '${score!.round()}',
                 style: GoogleFonts.nunito(
                   color: Colors.white,
-                  fontSize: 30,
+                  fontSize: size == 96 ? 30 : 23,
                   height: 1,
                   fontWeight: FontWeight.w900,
                 ),
@@ -995,11 +1024,11 @@ class _HealthScoreSummary extends StatelessWidget {
 class _HealthSectionTitle extends StatelessWidget {
   const _HealthSectionTitle({
     required this.title,
-    required this.trailing,
+    this.trailing,
     this.negative = false,
   });
   final String title;
-  final String trailing;
+  final String? trailing;
   final bool negative;
 
   @override
@@ -1016,14 +1045,15 @@ class _HealthSectionTitle extends StatelessWidget {
             ),
           ),
         ),
-        Text(
-          trailing,
-          style: TextStyle(
-            color: negative ? _red : _body,
-            fontSize: 13,
-            fontWeight: FontWeight.w900,
+        if (trailing case final label?)
+          Text(
+            label,
+            style: TextStyle(
+              color: negative ? _red : _body,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
           ),
-        ),
       ],
     );
   }

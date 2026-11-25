@@ -20,6 +20,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   final _goalsKey = GlobalKey<_GoalsPageState>();
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppScope.of(context);
+    if (state.seenBadgeIds.contains(_habitBuilderId) ||
+        _habitBuilderProgress(state) < _habitBuilderWeeks) {
+      return;
+    }
+    final uid = state.uid;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && state.uid == uid && AppScope.of(context) == state) {
+        unawaited(_celebrateNewBadges(state));
+      }
+    });
+  }
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
@@ -45,14 +61,22 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Future<void> _recordAppOpen() async {
     if (!mounted) return;
     final state = AppScope.of(context);
+    final uid = state.uid;
     await state.recordAppOpen();
-    if (!mounted) return;
+    if (!mounted || state.uid != uid || AppScope.of(context) != state) return;
     unawaited(state.connectCommunity());
+    await _celebrateNewBadges(state);
+  }
+
+  Future<void> _celebrateNewBadges(AppState state) async {
     final fresh = state.collectNewlyEarnedBadges();
     if (fresh.isEmpty || !mounted) return;
-    // Celebrate the hardest-won badge; the rest wait in Profile → Badges.
+    // Give the new habit its own moment when it coincides with a milestone.
     fresh.sort((a, b) => b.target.compareTo(a.target));
-    await showBadgeUnlockedDialog(context, fresh.first);
+    final badge =
+        fresh.where((badge) => badge.id == _habitBuilderId).firstOrNull ??
+            fresh.first;
+    await showBadgeUnlockedDialog(context, badge);
   }
 
   void openGoal(String goalId) {
@@ -514,6 +538,12 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               const SizedBox(height: 14),
               const _WeeklyChallengeCard(),
+              const SizedBox(height: 14),
+              _HealthScoreHeader(
+                breakdown: computeHealthScore(state),
+                onDetails: () =>
+                    _push(context, const FinancialHealthScoreScreen()),
+              ),
               const SizedBox(height: 14),
               // Spendable + Saved mini cards
               Row(
@@ -29651,16 +29681,19 @@ class ProfilePage extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  // Opens the Financial Health Score breakdown.
-                                  child: GestureDetector(
-                                    onTap: () => _push(context,
-                                        const FinancialHealthScoreScreen()),
-                                    behavior: HitTestBehavior.opaque,
-                                    child: _ProfileStatTile(
-                                      emoji: '🎯',
-                                      value:
-                                          '${state.healthScore?.round() ?? '—'}',
-                                      label: 'Shelby Score ›',
+                                  child: Semantics(
+                                    button: true,
+                                    label: 'View Shelby Score breakdown',
+                                    child: GestureDetector(
+                                      onTap: () => _push(context,
+                                          const FinancialHealthScoreScreen()),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: _ProfileStatTile(
+                                        emoji: '🎯',
+                                        value:
+                                            '${state.healthScore?.round() ?? '—'}',
+                                        label: 'Shelby Score ›',
+                                      ),
                                     ),
                                   ),
                                 ),

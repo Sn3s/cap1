@@ -2,6 +2,20 @@ import 'package:cap1/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('AI chat uses the app-provided Shelby Score availability', () {
+    const coach = ShellbyAiCoach();
+    const question = [ChatMessage(true, 'What is my Shelby Score?')];
+    expect(coach.chatInputForTesting(AppState(), question),
+        contains('Shelby Score: Not available yet'));
+    final state = AppState()..seedAccumulatingWealthMockDataForTesting();
+    final score = computeHealthScore(state);
+    expect(score.score, isNotNull);
+    expect(
+      coach.chatInputForTesting(state, question),
+      contains('Shelby Score: ${score.score!.round()} / 100 (${score.band})'),
+    );
+  });
+
   test('chat snapshot uses labelled spending and ignores own-account transfers',
       () {
     final now = AppClock.now();

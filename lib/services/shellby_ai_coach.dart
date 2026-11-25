@@ -866,6 +866,7 @@ Return only JSON with keys reply, title, description, monthly_target.
             'income ${money(queryIncome)}; spending ${money(querySpending)}. '
             'The matching list below is capped at 12 records, but these totals use every matching labelled record.';
 
+    final shelbyScore = computeHealthScore(state);
     return _AiChatSnapshot(
       defaultBasis: basis,
       dataStatus: dataStatus,
@@ -882,6 +883,7 @@ CANONICAL SHELLBY SNAPSHOT — numerical source of truth
 As of: ${shortDate(now)}. Latest dated record: $latestText.
 Counting rule for income, spending and category totals: labelled records only; excluded records and transfers between the user's own accounts/funds are never counted as income or spending.
 Data coverage: $basis. Unlabelled records excluded from totals: ${unlabeled.length}.
+Shelby Score: ${shelbyScore.score == null ? 'Not available yet' : '${shelbyScore.score!.round()} / 100 (${shelbyScore.band})'}.
 
 TRANSACTION COUNT DEFINITIONS — use these exact values for count questions:
 - Total recorded transaction rows: ${allRecords.length}. This is the answer to “How many transactions have I had?” and includes transfers and records not used in analysis.
@@ -2193,6 +2195,7 @@ Rules:
 - Use PHP/peso amounts when discussing money.
 - Questions about the user's own balances, transactions, calculations, scores, goal health, motivation layers, budgets, bills, trends, and app screens are allowed. Answer them directly when the canonical snapshot contains the needed evidence; do not call these questions disallowed or financial advice.
 - The CANONICAL SHELLBY SNAPSHOT is the numerical source of truth. Never recompute or contradict a value supplied there. If supplementary screen wording differs from it, use the snapshot and briefly explain the accounting basis.
+- Call Shelby's composite financial indicator the Shelby Score. $_shelbyScoreDefinition $_shelbyScoreDisclaimer It does not guarantee financial stability. Use only the app-computed Shelby Score from the snapshot, report when it is unavailable, and keep it distinct from goal scores and feasibility.
 - For a question asking how many transactions the user has had, use only “Total recorded transaction rows” from the snapshot. It includes internal transfers and is not interchangeable with the smaller financial-analysis count. Do not say the user is short of a round-number target unless the snapshot explicitly identifies that target as a goal.
 - When a MATCH SUMMARY is provided, use its total rather than adding the individual matching records yourself; the record list is evidence and may be truncated.
 - State the supplied timeframe or data basis when it materially affects the answer. Distinguish no activity, missing records, unlabelled records, and incomplete history from zero.

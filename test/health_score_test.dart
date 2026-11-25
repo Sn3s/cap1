@@ -154,7 +154,47 @@ void main() {
     }
   });
 
-  testWidgets('Financial Health Score page shows the breakdown',
+  test('recognition does not affect the computed Shelby Score', () {
+    final state = scenario(actions: {'A12'}, investedFromSalary: 1000);
+    final before = computeHealthScore(state);
+    state.seenBadgeIds.add('habit_builder');
+    final after = computeHealthScore(state);
+    expect(after.score, before.score);
+    expect(after.actionPoints, before.actionPoints);
+    expect(after.engagementPoints, before.engagementPoints);
+    expect(after.deductionTotal, before.deductionTotal);
+    expect(after.band, before.band);
+    expect(after.score, closeTo(95, 1e-9));
+  });
+
+  test('legacy achievement labels are mapped for display only', () {
+    ShareableAchievement legacy(String kind, String title,
+            {String value = '', String detail = ''}) =>
+        ShareableAchievement.fromMap({
+          'kind': kind,
+          'title': title,
+          'value': value,
+          'detail': detail,
+        })!;
+
+    final oldScore =
+        legacy('score', 'Financial Health Score', value: '82 / 100');
+    expect(oldScore.displayTitle, 'Shelby Score');
+    expect(oldScore.toMap()['title'], 'Financial Health Score');
+    final oldBadge = legacy('badge', 'Healthy Habits',
+        detail: 'Reached a Financial Health Score of 60');
+    expect(oldBadge.displayDetail, 'Reached a Shelby Score of 60');
+    expect(
+        oldBadge.toMap()['detail'], 'Reached a Financial Health Score of 60');
+    final oldCard = legacy('scorecard', 'My Shelby scorecard',
+        value: 'Health 82 · 4-day streak');
+    expect(oldCard.displayValue, 'Shelby Score 82 · 4-day streak');
+    expect(oldCard.toMap()['value'], 'Health 82 · 4-day streak');
+    expect(legacy('goal', 'Health Score').displayTitle, 'Health Score');
+    expect(healthScoreShareable(82, 'Healthy').title, 'Shelby Score');
+  });
+
+  testWidgets('Shelby Score page shows the breakdown and definition',
       (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3;
@@ -176,5 +216,38 @@ void main() {
     await tester.scrollUntilVisible(find.text('Opened Shellby'), 300,
         scrollable: find.byType(Scrollable).first);
     expect(find.text('Opened Shellby'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('What is the Shelby Score?'), 300,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining('not a credit score'), findsOneWidget);
   });
+
+  for (final width in [320.0, 1280.0]) {
+    testWidgets('dashboard Shelby Score opens details at width $width',
+        (tester) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final state = scenario(actions: {'A12'}, investedFromSalary: 1000);
+      await tester.pumpWidget(AppScope(
+        state: state,
+        child: const MaterialApp(home: Scaffold(body: DashboardPage())),
+      ));
+      await tester.pumpAndSettle();
+      final details = find.text('View Shelby Score breakdown');
+      await tester.scrollUntilVisible(details.hitTestable(), 160,
+          scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Shelby Score'), findsOneWidget);
+      expect(
+        find.text(
+            'A financial health indicator based on your activity in Shelby'),
+        findsOneWidget,
+      );
+      expect(find.text('95'), findsOneWidget);
+      await tester.tap(details);
+      await tester.pumpAndSettle();
+      expect(find.byType(FinancialHealthScoreScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

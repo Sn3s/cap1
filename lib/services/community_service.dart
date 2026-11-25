@@ -221,6 +221,30 @@ class ShareableAchievement {
   Color get color => Color(colorValue);
   IconData get icon => _shareIcons[iconKey] ?? Icons.emoji_events_rounded;
 
+  String get displayTitle => kind == 'score' &&
+          const {
+            'financial health score',
+            'overall health score',
+            'health score',
+            'financial pyramid health index',
+            'financial health index',
+          }.contains(title.trim().toLowerCase())
+      ? _shelbyScoreTitle
+      : title;
+
+  String get displayValue =>
+      kind == 'scorecard' && title == 'My Shelby scorecard'
+          ? value.replaceFirst(RegExp(r'^Health (?=\d)'), 'Shelby Score ')
+          : value;
+
+  String get displayDetail => kind == 'badge' &&
+          const {'Healthy Habits', 'Thriving Turtle'}.contains(title)
+      ? detail.replaceFirst(
+          RegExp(r'^Reached a Financial Health Score of (?=\d)'),
+          'Reached a Shelby Score of ',
+        )
+      : detail;
+
   Map<String, dynamic> toMap() => {
         'kind': kind,
         'title': title,
@@ -254,6 +278,7 @@ const _shareIcons = <String, IconData>{
   'score': Icons.speed_rounded,
   'star': Icons.star_rounded,
   'label': Icons.sell_rounded,
+  'habit': Icons.fact_check_rounded,
   'savings': Icons.savings_rounded,
   'heart': Icons.favorite_rounded,
   'wallet': Icons.account_balance_wallet_rounded,

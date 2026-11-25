@@ -921,6 +921,7 @@ class AppState extends ChangeNotifier {
   CommunityBackend? _communityBackend;
   CommunityBackend? _communityBackendOverride;
   final Set<String> seenBadgeIds = {};
+  final Map<String, _HabitEvent> _financialHabitEvents = {};
   bool _badgeBaselineSet = false;
 
   /// The last AI Action stage review per goal, with a fingerprint of the
@@ -1116,12 +1117,26 @@ class AppState extends ChangeNotifier {
     final firstRun = !_badgeBaselineSet;
     _badgeBaselineSet = true;
     seenBadgeIds.addAll(fresh.map((badge) => badge.id));
+    if (seenBadgeIds.contains(_habitBuilderId)) _financialHabitEvents.clear();
     if (isSignedIn) {
       unawaited(saveProfile().catchError((Object error) {
         debugPrint('Saving badge progress failed: $error');
       }));
     }
-    return firstRun ? const [] : fresh;
+    return firstRun
+        ? fresh.where((badge) => badge.id == _habitBuilderId).toList()
+        : fresh;
+  }
+
+  void _recordFinancialHabit(FakeMayaTransaction tx, {String? linkedUid}) {
+    if (seenBadgeIds.contains(_habitBuilderId) || !_qualifiesForHabit(tx)) {
+      return;
+    }
+    final now = tx.labeledAt ?? AppClock.now();
+    _financialHabitEvents.putIfAbsent(
+      _habitTransactionKey(tx.transactionId, linkedUid: linkedUid),
+      () => (recordedAt: now.toUtc(), week: _habitWeek(now)),
+    );
   }
 
   final Set<String> trackingVariables = {};
@@ -1792,6 +1807,7 @@ class AppState extends ChangeNotifier {
       manualAccountBalances[account] = 0;
     }
     manualTransactions.clear();
+    _financialHabitEvents.clear();
     _unlinkedFakeMayaUserId = null;
     _unlinkedFakeMayaLabels.clear();
     transactionLabelRules.clear();
@@ -1966,6 +1982,7 @@ class AppState extends ChangeNotifier {
     loginStreakBreaks.clear();
     appOpenDays.clear();
     seenBadgeIds.clear();
+    _financialHabitEvents.clear();
     achievedGoalIds.clear();
     savedActionStageResults.clear();
     _badgeBaselineSet = false;
@@ -5587,6 +5604,13 @@ class AppState extends ChangeNotifier {
       'loginStreakBreaks': loginStreakBreaks,
       'appOpenDays': appOpenDays.toList()..sort(),
       'seenBadgeIds': seenBadgeIds.toList()..sort(),
+      'financialHabitEvents': {
+        for (final entry in _financialHabitEvents.entries)
+          entry.key: {
+            'recordedAt': entry.value.recordedAt.toIso8601String(),
+            'week': entry.value.week.toIso8601String(),
+          },
+      },
       'achievedGoalIds': achievedGoalIds.toList()..sort(),
       'savedActionStageResults': savedActionStageResults,
       'badgeBaselineSet': _badgeBaselineSet,
@@ -5661,7 +5685,16 @@ class AppState extends ChangeNotifier {
     };
   }
 
-  void _applyProfileMap(Map<String, dynamic> data) {
+  @visibleForTesting
+  Map<String, dynamic> profileSnapshotForTesting(User user) =>
+      _profileMap(user);
+
+  @visibleForTesting
+  void restoreProfileForTesting(Map<String, dynamic> data) =>
+      _applyProfileMap(data, syncReminders: false);
+
+  void _applyProfileMap(Map<String, dynamic> data,
+      {bool syncReminders = true}) {
     final onboardingSelections =
         _mapFrom(data['onboardingSelections']) ?? const <String, dynamic>{};
     final profileContext = _mapFrom(onboardingSelections['profileContext']) ??
@@ -5839,6 +5872,20 @@ class AppState extends ChangeNotifier {
         if (badgeIds is List)
           for (final id in badgeIds) id.toString(),
       ]);
+    _financialHabitEvents.clear();
+    if (_mapFrom(data['financialHabitEvents']) case final events?
+        when !seenBadgeIds.contains(_habitBuilderId)) {
+      for (final entry in events.entries) {
+        final event = _mapFrom(entry.value);
+        final recordedAt =
+            DateTime.tryParse(event?['recordedAt']?.toString() ?? '');
+        final week = DateTime.tryParse(event?['week']?.toString() ?? '');
+        if (recordedAt != null && week != null) {
+          _financialHabitEvents[entry.key] =
+              (recordedAt: recordedAt, week: week);
+        }
+      }
+    }
     final savedReviews = _mapFrom(data['savedActionStageResults']);
     savedActionStageResults
       ..clear()
@@ -5938,12 +5985,14 @@ class AppState extends ChangeNotifier {
         )
         ..sort();
     }
-    unawaited(
-      notificationsAllowed
-          ? ShellbyNotificationService.instance
-              .scheduleDailyReminders(notificationReminderMinutes)
-          : ShellbyNotificationService.instance.cancelReminders(),
-    );
+    if (syncReminders) {
+      unawaited(
+        notificationsAllowed
+            ? ShellbyNotificationService.instance
+                .scheduleDailyReminders(notificationReminderMinutes)
+            : ShellbyNotificationService.instance.cancelReminders(),
+      );
+    }
     thirdPartyDataLinkingAllowed =
         data['thirdPartyDataLinkingAllowed'] as bool? ??
             permissionsAndConsent['thirdPartyDataLinkingAllowed'] as bool? ??
@@ -10427,6 +10476,9 @@ class AppState extends ChangeNotifier {
       summary: link.summary.copyWith(transactions: transactions),
     );
     _recordBucketFundedExpenseFromTransaction(labeledTarget);
+    if (!target.isLabeled) {
+      _recordFinancialHabit(labeledTarget, linkedUid: link.userId);
+    }
     // Auto-record bills funded from Basic Needs in the two-jar goal.
     if (source.trim().toLowerCase() == 'basic needs fund' &&
         selectedGoal == 'Irregular Income Buffer' &&
@@ -10701,6 +10753,7 @@ class AppState extends ChangeNotifier {
     bool unexpectedExpense = false,
   }) async {
     if (amount == 0) return;
+    final accountUid = uid;
     final requestedId = transactionId?.trim();
     final hasExplicitId = requestedId?.isNotEmpty == true;
     final baseId = hasExplicitId
@@ -10737,24 +10790,23 @@ class AppState extends ChangeNotifier {
         transactionId: id,
       );
     }
-    manualTransactions.add(
-      FakeMayaTransaction(
-        id: id,
-        title: title.trim(),
-        detail: detail.trim().isEmpty ? 'Manual entry' : detail.trim(),
-        age: 'Just now',
-        amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
-        createdAt: occurredAt,
-        category: category,
-        source: source,
-        account: account,
-        subcategory: subcategory,
-        incomeClassification: incomeClassification,
-        tag: isUnexpectedOutflow ? 'Unexpected expense' : tag,
-        note: note,
-        labeledAt: AppClock.now(),
-      ),
+    final transaction = FakeMayaTransaction(
+      id: id,
+      title: title.trim(),
+      detail: detail.trim().isEmpty ? 'Manual entry' : detail.trim(),
+      age: 'Just now',
+      amountText: '${amount < 0 ? '-' : '+'} ${money(amount.abs())}',
+      createdAt: occurredAt,
+      category: category,
+      source: source,
+      account: account,
+      subcategory: subcategory,
+      incomeClassification: incomeClassification,
+      tag: isUnexpectedOutflow ? 'Unexpected expense' : tag,
+      note: note,
+      labeledAt: AppClock.now(),
     );
+    manualTransactions.add(transaction);
     if (account == 'Cash on Hand') {
       cashOnHandBalance += amount;
     } else {
@@ -10775,6 +10827,7 @@ class AppState extends ChangeNotifier {
         notify: false,
       );
     }
+    if (uid == accountUid) _recordFinancialHabit(transaction);
     if (isSignedIn) await saveProfile();
     notifyListeners();
   }

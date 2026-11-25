@@ -2,9 +2,7 @@ part of '../../main.dart';
 
 // ─── Badges & shareable stats ───────────────────────────────────────────────
 //
-// Badges are *derived* from state the app already tracks (log-in streak,
-// emergency coverage, Health Score, labelling, investing). They are read-only
-// recognition: nothing here feeds back into the Health Score.
+// Badges recognize activity without feeding back into the Shelby Score.
 //
 // A badge stays earned once it has been celebrated (`AppState.seenBadgeIds`),
 // so a dip in a balance never takes a badge away.
@@ -20,6 +18,8 @@ class ShelbyBadge {
     required this.target,
     required this.unit,
     this.alreadyEarned = false,
+    this.unlockRequirement,
+    this.earnedDescription,
   });
 
   final String id;
@@ -31,6 +31,8 @@ class ShelbyBadge {
   final double target;
   final String unit;
   final bool alreadyEarned;
+  final String? unlockRequirement;
+  final String? earnedDescription;
 
   bool get earned => alreadyEarned || current >= target;
   double get progress =>
@@ -45,7 +47,7 @@ class ShelbyBadge {
         kind: 'badge',
         title: title,
         value: 'Badge unlocked',
-        detail: description,
+        detail: earnedDescription ?? description,
         colorValue: color.toARGB32(),
         iconKey: iconKey,
       );
@@ -73,6 +75,73 @@ const _healthBadges = [
   (score: 60.0, id: 'health_60', title: 'Healthy Habits'),
   (score: 80.0, id: 'health_80', title: 'Thriving Turtle'),
 ];
+
+const _habitBuilderId = 'habit_builder';
+const _habitBuilderWeeks = 4;
+
+// The calendar date is captured when the user acts. UTC here is a date-only
+// representation, so comparing Mondays works across daylight saving changes.
+DateTime _habitWeek(DateTime at) {
+  final local = at.toLocal();
+  return DateTime.utc(local.year, local.month, local.day - local.weekday + 1);
+}
+
+typedef _HabitEvent = ({DateTime recordedAt, DateTime week});
+
+String _habitTransactionKey(String id, {String? linkedUid}) =>
+    jsonEncode([linkedUid, id]);
+
+bool _qualifiesForHabit(FakeMayaTransaction tx) =>
+    tx.amount != 0 && tx.countsTowardFinancialInsights;
+
+int _habitBuilderProgress(AppState state) {
+  if (state._financialHabitEvents.isEmpty) return 0;
+  final now = AppClock.now();
+  final thisWeek = _habitWeek(now);
+  final weeks = <DateTime>{};
+
+  void include(FakeMayaTransaction tx, {String? linkedUid}) {
+    if (!_qualifiesForHabit(tx)) return;
+    final event = state._financialHabitEvents[
+        _habitTransactionKey(tx.transactionId, linkedUid: linkedUid)];
+    if (event != null &&
+        !event.recordedAt.isAfter(now) &&
+        !event.week.isAfter(thisWeek)) {
+      weeks.add(event.week);
+    }
+  }
+
+  for (final tx in state.manualTransactions) {
+    include(tx);
+  }
+  if (state.fakeMayaLink case final link?) {
+    for (final tx in link.summary.transactions) {
+      include(tx, linkedUid: link.userId);
+    }
+  }
+
+  // A completed run can be recovered after a restart, even when the
+  // celebration had not yet written the earned ID to the profile.
+  for (final week in weeks) {
+    if (Iterable<int>.generate(_habitBuilderWeeks).every(
+      (i) => weeks.contains(week.subtract(Duration(days: 7 * i))),
+    )) {
+      return _habitBuilderWeeks;
+    }
+  }
+
+  // An open week without activity is still available; a closed gap ends
+  // unearned progress. The fourth explicit action can unlock immediately.
+  var week = weeks.contains(thisWeek)
+      ? thisWeek
+      : thisWeek.subtract(const Duration(days: 7));
+  var count = 0;
+  while (count < _habitBuilderWeeks && weeks.contains(week)) {
+    count++;
+    week = week.subtract(const Duration(days: 7));
+  }
+  return count;
+}
 
 List<ShelbyBadge> computeBadges(AppState state) {
   final seen = state.seenBadgeIds;
@@ -140,6 +209,23 @@ List<ShelbyBadge> computeBadges(AppState state) {
       unit: 'step',
       alreadyEarned: seen.contains('invest_first'),
     ),
+    ShelbyBadge(
+      id: _habitBuilderId,
+      title: 'Habit Builder',
+      description: 'Build better money habits, one action at a time.',
+      unlockRequirement:
+          'For four weeks in a row, log a transaction or label an unlabelled FakeMaya transaction.',
+      earnedDescription:
+          'You kept track of your money for four weeks in a row.',
+      iconKey: 'habit',
+      color: _purple,
+      current: seen.contains(_habitBuilderId)
+          ? _habitBuilderWeeks.toDouble()
+          : _habitBuilderProgress(state).toDouble(),
+      target: _habitBuilderWeeks.toDouble(),
+      unit: 'weeks',
+      alreadyEarned: seen.contains(_habitBuilderId),
+    ),
   ];
 }
 
@@ -168,7 +254,7 @@ ShareableAchievement goalStreakShareable(String goalTitle, int streak) =>
 ShareableAchievement healthScoreShareable(double score, String band) =>
     ShareableAchievement(
       kind: 'score',
-      title: 'Shelby Score',
+      title: _shelbyScoreTitle,
       value: '${score.round()} / 100',
       detail: band,
       colorValue: _purple.toARGB32(),
@@ -182,7 +268,7 @@ ShareableAchievement scorecardShareable(AppState state) {
     kind: 'scorecard',
     title: 'My Shelby scorecard',
     value: [
-      if (score != null) 'Shelby Score ${score.round()}',
+      if (score != null) '$_shelbyScoreTitle ${score.round()}',
       '${state.loginStreak}-day streak',
     ].join(' · '),
     detail: '$earned badge${earned == 1 ? '' : 's'} earned so far',

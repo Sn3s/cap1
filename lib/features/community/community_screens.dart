@@ -46,7 +46,7 @@ class ShareItChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'Share ${achievement.title} with friends',
+      label: 'Share ${achievement.displayTitle} with friends',
       child: Material(
         color: _shareYellow,
         shape: const StadiumBorder(),
@@ -436,7 +436,7 @@ class AchievementCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  achievement.title.toUpperCase(),
+                  achievement.displayTitle.toUpperCase(),
                   style: TextStyle(
                     color: hero
                         ? Colors.white.withValues(alpha: .78)
@@ -448,16 +448,16 @@ class AchievementCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  achievement.value,
+                  achievement.displayValue,
                   style: GoogleFonts.nunito(
                     color: hero ? Colors.white : _title,
                     fontSize: hero ? 19 : 15,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                if (achievement.detail.isNotEmpty)
+                if (achievement.displayDetail.isNotEmpty)
                   Text(
-                    achievement.detail,
+                    achievement.displayDetail,
                     style: TextStyle(
                       color: hero ? Colors.white.withValues(alpha: .80) : _body,
                       fontSize: 11.5,
@@ -1386,7 +1386,7 @@ class _DecisionAuthorActions extends StatelessWidget {
                 builder: (dialogContext) => AlertDialog(
                   title: const Text('Review with Shelby?'),
                   content: const Text(
-                    'Shelby will create a private on-device reflection from this decision question, the context you chose to share, vote totals, and only comments whose authors selected review. It will not receive your transactions, balances, income, full goals, or health score.',
+                    'Shelby will create a private on-device reflection from this decision question, the context you chose to share, vote totals, and only comments whose authors selected review. It will not receive your transactions, balances, income, full goals, or Shelby Score.',
                   ),
                   actions: [
                     TextButton(
@@ -1686,7 +1686,7 @@ class _YourComparisonView extends StatelessWidget {
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Private financial standing',
+              const Text('Shelby Score',
                   style: TextStyle(
                       color: _title,
                       fontSize: 15,
@@ -1694,7 +1694,7 @@ class _YourComparisonView extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 health == null
-                    ? 'Build your first actions to establish a score.'
+                    ? 'Start a financial action to build your score.'
                     : 'Your Shelby Score is private to you.',
                 style: const TextStyle(
                     color: _body, fontSize: 10.5, fontWeight: FontWeight.w700),
@@ -2035,7 +2035,7 @@ class _TrustedCircleRequired extends StatelessWidget {
                   color: _title, fontSize: 16, fontWeight: FontWeight.w900)),
           const SizedBox(height: 5),
           const Text(
-            'Turn on Trusted circle sharing in Privacy setup to see this view. It shares derived cash-flow, readiness, goal, and pyramid states with current friends—never balances, income, transactions, full goals, or your health score.',
+            'Turn on Trusted circle sharing in Privacy setup to see this view. It shares derived cash-flow, readiness, goal, and pyramid states with current friends. Your balances, income, transactions, full goals, and Shelby Score stay private.',
             style: TextStyle(
                 color: _body,
                 fontSize: 11.5,
@@ -5963,10 +5963,8 @@ class BadgesCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final badges = computeBadges(AppScope.of(context));
     final earned = badges.where((badge) => badge.earned).length;
-    final ordered = [
-      ...badges.where((badge) => badge.earned),
-      ...badges.where((badge) => !badge.earned),
-    ];
+    final habit = badges.singleWhere((badge) => badge.id == _habitBuilderId);
+    final others = badges.where((badge) => badge != habit);
     return AppCard(
       padding: const EdgeInsets.fromLTRB(16, 16, 0, 14),
       child: Column(
@@ -5998,20 +5996,56 @@ class BadgesCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 104,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(right: 16),
-              itemCount: ordered.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
-              itemBuilder: (context, index) => _BadgeMedallion(
-                badge: ordered[index],
-                onTap: () => _showBadgeSheet(context, ordered[index]),
-              ),
+          _BadgeRow(badges: [
+            ...others.where((badge) => badge.earned),
+            ...others.where((badge) => !badge.earned),
+          ]),
+          const SizedBox(height: 12),
+          const Text(
+            'Financial Habits',
+            style: TextStyle(
+              color: _title,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
             ),
           ),
+          const SizedBox(height: 3),
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Text(
+              habit.progressLabel,
+              style: const TextStyle(color: _body, fontSize: 12),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _BadgeRow(badges: [habit]),
         ],
+      ),
+    );
+  }
+}
+
+class _BadgeRow extends StatelessWidget {
+  const _BadgeRow({required this.badges});
+
+  final List<ShelbyBadge> badges;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 104,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(right: 16),
+        itemCount: badges.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final badge = badges[index];
+          return _BadgeMedallion(
+            badge: badge,
+            onTap: () => _showBadgeSheet(context, badge),
+          );
+        },
       ),
     );
   }
@@ -6105,6 +6139,7 @@ class _BadgeMedallion extends StatelessWidget {
 Future<void> _showBadgeSheet(BuildContext context, ShelbyBadge badge) {
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (sheetContext) => Container(
       decoration: const BoxDecoration(
@@ -6114,75 +6149,83 @@ Future<void> _showBadgeSheet(BuildContext context, ShelbyBadge badge) {
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const _SheetHandle(),
-            const SizedBox(height: 20),
-            _BadgeMedallion(badge: badge, size: 84),
-            const SizedBox(height: 14),
-            Text(
-              badge.title,
-              style: GoogleFonts.fredoka(
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-                color: _title,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              badge.description,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _body,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (!badge.earned) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: badge.progress,
-                  minHeight: 8,
-                  backgroundColor: _border,
-                  color: badge.color,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const _SheetHandle(),
+              const SizedBox(height: 20),
+              _BadgeMedallion(badge: badge, size: 84),
+              const SizedBox(height: 14),
+              Text(
+                badge.title,
+                style: GoogleFonts.fredoka(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                  color: _title,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
-                badge.progressLabel,
+                badge.earned
+                    ? badge.earnedDescription ?? badge.description
+                    : badge.description,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: _body,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ] else
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.pop(sheetContext);
-                    showShareAchievementSheet(context, badge.toShareable());
-                  },
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _shareYellow,
-                    foregroundColor: _shareYellowInk,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+              const SizedBox(height: 14),
+              if (!badge.earned) ...[
+                if (badge.unlockRequirement case final requirement?) ...[
+                  Text(requirement, textAlign: TextAlign.center),
+                  const SizedBox(height: 12),
+                ],
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: badge.progress,
+                    minHeight: 8,
+                    backgroundColor: _border,
+                    color: badge.color,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  badge.progressLabel,
+                  style: const TextStyle(
+                    color: _body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ] else
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(sheetContext);
+                      showShareAchievementSheet(context, badge.toShareable());
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _shareYellow,
+                      foregroundColor: _shareYellowInk,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    label: const Text(
+                      'Share it!',
+                      style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
-                  icon: const Icon(Icons.ios_share_rounded, size: 18),
-                  label: const Text(
-                    'Share it!',
-                    style: TextStyle(fontWeight: FontWeight.w900),
-                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
@@ -6240,7 +6283,7 @@ Future<void> showBadgeUnlockedDialog(BuildContext context, ShelbyBadge badge) {
               ),
               const SizedBox(height: 4),
               Text(
-                badge.description,
+                badge.earnedDescription ?? badge.description,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: _body,
