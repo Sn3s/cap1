@@ -110,7 +110,7 @@ List<ShelbyBadge> computeBadges(AppState state) {
       ShelbyBadge(
         id: b.id,
         title: b.title,
-        description: 'Reached a Financial Health Score of ${b.score.round()}',
+        description: 'Reached a Shelby Score of ${b.score.round()}',
         iconKey: 'score',
         color: _purple,
         current: score,
@@ -168,7 +168,7 @@ ShareableAchievement goalStreakShareable(String goalTitle, int streak) =>
 ShareableAchievement healthScoreShareable(double score, String band) =>
     ShareableAchievement(
       kind: 'score',
-      title: 'Financial Health Score',
+      title: 'Shelby Score',
       value: '${score.round()} / 100',
       detail: band,
       colorValue: _purple.toARGB32(),
@@ -182,7 +182,7 @@ ShareableAchievement scorecardShareable(AppState state) {
     kind: 'scorecard',
     title: 'My Shelby scorecard',
     value: [
-      if (score != null) 'Health ${score.round()}',
+      if (score != null) 'Shelby Score ${score.round()}',
       '${state.loginStreak}-day streak',
     ].join(' · '),
     detail: '$earned badge${earned == 1 ? '' : 's'} earned so far',

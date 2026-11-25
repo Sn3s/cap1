@@ -4149,8 +4149,7 @@ class _FinancialBaselineScreenState extends State<FinancialBaselineScreen> {
     return OnboardingScaffold(
       phase: 11,
       title: 'Financial Scaffolding.',
-      subtitle:
-          'Quantify your economic standing for the financial pyramid health index.',
+      subtitle: 'Track your financial activity with the Shelby Score.',
       bottom: PrimaryButton(
         label: 'Choose Tracking Variables',
         icon: Icons.arrow_forward_rounded,
@@ -7972,7 +7971,7 @@ class GoalFeasibilityScreen extends StatelessWidget {
           'A goal should be specific and challenging, but still realistic for your cash flow and confidence level.',
       centerTitle: true,
       bottom: PrimaryButton(
-        label: 'Preview Health Index',
+        label: 'Preview Shelby Score',
         icon: Icons.arrow_forward_rounded,
         onPressed: () => _push(context, const PyramidPreviewScreen()),
       ),
@@ -8047,7 +8046,7 @@ class PyramidPreviewScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Health Score', style: sliderCaption),
+                      const Text('Shelby Score', style: sliderCaption),
                       Text(
                         '${state.healthScore?.round() ?? '—'}',
                         style: const TextStyle(
@@ -8117,7 +8116,7 @@ class _ConsentPrivacyScreenState extends State<ConsentPrivacyScreen> {
         children: [
           ConsentToggle(
             title: 'Financial baseline',
-            body: 'Required for health score, feasibility, and goal tracking.',
+            body: 'Required for Shelby Score, feasibility, and goal tracking.',
             value: state.consentBaseline,
             locked: true,
             onChanged: (_) {},

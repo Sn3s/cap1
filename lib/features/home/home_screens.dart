@@ -19058,7 +19058,7 @@ class _WeeklyChallengeCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     completed
-                        ? '${latest.title} · $progress of ${latest.target} ${latest.progressLabel}. This supports your plan without changing your Health Score.'
+                        ? '${latest.title} · $progress of ${latest.target} ${latest.progressLabel}. This supports your plan without changing your Shelby Score.'
                         : skipped
                             ? 'No penalty. You can choose a fresh, realistic step next week.'
                             : '${latest.title} was not completed this week. Review your plan and try a smaller step next time.',
@@ -29660,7 +29660,7 @@ class ProfilePage extends StatelessWidget {
                                       emoji: '🎯',
                                       value:
                                           '${state.healthScore?.round() ?? '—'}',
-                                      label: 'health ›',
+                                      label: 'Shelby Score ›',
                                     ),
                                   ),
                                 ),
@@ -33439,7 +33439,7 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
               style: TextStyle(color: _title, fontWeight: FontWeight.w800),
             ),
             subtitle: const Text(
-              "It stays in your history, but Cash Flow, Insights, Health Score, goals, and Chat will not use it.",
+              "It stays in your history, but Cash Flow, Insights, Shelby Score, goals, and Chat will not use it.",
               style: TextStyle(color: _body, fontSize: 12),
             ),
             onChanged: (value) => setState(() => _excluded = value),
@@ -33644,10 +33644,10 @@ class _TransactionLabelSheetState extends State<_TransactionLabelSheet> {
       SnackBar(
         content: Text(
           _excluded
-              ? 'Saved. This entry remains in history but is excluded from Cash Flow, Insights, Health Score, goals, and Chat.'
+              ? 'Saved. This entry remains in history but is excluded from Cash Flow, Insights, Shelby Score, goals, and Chat.'
               : !savedCounts
                   ? 'Saved. This is treated as an internal transfer, so it remains in history but is not counted as income or spending.'
-                  : 'Saved. Cash Flow, Insights, Health Score, goals, and Chat now use this label.',
+                  : 'Saved. Cash Flow, Insights, Shelby Score, goals, and Chat now use this label.',
         ),
       ),
     );

@@ -354,8 +354,7 @@ class _QuantitativeScreenState extends State<QuantitativeScreen> {
     return OnboardingScaffold(
       phase: 4,
       title: 'Financial Scaffolding.',
-      subtitle:
-          'Quantify your economic standing for the financial pyramid health index.',
+      subtitle: 'Track your financial activity with the Shelby Score.',
       bottom: PrimaryButton(
         label: 'Calculate Feasibility',
         icon: Icons.arrow_forward_rounded,
@@ -542,7 +541,7 @@ class OnboardingSummary extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Health Score',
+                            'Shelby Score',
                             style: TextStyle(
                               color: _body,
                               fontSize: 10,

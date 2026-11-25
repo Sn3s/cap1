@@ -1694,8 +1694,8 @@ class _YourComparisonView extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 health == null
-                    ? 'Build your first actions to establish an index.'
-                    : 'Your Financial Pyramid Health Index is private to you.',
+                    ? 'Build your first actions to establish a score.'
+                    : 'Your Shelby Score is private to you.',
                 style: const TextStyle(
                     color: _body, fontSize: 10.5, fontWeight: FontWeight.w700),
               ),
@@ -2589,7 +2589,7 @@ class _PeerComparisonView extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'Your exact income, balances, transactions, health score, and goals are never visible to peers here.',
+                  'Your exact income, balances, transactions, Shelby Score, and goals are never visible to peers here.',
                   style: TextStyle(
                       color: _body,
                       fontSize: 12,

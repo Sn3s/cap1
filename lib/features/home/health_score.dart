@@ -753,7 +753,7 @@ class FinancialHealthScoreScreen extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: _title),
         title: const Text(
-          'Your score',
+          'Shelby Score',
           style: TextStyle(color: _title, fontWeight: FontWeight.w800),
         ),
       ),
@@ -850,6 +850,10 @@ class FinancialHealthScoreScreen extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+            const SizedBox(height: 20),
+            const _HealthEmptyCard(
+              text: 'What is the Shelby Score?\n\nThe Shelby Score is a proposed financial health indicator based on your recorded financial activities, goal progress, financial habits, and engagement within Shelby. It helps you understand your financial progress, reflect on your habits, and identify areas for improvement.\n\nThe Shelby Score is not a credit score or a standardized financial health assessment. It reflects the information and activities recorded within Shelby and does not guarantee financial stability.',
+            ),
           ],
         ),
       ),
@@ -867,12 +871,8 @@ class _HealthScoreHeader extends StatelessWidget {
     return ShelbyHeroHeader(
       color: _purple,
       icon: Icons.speed_rounded,
-      title: 'Financial Health Score',
-      subtitle: score == null
-          ? breakdown.hasActions
-              ? 'Your score starts once your first action comes due.'
-              : 'Pick an action to start your score.'
-          : 'Based on your last 30 days of activity.',
+      title: 'Shelby Score',
+      subtitle: 'A financial health indicator based on your activity in Shelby',
       trailing: _HealthScoreRing(score: score),
       footer: Row(
         children: [

@@ -166,7 +166,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('Financial Health Score'), findsOneWidget);
+    expect(find.text('Shelby Score'), findsWidgets);
     expect(find.text('78'), findsOneWidget); // ring
     expect(find.text('Healthy'), findsOneWidget);
     expect(find.text('Actions'), findsWidgets);
